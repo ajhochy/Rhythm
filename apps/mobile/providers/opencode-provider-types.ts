@@ -79,6 +79,26 @@ export type MobileCoordinatorSessionProvenance = {
   uiSessionId: string;
 };
 
+export type SessionActivityListener = (event: { projectId: string; sessionId: string }) => void;
+
+/**
+ * The existing safety fallback finished a successful project session read for
+ * the current client. It names no session and asserts no root or commit.
+ */
+export type ProjectReadListener = (read: { projectId: string }) => void;
+
+/**
+ * Identity-only canonical coordinator invalidation received on the paired
+ * project stream. Not an SDK session event, transcript, revision, command or
+ * proof of completion; `pairedClient` is the local originating client.
+ */
+export type CoordinatorChangedListener = (change: {
+  projectId: string;
+  conversationId: string;
+  localSessionId: string;
+  pairedClient: object;
+}) => void;
+
 export type CreateSessionOptions = {
   projectId?: string;
   preferences?: ChatPreferences;
@@ -147,6 +167,12 @@ export type OpencodeContextValue = {
   registeredGatewayProjectIds: ReadonlySet<string>;
   /** Present only after this session was seen in the current paired catalog. */
   coordinatorSessionProvenance?: MobileCoordinatorSessionProvenance;
+  /** Identity-only feed of current-project session events; it conveys no authority. */
+  subscribeSessionActivity: (listener: SessionActivityListener) => () => void;
+  /** Read-invalidation only: a safety-fallback project read completed. Not a session event. */
+  subscribeProjectReads: (listener: ProjectReadListener) => () => void;
+  /** Reserved server `rhythm.coordinator.changed` hint (paired stream only); invalidation, never authority. */
+  subscribeCoordinatorChanges: (listener: CoordinatorChangedListener) => () => void;
   currentProjectPath?: string;
   serverRootPath?: string;
   isRefreshingWorkspaceCatalog: boolean;

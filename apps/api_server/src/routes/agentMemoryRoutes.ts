@@ -1,5 +1,5 @@
 import { Router, type RequestHandler } from 'express';
-import { requireAuth } from '../middleware/auth_middleware';
+import { requireAuth, requireLocalOrCloudAuth } from '../middleware/auth_middleware';
 import { env } from '../config/env';
 import { AgentMemoryController } from '../controllers/agentMemoryController';
 import { AppError } from '../errors/app_error';
@@ -10,6 +10,10 @@ export function createAgentMemoryRouter(
 ) {
   const router = Router();
   const controller = new AgentMemoryController(options.managedMemorySearch);
+  // The signed desktop uses its Cloud bearer on the loopback agent API.
+  // Keep authentication mandatory, then let the existing signed-call service
+  // qualify the exact dispatch. Hosted routes retain their local session auth.
+  const requireSearchAuth = env.agentLocal ? requireLocalOrCloudAuth : requireAuth;
 
   // Hide the fixture-only surface when absent, then require real bearer auth
   // even in AGENT_LOCAL mode before the injected service sees a request.
@@ -18,7 +22,7 @@ export function createAgentMemoryRouter(
     (_req, _res, next) => options.managedMemorySearch
       ? next()
       : next(AppError.notFound('Managed memory search')),
-    requireAuth,
+    requireSearchAuth,
     (req, res, next) => controller.searchManaged(req, res, next),
   );
   // This endpoint is safe to leave registered while the coordinator is off:
@@ -27,7 +31,7 @@ export function createAgentMemoryRouter(
   // managed calls instead of allowing a legacy fallback.
   router.post(
     '/search-select',
-    requireAuth,
+    requireSearchAuth,
     (req, res, next) => controller.selectManagedOrOrdinary(req, res, next),
   );
 

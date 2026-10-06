@@ -1129,6 +1129,11 @@ export interface MemoryVaultWriteOptions {
   memoryDir?: string;
   /** Index service to keep the derived index in sync (defaults to a new one). */
   index?: MemoryIndexService;
+  /**
+   * Reattestation-only: atomically require an exact existing canonical note
+   * under the vault mutation lock. Absence is a conflict, never a create.
+   */
+  requireExisting?: boolean;
   /** Test-only race barrier immediately before atomic note promotion. */
   beforeNotePromotion?: (
     parent: string,
@@ -1518,6 +1523,10 @@ export async function createObservationIfAbsentInVault(
           sourceRevision,
           normalizerVersion,
         };
+      }
+
+      if (options.requireExisting) {
+        return createOnlyError('MEMORY_CREATE_CONFLICT');
       }
 
       // The deterministic ID is part of the basename, so same-heading

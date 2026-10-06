@@ -80,12 +80,31 @@ type QualifiedEvidenceStateCandidate = {
 
 type CurrentQualifiedLedgerIdentity = Pick<LedgerEntry, 'sourceId' | 'memoryId' | 'operationId'>;
 
+/** The scheduler ticks each minute. Start a bounded replay before a short-lived
+ * receipt expires, while retaining recovery for a process that starts late. */
+const QUALIFIED_RECEIPT_RENEWAL_LEAD_MS = 2 * 60_000;
+
+type QualifiedRenewalExpectation = {
+  generation: number;
+  preparation: { namespace: string; sourceInstance: string; configurationGeneration: string };
+  scope: ReturnType<typeof parseDayflowQualificationScope>;
+  renewBefore: number;
+};
+
+type ReattestationOptions = {
+  renewBefore?: number;
+  currentScopeOnly?: boolean;
+};
+
 export class DayflowIntegrationService {
   private config: DayflowConfig;
   private previews = new Map<string, DayflowPreview>();
   private readonly completedCommits = new Map<string, { selection: string; expiresAt: string; result: CommitResponse }>();
   private previewTimer?: ReturnType<typeof setTimeout>;
   private automaticImportTimer?: ReturnType<typeof setTimeout>;
+  /** The existing scheduler may overlap its boot and minute callback. Coalesce
+   * only this bounded replay; it is not a second queue or timer. */
+  private qualifiedRenewalInFlight?: Promise<void>;
   private commitQueue = Promise.resolve();
   /** Every active source read is owned so disable/config/shutdown can abort it. */
   private readonly readerControllers = new Set<AbortController>();
@@ -817,17 +836,39 @@ export class DayflowIntegrationService {
     if (typeof token !== 'string') return this.commitPublic(token);
     return this.commitInternal(token, candidateIds ?? []);
   }
-  private async commitInternal(token: string, candidateIds: string[]) { return this.exclusive(async () => {
+  /**
+   * Called only by the existing local scheduler callback. It never discovers
+   * or imports a new Dayflow card: a candidate must first be a durable,
+   * current-scope canonical row whose short-lived receipt is due to expire.
+   */
+  async renewQualifiedEvidenceOnSchedulerTick(): Promise<void> {
+    if (this.qualifiedRenewalInFlight) return this.qualifiedRenewalInFlight;
+    const renewal = this.runQualifiedEvidenceRenewal();
+    this.qualifiedRenewalInFlight = renewal;
+    try {
+      await renewal;
+    } finally {
+      if (this.qualifiedRenewalInFlight === renewal) this.qualifiedRenewalInFlight = undefined;
+    }
+  }
+  private async commitInternal(
+    token: string,
+    candidateIds: string[],
+    renewal?: QualifiedRenewalExpectation,
+  ) { return this.exclusive(async () => {
     this.assertOperational();
     if (!this.config.enabled) throw new Error('Dayflow integration is disabled.');
+    if (renewal && !this.qualifiedRenewalStillCurrent(renewal)) {
+      return { imported: [], skipped: [], conflicts: [], failed: [] };
+    }
     const preview = this.previews.get(token); if (!preview || Date.parse(preview.expiresAt) <= (this.deps.now ?? Date.now)()) { this.previews.delete(token); throw new Error('Dayflow preview expired or is invalid.'); }
-    const generation = this.generation;
+    const generation = renewal?.generation ?? this.generation;
     const selected = new Set(candidateIds); if (selected.size === 0) return { imported: [], skipped: [], conflicts: [], failed: [] };
     if ([...selected].some((id) => !preview.candidates.some((candidate) => candidate.candidateId === id))) throw new Error('Dayflow preview selection is invalid.');
     const imported: string[] = []; const skipped: string[] = []; const conflicts: string[] = []; const failed: string[] = [];
     for (const candidate of preview.candidates.filter((item) => selected.has(item.candidateId))) {
       const sourceId = sourceIdFor(candidate); const ledger = this.deps.ledger; const prior = ledger?.get(sourceId);
-      if (!this.isCurrentGeneration(generation)) break;
+      if (!this.isCurrentGeneration(generation) || (renewal && !this.qualifiedRenewalStillCurrent(renewal))) break;
       if (prior?.pendingCreateAt) {
         if (!this.deps.memoryClient.createOnly || prior.revisionHash !== candidate.revisionHash || prior.contentHash !== createHash('sha256').update(contentFor(candidate)).digest('hex') || !prior.operationId) { conflicts.push(sourceId); continue; }
         try {
@@ -839,7 +880,11 @@ export class DayflowIntegrationService {
             candidate,
             receipt.canonicalContentHash,
           );
-          if (!(await this.producerStillCurrent(generation, completed.qualification)) || !this.isCurrentGeneration(generation)) break;
+          if (
+            !(await this.producerStillCurrent(generation, completed.qualification)) ||
+            !this.isCurrentGeneration(generation) ||
+            (renewal && !this.qualifiedRenewalStillCurrent(renewal))
+          ) break;
           ledger?.save(completed);
           imported.push(receipt.id);
         } catch (error) { if (error instanceof DayflowImportConflictError) conflicts.push(sourceId); else failed.push(sourceId); }
@@ -847,20 +892,23 @@ export class DayflowIntegrationService {
       }
       if (prior?.pendingDeleteAt) { skipped.push(sourceId); continue; }
       // A qualified receipt is deliberately short-lived.  An unchanged
-      // observation may be re-attested only by replaying the existing
-      // create-only operation: that path revalidates the immutable canonical
-      // note and authenticated owner before a new authority receipt is
+      // observation may be re-attested only by exact existing-only canonical
+      // validation: that path revalidates the immutable canonical note and
+      // authenticated owner before a new authority receipt is
       // persisted. Never turn a prior ledger receipt alone into fresh
       // authority.
-      if (prior && this.reattestableQualification(prior, candidate)) {
-        if (!this.deps.memoryClient.createOnly ||
+      if (prior && this.reattestableQualification(prior, candidate, renewal && {
+        renewBefore: renewal.renewBefore,
+        currentScopeOnly: true,
+      })) {
+        if (!this.deps.memoryClient.validateExisting ||
             prior.contentHash !== createHash('sha256').update(contentFor(candidate)).digest('hex') ||
             !prior.operationId) {
           skipped.push(sourceId);
           continue;
         }
         try {
-          const receipt = await this.deps.memoryClient.createOnly({
+          const receipt = await this.deps.memoryClient.validateExisting({
             operationId: prior.operationId,
             id: prior.memoryId,
             content: contentFor(candidate),
@@ -890,7 +938,11 @@ export class DayflowIntegrationService {
             skipped.push(sourceId);
             continue;
           }
-          if (!(await this.producerStillCurrent(generation, completed.qualification)) || !this.isCurrentGeneration(generation)) break;
+          if (
+            !(await this.producerStillCurrent(generation, completed.qualification)) ||
+            !this.isCurrentGeneration(generation) ||
+            (renewal && !this.qualifiedRenewalStillCurrent(renewal))
+          ) break;
           ledger?.save(completed);
           // Canonical content already existed; renewal is not a new imported
           // observation and must not be reported as a task/completion import.
@@ -1102,7 +1154,11 @@ export class DayflowIntegrationService {
    * proves the exact canonical note still exists before a new receipt is
    * requested.
    */
-  private reattestableQualification(entry: LedgerEntry, observation: DayflowCandidate): boolean {
+  private reattestableQualification(
+    entry: LedgerEntry,
+    observation: DayflowCandidate,
+    options?: ReattestationOptions,
+  ): boolean {
     if (!entry.qualification || entry.pendingCreateAt || entry.pendingDeleteAt || entry.tombstonedAt ||
         entry.revisionHash !== observation.revisionHash || entry.exportVersion !== observation.exportVersion ||
         entry.contentHash !== createHash('sha256').update(contentFor(observation)).digest('hex')) return false;
@@ -1123,14 +1179,121 @@ export class DayflowIntegrationService {
           reference.ownerUserId !== snapshot.scope.ownerUserId ||
           reference.projectId !== snapshot.scope.projectId) return false;
       if (this.receiptCouldBelongToCurrentScope(reference, snapshot.scope, preparation)) {
-        return Date.parse(reference.expiresAt) <= (this.deps.now ?? Date.now)();
+        return Date.parse(reference.expiresAt) <=
+          (options?.renewBefore ?? (this.deps.now ?? Date.now)());
       }
+      if (options?.currentScopeOnly) return false;
       // A scope mismatch may only be the new consent/configuration
       // generations. All owner/project/native bindings above remain exact.
       return reference.consentGeneration !== snapshot.scope.consentGeneration ||
         reference.configurationGeneration !== preparation.configurationGeneration;
     } catch {
       return false;
+    }
+  }
+  /**
+   * Build a fixed current-scope expectation before the bounded source read.
+   * This is a scheduler-only renewal, so unsupported synchronous authority
+   * proof, missing consent, or a changed source is a no-op rather than a
+   * fallback to a prior receipt.
+   */
+  private currentQualifiedRenewalExpectation(): QualifiedRenewalExpectation | null {
+    const preparation = this.qualifiedReaderPreparation();
+    if (!preparation) return null;
+    const snapshot = this.currentQualificationScopeSnapshot(preparation);
+    if (!snapshot.supported || !snapshot.scope) return null;
+    return {
+      generation: this.generation,
+      preparation,
+      scope: snapshot.scope,
+      renewBefore: (this.deps.now ?? Date.now)() + QUALIFIED_RECEIPT_RENEWAL_LEAD_MS,
+    };
+  }
+  /** Re-read durable consent and selected native identity at every renewal
+   * boundary. This is synchronous for the journal-backed qualified reader, so
+   * a just-completed await cannot reuse a stale authority answer. */
+  private qualifiedRenewalStillCurrent(expected: QualifiedRenewalExpectation): boolean {
+    if (!this.qualifiedReaderStillCurrent(expected.preparation, expected.generation)) return false;
+    const snapshot = this.currentQualificationScopeSnapshot(expected.preparation);
+    if (!snapshot.supported || !snapshot.scope || !sameQualificationScope(snapshot.scope, expected.scope)) return false;
+    try { this.revalidateAppliedJournalSelectionNow(); }
+    catch { return false; }
+    if (!this.qualifiedReaderStillCurrent(expected.preparation, expected.generation)) return false;
+    const finalSnapshot = this.currentQualificationScopeSnapshot(expected.preparation);
+    return finalSnapshot.supported && !!finalSnapshot.scope && sameQualificationScope(finalSnapshot.scope, expected.scope);
+  }
+  /**
+   * Select only complete, current-scope canonical rows whose receipt has
+   * entered the scheduler lead window. Former, foreign, pending, retracted,
+   * malformed, or unqualified ledger state is not a renewal instruction.
+   */
+  private currentQualifiedRenewalSourceIds(expected: QualifiedRenewalExpectation): Set<string> | null {
+    let entries: LedgerEntry[];
+    try { entries = this.deps.ledger!.currentEntries(); }
+    catch { return null; }
+    const sourceIds = new Set<string>();
+    for (const entry of entries) {
+      if (entry.pendingCreateAt || entry.pendingDeleteAt || entry.tombstonedAt || !entry.qualification) continue;
+      try {
+        const receipt = parseDayflowQualifiedReceipt(entry.qualification);
+        const expiresAt = Date.parse(receipt.reference.expiresAt);
+        if (
+          receipt.reference.eligibility === 'active' &&
+          this.receiptMatchesLedgerEntry(receipt, entry, expected.preparation) &&
+          this.receiptCouldBelongToCurrentScope(receipt.reference, expected.scope, expected.preparation) &&
+          Number.isFinite(expiresAt) && expiresAt <= expected.renewBefore
+        ) sourceIds.add(entry.sourceId);
+      } catch {
+        // The qualified reader remains the authority for malformed ledger
+        // state. A scheduler renewal never repairs or adopts it.
+      }
+    }
+    return sourceIds;
+  }
+  /**
+   * Replay only due current rows through the existing bounded current-plus-two
+   * prior-day export and existing canonical-validation/qualification commit
+   * path. It
+   * deliberately does not invoke the automatic importer, because that path is
+   * allowed to discover new observations under its separately configured
+   * policy.
+   */
+  private async runQualifiedEvidenceRenewal(): Promise<void> {
+    try {
+      const expected = this.currentQualifiedRenewalExpectation();
+      if (!expected || !this.qualifiedRenewalStillCurrent(expected)) return;
+      const dueSourceIds = this.currentQualifiedRenewalSourceIds(expected);
+      if (!dueSourceIds || dueSourceIds.size === 0 || !this.config.timezone) return;
+      for (const date of this.automaticScanDays(this.config.timezone)) {
+        if (!this.qualifiedRenewalStillCurrent(expected)) return;
+        const preview = await this.createPreview(date);
+        if (!this.qualifiedRenewalStillCurrent(expected)) {
+          this.previews.delete(preview.token);
+          return;
+        }
+        const renewalCandidates = preview.candidates
+          .filter((candidate) => {
+            const sourceId = sourceIdFor(candidate);
+            const entry = this.deps.ledger?.get(sourceId);
+            return dueSourceIds.has(sourceId) && !!entry &&
+              this.reattestableQualification(entry, candidate, {
+                renewBefore: expected.renewBefore,
+                currentScopeOnly: true,
+              });
+          });
+        const candidateIds = renewalCandidates.map((candidate) => candidate.candidateId);
+        if (candidateIds.length > 0) {
+          await this.commitInternal(preview.token, candidateIds, expected);
+          // A retry belongs to the next minute cadence. Even if a fixture or
+          // malformed source repeats the same card in another bounded day
+          // window, do not replay its canonical operation twice in one tick.
+          for (const candidate of renewalCandidates) dueSourceIds.delete(sourceIdFor(candidate));
+        }
+        if (!this.disposed) this.previews.delete(preview.token);
+      }
+    } catch {
+      // The existing minute cadence is the only retry. A failed bounded
+      // renewal never spins, creates a task, or makes a stale receipt fresh.
     }
   }
   private hasFreshQualification(qualification: LedgerEntry['qualification']): boolean {

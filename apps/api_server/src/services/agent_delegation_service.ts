@@ -257,6 +257,19 @@ export async function delegateToAgentAsync(
   if (callerSession.ownerUserId !== input.authenticatedUserId) {
     throw AppError.forbidden('caller session is owned by another user');
   }
+  // A specialist's profile supplies its tools, but dispatch must not turn an
+  // interactive parent's selected permission mode into an automatic bypass.
+  const permissionMode = callerSession.permissionMode;
+  if (!['default', 'plan', 'acceptEdits', 'bypassPermissions'].includes(permissionMode)) {
+    throw AppError.forbidden('caller permission mode is invalid');
+  }
+  const assertPermissionScopeCurrent = (): void => {
+    const current = sessionRepo.findById(callerSessionId);
+    if (!current || current.ownerUserId !== input.authenticatedUserId ||
+        current.permissionMode !== permissionMode) {
+      throw AppError.forbidden('caller permission scope changed during async delegation');
+    }
+  };
   if (
     callerSession.isSystem ||
     callerSession.scheduledTaskId !== null ||
@@ -323,6 +336,7 @@ export async function delegateToAgentAsync(
       branch: created.branch ?? null,
     };
   }
+  assertPermissionScopeCurrent();
   const childSession = await opencodeClient.createSession(
     childTitle,
     effectiveCwd,
@@ -330,7 +344,7 @@ export async function delegateToAgentAsync(
     skillNames,
     runModel.providerID,
     parentSdkSessionId,
-    undefined,
+    permissionMode,
     // The child inherits the caller's category/is_system/scheduled_task_id
     // (upsertResolvedChildSession), so it is interactive exactly when the
     // caller is — always, past the gate above. A manager child must also
@@ -354,12 +368,13 @@ export async function delegateToAgentAsync(
   if (worktree) sessionRepo.setWorktree(childRow.id, worktree);
 
   opencodeSessionMap.set(childRow.id, childSession.id);
-  sessionRepo.updatePermissionMode(childRow.id, 'bypassPermissions');
+  sessionRepo.updatePermissionMode(childRow.id, permissionMode);
   sessionRepo.updateStatus(childRow.id, 'working');
 
   const delegationRepo = new AgentAsyncDelegationsRepository();
   let delegationPersisted = false;
   try {
+    assertPermissionScopeCurrent();
     delegationRepo.create({
       parentSessionId: callerSession.id,
       childSessionId: childRow.id,
@@ -376,11 +391,15 @@ export async function delegateToAgentAsync(
     // awaited stream subscription so a lock applied during setup wins.
     requireExecutableProfile(configRepo, callerId, 'caller');
     requireExecutableProfile(configRepo, targetId, 'target');
+    assertPermissionScopeCurrent();
+    if (sessionRepo.findById(childRow.id)?.permissionMode !== permissionMode) {
+      throw AppError.forbidden('child permission scope changed during async delegation');
+    }
 
     const runningAsOwnAgent =
       profileScope.ocAgent !== null && profileScope.ocAgent === targetId;
     const promptOpts: Record<string, unknown> = {
-      permissionMode: 'bypassPermissions',
+      permissionMode,
       ...(profileScope.ocAgent ? { agent: profileScope.ocAgent } : {}),
       ...(profileScope.systemPrompt && !runningAsOwnAgent
         ? { system: profileScope.systemPrompt }

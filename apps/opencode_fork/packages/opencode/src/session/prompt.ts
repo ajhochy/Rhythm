@@ -26,12 +26,18 @@ import { filterMcpToolsByAllowlist } from "./mcp_allowlist"
 import {
   assertFunctionDeclarationCap,
   buildDeferredToolCatalog,
+  DEFERRED_BUILTIN_SERVER,
+  type DeferredMcpToolEntry,
   formatDeferredToolCatalog,
   GEMINI_FUNCTION_DECLARATION_CAP,
   isDeferredMcpToolAllowed,
   isMcpToolDeferred,
+  measureSerializedMcpToolSurface,
   MCP_DISPATCH_TOOL_ID,
+  parseDeferredMcpDispatchRequest,
+  searchDeferredToolCatalog,
   shouldAutoDeferMcpTools,
+  validateDeferredMcpArguments,
 } from "./mcp_deferred_tools"
 import { LSP } from "@/lsp/lsp"
 import { ulid } from "ulid"
@@ -99,9 +105,8 @@ const elog = EffectLogger.create({ service: "session.prompt" })
 // See session/mcp_deferred_tools.ts for the full design rationale (mirrors
 // the skill-scope dispatcher pattern in tool/skill.ts, #775).
 const MCP_DISPATCH_DESCRIPTION =
-  "Call an MCP tool by name. Use this when the task matches one of the tools listed below. " +
-  'Pass { "name": "<tool_name>", "arguments": { ... } } where <tool_name> is exactly one of the ' +
-  "names in the catalog below and arguments matches that tool's own expected input."
+  "Discover and call MCP tools and hosted builtin tools by name. Use action=search to find a tool, action=describe to obtain its complete required input schema, and action=execute to call it. " +
+  'For backward compatibility, { "name": "<tool_name>", "arguments": { ... } } defaults to action=execute.'
 
 /** composedKey -> description, read from the AI SDK Tool objects mcp.tools() returns. */
 function deferredDescriptions(mcpToolsAll: Record<string, AITool>): Record<string, string> {
@@ -573,7 +578,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const run = yield* runner()
       const promptOps = yield* ops()
 
-      const context = (args: any, options: ToolExecutionOptions): Tool.Context => ({
+      // `nativeInput` is what the native tool part holds as its input. It differs
+      // from `args` only for a deferred call, where the outer part carries the
+      // dispatcher arguments and `args` are the underlying tool's.
+      const context = (args: any, options: ToolExecutionOptions, nativeInput: unknown = args): Tool.Context => ({
         sessionID: input.session.id,
         abort: options.abortSignal!,
         messageID: input.processor.message.id,
@@ -590,67 +598,124 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 title: val.title,
                 metadata: val.metadata,
                 status: "running",
-                input: args,
+                input: nativeInput as Record<string, any>,
                 time: { start: Date.now() },
               },
             }
           }),
+        // Permissions are read from the CURRENT session at every ask (not the
+        // request snapshot), so a revocation made after the request was built — or
+        // during an awaited hook — governs the effect. An unavailable or mismatched
+        // session fails closed (die) instead of authorizing.
         ask: (req) =>
-          permission
-            .ask({
+          Effect.gen(function* () {
+            const current = yield* sessions.get(input.session.id)
+            if (current.id !== input.session.id) return yield* Effect.die(new Error("Permission session is not current"))
+            return yield* permission.ask({
               ...req,
               sessionID: input.session.id,
               tool: { messageID: input.processor.message.id, callID: options.toolCallId },
-              ruleset: Permission.merge(input.agent.permission, input.session.permission ?? []),
+              ruleset: Permission.merge(input.agent.permission, current.permission ?? []),
             })
-            .pipe(Effect.orDie),
+          }).pipe(Effect.orDie),
       })
 
-      for (const item of yield* registry.tools({
+      const registryQuery = (session: Pick<Session.Info, "skillAllowlist" | "permission">) => ({
         modelID: ModelID.make(input.model.api.id),
         providerID: input.model.providerID,
         agent: input.agent,
         // Rhythm carried patch (skill-scope, #775): scope the skill tool description.
-        skillAllowlist: input.session.skillAllowlist,
-        sessionPermission: input.session.permission,
-      })) {
+        skillAllowlist: session.skillAllowlist,
+        sessionPermission: session.permission,
+      })
+      type RegistryTool = Effect.Success<ReturnType<typeof registry.tools>>[number]
+
+      // The single builtin execution pipeline (original Schema decode, ask,
+      // plugin hooks, abort, metadata, attachments inside `item.execute`). The
+      // eager definition and the deferred dispatcher both run exactly this.
+      const runBuiltin = (item: RegistryTool, args: any, options: ToolExecutionOptions, nativeInput: unknown = args) =>
+        Effect.gen(function* () {
+          const ctx = context(args, options, nativeInput)
+          yield* plugin.trigger(
+            "tool.execute.before",
+            { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
+            { args },
+          )
+          const result = yield* item.execute(args, ctx)
+          const output = {
+            ...result,
+            attachments: result.attachments?.map((attachment) => ({
+              ...attachment,
+              id: PartID.ascending(),
+              sessionID: ctx.sessionID,
+              messageID: input.processor.message.id,
+            })),
+          }
+          yield* plugin.trigger(
+            "tool.execute.after",
+            { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
+            output,
+          )
+          if (options.abortSignal?.aborted) {
+            yield* input.processor.completeToolCall(options.toolCallId, output)
+          }
+          return output
+        })
+
+      // Hosted builtins are lazy unless `deferred === false` (the explicit
+      // compatibility opt-out). A legacy MCP `deferredServers` selection only
+      // shapes MCP behavior and is not a builtin opt-out. `invalid` stays eager: the
+      // provider-call repair hook in llm.ts rewrites unknown/malformed calls to
+      // toolName "invalid", which must resolve to a defined tool.
+      const hostedAllowlist = input.session.mcpAllowlist
+      const deferHostedBuiltins = hostedAllowlist?.deferred !== false
+      const hostedItems = new Map<string, RegistryTool>()
+      for (const item of yield* registry.tools(registryQuery(input.session))) {
+        if (deferHostedBuiltins && item.id !== "invalid") {
+          hostedItems.set(item.id, item)
+          continue
+        }
         const schema = ProviderTransform.schema(input.model, ToolJsonSchema.fromTool(item))
         tools[item.id] = tool({
           description: item.description,
           inputSchema: jsonSchema(schema),
           execute(args, options) {
-            return run.promise(
-              Effect.gen(function* () {
-                const ctx = context(args, options)
-                yield* plugin.trigger(
-                  "tool.execute.before",
-                  { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
-                  { args },
-                )
-                const result = yield* item.execute(args, ctx)
-                const output = {
-                  ...result,
-                  attachments: result.attachments?.map((attachment) => ({
-                    ...attachment,
-                    id: PartID.ascending(),
-                    sessionID: ctx.sessionID,
-                    messageID: input.processor.message.id,
-                  })),
-                }
-                yield* plugin.trigger(
-                  "tool.execute.after",
-                  { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
-                  output,
-                )
-                if (options.abortSignal?.aborted) {
-                  yield* input.processor.completeToolCall(options.toolCallId, output)
-                }
-                return output
-              }),
-            )
+            return run.promise(runBuiltin(item, args, options))
           },
         })
       }
+      // Same gate LLM.resolveTools applies to eager keys (user tools + Permission.disabled),
+      // re-applied here because deferred builtins never reach that filter.
+      const hostedEligibleIds = (ids: string[], sessionPermission: Session.Info["permission"]) => {
+        const disabled = Permission.disabled(ids, Permission.merge(input.agent.permission, sessionPermission ?? []))
+        return ids.filter((id) => input.tools?.[id] !== false && !disabled.has(id))
+      }
+      // Current builtin inventory for one session snapshot, restricted to the ids
+      // that were deferred for this request.
+      const currentHostedTools = Effect.fn("SessionPrompt.currentHostedTools")(function* (
+        session: Pick<Session.Info, "skillAllowlist" | "permission">,
+      ) {
+        const current = new Map<string, RegistryTool>()
+        if (hostedItems.size === 0) return current
+        const items = (yield* registry.tools(registryQuery(session))).filter((item) => hostedItems.has(item.id))
+        const eligible = new Set(
+          hostedEligibleIds(
+            items.map((item) => item.id),
+            session.permission,
+          ),
+        )
+        for (const item of items) if (eligible.has(item.id)) current.set(item.id, item)
+        return current
+      })
+      const hostedEntries = (items: Map<string, RegistryTool>): DeferredMcpToolEntry[] =>
+        [...items.values()]
+          .map((item) => ({
+            name: item.id,
+            server: DEFERRED_BUILTIN_SERVER,
+            description: item.description,
+            family: "builtin" as const,
+          }))
+          .toSorted((a, b) => a.name.localeCompare(b.name))
 
       // Rhythm carried patch (mcp-scope): build keyToServer from MCP metadata (not string-split)
       // then filter by session's mcpAllowlist before injecting tool schemas into model context.
@@ -674,8 +739,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
         const schema = yield* Effect.promise(() => Promise.resolve(asSchema(item.inputSchema).jsonSchema))
         const transformed = ProviderTransform.schema(input.model, schema)
-        item.inputSchema = jsonSchema(transformed)
-        item.execute = (args, opts) =>
+        const wrapped: AITool = {
+          ...item,
+          inputSchema: jsonSchema(transformed),
+          execute: (args, opts) =>
           run.promise(
             Effect.gen(function* () {
               const ctx = context(args, opts)
@@ -793,88 +860,193 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               )
             }),
           )
-        return item
+        }
+        return wrapped
       })
 
-      // Rhythm carried patch (tokens-03, #843): deferred MCP tool schema loading.
-      // Opt-in via session.mcpAllowlist.deferred. When true: advertise the
-      // allowlisted MCP tools as a names-only catalog (system prompt) plus ONE
-      // dispatcher tool (mcp_dispatch) whose OWN schema is tiny and fixed; the
-      // real tool's full JSON Schema is resolved (via wrapMcpTool, above) and
-      // executed only when the model actually dispatches a call by name. When
-      // false/absent (default): unchanged eager behavior — one schema injected
-      // per allowlisted tool, exactly as before this patch (back-compat).
+      // MCP definitions are lazy by default. The sole eager MCP control is
+      // mcp_dispatch; it searches/describes/executes current authorized tools
+      // without adding every full schema to the provider request. An explicit
+      // historical `deferred: false` remains the narrow eager compatibility
+      // escape hatch, while an omitted legacy allowlist now takes this path.
       const autoDeferMcp = shouldAutoDeferMcpTools(
         input.model.providerID,
         Object.keys(tools).length,
         allowedKeys.size,
       )
-      const deferredMcp = input.session.mcpAllowlist?.deferred === true || autoDeferMcp
+      const hasLegacySelectiveDeferral = (input.session.mcpAllowlist?.deferredServers?.length ?? 0) > 0
+      const deferredMcp =
+        input.session.mcpAllowlist?.deferred === true ||
+        autoDeferMcp ||
+        (!hasLegacySelectiveDeferral && input.session.mcpAllowlist?.deferred !== false)
       const deferredKeys = new Set(
         [...allowedKeys].filter((key) =>
           autoDeferMcp || isMcpToolDeferred(key, keyToServer, input.session.mcpAllowlist),
         ),
       )
       const eagerKeys = new Set([...allowedKeys].filter((key) => !deferredKeys.has(key)))
+      const catalog = [
+        ...hostedEntries(
+          new Map(
+            [...hostedItems].filter(([id]) => hostedEligibleIds([id], input.session.permission).length > 0),
+          ),
+        ),
+        ...buildDeferredToolCatalog(deferredKeys, keyToServer, deferredDescriptions(mcpToolsAll)),
+      ]
+      const dispatchInputSchema: JSONSchema7 = {
+        type: "object",
+        properties: {
+          family: {
+            type: "string",
+            enum: ["mcp", "builtin"],
+            description: "Tool namespace: mcp (default) for MCP tools, builtin for hosted builtin tools such as read, bash or task.",
+          },
+          action: {
+            type: "string",
+            enum: ["search", "describe", "execute"],
+            description: "search finds authorized tools, describe returns one selected tool's full schema, and execute calls it. Defaults to execute for legacy calls.",
+          },
+          query: {
+            type: "string",
+            description: "Search words for action=search.",
+          },
+          name: {
+            type: "string",
+            description: "The exact catalog tool name for describe or execute.",
+          },
+          arguments: {
+            type: "object",
+            description: "The JSON object for action=execute. Call describe first when the required schema is not already known.",
+          },
+        },
+        additionalProperties: false,
+      }
+      const dispatchDescription = MCP_DISPATCH_DESCRIPTION + "\n\n" + formatDeferredToolCatalog(catalog)
+      const lazyMcpBootstrap = {
+        name: MCP_DISPATCH_TOOL_ID,
+        description: dispatchDescription,
+        inputSchema: dispatchInputSchema,
+      }
 
       // Full-deferred sessions keep their dispatcher even with an empty
       // catalog (contract: dispatch of any name is rejected with the
       // "No MCP tools" message); per-server deferral only materializes the
       // dispatcher when it actually has entries.
-      if (deferredMcp || deferredKeys.size > 0) {
-        const catalog = buildDeferredToolCatalog(deferredKeys, keyToServer, deferredDescriptions(mcpToolsAll))
+      if (deferredMcp || deferredKeys.size > 0 || hostedItems.size > 0) {
         tools[MCP_DISPATCH_TOOL_ID] = tool({
-          description: MCP_DISPATCH_DESCRIPTION + "\n\n" + formatDeferredToolCatalog(catalog),
-          inputSchema: jsonSchema({
-            type: "object",
-            properties: {
-              name: {
-                type: "string",
-                description: "The MCP tool name to call, exactly as listed in the tool catalog above.",
-              },
-              arguments: {
-                type: "object",
-                description: "The arguments object for the named tool, matching its own input schema.",
-              },
-            },
-            required: ["name"],
-            additionalProperties: false,
-          }),
-          execute: async (rawArgs: unknown) => {
-            const { name, arguments: toolArgs } = (rawArgs ?? {}) as { name?: string; arguments?: unknown }
-            if (typeof name !== "string" || name.length === 0) {
-              throw new Error("mcp_dispatch requires a `name` naming one of the tools in the catalog.")
-            }
-            // Rhythm carried patch (tokens-03, #843): execute-time re-check —
-            // mirrors tool/skill.ts's isSkillAllowed guard (#775). The catalog
-            // already excludes out-of-scope tools, but a model could still try
-            // to dispatch a name it hallucinates or remembers from an earlier
-            // turn; this must fail closed exactly like the eager-mode gate
-            // (filterMcpToolsByAllowlist) so deferred mode is never MORE
-            // permissive than eager mode for the same allowlist.
-            if (
-              !deferredKeys.has(name) ||
-              !isDeferredMcpToolAllowed(name, keyToServer, input.session.mcpAllowlist)
-            ) {
-              throw new Error(`MCP tool "${name}" is not permitted for this session's allowlist.`)
-            }
-            const rawItem = mcpToolsAll[name]
-            if (!rawItem) {
-              throw new Error(`MCP tool "${name}" not found. Available deferred tools: ${[...deferredKeys].join(", ") || "none"}`)
-            }
-            const wrapped = await run.promise(wrapMcpTool(name, rawItem))
-            if (!wrapped?.execute) {
-              throw new Error(`MCP tool "${name}" has no executable implementation.`)
-            }
-            // AI SDK tool.execute signature requires (args, options); mcp_dispatch's
-            // own wrapper is invoked without per-call ToolExecutionOptions plumbed
-            // through a second dispatch hop, so we synthesize a minimal-but-valid
-            // options object mirroring what the SDK passes to top-level tools.
-            return wrapped.execute(toolArgs ?? {}, {
-              toolCallId: ulid(),
-              messages: [],
-            } as ToolExecutionOptions)
-          },
+          description: dispatchDescription,
+          inputSchema: jsonSchema(dispatchInputSchema),
+          execute: (rawArgs: unknown, options: ToolExecutionOptions) =>
+            run.promise(
+              Effect.gen(function* () {
+                const request = parseDeferredMcpDispatchRequest(rawArgs)
+                const currentSession = yield* sessions.get(input.session.id).pipe(Effect.orDie)
+                const currentMcpTools = yield* mcp.tools(currentSession.mcpAllowlist)
+                const currentKeyToServer = yield* mcp.toolClientNames()
+                const currentDeferredKeys = new Set(
+                  [...deferredKeys].filter(
+                    (key) =>
+                      !!currentMcpTools[key] &&
+                      isMcpToolDeferred(key, currentKeyToServer, currentSession.mcpAllowlist) &&
+                      isDeferredMcpToolAllowed(key, currentKeyToServer, currentSession.mcpAllowlist),
+                  ),
+                )
+                const currentCatalog = buildDeferredToolCatalog(
+                  currentDeferredKeys,
+                  currentKeyToServer,
+                  deferredDescriptions(currentMcpTools),
+                )
+                // Hosted builtins are re-resolved from the CURRENT session (skill
+                // scope, permission) and the same user-tool/Permission.disabled gate
+                // used for eager keys, at discovery and again at execution.
+                const currentHosted = yield* currentHostedTools(currentSession)
+                if (request.action === "search") {
+                  const entries =
+                    request.family === "builtin"
+                      ? hostedEntries(currentHosted)
+                      : request.family === "mcp"
+                        ? currentCatalog
+                        : [...hostedEntries(currentHosted), ...currentCatalog]
+                  return {
+                    title: "mcp_dispatch search",
+                    metadata: {},
+                    output: JSON.stringify({
+                      tools: searchDeferredToolCatalog(entries, request.query).map((entry) => ({
+                        ...entry,
+                        family: entry.family ?? "mcp",
+                      })),
+                    }),
+                  }
+                }
+                if (request.family === "builtin") {
+                  const item = currentHosted.get(request.name)
+                  if (!item) {
+                    throw new Error(`Builtin tool "${request.name}" is not permitted or not available for this session.`)
+                  }
+                  if (request.action === "describe") {
+                    return {
+                      title: `mcp_dispatch describe ${request.name}`,
+                      metadata: {},
+                      output: JSON.stringify({
+                        family: "builtin",
+                        name: item.id,
+                        description: item.description,
+                        inputSchema: ProviderTransform.schema(input.model, ToolJsonSchema.fromTool(item)),
+                      }),
+                    }
+                  }
+                  // Original wrapped executor: Schema decode, ask, plugin hooks, abort,
+                  // metadata, attachments — with the real outer call's options.
+                  return yield* runBuiltin(item, request.arguments, options, rawArgs)
+                }
+                if (!currentDeferredKeys.has(request.name)) {
+                  throw new Error(`MCP tool "${request.name}" is not permitted for this session's allowlist.`)
+                }
+                const rawItem = currentMcpTools[request.name]
+                if (!rawItem) {
+                  throw new Error(`MCP tool "${request.name}" is not available in the current inventory.`)
+                }
+                const inputSchema = yield* Effect.promise(() => Promise.resolve(asSchema(rawItem.inputSchema).jsonSchema))
+                if (request.action === "describe") {
+                  return {
+                    title: `mcp_dispatch describe ${request.name}`,
+                    metadata: {},
+                    output: JSON.stringify({
+                      name: request.name,
+                      description: rawItem.description ?? "",
+                      inputSchema,
+                    }),
+                  }
+                }
+                const validation = yield* Effect.promise(() =>
+                  Promise.resolve(asSchema(rawItem.inputSchema).validate?.(request.arguments)),
+                )
+                if (validation && !validation.success) {
+                  throw new Error(`MCP tool "${request.name}" arguments are invalid: ${validation.error.message}`)
+                }
+                // JSON-schema-only definitions carry no validate hook, so the
+                // advertised schema itself is enforced (fail closed) before any effect.
+                const schemaError = validateDeferredMcpArguments(inputSchema, request.arguments)
+                if (schemaError) {
+                  throw new Error(`MCP tool "${request.name}" arguments are invalid: ${schemaError}`)
+                }
+                const wrapped = yield* wrapMcpTool(request.name, rawItem)
+                if (!wrapped?.execute) {
+                  throw new Error(`MCP tool "${request.name}" has no executable implementation.`)
+                }
+                // Carry the original SDK options through the inner call. The
+                // active-run registration below maps this real outer call to
+                // the selected key only while it is executing; no synthetic
+                // call id or transcript is created.
+                return yield* state.withDeferredMcpToolCall(
+                  input.session.id,
+                  input.processor.message.id,
+                  options.toolCallId,
+                  request.name,
+                  Effect.promise(() => wrapped.execute!(request.arguments, options)),
+                )
+              }),
+            ),
         })
       }
       if (autoDeferMcp) {
@@ -890,6 +1062,30 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         if (!wrapped) continue
         tools[key] = wrapped
       }
+
+      const mcpSurface = deferredMcp || deferredKeys.size > 0
+        ? measureSerializedMcpToolSurface({
+            eagerDefinitions: Object.fromEntries(
+              yield* Effect.forEach([...allowedKeys].toSorted(), (key) =>
+                Effect.promise(async () => {
+                  const item = mcpToolsAll[key]
+                  return [
+                    key,
+                    {
+                      name: key,
+                      description: item?.description ?? "",
+                      inputSchema: ProviderTransform.schema(
+                        input.model,
+                        await asSchema(item?.inputSchema).jsonSchema,
+                      ),
+                    },
+                  ]
+                }),
+              ),
+            ),
+            lazyBootstrap: lazyMcpBootstrap,
+          })
+        : undefined
 
       // Rhythm carried patch (#1094): native OpenAI image generation. Injected
       // here rather than through ToolRegistry because a provider tool has no
@@ -942,6 +1138,29 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         allowlistActive: !!input.session.mcpAllowlist,
         deferredMcpActive: deferredMcp || deferredKeys.size > 0,
         deferredMcpCatalogSize: deferredKeys.size > 0 ? deferredKeys.size : undefined,
+        eagerMcpDefinitionBytes: mcpSurface?.eagerDefinitionBytes,
+        lazyMcpBootstrapBytes: mcpSurface?.lazyBootstrapBytes,
+        // Hosted builtins withheld from the request (exact serialized UTF-8 bytes they would add).
+        hostedBuiltinDeferredCount: hostedItems.size,
+        hostedBuiltinDeferredDefinitionBytes:
+          hostedItems.size > 0
+            ? measureSerializedMcpToolSurface({
+                eagerDefinitions: Object.fromEntries(
+                  [...hostedItems].map(([id, item]) => [
+                    id,
+                    {
+                      name: id,
+                      description: item.description,
+                      inputSchema: ProviderTransform.schema(input.model, ToolJsonSchema.fromTool(item)),
+                    },
+                  ]),
+                ),
+                lazyBootstrap: undefined,
+              }).eagerDefinitionBytes
+            : undefined,
+        // Heuristic ceil(UTF-8 bytes / 4); not provider tokens.
+        eagerMcpBytesDiv4Estimate: mcpSurface?.eagerBytesDiv4Estimate,
+        lazyMcpBytesDiv4Estimate: mcpSurface?.lazyBytesDiv4Estimate,
       })
 
       return tools

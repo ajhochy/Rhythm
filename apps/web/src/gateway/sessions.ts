@@ -412,6 +412,17 @@ export type RichTranscriptMessage = TranscriptMessage & {
 export const canonicalText = (value: unknown): string => typeof value === 'string' ? value : value === undefined ? '' : JSON.stringify(value, null, 2);
 export const blockSource = (block: RichTranscriptBlock): string => block.tool ? canonicalText(block.tool) : block.content;
 
+// A deferred builtin `task` execution: outer tool `mcp_dispatch` whose dispatcher input is
+// {family:'builtin', name:'task', action:'execute'|omitted}. Search/describe, MCP family, other
+// builtins and malformed input are not task executions.
+function isDeferredTaskExecution(raw: Record<string, unknown>, state: Record<string, unknown>): boolean {
+  if (raw.type !== 'tool' || raw.tool !== 'mcp_dispatch') return false;
+  const input = state.input;
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return false;
+  const dispatch = input as Record<string, unknown>;
+  return dispatch.family === 'builtin' && dispatch.name === 'task' && (dispatch.action === undefined || dispatch.action === 'execute');
+}
+
 export function mapPart(raw: Record<string, unknown>, id: string): RichTranscriptBlock {
   const state = record(raw.state);
   // Hosted attachments a tool result carries (e.g. `read` on an image) — state.attachments is a
@@ -427,10 +438,15 @@ export function mapPart(raw: Record<string, unknown>, id: string): RichTranscrip
     metadata: state.metadata && typeof state.metadata === 'object' ? record(state.metadata) : undefined,
     attachments: attachments.length ? attachments : undefined,
   } : undefined;
-  if (raw.type === 'tool' && raw.tool === 'task') {
-    const match = TASK_ID_PATTERN.exec(string(state.output));
+  const nativeTask = raw.type === 'tool' && raw.tool === 'task';
+  if (nativeTask || isDeferredTaskExecution(raw, state)) {
+    const outputId = TASK_ID_PATTERN.exec(string(state.output))?.[1];
+    // Deferred tasks keep the outer `mcp_dispatch` part; the real task still reports its child via
+    // metadata.sessionId and `task_id:` output. Two disagreeing ids link nothing rather than guess.
+    const metadataId = nativeTask ? '' : string(record(state.metadata).sessionId);
+    const childSessionId = nativeTask ? outputId : metadataId && outputId && metadataId !== outputId ? undefined : metadataId || outputId;
     const terminal = state.status === 'completed' || state.status === 'error';
-    return { id, kind: 'children', content: string(state.title, 'Child session'), meta: string(state.status), childSessionId: match?.[1], tool, terminal, streaming: !terminal };
+    return { id, kind: 'children', content: string(state.title, 'Child session'), meta: string(state.status), childSessionId, tool, terminal, streaming: !terminal };
   }
   // post-m1-phase-4 c2d: preserve every other canonical part type instead of collapsing it to
   // markdown. Field vocabulary from apps/api_server/src/services/opencode_stream_bridge.ts:1250-1339.

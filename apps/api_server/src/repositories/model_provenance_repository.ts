@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { env } from '../config/env';
 import { getDb } from '../database/db';
+import { isCoordinatorCallbackProvenance } from '../contracts/coordinator_callback_marker';
 import type {
   DispatchInput,
   DispatchOutcome,
@@ -82,7 +83,11 @@ export class ModelProvenanceRepository {
       const value = input[field];
       if (value != null && (typeof value !== 'string' || !safeIdentifier.test(value))) throw new Error('Invalid dispatch metadata');
     }
-    if (input.reasonCode != null && !safeCode.test(input.reasonCode)) throw new Error('Invalid dispatch reason code');
+    // The exact callback marker is the one typed exception (valid delegation id,
+    // delegation_completion + agent_config only); every other code keeps the shape rule.
+    if (input.reasonCode != null && !safeCode.test(input.reasonCode) && !isCoordinatorCallbackProvenance(input)) {
+      throw new Error('Invalid dispatch reason code');
+    }
     const id = randomUUID();
     const now = new Date().toISOString();
     const values = [id, input.sessionId, ...fields.map((field) => input[field] ?? null), input.overrideApplied ? 1 : 0, input.downgraded ? 1 : 0, input.routeAuthed == null ? null : Number(input.routeAuthed), 'pending', now, now];

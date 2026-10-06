@@ -1429,6 +1429,168 @@ export function mobileSseEventBelongsToOwner(
   return true;
 }
 
+function exactKeys(value: JsonRecord, keys: string[]): boolean {
+  const actual = Object.keys(value);
+  return actual.length === keys.length && keys.every((key) => actual.includes(key));
+}
+
+/**
+ * Canonical coordinator change hint: re-prove, synchronously and immediately
+ * before the frame is written, that this exact hub envelope names the CURRENT
+ * owned primary root/conversation of the selected project. Returns the exact
+ * allowlisted mobile frame, or null (drop) for anything malformed,
+ * body-bearing, stale, rebound or foreign. `lookup` is the local-root
+ * repository read; the SDK ownership registry is deliberately not consulted.
+ */
+export function shapeMobileCoordinatorChanged(
+  value: unknown,
+  project: MobileProjectScope,
+  ownerUserId: number,
+  lookup: (sessionId: string) => {
+    directory: string;
+    projectId: string;
+    conversationId: string;
+    localSessionId: string;
+    ownerUserId: number;
+  } | null,
+): unknown | null {
+  if (!isRecord(value) || !exactKeys(value, ['directory', 'payload'])) return null;
+  const payload = value.payload;
+  if (!isRecord(payload) || !exactKeys(payload, ['type', 'id', 'properties'])) return null;
+  const properties = payload.properties;
+  if (
+    !isRecord(properties) ||
+    !exactKeys(properties, ['projectId', 'conversationId', 'localSessionId'])
+  ) return null;
+  const { id } = payload;
+  const { projectId, conversationId, localSessionId } = properties;
+  if (
+    payload.type !== 'rhythm.coordinator.changed' ||
+    typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(id) ||
+    typeof projectId !== 'string' || typeof conversationId !== 'string' ||
+    typeof localSessionId !== 'string' ||
+    typeof value.directory !== 'string' ||
+    projectId !== project.id
+  ) return null;
+  try {
+    if (canonicalize(value.directory) !== project.root) return null;
+    const current = lookup(localSessionId);
+    if (
+      !current ||
+      current.ownerUserId !== ownerUserId ||
+      current.projectId !== project.id ||
+      current.conversationId !== conversationId ||
+      current.localSessionId !== localSessionId ||
+      current.directory !== project.root
+    ) return null;
+  } catch {
+    return null;
+  }
+  return {
+    directory: project.id,
+    payload: {
+      type: payload.type,
+      id,
+      properties: { projectId, conversationId, localSessionId },
+    },
+  };
+}
+
+/** What a relay needs from the authenticated uplink and replica to qualify a hint. */
+export interface RelayHintQualifierDeps {
+  /** Re-authenticated CURRENT device for this stream (id, token, user, host), or null. */
+  currentDevice(): { id: string; userId: number; hostId: string } | null;
+  /** The device attached when the stream opened; the current device must still be exactly it. */
+  attached: { id: string; userId: number; hostId: string };
+  envelopeOrigin(envelope: unknown): RelayOriginLike | null;
+  mirrorOrigin(localSessionId: string): RelayOriginLike | null;
+  currentOrigin(): RelayOriginLike | null;
+  isHostOnline(hostId: string, userId: number): boolean;
+  mirroredRoot(localSessionId: string): {
+    ownerUserId: number;
+    projectId: string;
+    conversationId: string;
+    localSessionId: string;
+  } | null;
+}
+
+export interface RelayOriginLike {
+  readonly hostId: string;
+  readonly userId: number;
+  readonly generation: symbol;
+}
+
+function sameOrigin(a: RelayOriginLike, b: RelayOriginLike): boolean {
+  return a.hostId === b.hostId && a.userId === b.userId && a.generation === b.generation;
+}
+
+/**
+ * RELAY-ONLY qualifier for the canonical change hint (the LAN filesystem guard
+ * above is unchanged). The relay has no project root/table, so scope is the
+ * opaque project id plus the authenticated uplink's provenance: event origin ==
+ * mirror origin == device host/user, equal to the CURRENT connection generation,
+ * with the host online, the device still exactly the attached device, and the
+ * mirrored primary root's exact owner/project/conversation/local id. A weak
+ * online predicate alone never qualifies. This is an eventual-replica,
+ * body-free advisory check: it grants no read/execution authority, the Mac
+ * canonical read stays final, and no Mac directory ever reaches the phone.
+ * Returns the exact opaque frame or null (drop).
+ */
+export function shapeRelayCoordinatorChanged(
+  value: unknown,
+  project: MobileProjectScope,
+  deps: RelayHintQualifierDeps,
+): unknown | null {
+  if (!isRecord(value)) return null;
+  const keys = Object.keys(value);
+  const withDirectory = keys.length === 2 && keys.includes('directory') && keys.includes('payload');
+  if (!withDirectory && !(keys.length === 1 && keys[0] === 'payload')) return null;
+  if (withDirectory && typeof value.directory !== 'string') return null;
+  const payload = value.payload;
+  if (!isRecord(payload) || !exactKeys(payload, ['type', 'id', 'properties'])) return null;
+  const properties = payload.properties;
+  if (!isRecord(properties) || !exactKeys(properties, ['projectId', 'conversationId', 'localSessionId'])) return null;
+  const { id } = payload;
+  const { projectId, conversationId, localSessionId } = properties;
+  if (
+    payload.type !== 'rhythm.coordinator.changed' ||
+    typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(id) ||
+    typeof projectId !== 'string' || typeof conversationId !== 'string' ||
+    typeof localSessionId !== 'string' || projectId !== project.id
+  ) return null;
+  try {
+    const device = deps.currentDevice();
+    if (
+      !device || device.id !== deps.attached.id || device.userId !== deps.attached.userId ||
+      device.hostId !== deps.attached.hostId
+    ) return null;
+    const eventOrigin = deps.envelopeOrigin(value);
+    const mirrorOrigin = deps.mirrorOrigin(localSessionId);
+    const current = deps.currentOrigin();
+    if (!eventOrigin || !mirrorOrigin || !current) return null;
+    if (
+      !sameOrigin(eventOrigin, mirrorOrigin) || !sameOrigin(eventOrigin, current) ||
+      eventOrigin.hostId !== device.hostId || eventOrigin.userId !== device.userId ||
+      !deps.isHostOnline(device.hostId, device.userId)
+    ) return null;
+    const root = deps.mirroredRoot(localSessionId);
+    if (
+      !root || root.ownerUserId !== device.userId || root.projectId !== project.id ||
+      root.conversationId !== conversationId || root.localSessionId !== localSessionId
+    ) return null;
+  } catch {
+    return null;
+  }
+  return {
+    directory: project.id,
+    payload: {
+      type: payload.type,
+      id,
+      properties: { projectId, conversationId, localSessionId },
+    },
+  };
+}
+
 export function shapeMobileSseEvent(
   value: unknown,
   project: MobileProjectScope,

@@ -1,3 +1,7 @@
+import { mkdtempSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { COORDINATOR_CHANGED_EVENT, opencodeEventHub } from '../services/opencode_event_hub';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 
@@ -867,6 +871,17 @@ describe('C2 conversation to existing workstream vertical', () => {
   it('automatically consumes only the next finite ordinal after a strict terminal receipt, even when a sibling idea advanced the chat control revision', async () => {
     db = database();
     previous = setDb(db);
+    // Sol: provide the existing notification lookup's real filesystem/project seam.
+    const notificationRoot = realpathSync(mkdtempSync(join(tmpdir(), 'sol-c3-terminal-')));
+    db.exec('CREATE TABLE projects (id TEXT PRIMARY KEY, cwd TEXT NOT NULL, archived_at TEXT)');
+    db.prepare('INSERT INTO projects (id, cwd, archived_at) VALUES (?, ?, NULL)').run(scope.projectId, notificationRoot);
+    const hintTransactions: boolean[] = [];
+    const originalPublish = opencodeEventHub.publish.bind(opencodeEventHub);
+    const published = vi.spyOn(opencodeEventHub, 'publish').mockImplementation((envelope) => {
+      if ((envelope.payload as { type?: string }).type === COORDINATOR_CHANGED_EVENT) hintTransactions.push(db!.inTransaction);
+      originalPublish(envelope);
+    });
+
     const repository = new CoordinatorConversationsRepository(db, () => now);
     expect(repository.designatePrimaryOwnerRoot({
       ownerUserId: scope.ownerUserId,
@@ -926,7 +941,15 @@ describe('C2 conversation to existing workstream vertical', () => {
     // scheduler-owned bounded sweep observes this exact ordinary finite child,
     // reconciles its strict terminal receipt, and the existing observer then
     // rechecks authority before it can reserve ordinal two.
+    published.mockClear();
+    hintTransactions.length = 0;
     await service.sweepFiniteConversationReconciliation();
+    await vi.waitFor(() => expect(published.mock.calls.filter(([e]) => (e.payload as {type?: string}).type === COORDINATOR_CHANGED_EVENT)).toHaveLength(1));
+    expect(hintTransactions).toEqual([false]);
+    const terminalHint = published.mock.calls.find(([e]) => (e.payload as {type?: string}).type === COORDINATOR_CHANGED_EVENT)![0];
+    expect(terminalHint).toMatchObject({ directory: notificationRoot, payload: { properties: { projectId: scope.projectId, localSessionId: scope.sessionId } } });
+    expect(Object.keys((terminalHint.payload as {properties: object}).properties).sort()).toEqual(['conversationId','localSessionId','projectId']);
+
     await vi.waitFor(() => expect(real.engine.promptAsync).toHaveBeenCalledTimes(2));
     const afterTerminal = repository.get(scope);
     if (afterTerminal.kind !== 'found') throw new Error('expected updated conversation');
@@ -964,6 +987,8 @@ describe('C2 conversation to existing workstream vertical', () => {
       hostEpoch: 'c2-epoch',
     });
     expect(real.engine.promptAsync).toHaveBeenCalledTimes(2);
+    expect(published.mock.calls.filter(([e]) => (e.payload as {type?: string}).type === COORDINATOR_CHANGED_EVENT)).toHaveLength(1);
+    published.mockRestore();
   });
 
   it('keeps a malformed terminal proposal accounted but held, with no automatic second dispatch', async () => {

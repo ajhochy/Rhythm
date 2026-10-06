@@ -32,6 +32,7 @@ import {
 import type { DispatchInput } from '../models/model_provenance';
 import { getDb } from '../database/db';
 import { ModelProvenanceRepository } from '../repositories/model_provenance_repository';
+import { isCoordinatorCallbackProvenance } from '../contracts/coordinator_callback_marker';
 import type { AuthContext } from '../middleware/auth_middleware';
 import type {
   ManagedContextReference,
@@ -821,6 +822,17 @@ export interface CoordinatorForegroundPromptDispatchContext {
   }): boolean | Promise<boolean>;
 }
 
+/**
+ * Internal-only freshness hook for the exact child-completion callback. It is
+ * not authority and carries no capability: the completion service passes the
+ * recheck of the overlay it attached, and the client runs it after the LAST
+ * await before SDK exposure. Valid only with the exact callback provenance.
+ */
+export interface CoordinatorCallbackPromptDispatchContext {
+  readonly kind: 'coordinator_callback_v1';
+  validate(): boolean | Promise<boolean>;
+}
+
 function isCoordinatorForegroundPromptContext(
   value: CoordinatorForegroundPromptDispatchContext | undefined,
   sessionId: string,
@@ -1133,6 +1145,7 @@ export class OpencodeClientService {
     sdkSessionId: string,
     directory: string | undefined,
     provenance: DispatchInput | undefined,
+    existingAnchor?: string,
   ): Promise<string | undefined> {
     // A missing optional Dayflow composition must preserve ordinary chat. If
     // it is composed but cannot mint a real engine anchor, the later tool call
@@ -1140,7 +1153,10 @@ export class OpencodeClientService {
     if (!this.dayflowSdkHistoryGuard || provenance?.routeAuthed !== true) return undefined;
     try {
       if (!(await this.dayflowSdkHistoryGuard.shouldBindPrompt(sdkSessionId))) return undefined;
-      return await this.mintPromptAnchor(sdkSessionId, directory) ?? undefined;
+      // A C2 foreground dispatch already minted its exact native user-message
+      // id. Reuse it so the Dayflow receiving manifest and C2 provenance bind
+      // one real user turn rather than creating an unrelated second anchor.
+      return existingAnchor ?? await this.mintPromptAnchor(sdkSessionId, directory) ?? undefined;
     } catch {
       return undefined;
     }
@@ -2059,12 +2075,14 @@ export class OpencodeClientService {
         // #884 — trim to Gemini's function-declaration cap when this session's
         // turn is routed to `google`. No-op for every other provider.
         const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId, toolCounts);
-        mcpAllowlist = capResult.allowlist;
+        // The cap may construct a fresh allowlist when it trims, so reassert
+        // the request-build default without changing the resolved grants.
+        mcpAllowlist = { ...capResult.allowlist, deferred: true };
         if (capResult.trimmed) {
           logger.warn(capResult.warning ?? '[GeminiToolCap] allowlist trimmed');
         }
         logger.info(
-          '[OpencodeClientService] createSession: mcpRole=%s allowlist servers=%s tools=%s',
+          '[OpencodeClientService] createSession: mcpRole=%s lazy=true allowlist servers=%s tools=%s',
           mcpRoleConfig.role,
           mcpAllowlist.servers.join(',') || '(none)',
           mcpAllowlist.tools.join(',') || '(none)',
@@ -2326,7 +2344,9 @@ function validFiniteExecutionPermissionRules(
           });
         }
         const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId, toolCounts);
-        mcpAllowlist = capResult.allowlist;
+        // Ranking/capping can return a fresh object. Preserve its narrowed
+        // grants while keeping lazy loading on for every supported provider.
+        mcpAllowlist = { ...capResult.allowlist, deferred: true };
         if (capResult.trimmed) {
           logger.warn(capResult.warning ?? '[GeminiToolCap] allowlist trimmed');
         }
@@ -2782,9 +2802,18 @@ function validFiniteExecutionPermissionRules(
     provenance?: DispatchInput,
     managed?: ManagedPromptDispatchContext,
     foreground?: CoordinatorForegroundPromptDispatchContext,
+    callback?: CoordinatorCallbackPromptDispatchContext,
   ): Promise<boolean> {
     if (!this.client) return false;
     if (foreground && (managed || !isCoordinatorForegroundPromptContext(foreground, sessionId, provenance))) {
+      return false;
+    }
+    if (callback && (
+      managed || foreground || callback.kind !== 'coordinator_callback_v1' ||
+      typeof callback.validate !== 'function' || !provenance ||
+      provenance.sdkSessionId !== sessionId || provenance.routeAuthed != null ||
+      !isCoordinatorCallbackProvenance(provenance)
+    )) {
       return false;
     }
     let managedDispatchId: string | undefined;
@@ -2867,7 +2896,14 @@ function validFiniteExecutionPermissionRules(
         return false;
       }
     }
-    if (!managed && !foreground) dayflowMessageID = await this.maybeMintDayflowPromptAnchor(sessionId, directory, provenance);
+    if (!managed) {
+      dayflowMessageID = await this.maybeMintDayflowPromptAnchor(
+        sessionId,
+        directory,
+        provenance,
+        foregroundMessageID,
+      );
+    }
     // OPC-M4-1: use the caller-supplied parts array when present; otherwise
     // fall back to a single text part so all existing call-sites are unchanged.
     const sdkParts: Array<import('@opencode-ai/sdk').PartInput> = parts && parts.length > 0
@@ -2968,6 +3004,22 @@ function validFiniteExecutionPermissionRules(
     )) {
       settleDispatch(dispatchId, 'rejected');
       return false;
+    }
+    // Callback overlay freshness, synchronously after the last await above:
+    // a scope lost during any earlier await withholds the whole dispatch (it is
+    // re-prepared from current state on the next flush) instead of exposing a
+    // stale coordinator contract.
+    if (callback) {
+      let current = false;
+      try {
+        current = (await callback.validate()) === true;
+      } catch {
+        current = false;
+      }
+      if (!current) {
+        settleDispatch(dispatchId, 'rejected');
+        return false;
+      }
     }
     try {
       const raw = await this.client.session.promptAsync(requestArgs);

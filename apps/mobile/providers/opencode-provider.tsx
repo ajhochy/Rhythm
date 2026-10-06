@@ -150,6 +150,9 @@ import {
   type MobileCoordinatorSessionProvenance,
   type MobileSession,
   type OpencodeContextValue,
+  type CoordinatorChangedListener,
+  type ProjectReadListener,
+  type SessionActivityListener,
   type OpencodeProject,
   type ProviderAuthMethod,
   type ProviderOption,
@@ -330,6 +333,55 @@ type OpenProjectSessionRuntime = {
   ): OpenProjectSessionPayload | undefined;
 };
 
+/**
+ * Exact shape of the reserved `rhythm.coordinator.changed` hint: bounded
+ * identity strings only, nothing else. The type string alone proves nothing;
+ * the caller also requires a paired stream and an envelope/project match.
+ */
+function parseCoordinatorChangedEvent(payload: unknown, directory: string) {
+  const exact = (value: unknown, keys: string[]): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value) &&
+    Object.keys(value).length === keys.length && keys.every((key) => key in value);
+  const identity = (value: unknown): value is string =>
+    typeof value === 'string' && value.length > 0 && value.length <= 200;
+  if (!exact(payload, ['type', 'id', 'properties']) || payload.type !== 'rhythm.coordinator.changed' || !identity(payload.id)) {
+    return undefined;
+  }
+  const properties = payload.properties;
+  if (!exact(properties, ['projectId', 'conversationId', 'localSessionId'])) return undefined;
+  const { projectId, conversationId, localSessionId } = properties;
+  if (!identity(projectId) || !identity(conversationId) || !identity(localSessionId) || projectId !== directory) {
+    return undefined;
+  }
+  return { projectId, conversationId, localSessionId };
+}
+
+/** Qualifies one stream envelope; a direct standalone OpenCode stream never does. */
+function coordinatorChangedFromEnvelope(
+  envelope: { directory?: string; payload?: unknown } | undefined,
+  activeProjectPath: string,
+  pairedStream: boolean,
+) {
+  if (!pairedStream || envelope?.directory !== activeProjectPath) return undefined;
+  return parseCoordinatorChangedEvent(envelope.payload, activeProjectPath);
+}
+
+/** Session identity of the events that can mean a root's work changed; never a grant. */
+function sessionActivityEventSessionId(event: GlobalEvent['payload']): string | undefined {
+  switch (event.type) {
+    case 'session.status':
+    case 'session.idle':
+    case 'session.error':
+      return event.properties.sessionID;
+    case 'message.updated':
+      return event.properties.info.sessionID;
+    case 'session.updated':
+      return event.properties.info.id;
+    default:
+      return undefined;
+  }
+}
+
 export function OpencodeProvider({ children }: PropsWithChildren) {
   const pairedHost = usePairedHost();
   const pairedHostClient = pairedHost.client;
@@ -492,6 +544,23 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const terminalSocketRef = useRef<WebSocket | undefined>(undefined);
   const terminalCursorByIdRef = useRef<Record<string, string>>({});
   const terminalOpenGenerationRef = useRef(0);
+  // Read-only fan-out of current-project session events. It carries identity
+  // only; a subscriber must re-qualify it and never gains authority from it.
+  const sessionActivityListenersRef = useRef(new Set<SessionActivityListener>());
+  const subscribeSessionActivity = useCallback((listener: SessionActivityListener) => {
+    sessionActivityListenersRef.current.add(listener);
+    return () => { sessionActivityListenersRef.current.delete(listener); };
+  }, []);
+  const projectReadListenersRef = useRef(new Set<ProjectReadListener>());
+  const subscribeProjectReads = useCallback((listener: ProjectReadListener) => {
+    projectReadListenersRef.current.add(listener);
+    return () => { projectReadListenersRef.current.delete(listener); };
+  }, []);
+  const coordinatorChangeListenersRef = useRef(new Set<CoordinatorChangedListener>());
+  const subscribeCoordinatorChanges = useCallback((listener: CoordinatorChangedListener) => {
+    coordinatorChangeListenersRef.current.add(listener);
+    return () => { coordinatorChangeListenersRef.current.delete(listener); };
+  }, []);
   const transcriptBatcherRef = useRef<ReturnType<typeof createTranscriptEventBatcher> | null>(null);
   if (!transcriptBatcherRef.current) {
     transcriptBatcherRef.current = createTranscriptEventBatcher((events) => {
@@ -682,6 +751,22 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     (candidate: object) => clientGenerationRef.current.get(candidate) === scopeGenerationRef.current,
     [],
   );
+  // Fan-out only for the still-current project and client generation, so a
+  // superseded timer callback cannot trigger a coordinator read.
+  const notifyProjectReadCompleted = useCallback((projectId: string, readClient: object) => {
+    if (!isCurrentClient(readClient) || activeProjectPathRef.current !== projectId) return;
+    projectReadListenersRef.current.forEach((listener) => listener({ projectId }));
+  }, [isCurrentClient]);
+  // Same currency gate for the paired-stream coordinator hint: a superseded
+  // stream/client generation or project cannot reach a subscriber.
+  const notifyCoordinatorChanged = useCallback((
+    change: { projectId: string; conversationId: string; localSessionId: string },
+    streamClient: object,
+    pairedClient: object,
+  ) => {
+    if (!isCurrentClient(streamClient) || activeProjectPathRef.current !== change.projectId) return;
+    coordinatorChangeListenersRef.current.forEach((listener) => listener({ ...change, pairedClient }));
+  }, [isCurrentClient]);
   const isCurrentCatalogClient = useCallback(
     (candidate: object) => catalogGenerationRef.current.get(candidate) === serverGenerationRef.current,
     [],
@@ -3788,6 +3873,13 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       return true;
     };
     const handleEvent = (event: GlobalEvent['payload']) => {
+      const activitySessionId = sessionActivityEventSessionId(event);
+      if (activitySessionId) {
+        sessionActivityListenersRef.current.forEach((listener) => listener({
+          projectId: activeProjectPath,
+          sessionId: activitySessionId,
+        }));
+      }
       switch (event.type) {
         case 'session.created':
         case 'session.updated':
@@ -4008,7 +4100,14 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             retryAttempt = 0;
             reachabilityFailureReported = false;
             if (envelope?.directory === activeProjectPath && envelope.payload) {
-              if (rememberEvent(envelope.payload)) {
+              const coordinatorChange = coordinatorChangedFromEnvelope(envelope, activeProjectPath, Boolean(pairedHostClient));
+              if (coordinatorChange && pairedHostClient) {
+                // Identity-only hint, deduped by its own bounded id; it is not
+                // an SDK event and never reaches the session handlers.
+                if (rememberEvent(envelope.payload as GlobalEvent['payload'])) {
+                  notifyCoordinatorChanged(coordinatorChange, client, pairedHostClient);
+                }
+              } else if (rememberEvent(envelope.payload)) {
                 handleEvent(envelope.payload);
               }
             }
@@ -4042,7 +4141,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       mounted = false;
       activeAbortController?.abort();
     };
-  }, [activeProjectPath, catalogClient, client, coalescedIdleRefresh, coalescedRefreshArchivedSessions, coalescedRefreshSessions, connection.status, pairedHostClient, pairedHostRecord?.relayUrl, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, replaceSessionMessages, scheduleSessionRefresh, settings, settleBackgroundRead, stopSessionWorkingSound]);
+  }, [activeProjectPath, catalogClient, client, coalescedIdleRefresh, coalescedRefreshArchivedSessions, coalescedRefreshSessions, connection.status, notifyCoordinatorChanged, pairedHostClient,pairedHostRecord?.relayUrl, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, replaceSessionMessages, scheduleSessionRefresh, settings, settleBackgroundRead, stopSessionWorkingSound]);
 
   useEffect(
     () => () => {
@@ -4084,12 +4183,16 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       return;
     }
 
+    let cancelled = false;
     const interval = setInterval(() => {
       const currentHasBusySession = Object.values(sessionStatuses).some((status) => status.type !== 'idle');
       const currentHasConversationActivity = conversationPhase !== 'off';
 
       if (currentHasConversationActivity || currentHasBusySession || sendingState.active || useSafetyPolling) {
-        settleBackgroundRead(() => refreshSessions(true));
+        // A rejected read is not a completed cycle and signals nothing.
+        settleBackgroundRead(() => refreshSessions(true).then(() => {
+          if (!cancelled) notifyProjectReadCompleted(activeProjectPath, client);
+        }));
         settleBackgroundRead(refreshPendingInteractions);
       }
 
@@ -4110,8 +4213,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       }
     }, 5000);
 
-    return () => clearInterval(interval);
-  }, [activeProjectPath, connection.status, conversationPhase, conversationSessionId, currentSessionId, eventStreamStatus, refreshMessages, refreshPendingInteractions, refreshSessionDiff, refreshSessionTodos, refreshSessions, sendingState.active, sessionStatuses, settleBackgroundRead]);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [activeProjectPath, client, connection.status, conversationPhase, conversationSessionId, currentSessionId, eventStreamStatus, notifyProjectReadCompleted, refreshMessages, refreshPendingInteractions, refreshSessionDiff, refreshSessionTodos, refreshSessions, sendingState.active, sessionStatuses, settleBackgroundRead]);
 
   const workingSoundBusy = !!currentSessionId && !stoppedWorkingSoundSessions.has(currentSessionId) && (
     (sendingState.active && sendingState.sessionId === currentSessionId) ||
@@ -4338,6 +4444,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       serverProjects,
       registeredGatewayProjectIds,
       coordinatorSessionProvenance,
+      subscribeSessionActivity,
+      subscribeProjectReads,
+      subscribeCoordinatorChanges,
       currentProjectPath,
       serverRootPath,
       isRefreshingWorkspaceCatalog,
@@ -4559,6 +4668,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       serverProjects,
       registeredGatewayProjectIds,
       coordinatorSessionProvenance,
+      subscribeSessionActivity,
+      subscribeProjectReads,
+      subscribeCoordinatorChanges,
       settings,
       buildScopedClient,
       setProviderAuth,

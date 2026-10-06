@@ -92,9 +92,11 @@ import { sharedAgentsCatalogRouter } from './shared_agents/bridge/catalog';
 import { requireLocalOrCloudAuth } from './middleware/auth_middleware';
 import { createAgentWorkstreamsRouter } from './routes/agent_workstreams_routes';
 import { createCoordinatorConversationsRouter } from './routes/coordinator_conversations_routes';
+import { createCoordinatorAgentToolsRouter } from './routes/coordinator_agent_tools_routes';
 import type { ManagedMemorySearchService } from './services/managed_workstream_evidence_capture';
 import type { PersistentWorkstreamCoordinator } from './services/persistent_workstream_coordinator';
 import type { CoordinatorConversationService } from './services/coordinator_conversation_service';
+import type { CoordinatorConversationModelStatusService } from './services/coordinator_conversation_model_status_service';
 
 export function isLoopbackAddress(address: string | undefined): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
@@ -108,6 +110,7 @@ export function createApp(options: {
   managedMemorySearch?: ManagedMemorySearchService;
   workstreamCoordinator?: PersistentWorkstreamCoordinator;
   coordinatorConversationService?: CoordinatorConversationService;
+  coordinatorAgentTools?: CoordinatorConversationModelStatusService;
 } = {}) {
   const app = express();
   const dayflowLocalSurface = Boolean(
@@ -303,6 +306,15 @@ export function createApp(options: {
         enabled: () => Boolean(
           env.workstreamsEnabled && env.dbClient === 'sqlite' && options.workstreamCoordinator,
         ),
+      }));
+    }
+    // Model-facing coordinator state is a separate signed ingress. It stays
+    // default-off unless the server composed both the primary conversation
+    // service and the active-native-tool authority; browser/session identity
+    // cannot select another root through this route.
+    if (options.coordinatorAgentTools && options.coordinatorConversationService) {
+      app.use('/coordinator-agent', createCoordinatorAgentToolsRouter({
+        service: options.coordinatorAgentTools,
       }));
     }
     app.use('/agents/models', agentsModelsRouter);

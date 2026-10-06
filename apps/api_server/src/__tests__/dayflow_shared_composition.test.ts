@@ -534,7 +534,7 @@ describe('Dayflow authenticated shared composition', () => {
         sourceRevision: sourceHash, normalizerVersion: 'v2.6.0',
       }, { memoryDir, index: ownerIndex });
 
-      await new MemoryIndexService(repo).rebuildIndexFromVault(memoryDir);
+      await new MemoryIndexService(repo).rebuildIndexFromVault(root);
       const before = await repo.findBySourceIdsAsync('obsidian-memory', [receipt.path], 7);
       expect(before).toHaveLength(1);
       expect(before[0].ownerUserId).toBeNull();

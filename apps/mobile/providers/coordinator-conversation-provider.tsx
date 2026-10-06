@@ -8,6 +8,7 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react';
+import { AppState } from 'react-native';
 
 import {
   mobileCoordinatorScopeKey,
@@ -131,6 +132,9 @@ export function CoordinatorConversationProvider({ children }: PropsWithChildren)
     registeredGatewayProjectIds,
     selectProject,
     sessions,
+    subscribeCoordinatorChanges,
+    subscribeProjectReads,
+    subscribeSessionActivity,
   } = useOpencode();
   const selectedSession = useMemo(
     () => sessions.find((session) => session.id === currentSessionId) ?? activeSession,
@@ -227,7 +231,8 @@ export function CoordinatorConversationProvider({ children }: PropsWithChildren)
   useEffect(() => controller.subscribe(() => setRevision((revision) => revision + 1)), [controller]);
 
   useEffect(() => {
-    controller.activate(binding);
+    // A replaced paired client fences old reads even for an unchanged scope.
+    controller.activate(binding, pairedHost.client);
     if (!binding) return;
     let active = true;
     void controller.hydrate(binding).then((hydrated) => {
@@ -236,7 +241,66 @@ export function CoordinatorConversationProvider({ children }: PropsWithChildren)
       }
     });
     return () => { active = false; };
-  }, [binding, bindingKey, controller]);
+  }, [binding, bindingKey, controller, pairedHost.client]);
+
+  const bindingRef = useRef(binding);
+  bindingRef.current = binding;
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+
+  // A canonical result can arrive after the user stopped interacting. Qualified
+  // session events for the exact current root, and a foreground return, only
+  // trigger a read-only revalidation; they never grant authority or send.
+  useEffect(() => subscribeSessionActivity((event) => {
+    const current = bindingRef.current;
+    if (!current || event.projectId !== current.projectId || activeProjectPathRef.current !== current.projectId) return;
+    // An inert server primary has no SDK id: only a catalog row that carries
+    // its exact local root qualifies, so an ordinary chat's events never do.
+    const exact = current.source === 'server_primary'
+      ? sessionsRef.current.some((session) =>
+        session.id === event.sessionId &&
+        !session.parentID &&
+        session.rhythm?.localSessionId?.trim() === current.sessionId &&
+        (typeof (session as { projectId?: unknown }).projectId !== 'string' ||
+          (session as { projectId?: string }).projectId === current.projectId))
+      : event.sessionId === current.uiSessionId;
+    if (exact) void controller.revalidate(current);
+  }), [controller, subscribeSessionActivity]);
+
+  // Reserved server hint from the paired project stream. It is identity-only:
+  // the current client, project, exact local root and the conversation already
+  // read for this enabled binding must all match before the read-only,
+  // epoch-fenced revalidation. It grants nothing and carries no transcript.
+  useEffect(() => subscribeCoordinatorChanges((change) => {
+    const current = bindingRef.current;
+    if (
+      !current ||
+      change.pairedClient !== pairedClientRef.current ||
+      change.projectId !== current.projectId ||
+      activeProjectPathRef.current !== current.projectId ||
+      change.localSessionId !== current.sessionId ||
+      controller.get(current).conversation?.id !== change.conversationId
+    ) return;
+    void controller.revalidate(current);
+  }), [controller, subscribeCoordinatorChanges]);
+
+  // The existing safety fallback finished a project read for the current
+  // client. It names no session, so it only revalidates the current enabled
+  // binding in that exact project through its own authenticated reads.
+  useEffect(() => subscribeProjectReads((read) => {
+    const current = bindingRef.current;
+    if (current && read.projectId === current.projectId && activeProjectPathRef.current === current.projectId) {
+      void controller.revalidate(current);
+    }
+  }), [controller, subscribeProjectReads]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      const current = bindingRef.current;
+      if (state === 'active' && current) void controller.revalidate(current);
+    });
+    return () => subscription.remove();
+  }, [controller]);
 
   useEffect(() => () => controller.dispose(), [controller]);
   useEffect(() => () => {

@@ -22,7 +22,7 @@ const repo = new AgentMemoryRepository();
 const sessionsRepo = new AgentSessionsRepository();
 
 async function memoryWithAudit(id: string) {
-  const item = await agentMemoryService.get(id);
+  const item = await agentMemoryService.getGeneric(id);
   if (!item) return null;
   return {
     ...item,

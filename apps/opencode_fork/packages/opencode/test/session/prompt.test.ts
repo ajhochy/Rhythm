@@ -59,6 +59,11 @@ import { existsSync } from "fs"
 
 void Log.init({ print: false })
 
+// Hosted builtins are lazy by default; this explicit historical `deferred: false`
+// compatibility opt-out keeps them directly advertised for tests whose subject is
+// the underlying builtin's own behavior.
+const eagerBuiltins = { servers: [], tools: [], deferred: false }
+
 const summary = Layer.succeed(
   SessionSummary.Service,
   SessionSummary.Service.of({
@@ -626,7 +631,8 @@ const taskDescriptionSent = Effect.fn("test.taskDescriptionSent")(function* (
   }))
   const prompt = yield* SessionPrompt.Service
   const sessions = yield* Session.Service
-  const chat = yield* sessions.create({ title: "Pinned", permission })
+  // Eager compatibility opt-out: this asserts the directly advertised task tool.
+  const chat = yield* sessions.create({ title: "Pinned", permission, mcpAllowlist: eagerBuiltins })
   yield* prompt.prompt({
     sessionID: chat.id,
     agent: "manager",
@@ -687,7 +693,11 @@ it.instance(
       }))
       const prompt = yield* SessionPrompt.Service
       const sessions = yield* Session.Service
-      const chat = yield* sessions.create({ title: "Pinned", permission: interactiveTaskRules })
+      const chat = yield* sessions.create({
+        title: "Pinned",
+        permission: interactiveTaskRules,
+        mcpAllowlist: eagerBuiltins,
+      })
       yield* prompt.prompt({
         sessionID: chat.id,
         agent: "manager",
@@ -1113,6 +1123,7 @@ it.instance(
       const chat = yield* sessions.create({
         title: "Pinned",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        mcpAllowlist: eagerBuiltins,
       })
       yield* llm.tool("task", {
         description: "inspect bug",
@@ -1963,6 +1974,7 @@ unix(
       const chat = yield* sessions.create({
         title: "Interrupted bash truncation",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        mcpAllowlist: eagerBuiltins,
       })
 
       yield* prompt.prompt({

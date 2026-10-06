@@ -13,7 +13,7 @@ const scope: CoordinatorConversationContextScope = {
 };
 
 const conversation: CoordinatorConversation = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   id: scope.conversationId,
   sessionId: 'chat-a',
   ownerUserId: scope.ownerUserId,

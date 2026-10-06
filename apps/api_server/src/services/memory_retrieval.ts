@@ -46,6 +46,7 @@
 
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import type { AgentMemory } from '../repositories/agent_memory_repository';
+import { isGenericMemoryAdmissionAllowedFields } from '../utils/generic_memory_admission';
 import { promises as fs } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -433,6 +434,7 @@ export async function getRelevantMemories(
   ownerUserId?: number | null,
   topN: number = DEFAULT_TOP_N,
   repo: MemoryRepository = new AgentMemoryRepository(),
+  genericAdmission = false,
 ): Promise<AgentMemory[]> {
   if (!query || query.trim().length === 0) return [];
 
@@ -461,6 +463,7 @@ export async function getRelevantMemories(
           activeOnly: true,
           injectableOnly: true,
           today,
+          ...(genericAdmission ? { genericAdmissionOnly: true } : {}),
         });
       } catch {
         return null; // one probe failing must not abort the rest
@@ -850,6 +853,7 @@ async function collectNativeMemoryReferences(
   deadline: number,
   automaticOnly: boolean,
   startedAt = Date.now(),
+  releaseAdmission?: (memory: AgentMemory) => boolean,
 ): Promise<NativeMemoryReferenceCollection> {
   const nativeSearchStartedAt = Date.now();
   const diagnostic = (phase: SemanticRetrievalDiagnosticPhase) => nativeRetrievalDiagnostic(
@@ -957,9 +961,18 @@ async function collectNativeMemoryReferences(
     if (matches?.length !== 1) continue;
     const memory = matches[0];
     const excerpt = hit.snippet!;
+    let released = true;
+    if (releaseAdmission) {
+      try {
+        released = releaseAdmission(memory) === true;
+      } catch {
+        released = false;
+      }
+    }
     if (
       !isMemoryActive(memory, today)
       || (automaticOnly && !isAutomaticallyInjectable(memory))
+      || !released
       || !snippetMatchesCanonicalContent(excerpt, memory.content)
     ) continue;
     const canonical = await settleBeforeDeadline(
@@ -1010,7 +1023,13 @@ async function collectNativeMemoryReferences(
 export async function searchMemoryReferences(
   query: string,
   ownerUserId?: number | null,
-  opts: { limit?: number; repo?: MemoryRepository; engraph?: EngraphClient } = {},
+  opts: {
+    limit?: number;
+    repo?: MemoryRepository;
+    engraph?: EngraphClient;
+    /** Optional caller-specific release fence for generic model ingress. */
+    releaseAdmission?: (memory: AgentMemory) => boolean;
+  } = {},
 ): Promise<MemoryReferenceSearchResult> {
   return (await searchMemoryReferencesWithReceipts(query, ownerUserId, opts)).result;
 }
@@ -1019,21 +1038,42 @@ export async function searchMemoryReferences(
 export async function searchMemoryReferencesWithReceipts(
   query: string,
   ownerUserId?: number | null,
-  opts: { limit?: number; repo?: MemoryRepository; engraph?: EngraphClient } = {},
+  opts: {
+    limit?: number;
+    repo?: MemoryRepository;
+    engraph?: EngraphClient;
+    /** Optional caller-specific release fence for generic model ingress. */
+    releaseAdmission?: (memory: AgentMemory) => boolean;
+  } = {},
 ): Promise<{
   result: MemoryReferenceSearchResult;
   canonicalReceipts: CanonicalMemoryReadReceipt[];
 }> {
   const limit = normalizeExplicitReferenceLimit(opts.limit);
   const deadline = Date.now() + getSemanticSearchBudgetMs();
-  const result = await collectNativeMemoryReferences(
+  const collected = await collectNativeMemoryReferences(
     query,
     ownerUserId,
     opts.repo ?? new AgentMemoryRepository(),
     opts.engraph ?? engraphManager.getRetrievalClient(),
     deadline,
     false,
+    Date.now(),
+    opts.releaseAdmission,
   );
+  // A generic caller that deliberately withheld a source must not receive its
+  // native hit count as a side channel. Preserve timeout/unavailable states,
+  // but make an otherwise-successful all-withheld result indistinguishable
+  // from an unmapped ordinary reference set.
+  const result = opts.releaseAdmission
+    ? {
+        ...collected,
+        status: collected.references.length === 0 && collected.status === 'used'
+          ? 'unmapped' as const
+          : collected.status,
+        hitCount: collected.references.length,
+      }
+    : collected;
   const references: MemoryReference[] = [];
   const canonicalReceipts: CanonicalMemoryReadReceipt[] = [];
   let totalExcerptChars = 0;
@@ -1072,6 +1112,7 @@ async function getRelevantMemoriesSemanticDetailed(
   topN: number = DEFAULT_TOP_N,
   repo: MemoryRepository = new AgentMemoryRepository(),
   engraph: EngraphClient = engraphManager.getRetrievalClient(),
+  genericAdmission = false,
 ): Promise<SemanticRetrievalResult> {
   if (topN <= 0) return { memories: [], status: 'no_hits', hitCount: 0 };
 
@@ -1087,8 +1128,9 @@ async function getRelevantMemoriesSemanticDetailed(
     deadline,
     true,
     startedAt,
+    genericAdmission ? genericAdmitted : undefined,
   );
-  const ftsPromise = getRelevantMemories(query, ownerUserId, topN, repo);
+  const ftsPromise = getRelevantMemories(query, ownerUserId, topN, repo, genericAdmission);
   const settledFtsPromise = settleBeforeDeadline(deadline, () => ftsPromise);
   const [native, settledFts] = await Promise.all([nativePromise, settledFtsPromise]);
   // Both lanes share the one prompt deadline. A slow FTS fallback must never
@@ -1165,7 +1207,24 @@ export interface BuildMemoryPrefaceOptions {
   sessionId?: string | null;
   /** Injectable Engraph client for the rerank candidate pool (tests). */
   engraphClient?: EngraphClient;
+  /**
+   * Additional automatic-ingress admission only. Explicit human/MCP search
+   * keeps its current behavior; callers use this to withhold a source that
+   * has a stricter recipient-specific reader/receipt contract.
+   */
+  automaticAdmission?: (memory: AgentMemory) => boolean;
+  /**
+   * The generic (non-Dayflow) admission, applied BEFORE each lane's shortlist /
+   * candidate budget (SQL scalar for the lexical lane, row join for native,
+   * link and rerank candidates) instead of only after it. It never changes
+   * ranking, relevance gates or output budgets. `automaticAdmission` remains
+   * as the final defense.
+   */
+  genericAdmission?: boolean;
 }
+
+/** The exact generic admission decision, as a row predicate. */
+const genericAdmitted = (memory: AgentMemory): boolean => isGenericMemoryAdmissionAllowedFields(memory);
 
 function emptyMemoryPreface(
   semanticStatus: MemorySemanticStatus = 'disabled',
@@ -1211,6 +1270,8 @@ export async function expandLinkedMemories(
   topN: number,
   repo: MemoryRepository = new AgentMemoryRepository(),
   memoryDir: string = resolveMemoryDirPath(),
+  /** Withheld linked rows must not consume an expansion slot. */
+  admission?: (memory: AgentMemory) => boolean,
 ): Promise<AgentMemory[]> {
   if (topN <= 0) return [];
   const kept = direct.slice(0, topN);
@@ -1285,6 +1346,7 @@ export async function expandLinkedMemories(
         directIds.has(memory.id) ||
         directSourceIds.has(memory.sourceId) ||
         !isMemoryActive(memory, today) ||
+        (admission !== undefined && !admission(memory)) ||
         bySourceId.has(memory.sourceId)
       ) {
         continue;
@@ -1361,13 +1423,20 @@ async function buildLexicalMemoryPreface(
         opts.topN ?? DEFAULT_TOP_N,
         undefined,
         engraphManager.getRetrievalClient(),
+        opts.genericAdmission === true,
       );
       matches = result.memories;
       semanticStatus = result.status;
       semanticHitCount = result.hitCount;
       semanticDiagnostic = result.diagnostic;
     } else {
-      matches = await getRelevantMemories(query, ownerUserId, opts.topN ?? DEFAULT_TOP_N);
+      matches = await getRelevantMemories(
+        query,
+        ownerUserId,
+        opts.topN ?? DEFAULT_TOP_N,
+        undefined,
+        opts.genericAdmission === true,
+      );
     }
   } catch {
     // A retrieval failure must never produce a partial/garbled preface — and the
@@ -1411,6 +1480,13 @@ async function assembleMemoryPreface(
   // memories it scored (never the owner/active/injectable gates).
   const today = currentDate();
   const wanted = ownerUserId == null ? null : ownerUserId;
+  const admitted = (memory: AgentMemory): boolean => {
+    try {
+      return opts.automaticAdmission?.(memory) !== false;
+    } catch {
+      return false;
+    }
+  };
   const passesGate = (memory: AgentMemory): boolean => {
     const score = rerank?.scores.get(memory.id);
     const evidence = retrievalEvidence.get(memory);
@@ -1426,6 +1502,7 @@ async function assembleMemoryPreface(
   matches = matches.filter((memory) => (
     isOwnerVisible(memory.ownerUserId, wanted)
     && isMemoryActive(memory, today)
+    && admitted(memory)
     && passesGate(memory)
   ));
   if (rerank) matches = [...matches].sort(byRerankScore);
@@ -1437,6 +1514,7 @@ async function assembleMemoryPreface(
         opts.topN ?? DEFAULT_TOP_N,
         opts.linkRepository,
         opts.memoryDir,
+        opts.genericAdmission === true ? genericAdmitted : undefined,
       );
     } catch {
       // Link expansion is optional. Exact retrieval remains useful on failure.
@@ -1445,6 +1523,7 @@ async function assembleMemoryPreface(
   matches = matches.filter((memory) => (
     isOwnerVisible(memory.ownerUserId, wanted)
     && isMemoryActive(memory, today)
+    && admitted(memory)
     && passesGate(memory)
   ));
   if (!matches || matches.length === 0) {
@@ -1586,6 +1665,7 @@ async function getEngraphRankOnlyMemories(
   limit: number,
   engraph: EngraphClient,
   repo: MemoryRepository,
+  admission?: (memory: AgentMemory) => boolean,
 ): Promise<{ memories: AgentMemory[]; status: MemorySemanticStatus; hitCount: number }> {
   const wanted = ownerUserId == null ? null : ownerUserId;
   const deadline = Date.now() + getSemanticSearchBudgetMs();
@@ -1614,6 +1694,7 @@ async function getEngraphRankOnlyMemories(
   const bySourceId = new Map<string, AgentMemory[]>();
   for (const memory of joined.value) {
     if (!memory.sourceId || memory.source !== 'obsidian-memory') continue;
+    if (admission && !admission(memory)) continue;
     bySourceId.set(memory.sourceId, [...(bySourceId.get(memory.sourceId) ?? []), memory]);
   }
   const memories: AgentMemory[] = [];
@@ -1643,9 +1724,10 @@ async function gatherRerankPool(
   const wanted = ownerUserId == null ? null : ownerUserId;
   const today = currentDate();
 
+  const generic = opts.genericAdmission === true;
   const ftsPromise = opts.getRelevant
     ? opts.getRelevant(query, ownerUserId, wideN)
-    : getRelevantMemories(query, ownerUserId, wideN);
+    : getRelevantMemories(query, ownerUserId, wideN, undefined, generic);
 
   const engraphPromise: Promise<Awaited<ReturnType<typeof getEngraphRankOnlyMemories>> | null> = (
     getAgentMemoryRetrievalMode() === 'hybrid'
@@ -1657,6 +1739,7 @@ async function gatherRerankPool(
         wideN,
         opts.engraphClient ?? engraphManager.getRetrievalClient(),
         opts.linkRepository ?? new AgentMemoryRepository(),
+        generic ? genericAdmitted : undefined,
       ).catch(() => ({ memories: [], status: 'backend_unavailable' as const, hitCount: 0 }))
     : Promise.resolve(null);
   const [fts, engraphResult] = await Promise.all([ftsPromise, engraphPromise]);
@@ -1672,6 +1755,8 @@ async function gatherRerankPool(
         !isOwnerVisible(memory.ownerUserId, wanted)
         || !isMemoryActive(memory, today)
         || !isAutomaticallyInjectable(memory)
+        // Withheld rows must not consume one of the RERANK_POOL_MAX slots.
+        || (generic && !genericAdmitted(memory))
       ) continue;
       seen.add(memory.id);
       memories.push(memory);

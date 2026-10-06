@@ -1,0 +1,14 @@
+# Dayflow source-only selective patch manifest
+# Base tree: 5da2f764b5f240bb9650c58ce558a32aac2381e1
+# Frozen application bytes: 2026-10-06T00:20:51Z
+# This records source bytes only; it is not a qualification or authority receipt.
+cf118dbff4bcbcc1ba7f89f6bca793ecb1a23b172c74faac02f86722c2da8fa8  apps/api_server/src/integrations/dayflow/service.ts
+43489d403f47f7746cfebcdc82feee4ae090aaf8806af4f0fd20f13019d14f70  apps/api_server/src/integrations/dayflow/memory_client.ts
+4bc0a2a0f69f52d58f145edf60ec7fe55f64687cbb984d93e18d1547ba90c77e  apps/api_server/src/integrations/dayflow/authenticated_memory_client.ts
+8e20842739605fe321d1126adeb25e144711b97a7065271775be0fb9ae040eba  apps/api_server/src/services/memoryVaultWriteService.ts
+cf2daf18e9f478b6fd81d1682ad753d7080ec2fc687fc937bdd4c31347167d46  apps/api_server/src/__tests__/dayflow_qualified_reader.test.ts
+4cb63f7381e4e0f42b4e4cf9776789cfcec938f72bcab3bf29d200a7285012ab  apps/api_server/src/__tests__/dayflow_create_only_writer.test.ts
+a54b32cb044d9b2c285bedb6c85e2ea7a6506beb938715be35b80a05342722cd  apps/api_server/src/server.ts
+72d22a6c56df9e4267c20589432c58031be0fcdb0a2133302de21288a3603d8b  apps/api_server/src/__tests__/dayflow_coordinator_server_composition_contract.test.ts
+f9ad5834159d200d3b2330d034748dca4bb83055d38ebebff75522ec4c785f69  docs/ai/runs/2026-10-05-dayflow-scheduler-receipt-renewal.md
+16262a8526cbe64ad6ac6acc02294a42f05f7952914952696906dc5fa5a3ce34  docs/ai/runs/2026-10-06-dayflow-canonical-renewal-deletion.md

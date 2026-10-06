@@ -75,6 +75,8 @@ type RecordState = Omit<MobileCoordinatorViewState, 'canonicalHistory' | 'canoni
   request?: Promise<boolean>;
   requestToken?: symbol;
   requestKind?: 'open' | 'refresh' | 'send' | 'prepare-plan' | 'continue-plan';
+  /** A qualified event arrived during a scoped operation: one read-only re-read after it settles. */
+  trailingEpoch?: number;
 };
 
 type MobileCoordinatorPlanAttempt =
@@ -250,10 +252,12 @@ export class MobileCoordinatorConversationController {
   private readonly records = new Map<string, RecordState>();
   private readonly controllers = new Map<string, AbortController>();
   private readonly historyControllers = new Map<string, AbortController>();
+  private readonly revalidations = new Map<string, { epoch: number; again: boolean; promise: Promise<boolean> }>();
   private readonly listeners = new Set<() => void>();
   private readonly hydrated = new Set<string>();
   private readonly hydrating = new Map<string, Promise<boolean>>();
   private activeKey = '';
+  private activeClient: object | undefined;
   private activeEpoch = 0;
 
   constructor(
@@ -466,9 +470,17 @@ export class MobileCoordinatorConversationController {
     return request;
   }
 
-  activate(binding: MobileCoordinatorBinding | null | undefined): void {
+  /**
+   * `client` is the current paired-client object. Replacing it for the same
+   * scope fences old reads like a scope change; it is never a storage key,
+   * and the durable journal, pending command and drafts are untouched.
+   */
+  activate(binding: MobileCoordinatorBinding | null | undefined, client?: object | null): void {
     const nextKey = mobileCoordinatorScopeKey(binding);
-    if (nextKey === this.activeKey) return;
+    const clientChanged = nextKey === this.activeKey && Boolean(nextKey) &&
+      Boolean(client) && Boolean(this.activeClient) && client !== this.activeClient;
+    if (client !== undefined) this.activeClient = client ?? undefined;
+    if (nextKey === this.activeKey && !clientChanged) return;
     if (this.activeKey) {
       this.controllers.get(this.activeKey)?.abort();
       this.controllers.delete(this.activeKey);
@@ -479,6 +491,7 @@ export class MobileCoordinatorConversationController {
         previous.request = undefined;
         previous.requestToken = undefined;
         previous.requestKind = undefined;
+        previous.trailingEpoch = undefined;
       }
     }
     this.activeKey = nextKey;
@@ -513,6 +526,7 @@ export class MobileCoordinatorConversationController {
     this.historyControllers.forEach((controller) => controller.abort());
     this.historyControllers.clear();
     this.records.clear();
+    this.revalidations.clear();
     this.hydrated.clear();
     this.hydrating.clear();
     this.activeKey = '';
@@ -679,6 +693,11 @@ export class MobileCoordinatorConversationController {
           latest.request = undefined;
           latest.requestToken = undefined;
           latest.requestKind = undefined;
+          const trailing = latest.trailingEpoch === epoch;
+          latest.trailingEpoch = undefined;
+          if (trailing && this.activeKey === key && this.activeEpoch === epoch && latest.enabled) {
+            queueMicrotask(() => { void this.revalidate(binding); });
+          }
         }
         if (this.controllers.get(key) === controller) this.controllers.delete(key);
       }
@@ -787,6 +806,53 @@ export class MobileCoordinatorConversationController {
     );
     if (refreshed && readCanonicalHistory) void this.loadCanonicalHistory(binding);
     return refreshed;
+  }
+
+  /**
+   * Quiet read-only reconcile after a qualified root event or foreground
+   * return. Never sends, grants, or touches phase/notice/pending command; an
+   * in-flight read gets one trailing re-read, and normal-mode exit, scope
+   * change, disposal or any scoped operation discards its response.
+   */
+  revalidate(binding: MobileCoordinatorBinding): Promise<boolean> {
+    const key = mobileCoordinatorScopeKey(binding);
+    const record = this.records.get(key);
+    const gateway = this.gatewayFor(binding);
+    if (!record?.enabled || !record.conversation || key !== this.activeKey || !gateway) return Promise.resolve(false);
+    const epoch = this.activeEpoch;
+    const running = this.revalidations.get(key);
+    if (running?.epoch === epoch) {
+      running.again = true;
+      return running.promise;
+    }
+    if (record.request) {
+      record.trailingEpoch = epoch;
+      return Promise.resolve(false);
+    }
+    const controller = new AbortController();
+    this.controllers.set(key, controller);
+    const current =() => this.activeKey === key && this.activeEpoch === epoch &&
+      this.controllers.get(key) === controller && this.records.get(key)?.enabled === true;
+    const entry = { epoch, again: false, promise: Promise.resolve(false) };
+    entry.promise = gateway.status({ sessionId: binding.sessionId, projectId: binding.projectId }, controller.signal)
+      .then((result) => {
+        if (!current() || result.kind !== 'status') return false;
+        this.update(key, (next) => installConversation(next, result));
+        return true;
+      })
+      .catch(() => false)
+      .then((refreshed) => {
+        const stillCurrent = current();
+        if (this.controllers.get(key) === controller) this.controllers.delete(key);
+        if (this.revalidations.get(key) === entry) this.revalidations.delete(key);
+        if (stillCurrent) {
+          if (entry.again) void this.revalidate(binding);
+          else void this.loadCanonicalHistory(binding);
+        }
+        return refreshed;
+      });
+    this.revalidations.set(key, entry);
+    return entry.promise;
   }
 
   async send(binding: MobileCoordinatorBinding, message: string): Promise<{ accepted: boolean }> {

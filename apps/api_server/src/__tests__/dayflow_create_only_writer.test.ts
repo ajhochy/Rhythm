@@ -14,6 +14,7 @@ import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { MemoryIndexService } from '../services/memory_index_service';
 import {
   createObservationIfAbsentInVault,
+  forgetCanonicalMemoryById,
   generateUlid,
   MemoryCreateOnlyError,
   renderMemoryNote,
@@ -56,6 +57,12 @@ function canonicalFiles(): string[] {
       name.endsWith('.md') && name.toLowerCase() !== 'index.md',
     ).sort()
     : [];
+}
+
+function deferred<T = void>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
 }
 
 beforeEach(() => {
@@ -102,6 +109,64 @@ describe('Dayflow conditional canonical observation writer', () => {
       canonicalContentHash: created.canonicalContentHash,
     });
     expect(readFileSync(notePath(created), 'utf8')).toBe(before);
+  });
+
+  it('atomically requires an exact existing canonical observation for renewal', async () => {
+    const observation = input();
+    const created = await createObservationIfAbsentInVault(observation, { memoryDir, index });
+    const canonical = notePath(created);
+    const before = readFileSync(canonical, 'utf8');
+
+    const reattested = await createObservationIfAbsentInVault(observation, {
+      memoryDir,
+      index,
+      requireExisting: true,
+    });
+    expect(reattested).toMatchObject({
+      id: created.id,
+      path: created.path,
+      disposition: 'already_present',
+      canonicalContentHash: created.canonicalContentHash,
+    });
+    expect(readFileSync(canonical, 'utf8')).toBe(before);
+
+    const changed = before.replace('Synthetic detail.', 'Changed canonical content.');
+    writeFileSync(canonical, changed);
+    await expect(createObservationIfAbsentInVault(observation, {
+      memoryDir,
+      index,
+      requireExisting: true,
+    })).rejects.toMatchObject({ code: 'MEMORY_CREATE_CONFLICT' });
+    expect(readFileSync(canonical, 'utf8')).toBe(changed);
+
+    const deletionEntered = deferred();
+    const releaseDeletion = deferred();
+    const deletion = forgetCanonicalMemoryById(observation.id, {
+      memoryDir,
+      index,
+      beforeNoteDeletion: async () => {
+        deletionEntered.resolve();
+        await releaseDeletion.promise;
+      },
+    });
+    await deletionEntered.promise;
+    const concurrentRenewals = Promise.allSettled([
+      createObservationIfAbsentInVault(observation, { memoryDir, index, requireExisting: true }),
+      createObservationIfAbsentInVault(observation, { memoryDir, index, requireExisting: true }),
+    ]);
+    releaseDeletion.resolve();
+    await expect(deletion).resolves.toBe(true);
+    const outcomes = await concurrentRenewals;
+    expect(outcomes).toHaveLength(2);
+    for (const outcome of outcomes) {
+      expect(outcome.status).toBe('rejected');
+      if (outcome.status === 'rejected') {
+        expect(outcome.reason).toMatchObject({ code: 'MEMORY_CREATE_CONFLICT' });
+      }
+    }
+    expect(existsSync(canonical)).toBe(false);
+    expect(canonicalFiles()).toEqual([]);
+    expect(await repo.listAsync(undefined, undefined, 20)).toHaveLength(0);
   });
 
   it('refuses a legacy provenance replay without rewriting canonical bytes', async () => {

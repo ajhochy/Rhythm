@@ -8,16 +8,14 @@ import {
 } from '../../services/memoryVaultWriteService';
 import { MemoryIndexService } from '../../services/memory_index_service';
 import type { DayflowObservation } from './types';
-import type { DayflowMemoryClient } from './memory_client';
+import type {
+  DayflowCanonicalObservationInput,
+  DayflowCanonicalObservationReceipt,
+  DayflowMemoryClient,
+} from './memory_client';
 import { DayflowPersistedQualificationAuthority } from './persisted_qualification_authority';
 
-type CreateOnlyInput = {
-  operationId: string;
-  id: string;
-  content: string;
-  sourceId: string;
-  observation: DayflowObservation;
-};
+type CreateOnlyInput = DayflowCanonicalObservationInput;
 
 function sameScope(
   left: ReturnType<DayflowPersistedQualificationAuthority['activeScope']>,
@@ -55,12 +53,22 @@ export class AuthenticatedDayflowMemoryClient implements DayflowMemoryClient {
     return { id: receipt.id };
   }
 
-  async createOnly(input: CreateOnlyInput): Promise<{
-    id: string;
-    disposition: 'created' | 'already_present';
-    canonicalContentHash: string;
-    canonicalSourceKey?: string;
-  }> {
+  async createOnly(input: CreateOnlyInput): Promise<DayflowCanonicalObservationReceipt> {
+    return this.writeCanonicalObservation(input, false);
+  }
+
+  /**
+   * Reattestation must prove the existing canonical observation inside the
+   * vault serialization boundary. It never falls back to a conditional create.
+   */
+  async validateExisting(input: CreateOnlyInput): Promise<DayflowCanonicalObservationReceipt> {
+    return this.writeCanonicalObservation(input, true);
+  }
+
+  private async writeCanonicalObservation(
+    input: CreateOnlyInput,
+    requireExisting: boolean,
+  ): Promise<DayflowCanonicalObservationReceipt> {
     const before = this.authority.activeScope();
     if (!before) throw new Error('Dayflow canonical import has no authenticated source consent.');
     const footnoteId = `dayflow_${createHash('sha256').update(input.sourceId).digest('hex').slice(0, 32)}`;
@@ -87,7 +95,10 @@ export class AuthenticatedDayflowMemoryClient implements DayflowMemoryClient {
         ...(input.observation.observedEnd ? { observed_end: input.observation.observedEnd } : {}),
       }],
       usageWindow: { from: input.observation.dayKey, to: input.observation.dayKey },
-    }, { index });
+    }, {
+      index,
+      ...(requireExisting ? { requireExisting: true } : {}),
+    });
     const after = this.authority.activeScope();
     if (!after || !sameScope(before, after)) {
       throw new Error('Dayflow source consent changed during canonical import.');

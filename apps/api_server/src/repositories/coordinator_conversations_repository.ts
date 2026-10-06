@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { statSync } from 'node:fs';
 import type Database from 'better-sqlite3';
 
 import {
@@ -14,6 +15,10 @@ import {
 } from '../contracts/coordinator_conversation_contract';
 import { COORDINATOR_CONVERSATION_COLUMN } from '../database/coordinator_conversation_schema';
 import { getDb } from '../database/db';
+import { canonicalize } from '../utils/path_containment';
+import { encodeCoordinatorCallbackMarker, parseCoordinatorCallbackMarker } from '../contracts/coordinator_callback_marker';
+import { appendRelayUpsert } from './relay_outbox_repository';
+import { publishCoordinatorChanged, type CoordinatorChangedScope } from '../services/opencode_event_hub';
 
 export interface CoordinatorConversationScope {
   ownerUserId: number;
@@ -72,6 +77,62 @@ export type CoordinatorConversationForegroundSettle =
   | { kind: 'command_conflict'; conversation: CoordinatorConversation }
   | Exclude<CoordinatorConversationRead, { kind: 'found' }>;
 
+/**
+ * One server-owned Coding Workflow action is reserved before the existing
+ * delegation service can create a child. A reserved command is never replayed
+ * because a process could have crossed the child-creation boundary already.
+ */
+export type CoordinatorConversationGoalDelegationReservation =
+  | { kind: 'reserved'; conversation: CoordinatorConversation; goal: CoordinatorConversationGoal }
+  | { kind: 'dispatched_replay'; conversation: CoordinatorConversation; goal: CoordinatorConversationGoal; delegationId: string; childSessionId: string }
+  | { kind: 'uncertain'; conversation: CoordinatorConversation; goal: CoordinatorConversationGoal }
+  | { kind: 'goal_delegation_conflict'; conversation: CoordinatorConversation }
+  | { kind: 'command_conflict'; conversation: CoordinatorConversation }
+  | { kind: 'revision_conflict'; conversation: CoordinatorConversation }
+  | { kind: 'command_limit'; conversation: CoordinatorConversation }
+  | Exclude<CoordinatorConversationRead, { kind: 'found' }>;
+
+export type CoordinatorConversationGoalDelegationSettle =
+  | { kind: 'dispatched'; conversation: CoordinatorConversation; goal: CoordinatorConversationGoal }
+  | { kind: 'dispatched_replay'; conversation: CoordinatorConversation; goal: CoordinatorConversationGoal }
+  | { kind: 'uncertain'; conversation: CoordinatorConversation; goal: CoordinatorConversationGoal }
+  | { kind: 'goal_delegation_conflict'; conversation: CoordinatorConversation }
+  | { kind: 'revision_conflict'; conversation: CoordinatorConversation }
+  | Exclude<CoordinatorConversationRead, { kind: 'found' }>;
+
+/**
+ * Narrow server-only binding for a signed tool call made while an ordinary
+ * C2 foreground turn is active.  It deliberately carries identifiers and the
+ * server-owned directory only: no user/assistant history or prompt body is
+ * read through this path.
+ */
+export interface CoordinatorForegroundMcpSessionScope {
+  ownerUserId: number;
+  sessionId: string;
+  projectId: string;
+  sdkSessionId: string;
+  cwd: string;
+}
+
+export interface CoordinatorForegroundMcpDispatchBinding extends CoordinatorForegroundMcpSessionScope {
+  kind: 'foreground';
+  sdkUserMessageId: string;
+}
+
+/** A one-delegation completion wake whose dispatch was explicitly marked C2. */
+export interface CoordinatorDelegationCallbackMcpDispatchBinding extends CoordinatorForegroundMcpSessionScope {
+  kind: 'delegation_callback';
+  sdkUserMessageId: string;
+  goalId: string;
+  delegationId: string;
+  childSessionId: string;
+  callbackReasonCode: string;
+}
+
+export type CoordinatorMcpDispatchBinding =
+  | CoordinatorForegroundMcpDispatchBinding
+  | CoordinatorDelegationCallbackMcpDispatchBinding;
+
 /** A durable conversation goal may bind exactly one server-created workstream. */
 export type CoordinatorConversationGoalLinkWrite =
   | { kind: 'updated'; conversation: CoordinatorConversation; goal: CoordinatorConversationGoal }
@@ -97,6 +158,15 @@ type SessionRow = {
   coordinator_conversation_json: string | null;
 };
 
+type ForegroundSessionScopeRow = SessionRow & {
+  sdk_session_id: string | null;
+  cwd: string | null;
+  parent_session_id: string | null;
+  is_system: number;
+  category: string;
+  archived_at: string | null;
+};
+
 /**
  * Internal scheduler inventory only. It deliberately returns parsed durable
  * controls rather than JSON bytes, and never creates a root/session/job.
@@ -107,6 +177,21 @@ export interface CoordinatorConversationFiniteReconciliationPage {
 }
 
 const MAX_PRIMARY_ROOT_SCAN = 500;
+const MAX_GOAL_OUTCOMES = 64;
+
+/**
+ * Execution outcome of one dispatched goal's existing delegated child. It is
+ * NOT goal verification: `returned_result_unverified` only means the child
+ * returned without an error, and `unknown` means the link could not be proven.
+ */
+export interface CoordinatorGoalDelegationOutcome {
+  goalId: string;
+  delegationId: string | null;
+  childSessionId: string | null;
+  outcome: 'running' | 'returned_result_unverified' | 'failed' | 'cancelled' | 'unknown';
+  terminalAt: string | null;
+}
+const MCP_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:/@+\-]{0,255}$/;
 
 function nowIso(clock: () => Date): string {
   return clock().toISOString();
@@ -121,6 +206,16 @@ function intentHash(objective: string): string {
 function controlIntentHash(kind: 'status' | 'foreground', message: string): string {
   return createHash('sha256')
     .update(JSON.stringify({ kind, message }))
+    .digest('hex');
+}
+
+function goalDelegationIntentHash(input: {
+  goalId: string;
+  parentSdkSessionId: string;
+  targetAgentConfigId: 'workflow-orchestrator';
+}): string {
+  return createHash('sha256')
+    .update(JSON.stringify({ kind: 'delegate_goal', ...input }))
     .digest('hex');
 }
 
@@ -170,6 +265,192 @@ export class CoordinatorConversationsRepository {
     private readonly clock: () => Date = () => new Date(),
   ) {}
 
+  /**
+   * Resolve only the current dedicated root which owns an SDK session.  This
+   * is an authority lookup for a signed active-tool proof, not an SDK history
+   * lookup and not a way to discover an ordinary chat by caller input.
+   */
+  findForegroundMcpSessionScope(input: {
+    ownerUserId: number;
+    sdkSessionId: string;
+  }): CoordinatorForegroundMcpSessionScope | null {
+    if (
+      !Number.isSafeInteger(input.ownerUserId) || input.ownerUserId <= 0 ||
+      !MCP_IDENTIFIER.test(input.sdkSessionId)
+    ) return null;
+    try {
+      const rows = this.db.prepare(`SELECT id, owner_user_id, project_id, ${COORDINATOR_CONVERSATION_COLUMN},
+          sdk_session_id, cwd, parent_session_id, is_system, category, archived_at
+        FROM agent_sessions
+        WHERE owner_user_id=? AND sdk_session_id=?
+          AND parent_session_id IS NULL AND is_system=0 AND category='chat'
+          AND archived_at IS NULL
+        LIMIT 2`).all(input.ownerUserId, input.sdkSessionId) as ForegroundSessionScopeRow[];
+      if (rows.length !== 1) return null;
+      const row = rows[0];
+      const parsed = parseRow(row);
+      if (
+        parsed.kind !== 'found' || !parsed.conversation.primaryOwnerRoot ||
+        row.sdk_session_id !== input.sdkSessionId || typeof row.cwd !== 'string' ||
+        row.cwd.length === 0 || row.cwd.length > 4_096 ||
+        row.parent_session_id !== null || row.is_system !== 0 || row.category !== 'chat' ||
+        row.archived_at !== null
+      ) return null;
+      return {
+        ownerUserId: parsed.conversation.ownerUserId,
+        sessionId: parsed.conversation.sessionId,
+        projectId: parsed.conversation.projectId,
+        sdkSessionId: row.sdk_session_id,
+        cwd: row.cwd,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Join a live active native user message to its one route-authenticated C2
+   * foreground dispatch. Pending, rejected, unknown, ordinary and managed
+   * dispatches are intentionally not accepted as this authority.
+   */
+  findForegroundMcpDispatch(input: CoordinatorForegroundMcpSessionScope & {
+    sdkUserMessageId: string;
+  }): CoordinatorForegroundMcpDispatchBinding | null {
+    if (!MCP_IDENTIFIER.test(input.sdkUserMessageId)) return null;
+    const current = this.findForegroundMcpSessionScope(input);
+    if (
+      !current || current.sessionId !== input.sessionId || current.projectId !== input.projectId ||
+      current.cwd !== input.cwd
+    ) return null;
+    try {
+      const rows = this.db.prepare(`SELECT d.id
+        FROM agent_turn_dispatches d
+        WHERE d.session_id=? AND d.sdk_session_id=? AND d.sdk_user_message_id=?
+          AND d.origin='prompt_api' AND d.requested_source='session'
+          AND d.route_authed=1 AND d.reason_code='c2_foreground'
+          AND d.outcome='accepted'
+        LIMIT 2`).all(
+        current.sessionId,
+        current.sdkSessionId,
+        input.sdkUserMessageId,
+      ) as Array<{ id: string }>;
+      return rows.length === 1
+        ? { ...current, kind: 'foreground', sdkUserMessageId: input.sdkUserMessageId }
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * An async completion may carry a coordinator callback marker only when the
+   * batch has exactly one previously bound Coding Workflow child. This keeps a
+   * generic/mixed completion wake from acquiring C2 model-control authority.
+   */
+  coordinatorDelegationCallbackReason(input: {
+    parentSessionId: string;
+    parentSdkSessionId: string;
+    delegationId: string;
+    childSessionId: string;
+    targetAgentConfigId: string;
+  }): string | null {
+    if (
+      !MCP_IDENTIFIER.test(input.parentSessionId) || !MCP_IDENTIFIER.test(input.parentSdkSessionId) ||
+      !MCP_IDENTIFIER.test(input.delegationId) || !MCP_IDENTIFIER.test(input.childSessionId) ||
+      input.targetAgentConfigId !== 'workflow-orchestrator'
+    ) return null;
+    try {
+      const rows = this.db.prepare(`SELECT id, owner_user_id, project_id, ${COORDINATOR_CONVERSATION_COLUMN},
+          sdk_session_id, cwd, parent_session_id, is_system, category, archived_at
+        FROM agent_sessions
+        WHERE id=? AND sdk_session_id=? AND parent_session_id IS NULL AND is_system=0
+          AND category='chat' AND archived_at IS NULL
+        LIMIT 2`).all(input.parentSessionId, input.parentSdkSessionId) as ForegroundSessionScopeRow[];
+      if (rows.length !== 1) return null;
+      const row = rows[0];
+      const parsed = parseRow(row);
+      if (
+        parsed.kind !== 'found' || !parsed.conversation.primaryOwnerRoot ||
+        parsed.conversation.sessionId !== input.parentSessionId || row.sdk_session_id !== input.parentSdkSessionId
+      ) return null;
+      const command = parsed.conversation.commandDedupe.find((candidate) =>
+        candidate.kind === 'delegate_goal' && candidate.state === 'dispatched' &&
+        candidate.parentSdkSessionId === input.parentSdkSessionId &&
+        candidate.targetAgentConfigId === input.targetAgentConfigId &&
+        candidate.delegationId === input.delegationId && candidate.childSessionId === input.childSessionId,
+      );
+      return command ? encodeCoordinatorCallbackMarker(input.delegationId) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Resolve the callback authority only from an exact C2-marked completion
+   * dispatch plus the durable parent/child/delegation binding. It deliberately
+   * refuses all generic or mixed async completion turns.
+   */
+  findDelegationCallbackMcpDispatch(input: CoordinatorForegroundMcpSessionScope & {
+    sdkUserMessageId: string;
+  }): CoordinatorDelegationCallbackMcpDispatchBinding | null {
+    if (!MCP_IDENTIFIER.test(input.sdkUserMessageId)) return null;
+    const current = this.findForegroundMcpSessionScope(input);
+    if (
+      !current || current.sessionId !== input.sessionId || current.projectId !== input.projectId ||
+      current.cwd !== input.cwd
+    ) return null;
+    try {
+      const rows = this.db.prepare(`SELECT d.reason_code
+        FROM agent_turn_dispatches d
+        WHERE d.session_id=? AND d.sdk_session_id=? AND d.sdk_user_message_id=?
+          AND d.origin='delegation_completion' AND d.requested_source='agent_config'
+          AND d.outcome='accepted' AND d.reason_code LIKE 'c2_goal_callback:%'
+        LIMIT 2`).all(
+        current.sessionId,
+        current.sdkSessionId,
+        input.sdkUserMessageId,
+      ) as Array<{ reason_code: string | null }>;
+      const reason = rows.length === 1 && typeof rows[0].reason_code === 'string'
+        ? rows[0].reason_code
+        : null;
+      // Same strict parser the provenance insert uses; the marker is shape, not authority.
+      const delegationId = parseCoordinatorCallbackMarker(reason);
+      if (!reason || delegationId === null || !MCP_IDENTIFIER.test(delegationId)) return null;
+      const record = this.read({
+        ownerUserId: current.ownerUserId,
+        projectId: current.projectId,
+        sessionId: current.sessionId,
+      });
+      if (record.kind !== 'found' || !record.conversation.primaryOwnerRoot) return null;
+      const command = record.conversation.commandDedupe.find((candidate): candidate is Extract<
+        CoordinatorConversationCommand,
+        { kind: 'delegate_goal' }
+      > => (
+        candidate.kind === 'delegate_goal' && candidate.state === 'dispatched' &&
+        candidate.parentSdkSessionId === current.sdkSessionId && candidate.delegationId === delegationId &&
+        candidate.targetAgentConfigId === 'workflow-orchestrator' && candidate.childSessionId !== null
+      ));
+      if (!command || !command.childSessionId) return null;
+      const delegationRows = this.db.prepare(`SELECT id
+        FROM agent_async_delegations
+        WHERE id=? AND parent_session_id=? AND child_session_id=?
+          AND target_agent_config_id='workflow-orchestrator' AND status IN ('waking', 'notified')
+        LIMIT 2`).all(delegationId, current.sessionId, command.childSessionId) as Array<{ id: string }>;
+      if (delegationRows.length !== 1) return null;
+      return {
+        ...current,
+        kind: 'delegation_callback',
+        sdkUserMessageId: input.sdkUserMessageId,
+        goalId: command.goalId,
+        delegationId,
+        childSessionId: command.childSessionId,
+        callbackReasonCode: reason,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   private session(scope: CoordinatorConversationScope): SessionRow | null {
     try {
       const row = this.db.prepare(`SELECT id, owner_user_id, project_id, ${COORDINATOR_CONVERSATION_COLUMN}
@@ -212,6 +493,136 @@ export class CoordinatorConversationsRepository {
 
   get(scope: CoordinatorConversationScope): CoordinatorConversationRead {
     return this.read(scope);
+  }
+
+  /**
+   * Read-only evidence for the identity-only mobile change hint: the CURRENT
+   * owned, nonarchived, nonchild, nonsystem ordinary chat that is the owner's
+   * primary root, in a nonarchived project with a usable canonical directory.
+   * It needs no SDK binding (an inert primary qualifies) and is never an action
+   * grant. Optional `ownerUserId`/`projectId` must match exactly. Any miss,
+   * malformed row or failure is null.
+   */
+  findCanonicalNotificationScope(input: {
+    sessionId: string;
+    ownerUserId?: number;
+    projectId?: string;
+  }): (CoordinatorChangedScope & { ownerUserId: number }) | null {
+    try {
+      const row = this.db.prepare(`SELECT s.id, s.owner_user_id, s.project_id, s.${COORDINATOR_CONVERSATION_COLUMN},
+          p.cwd AS project_cwd
+        FROM agent_sessions s JOIN projects p ON p.id = s.project_id
+        WHERE s.id=? AND s.parent_session_id IS NULL AND s.is_system=0 AND s.category='chat'
+          AND s.archived_at IS NULL AND p.archived_at IS NULL
+        LIMIT 1`).get(input.sessionId) as (SessionRow & { project_cwd: string }) | undefined;
+      if (!row) return null;
+      if (input.ownerUserId !== undefined && row.owner_user_id !== input.ownerUserId) return null;
+      if (input.projectId !== undefined && row.project_id !== input.projectId) return null;
+      const parsed = parseRow(row);
+      if (parsed.kind !== 'found' || parsed.conversation.primaryOwnerRoot !== true) return null;
+      const directory = canonicalize(row.project_cwd);
+      if (!statSync(directory).isDirectory()) return null;
+      return {
+        directory,
+        projectId: row.project_id,
+        conversationId: parsed.conversation.id,
+        localSessionId: row.id,
+        ownerUserId: row.owner_user_id,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Relay-side, read-only identity of a MIRRORED primary root: the exact
+   * nonarchived, nonchild, nonsystem chat row with a valid parsed conversation
+   * that is its owner's `primaryOwnerRoot`. Unlike the Mac lookup it needs no
+   * projects row and no filesystem (the relay has neither); it is an eventual
+   * replica read, advisory for a body-free hint and never an authority grant.
+   */
+  findMirroredPrimaryRoot(sessionId: string): { ownerUserId: number; projectId: string; conversationId: string; localSessionId: string } | null {
+    try {
+      const row = this.db.prepare(`SELECT id, owner_user_id, project_id, ${COORDINATOR_CONVERSATION_COLUMN}
+        FROM agent_sessions
+        WHERE id=? AND parent_session_id IS NULL AND is_system=0 AND category='chat' AND archived_at IS NULL
+        LIMIT 1`).get(sessionId) as SessionRow | undefined;
+      if (!row || typeof row.project_id !== 'string' || row.project_id.length === 0) return null;
+      const parsed = parseRow(row);
+      if (parsed.kind !== 'found' || parsed.conversation.primaryOwnerRoot !== true) return null;
+      return {
+        ownerUserId: row.owner_user_id,
+        projectId: row.project_id,
+        conversationId: parsed.conversation.id,
+        localSessionId: row.id,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Bounded, read-only join of each DISPATCHED goal delegation to the existing
+   * async-delegation row and child session. It re-proves the current
+   * owner/project/primary root, its SDK binding, the exact delegation↔child
+   * link and the child's parent/owner/project on every call, and projects only
+   * identities and a coarse outcome — never output bodies, never a state
+   * change, retry or verification. Anything unprovable is `unknown`, which is
+   * deliberately different from `failed`.
+   */
+  listGoalDelegationOutcomes(scope: CoordinatorConversationScope): CoordinatorGoalDelegationOutcome[] {
+    const read = this.read(scope);
+    if (read.kind !== 'found') return [];
+    const commands = read.conversation.commandDedupe.flatMap((command) =>
+      command.kind === 'delegate_goal' && command.state === 'dispatched' ? [command] : []);
+    if (commands.length === 0) return [];
+    let rootSdkSessionId: string | null = null;
+    try {
+      const root = this.db.prepare(`SELECT sdk_session_id, profile_id FROM agent_sessions
+        WHERE id=? AND owner_user_id=? AND project_id=? AND parent_session_id IS NULL
+          AND is_system=0 AND category='chat' AND archived_at IS NULL`)
+        .get(scope.sessionId, scope.ownerUserId, scope.projectId) as
+        { sdk_session_id: string | null; profile_id: string | null } | undefined;
+      if (root && read.conversation.primaryOwnerRoot && root.profile_id) rootSdkSessionId = root.sdk_session_id;
+    } catch {
+      rootSdkSessionId = null;
+    }
+    return commands.slice(0, MAX_GOAL_OUTCOMES).map((command): CoordinatorGoalDelegationOutcome => {
+      const unknown: CoordinatorGoalDelegationOutcome = {
+        goalId: command.goalId,
+        delegationId: command.delegationId,
+        childSessionId: command.childSessionId,
+        outcome: 'unknown',
+        terminalAt: null,
+      };
+      if (!rootSdkSessionId || rootSdkSessionId !== command.parentSdkSessionId || !command.delegationId || !command.childSessionId) {
+        return unknown;
+      }
+      try {
+        const row = this.db.prepare(`SELECT d.status, d.completed_at, d.notified_at,
+            d.error_text IS NOT NULL AS has_error
+          FROM agent_async_delegations d JOIN agent_sessions c ON c.id = d.child_session_id
+          WHERE d.id=? AND d.child_session_id=? AND d.parent_session_id=?
+            AND d.target_agent_config_id='workflow-orchestrator'
+            AND c.parent_session_id=? AND c.owner_user_id=? AND c.project_id=?
+          LIMIT 1`).get(
+          command.delegationId, command.childSessionId, scope.sessionId,
+          scope.sessionId, scope.ownerUserId, scope.projectId,
+        ) as { status: string; completed_at: string | null; notified_at: string | null; has_error: number } | undefined;
+        if (!row) return unknown;
+        const terminalAt = row.completed_at ?? row.notified_at;
+        if (row.status === 'dispatched') return { ...unknown, outcome: 'running' };
+        if (row.status === 'failed' || row.status === 'cancelled') {
+          return { ...unknown, outcome: row.status === 'failed' ? 'failed' : 'cancelled', terminalAt };
+        }
+        if (row.status === 'completed' || row.status === 'waking' || row.status === 'notified') {
+          return { ...unknown, outcome: row.has_error ? 'failed' : 'returned_result_unverified', terminalAt };
+        }
+        return unknown;
+      } catch {
+        return unknown;
+      }
+    });
   }
 
   /**
@@ -313,7 +724,7 @@ export class CoordinatorConversationsRepository {
     options: { allowUnboundSdk?: boolean } = {},
   ): CoordinatorConversationRead {
     try {
-      return this.db.transaction((): CoordinatorConversationRead => {
+      return this.outer((): CoordinatorConversationRead => {
         const existing = this.findPrimaryOwnerRoot(scope.ownerUserId);
         if (existing.kind !== 'not_found') return existing;
         const boundSdkClause = options.allowUnboundSdk ? '' : ' AND sdk_session_id IS NOT NULL';
@@ -354,8 +765,12 @@ export class CoordinatorConversationsRepository {
           JSON.stringify(next), next.updatedAt, scope.sessionId, scope.ownerUserId, scope.projectId,
           row.coordinator_conversation_json,
         ).changes;
+        if (changed === 1) {
+          appendRelayUpsert(this.db, 'agent_sessions', scope.sessionId);
+          this.markCommitted(scope);
+        }
         return changed === 1 ? { kind: 'found', conversation: next } : this.findPrimaryOwnerRoot(scope.ownerUserId);
-      })();
+      });
     } catch {
       return { kind: 'schema_unavailable' };
     }
@@ -372,7 +787,7 @@ export class CoordinatorConversationsRepository {
     createSession: () => { id: string };
   }): CoordinatorConversationPrimaryRootWrite {
     try {
-      return this.db.transaction((): CoordinatorConversationPrimaryRootWrite => {
+      return this.outer((): CoordinatorConversationPrimaryRootWrite => {
         const existing = this.findPrimaryOwnerRoot(input.ownerUserId);
         if (existing.kind === 'found') return { kind: 'replay', conversation: existing.conversation };
         if (existing.kind !== 'not_found') return existing;
@@ -393,7 +808,7 @@ export class CoordinatorConversationsRepository {
           throw new Error('primary root changed during creation');
         }
         return { kind: 'created', conversation: designated.conversation };
-      })();
+      });
     } catch {
       return { kind: 'schema_unavailable' };
     }
@@ -470,7 +885,7 @@ export class CoordinatorConversationsRepository {
   }): CoordinatorConversationGoalWrite {
     const hash = intentHash(input.objective);
     try {
-      return this.db.transaction(() => this.addGoalInternal(input, input.message, true))();
+      return this.outer(() => this.addGoalInternal(input, input.message, true));
     } catch (error) {
       if (error instanceof ConversationTranscriptUnavailable) return { kind: 'schema_unavailable' };
       if (error instanceof ConversationCommandRace) return this.goalReread(input, hash);
@@ -569,7 +984,7 @@ export class CoordinatorConversationsRepository {
   }): CoordinatorConversationStatusControlWrite {
     const hash = controlIntentHash('status', input.message);
     try {
-      return this.db.transaction(() => {
+      return this.outer(() => {
         const snapshot = this.record(input);
         const current = snapshot.result;
         if (current.kind !== 'found') return current;
@@ -598,7 +1013,7 @@ export class CoordinatorConversationsRepository {
         };
         if (!this.saveCurrent(input, snapshot.serialized!, next)) throw new ConversationCommandRace();
         return { kind: 'stored' as const, conversation: next, messageId };
-      })();
+      });
     } catch (error) {
       if (error instanceof ConversationTranscriptUnavailable) return { kind: 'schema_unavailable' };
       if (!(error instanceof ConversationCommandRace)) return { kind: 'schema_unavailable' };
@@ -715,6 +1130,163 @@ export class CoordinatorConversationsRepository {
       : { kind: 'revision_conflict', conversation: reread.conversation };
   }
 
+  /**
+   * Reserve the one existing Coding Workflow delegation that can be attached
+   * to a captured coordinator goal. The target is deliberately fixed here;
+   * callers cannot select a profile, prompt, cwd, worktree, model, or rule.
+   */
+  reserveGoalDelegation(input: CoordinatorConversationScope & {
+    expectedControlRevision: number;
+    commandKey: string;
+    goalId: string;
+    parentSdkSessionId: string;
+  }): CoordinatorConversationGoalDelegationReservation {
+    const snapshot = this.record(input);
+    const current = snapshot.result;
+    if (current.kind !== 'found') return current;
+    const goal = current.conversation.goals.find((candidate) => candidate.id === input.goalId);
+    const targetAgentConfigId = 'workflow-orchestrator' as const;
+    if (!goal || !MCP_IDENTIFIER.test(input.parentSdkSessionId)) {
+      return { kind: 'goal_delegation_conflict', conversation: current.conversation };
+    }
+    const hash = goalDelegationIntentHash({
+      goalId: goal.id,
+      parentSdkSessionId: input.parentSdkSessionId,
+      targetAgentConfigId,
+    });
+    const matching = current.conversation.commandDedupe.find((command) => command.key === input.commandKey);
+    if (matching) {
+      if (
+        matching.kind !== 'delegate_goal' || matching.intentHash !== hash ||
+        matching.goalId !== goal.id || matching.parentSdkSessionId !== input.parentSdkSessionId ||
+        matching.targetAgentConfigId !== targetAgentConfigId
+      ) return { kind: 'command_conflict', conversation: current.conversation };
+      if (matching.state === 'dispatched' && matching.delegationId && matching.childSessionId) {
+        return {
+          kind: 'dispatched_replay', conversation: current.conversation, goal,
+          delegationId: matching.delegationId, childSessionId: matching.childSessionId,
+        };
+      }
+      return { kind: 'uncertain', conversation: current.conversation, goal };
+    }
+    if (current.conversation.controlRevision !== input.expectedControlRevision) {
+      return { kind: 'revision_conflict', conversation: current.conversation };
+    }
+    if (
+      goal.state !== 'captured' || goal.linkedWorkstreamId !== null ||
+      current.conversation.commandDedupe.some((command) =>
+        command.kind === 'delegate_goal' && command.goalId === goal.id) ||
+      current.conversation.commandDedupe.length >= MAX_COORDINATOR_CONVERSATION_COMMANDS
+    ) return {
+      kind: current.conversation.commandDedupe.length >= MAX_COORDINATOR_CONVERSATION_COMMANDS
+        ? 'command_limit'
+        : 'goal_delegation_conflict',
+      conversation: current.conversation,
+    };
+    const next: CoordinatorConversation = {
+      ...current.conversation,
+      controlRevision: current.conversation.controlRevision + 1,
+      commandDedupe: [...current.conversation.commandDedupe, {
+        key: input.commandKey,
+        intentHash: hash,
+        kind: 'delegate_goal',
+        goalId: goal.id,
+        parentSdkSessionId: input.parentSdkSessionId,
+        targetAgentConfigId,
+        state: 'reserved',
+        delegationId: null,
+        childSessionId: null,
+      }],
+      updatedAt: nowIso(this.clock),
+    };
+    if (this.saveCurrent(input, snapshot.serialized!, next)) {
+      return { kind: 'reserved', conversation: next, goal };
+    }
+    const reread = this.read(input);
+    if (reread.kind !== 'found') return reread;
+    const raced = reread.conversation.commandDedupe.find((command) => command.key === input.commandKey);
+    if (
+      raced?.kind === 'delegate_goal' && raced.intentHash === hash && raced.goalId === goal.id &&
+      raced.parentSdkSessionId === input.parentSdkSessionId && raced.targetAgentConfigId === targetAgentConfigId
+    ) {
+      if (raced.state === 'dispatched' && raced.delegationId && raced.childSessionId) {
+        return {
+          kind: 'dispatched_replay', conversation: reread.conversation, goal,
+          delegationId: raced.delegationId, childSessionId: raced.childSessionId,
+        };
+      }
+      return { kind: 'uncertain', conversation: reread.conversation, goal };
+    }
+    return raced
+      ? { kind: 'command_conflict', conversation: reread.conversation }
+      : { kind: 'revision_conflict', conversation: reread.conversation };
+  }
+
+  /**
+   * Persist the exact child/delegation receipt only while the reservation's
+   * current root control epoch still holds. A child that crosses an unknown
+   * boundary is deliberately left reserved/uncertain rather than replayed.
+   */
+  settleGoalDelegation(input: CoordinatorConversationScope & {
+    expectedControlRevision: number;
+    commandKey: string;
+    goalId: string;
+    outcome: 'dispatched' | 'uncertain';
+    delegationId?: string;
+    childSessionId?: string;
+  }): CoordinatorConversationGoalDelegationSettle {
+    const snapshot = this.record(input);
+    const current = snapshot.result;
+    if (current.kind !== 'found') return current;
+    const goal = current.conversation.goals.find((candidate) => candidate.id === input.goalId);
+    const command = current.conversation.commandDedupe.find((candidate) => candidate.key === input.commandKey);
+    if (!goal || !command || command.kind !== 'delegate_goal' || command.goalId !== goal.id) {
+      return { kind: 'goal_delegation_conflict', conversation: current.conversation };
+    }
+    if (command.state === 'dispatched') {
+      return { kind: 'dispatched_replay', conversation: current.conversation, goal };
+    }
+    if (command.state === 'uncertain') {
+      return { kind: 'uncertain', conversation: current.conversation, goal };
+    }
+    if (current.conversation.controlRevision !== input.expectedControlRevision) {
+      return { kind: 'revision_conflict', conversation: current.conversation };
+    }
+    if (
+      input.outcome === 'dispatched' &&
+      (!input.delegationId || !input.childSessionId || !MCP_IDENTIFIER.test(input.delegationId) || !MCP_IDENTIFIER.test(input.childSessionId))
+    ) return { kind: 'goal_delegation_conflict', conversation: current.conversation };
+    const nextCommand: CoordinatorConversationCommand = input.outcome === 'dispatched'
+      ? {
+        ...command,
+        state: 'dispatched',
+        delegationId: input.delegationId!,
+        childSessionId: input.childSessionId!,
+      }
+      : { ...command, state: 'uncertain' };
+    const next: CoordinatorConversation = {
+      ...current.conversation,
+      commandDedupe: current.conversation.commandDedupe.map((candidate) =>
+        candidate.key === command.key ? nextCommand : candidate),
+      updatedAt: nowIso(this.clock),
+    };
+    if (this.saveCurrent(input, snapshot.serialized!, next)) {
+      return { kind: input.outcome, conversation: next, goal };
+    }
+    const reread = this.read(input);
+    if (reread.kind !== 'found') return reread;
+    const raced = reread.conversation.commandDedupe.find((candidate) => candidate.key === input.commandKey);
+    const racedGoal = reread.conversation.goals.find((candidate) => candidate.id === input.goalId);
+    if (!racedGoal || raced?.kind !== 'delegate_goal' || raced.goalId !== input.goalId) {
+      return { kind: 'goal_delegation_conflict', conversation: reread.conversation };
+    }
+    return raced.state === 'dispatched'
+      ? { kind: 'dispatched_replay', conversation: reread.conversation, goal: racedGoal }
+      : raced.state === 'uncertain'
+        ? { kind: 'uncertain', conversation: reread.conversation, goal: racedGoal }
+        : { kind: 'revision_conflict', conversation: reread.conversation };
+  }
+
   private appendCanonicalUserInput(scope: CoordinatorConversationScope, message: string): number {
     try {
       const result = this.db.prepare(`INSERT INTO agent_session_messages
@@ -751,7 +1323,11 @@ export class CoordinatorConversationsRepository {
         ? { kind: 'replay', conversation: current.conversation, goal }
         : { kind: 'goal_link_conflict', conversation: current.conversation };
     }
-    if (goal.state !== 'captured' || goal.linkedWorkstreamId !== null) {
+    if (
+      goal.state !== 'captured' || goal.linkedWorkstreamId !== null ||
+      current.conversation.commandDedupe.some((command) =>
+        command.kind === 'delegate_goal' && command.goalId === goal.id)
+    ) {
       return { kind: 'goal_link_conflict', conversation: current.conversation };
     }
     if (current.conversation.controlRevision !== input.expectedControlRevision) {
@@ -974,27 +1550,90 @@ export class CoordinatorConversationsRepository {
       const permissionPredicate = permission === null || permission === undefined
         ? ''
         : ' AND profile_id=? AND permission_mode=? AND approval_bypass_explicit=?';
-      return this.db.prepare(`UPDATE agent_sessions
+      // The CAS and the root's agent_sessions outbox record commit together;
+      // only a write that actually changed the row is reported as committed.
+      const changed = this.db.transaction((): boolean => {
+        const applied = this.db.prepare(`UPDATE agent_sessions
           SET ${COORDINATOR_CONVERSATION_COLUMN}=?, updated_at=?
         WHERE id=? AND owner_user_id=? AND project_id=?
           AND parent_session_id IS NULL AND is_system=0 AND category='chat'
           AND ${COORDINATOR_CONVERSATION_COLUMN} IS ?${permissionPredicate}`).run(
-        JSON.stringify(next),
-        next.updatedAt,
-        scope.sessionId,
-        scope.ownerUserId,
-        scope.projectId,
-        currentSerialized,
-        ...(permission === null || permission === undefined
-          ? []
-          : [
-            expectedAuthority!.profileId,
-            permission.parent.permissionMode,
-            permission.parent.approvalBypassExplicit ? 1 : 0,
-          ]),
-      ).changes === 1;
+          JSON.stringify(next),
+          next.updatedAt,
+          scope.sessionId,
+          scope.ownerUserId,
+          scope.projectId,
+          currentSerialized,
+          ...(permission === null || permission === undefined
+            ? []
+            : [
+              expectedAuthority!.profileId,
+              permission.parent.permissionMode,
+              permission.parent.approvalBypassExplicit ? 1 : 0,
+            ]),
+        ).changes === 1;
+        if (applied) appendRelayUpsert(this.db, 'agent_sessions', scope.sessionId);
+        return applied;
+      })();
+      if (changed) this.markCommitted(scope);
+      return changed;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Canonical-change hint bookkeeping. A committed write is published only
+   * after the OUTERMOST transaction returns (`outer`), and only for writes that
+   * actually changed a row. Inside a transaction this repository does not own
+   * the commit is unprovable, so nothing is recorded (silent, never early).
+   */
+  private notifyDepth = 0;
+  private readonly pendingCommits = new Map<string, CoordinatorConversationScope>();
+
+  private markCommitted(scope: CoordinatorConversationScope): void {
+    if (this.notifyDepth > 0) {
+      this.pendingCommits.set(scope.sessionId, scope);
+      return;
+    }
+    if (this.db.inTransaction) return;
+    this.publishCommitted(scope);
+  }
+
+  private publishCommitted(scope: CoordinatorConversationScope): void {
+    try {
+      const target = this.findCanonicalNotificationScope(scope);
+      if (target) publishCoordinatorChanged(target);
+    } catch {
+      // A failed notification never undoes, repeats or misreports the commit.
+    }
+  }
+
+  private outer<T>(work: () => T): T {
+    const top = this.notifyDepth === 0;
+    // Captured BEFORE this repository opens its own transaction/savepoint: if a
+    // caller already owns one, the savepoint returning proves nothing about the
+    // real commit, so this invocation can never publish.
+    const callerOwned = top && this.db.inTransaction;
+    this.notifyDepth += 1;
+    let committed = false;
+    try {
+      const result = this.db.transaction(work)();
+      committed = true;
+      return result;
+    } finally {
+      this.notifyDepth -= 1;
+      if (top) {
+        // Always discard the batch, so an unowned or failed one can neither
+        // escape a rollback nor leak into a later independent operation.
+        const batch = [...this.pendingCommits.values()];
+        this.pendingCommits.clear();
+        // Only a successful repository-owned OUTERMOST commit publishes, and
+        // only once no transaction remains open.
+        if (committed && !callerOwned && !this.db.inTransaction) {
+          for (const scope of batch) this.publishCommitted(scope);
+        }
+      }
     }
   }
 

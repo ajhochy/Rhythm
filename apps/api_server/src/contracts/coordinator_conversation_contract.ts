@@ -10,12 +10,13 @@ import type { NativeWorkstreamJobReason } from '../shared_agents/native_workstre
  * Dayflow body/title/URL, task notes, or worker prose.
  */
 /**
- * Version 3 adds durable, transcript-backed user-control acknowledgements.
- * They are normal input rows in the existing session transcript, never
- * fabricated SDK or assistant messages. Versions 1 and 2 remain readable
- * below so an accepted C1/C2 root is never treated as blank after upgrade.
+ * Version 4 adds a durable, one-shot correlation from a captured goal to the
+ * existing Coding Workflow async-delegation record. It stores identifiers and
+ * state only: never delegated prose, a child transcript, or a synthetic root
+ * message. Version 3's transcript-backed user controls remain readable so an
+ * accepted C1/C2 root is never treated as blank after upgrade.
  */
-export const COORDINATOR_CONVERSATION_SCHEMA_VERSION = 3 as const;
+export const COORDINATOR_CONVERSATION_SCHEMA_VERSION = 4 as const;
 export const COORDINATOR_CONVERSATION_TIME_ZONE = 'America/Los_Angeles' as const;
 export const MAX_COORDINATOR_CONVERSATION_GOALS = 100;
 export const MAX_COORDINATOR_CONVERSATION_COMMANDS = 100;
@@ -77,6 +78,24 @@ export type CoordinatorConversationCommand =
     intentHash: string;
     kind: 'foreground';
     state: 'reserved' | 'accepted' | 'uncertain';
+  }
+  /**
+   * Server-only correlation for one existing Coding Workflow async child.
+   * The model chooses only a previously captured goal id; target/profile,
+   * parent SDK identity, and returned durable delegation ids are all derived
+   * and checked by the server. `reserved`/`uncertain` deliberately withhold
+   * replay after an interrupted dispatch boundary.
+   */
+  | {
+    key: string;
+    intentHash: string;
+    kind: 'delegate_goal';
+    goalId: string;
+    parentSdkSessionId: string;
+    targetAgentConfigId: 'workflow-orchestrator';
+    state: 'reserved' | 'dispatched' | 'uncertain';
+    delegationId: string | null;
+    childSessionId: string | null;
   };
 
 export interface CoordinatorConversationModelPreference {
@@ -193,7 +212,7 @@ export interface CoordinatorConversationPermissionAuthority {
 }
 
 export interface CoordinatorConversation {
-  schemaVersion: 3;
+  schemaVersion: 4;
   id: string;
   /** Existing, root chat session; no engine/SDK id is stored here. */
   sessionId: string;
@@ -1097,8 +1116,9 @@ export function parseStoredCoordinatorConversation(value: unknown): CoordinatorC
   assertStored(plain(value), 'record');
   const legacy = value.schemaVersion === 1;
   const schema2 = value.schemaVersion === 2;
+  const schema3 = value.schemaVersion === 3;
   const current = value.schemaVersion === COORDINATOR_CONVERSATION_SCHEMA_VERSION;
-  assertStored(legacy || schema2 || current, 'schema version');
+  assertStored(legacy || schema2 || schema3 || current, 'schema version');
   assertStored(exactKeys(value, legacy
     ? [
       'schemaVersion', 'id', 'sessionId', 'ownerUserId', 'projectId', 'controlRevision', 'goals',
@@ -1191,17 +1211,53 @@ export function parseStoredCoordinatorConversation(value: unknown): CoordinatorC
         messageId: candidate.messageId as number,
       };
     }
-    assertStored(exactKeys(candidate, ['key', 'intentHash', 'kind', 'state']), 'foreground command keys');
+    if (candidate.kind === 'foreground') {
+      assertStored(exactKeys(candidate, ['key', 'intentHash', 'kind', 'state']), 'foreground command keys');
+      assertStored(
+        candidate.state === 'reserved' || candidate.state === 'accepted' || candidate.state === 'uncertain',
+        'foreground command state',
+      );
+      return {
+        key: candidate.key,
+        intentHash: candidate.intentHash,
+        kind: 'foreground',
+        state: candidate.state as 'reserved' | 'accepted' | 'uncertain',
+      };
+    }
+    assertStored(current && candidate.kind === 'delegate_goal', 'goal delegation kind');
+    assertStored(exactKeys(candidate, [
+      'key', 'intentHash', 'kind', 'goalId', 'parentSdkSessionId', 'targetAgentConfigId',
+      'state', 'delegationId', 'childSessionId',
+    ]), 'goal delegation keys');
+    assertStored(typeof candidate.goalId === 'string' && byGoalId.has(candidate.goalId), 'goal delegation target');
     assertStored(
-      candidate.kind === 'foreground' &&
-      (candidate.state === 'reserved' || candidate.state === 'accepted' || candidate.state === 'uncertain'),
-      'foreground command state',
+      typeof candidate.parentSdkSessionId === 'string' && candidate.parentSdkSessionId.length > 0 &&
+      candidate.parentSdkSessionId.length <= 256,
+      'goal delegation parent sdk session',
+    );
+    assertStored(candidate.targetAgentConfigId === 'workflow-orchestrator', 'goal delegation target profile');
+    assertStored(
+      candidate.state === 'reserved' || candidate.state === 'dispatched' || candidate.state === 'uncertain',
+      'goal delegation state',
+    );
+    const dispatched = candidate.state === 'dispatched';
+    assertStored(
+      (dispatched && typeof candidate.delegationId === 'string' && candidate.delegationId.length > 0 &&
+        candidate.delegationId.length <= 256 && typeof candidate.childSessionId === 'string' &&
+        candidate.childSessionId.length > 0 && candidate.childSessionId.length <= 256) ||
+      (!dispatched && candidate.delegationId === null && candidate.childSessionId === null),
+      'goal delegation binding',
     );
     return {
       key: candidate.key,
       intentHash: candidate.intentHash,
-      kind: 'foreground',
-      state: candidate.state as 'reserved' | 'accepted' | 'uncertain',
+      kind: 'delegate_goal',
+      goalId: candidate.goalId,
+      parentSdkSessionId: candidate.parentSdkSessionId,
+      targetAgentConfigId: 'workflow-orchestrator',
+      state: candidate.state as 'reserved' | 'dispatched' | 'uncertain',
+      delegationId: candidate.delegationId as string | null,
+      childSessionId: candidate.childSessionId as string | null,
     };
   });
   for (const goal of goals) {
@@ -1224,8 +1280,15 @@ export function parseStoredCoordinatorConversation(value: unknown): CoordinatorC
     return authority;
   });
 
+  const delegatedGoals = new Set<string>();
+  for (const command of commandDedupe) {
+    if (command.kind !== 'delegate_goal') continue;
+    assertStored(!delegatedGoals.has(command.goalId), 'duplicate goal delegation');
+    delegatedGoals.add(command.goalId);
+  }
+
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     id: value.id,
     sessionId: value.sessionId,
     ownerUserId: value.ownerUserId as number,

@@ -63,6 +63,7 @@ async function main() {
     { PersistentWorkstreamCoordinator },
     { CoordinatorConversationContextAssembler },
     { CoordinatorConversationService },
+    { CoordinatorConversationModelStatusService },
     { selectCoordinatorSetupProfile, validateCoordinatorSetupReplay },
     { createCoordinatorConversationContextAdapters },
     { createDayflowCoordinatorReferenceAdapter },
@@ -72,7 +73,13 @@ async function main() {
     { AgentConfigsRepository, agentConfigExecutionBlockReason },
     { ProjectsRepository },
     { AgentBridgeJobsRepository },
+    { AgentAsyncDelegationsRepository },
+    { CoordinatorConversationsRepository },
+    { delegateToAgentAsync },
     { resolveProfileScope },
+    { perServerToolGrants },
+    { prepareAutomaticMemoryPreface },
+    { buildSkillsPreface, isSkillInjectionEnabled },
     { resolveFiniteExecutionScope },
     { DayflowPersistedQualificationAuthority },
     { AuthenticatedDayflowMemoryClient },
@@ -99,6 +106,7 @@ async function main() {
     import('./services/persistent_workstream_coordinator'),
     import('./services/coordinator_conversation_context'),
     import('./services/coordinator_conversation_service'),
+    import('./services/coordinator_conversation_model_status_service'),
     import('./services/coordinator_setup_profile_selection'),
     import('./services/coordinator_conversation_runtime_adapters'),
     import('./services/dayflow_coordinator_reference_adapter'),
@@ -108,7 +116,13 @@ async function main() {
     import('./repositories/agent_configs_repository'),
     import('./repositories/projects_repository'),
     import('./shared_agents/delegation_jobs_repository'),
+    import('./repositories/agent_async_delegations_repository'),
+    import('./repositories/coordinator_conversations_repository'),
+    import('./services/agent_delegation_service'),
     import('./services/agent_profile_scope'),
+    import('./services/mcp_dispatch_guard'),
+    import('./services/automatic_memory_preface'),
+    import('./services/skill_retrieval'),
     import('./services/coordinator_finite_execution_scope'),
     import('./integrations/dayflow/persisted_qualification_authority'),
     import('./integrations/dayflow/authenticated_memory_client'),
@@ -170,6 +184,7 @@ async function main() {
   let workstreamCoordinator: InstanceType<typeof PersistentWorkstreamCoordinator> | undefined;
   let managedMemorySearch: InstanceType<typeof ManagedMemorySearchService> | undefined;
   let coordinatorConversationService: InstanceType<typeof CoordinatorConversationService> | undefined;
+  let coordinatorAgentTools: InstanceType<typeof CoordinatorConversationModelStatusService> | undefined;
   // These are initialized by the authenticated Dayflow composition below.
   // The coordinator receives lazy ports because its durable conversation
   // service is constructed first; status reads remain inactive until both
@@ -226,6 +241,7 @@ async function main() {
     const conversationProjects = new ProjectsRepository();
     const conversationWorkstreams = new AgentWorkstreamsRepository();
     const conversationJobs = new AgentBridgeJobsRepository(getDb());
+    const conversationRepository = new CoordinatorConversationsRepository(getDb());
     // Generic projects carry no owner column or membership ACL in this local
     // schema. Do not treat catalog presence as access. The one additional C2
     // proof is an explicit server-created fresh workspace receipt, which has
@@ -246,7 +262,18 @@ async function main() {
         return false;
       }
     };
+    const profileAllowsRhythmTool = (
+      scope: Awaited<ReturnType<typeof resolveProfileScope>>,
+      toolName: string,
+    ): boolean => {
+      if (scope.mcpRoleConfig === null) return true;
+      const configured = scope.mcpRoleConfig.mcpServers.rhythm;
+      if (configured === undefined) return false;
+      const grants = perServerToolGrants(configured);
+      return grants.length === 0 || grants.includes(toolName);
+    };
     coordinatorConversationService = new CoordinatorConversationService({
+      repository: conversationRepository,
       context: new CoordinatorConversationContextAssembler(
         createCoordinatorConversationContextAdapters({ dayflow: dayflowReferences }),
       ),
@@ -436,7 +463,7 @@ async function main() {
       foreground: {
         send: async ({
           actor, localSessionId, sdkSessionId, projectId, profileId, providerId, modelId, cwd, message,
-          commandKey, controlRevision, reservationCurrent,
+          commandKey, controlRevision, reservationCurrent, system, contextCurrent,
         }) => {
           const valid = (session: ReturnType<InstanceType<typeof AgentSessionsRepository>['findById']>, profile: ReturnType<InstanceType<typeof AgentConfigsRepository>['getById']>): boolean => Boolean(
             session && profile && session.id === localSessionId && session.sdkSessionId === sdkSessionId &&
@@ -453,6 +480,14 @@ async function main() {
           let resolved: Awaited<ReturnType<typeof resolveProfileScope>>;
           try {
             resolved = await resolveProfileScope(profileId);
+            // The session can outlive a profile scope change. Push the exact
+            // current role config before this ordinary C2 turn so the fork's
+            // actual manifest cannot retain a wider prior profile surface.
+            if (!(await opencodeClient.updateSessionAllowlist(
+              sdkSessionId,
+              resolved.mcpRoleConfig ?? null,
+              providerId,
+            ))) return { kind: 'unavailable' as const };
             const { streamBridge } = await import('./services/opencode_stream_bridge');
             await streamBridge.streamSession(localSessionId, sdkSessionId, cwd);
           } catch {
@@ -464,6 +499,55 @@ async function main() {
             !valid(current, currentProfile) ||
             resolved.model.providerID !== providerId || resolved.model.modelID !== modelId
           ) return { kind: 'unavailable' as const };
+          const coordinatorToolAvailable = profileAllowsRhythmTool(resolved, 'rhythm_get_coordinator_status');
+          const coordinatorGoalToolAvailable = profileAllowsRhythmTool(resolved, 'rhythm_start_coordinator_goal');
+          const dayflowToolsAvailable = profileAllowsRhythmTool(resolved, 'rhythm_search_dayflow_activity') &&
+            profileAllowsRhythmTool(resolved, 'rhythm_recent_dayflow_summaries');
+          const sameResolvedScope = (candidate: Awaited<ReturnType<typeof resolveProfileScope>>): boolean =>
+            candidate.model.providerID === providerId && candidate.model.modelID === modelId &&
+            (candidate.ocAgent ?? null) === (resolved.ocAgent ?? null) &&
+            candidate.systemPrompt === resolved.systemPrompt &&
+            candidate.allowedSkillsJson === resolved.allowedSkillsJson &&
+            JSON.stringify(candidate.mcpRoleConfig) === JSON.stringify(resolved.mcpRoleConfig);
+          // Match the ordinary WS turn's transient profile preparation. The
+          // named Secretary agent already owns its selected profile prompt in
+          // native agent.prompt, so do not append that static body a second
+          // time through prompt_api's per-message `system` field.
+          const runningAsOwnAgent = resolved.ocAgent !== null && resolved.ocAgent === profileId;
+          const transientSystemBlocks: string[] = [];
+          if (isSkillInjectionEnabled()) {
+            try {
+              const skills = buildSkillsPreface(message, { allowedSkillsJson: resolved.allowedSkillsJson });
+              if (skills.text) transientSystemBlocks.push(skills.text);
+            } catch {
+              // The established WS path treats retrieval as non-fatal.
+            }
+          }
+          try {
+            const memory = await prepareAutomaticMemoryPreface({
+              query: message,
+              sessionId: localSessionId,
+              ownerUserId: actor.user.id,
+            });
+            if (memory?.text) transientSystemBlocks.push(memory.text);
+          } catch {
+            // Automatic memory provenance/retrieval is fail-open for an
+            // already authorized ordinary foreground turn, as in WS ingress.
+          }
+          const foregroundSystem = [
+            ...(resolved.systemPrompt && !runningAsOwnAgent ? [resolved.systemPrompt] : []),
+            system,
+            ...transientSystemBlocks,
+            coordinatorToolAvailable
+              ? 'The signed read-only tool rhythm_get_coordinator_status is in your current profile scope. Use it for current coordinator attention/state only.'
+              : 'No signed coordinator status tool is in your current profile scope. Do not claim one exists.',
+            coordinatorGoalToolAvailable
+              ? 'The signed rhythm_start_coordinator_goal control is in your current profile scope. It can start one exact captured goal through the existing Coding Workflow only; use it only after reading current coordinator status and never claim its child result verifies a goal.'
+              : 'No signed coordinator goal-action control is in your current profile scope. Do not claim an async workflow can be started here.',
+            dayflowToolsAvailable
+              ? 'The signed Dayflow activity tools are in your current profile scope. Use them only for current qualified activity; their output is reference/source data, not completion evidence.'
+              : 'No signed Dayflow activity tool is in your current profile scope. Do not substitute generic memory tools for it.',
+          ].filter((value): value is string => typeof value === 'string' && value.length > 0).join('\n\n');
           // This closure is passed only to the internal SDK adapter. It joins
           // the durable C2 command reservation to the current actor/root,
           // project/profile, and resolved model at each of that adapter's
@@ -481,11 +565,18 @@ async function main() {
             }
             const afterScopeSession = conversationSessions.findById(localSessionId);
             const afterScopeProfile = conversationConfigs.getById(profileId);
+            if (
+              !reservationCurrent() ||
+              !valid(afterScopeSession, afterScopeProfile) ||
+              !sameResolvedScope(currentScope)
+            ) return false;
+            if (!(await contextCurrent())) return false;
+            const finalScopeSession = conversationSessions.findById(localSessionId);
+            const finalScopeProfile = conversationConfigs.getById(profileId);
             return reservationCurrent() &&
-              valid(afterScopeSession, afterScopeProfile) &&
-              currentScope.model.providerID === providerId &&
-              currentScope.model.modelID === modelId &&
-              (currentScope.ocAgent ?? null) === (resolved.ocAgent ?? null);
+              valid(finalScopeSession, finalScopeProfile) &&
+              sameResolvedScope(currentScope) &&
+              await contextCurrent();
           };
           if (!(await foregroundAuthorityCurrent())) return { kind: 'unavailable' as const };
           // `promptAsync` performs its own immediate ordinary-vs-managed
@@ -498,7 +589,10 @@ async function main() {
             message,
             { providerID: providerId, modelID: modelId },
             cwd,
-            resolved.ocAgent ? { agent: resolved.ocAgent } : undefined,
+            {
+              ...(resolved.ocAgent ? { agent: resolved.ocAgent } : {}),
+              ...(foregroundSystem ? { system: foregroundSystem } : {}),
+            },
             undefined,
             undefined,
             {
@@ -531,8 +625,96 @@ async function main() {
           return accepted ? { kind: 'accepted' as const } : { kind: 'uncertain' as const };
         },
       },
+      codingWorkflow: {
+        dispatch: async ({ actor, parentSessionId, parentSdkSessionId, parentProfileId, objective }) => {
+          // This is a narrow server-derived adapter over the existing async
+          // delegation route. The model supplies no target/profile/cwd/model
+          // or child prompt; the durable captured objective is the only text.
+          const beforeParent = conversationSessions.findById(parentSessionId);
+          const beforeProfile = conversationConfigs.getById(parentProfileId);
+          const parentProjectId = beforeParent?.projectId;
+          const currentConversation = conversationRepository.get({
+            ownerUserId: actor.user.id,
+            projectId: parentProjectId ?? '',
+            sessionId: parentSessionId,
+          });
+          if (
+            !beforeParent || !beforeProfile || !parentProjectId || currentConversation.kind !== 'found' ||
+            !currentConversation.conversation.primaryOwnerRoot ||
+            beforeParent.ownerUserId !== actor.user.id || beforeParent.sdkSessionId !== parentSdkSessionId ||
+            beforeParent.parentSessionId !== null || beforeParent.isSystem || beforeParent.category !== 'chat' ||
+            beforeParent.profileId !== parentProfileId || beforeParent.permissionMode !== 'plan' ||
+            beforeParent.approvalBypassExplicit === true ||
+            !ownerProjectAccess(actor.user.id, parentProjectId) ||
+            beforeProfile.id !== parentProfileId || beforeProfile.enabled !== true ||
+            beforeProfile.isAgent !== true || beforeProfile.locked === true ||
+            agentConfigExecutionBlockReason(beforeProfile) !== null
+          ) return null;
+          let dispatched: Awaited<ReturnType<typeof delegateToAgentAsync>>;
+          try {
+            dispatched = await delegateToAgentAsync({
+              authenticatedUserId: actor.user.id,
+              callerAgentConfigId: parentProfileId,
+              targetAgentConfigId: 'workflow-orchestrator',
+              prompt: objective,
+              callerSessionId: parentSessionId,
+              context: null,
+              isolateWorktree: false,
+            });
+          } catch {
+            return null;
+          }
+          const afterParent = conversationSessions.findById(parentSessionId);
+          const afterProfile = conversationConfigs.getById(parentProfileId);
+          const afterConversation = conversationRepository.get({
+            ownerUserId: actor.user.id,
+            projectId: parentProjectId,
+            sessionId: parentSessionId,
+          });
+          if (
+            !afterParent || !afterProfile || afterConversation.kind !== 'found' ||
+            !afterConversation.conversation.primaryOwnerRoot ||
+            afterParent.id !== beforeParent.id || afterParent.ownerUserId !== actor.user.id ||
+            afterParent.sdkSessionId !== parentSdkSessionId || afterParent.projectId !== parentProjectId ||
+            afterParent.parentSessionId !== null || afterParent.isSystem || afterParent.category !== 'chat' ||
+            afterParent.profileId !== parentProfileId || afterParent.permissionMode !== 'plan' ||
+            afterParent.approvalBypassExplicit === true ||
+            !ownerProjectAccess(actor.user.id, parentProjectId) ||
+            afterProfile.id !== parentProfileId || afterProfile.enabled !== true ||
+            afterProfile.isAgent !== true || afterProfile.locked === true ||
+            agentConfigExecutionBlockReason(afterProfile) !== null ||
+            dispatched.targetAgentConfigId !== 'workflow-orchestrator'
+          ) return null;
+          const delegation = new AgentAsyncDelegationsRepository().findByChildSessionId(dispatched.sessionId);
+          return delegation && delegation.parentSessionId === parentSessionId &&
+            delegation.childSessionId === dispatched.sessionId &&
+            delegation.targetAgentConfigId === 'workflow-orchestrator' &&
+            ['dispatched', 'completed', 'waking', 'notified'].includes(delegation.status)
+            ? {
+              delegationId: delegation.id,
+              childSessionId: delegation.childSessionId,
+              targetAgentConfigId: 'workflow-orchestrator' as const,
+            }
+            : null;
+        },
+      },
       coordinator: coordinatorRef,
       enabled: () => env.workstreamsEnabled && env.dbClient === 'sqlite' && env.agentExecutionEnabled,
+    });
+    // The exact child-completion wake gets the same fresh, bounded coordinator
+    // contract as a foreground turn. The service re-derives owner/project/root
+    // from durable records; nothing here is a user, a reservation or a grant.
+    const callbackContextService = coordinatorConversationService;
+    const { asyncDelegationCompletionService: completionWakes } = await import(
+      './services/async_delegation_completion_service'
+    );
+    completionWakes.setCoordinatorCallbackContext({
+      prepare: (input) => callbackContextService.prepareCallbackContext(input),
+    });
+    coordinatorAgentTools =new CoordinatorConversationModelStatusService({
+      conversations: coordinatorConversationService,
+      records: conversationRepository,
+      engine: opencodeClient,
     });
     // Initialize only after the terminal observer can see the composed service.
     // This is status-only boot reconciliation, not a model wake or scheduler.
@@ -935,6 +1117,7 @@ async function main() {
           await Promise.all([
             workstreamCoordinator?.sweepOneShotAutomation(),
             coordinatorConversationService?.sweepFiniteConversationReconciliation(),
+            dayflowService?.renewQualifiedEvidenceOnSchedulerTick(),
           ]);
         },
       });
@@ -1041,6 +1224,7 @@ async function main() {
     managedMemorySearch,
     workstreamCoordinator,
     coordinatorConversationService,
+    coordinatorAgentTools,
   });
 
   const httpServer = http.createServer(app);

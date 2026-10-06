@@ -31,4 +31,13 @@ describe('server.ts Dayflow coordinator composition', () => {
     expect(producer, 'server constructs the existing qualified producer').toBeGreaterThan(authority);
     expect(source.slice(producer, producer + 900)).toContain('qualificationAuthority: dayflowQualificationAuthority');
   });
+
+  it('uses the existing minute workstream callback for receipt renewal without a second scheduler binding', () => {
+    const callback = source.slice(
+      source.indexOf('onOneShotWorkstreamTick: async () => {'),
+      source.indexOf('},\n      });', source.indexOf('onOneShotWorkstreamTick: async () => {')),
+    );
+    expect(callback).toContain('dayflowService?.renewQualifiedEvidenceOnSchedulerTick()');
+    expect(source).not.toContain('startDayflowRenewalScheduler');
+  });
 });

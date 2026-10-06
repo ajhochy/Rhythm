@@ -272,4 +272,18 @@ describe('memory_ranking rerank integration', () => {
     expect(client.calls[0]?.query).toBe(query);
     expect(preface.memoryIds).toEqual(['rank-only-announcement']);
   });
+
+  it('Sol: decoded Dayflow candidates cannot consume the rerank pool before ordinary memory', async () => {
+    setMode('on');
+    const client = fakeClient([['ordinary youth group',0.95]]);
+    setRerankClientForTests(client);
+    const withheld = Array.from({length:16},(_,i) => mem({ id:`hidden-${i}`, content:'withheld activity', tagsJson:'["d\\u0061yflow"]' }));
+    const ordinary = mem({ id:'ordinary-late', content:'ordinary youth group meets Sunday evenings at six' });
+    const preface = await buildMemoryPreface(QUERY,1,{ topN:1, genericAdmission:true, getRelevant:async()=>[...withheld,ordinary] });
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0].documents).toHaveLength(1);
+    expect(client.calls[0].documents[0]).toContain('ordinary youth group');
+    expect(client.calls[0].documents.join(' ')).not.toContain('withheld activity');
+    expect(preface.memoryIds).toEqual(['ordinary-late']);
+  });
 });

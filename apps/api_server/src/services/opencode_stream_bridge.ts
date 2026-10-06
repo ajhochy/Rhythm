@@ -10,6 +10,7 @@ import {
 } from './media_artifact_store';
 import { indexResearchSession } from './specialist_research_indexer';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { AgentAsyncDelegationsRepository } from '../repositories/agent_async_delegations_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { ModelProvenanceRepository } from '../repositories/model_provenance_repository';
 import { DeniedToolEventsRepository } from '../repositories/denied_tool_events_repository';
@@ -19,7 +20,12 @@ import { recordTerminalOutcome } from './run_outcome_service';
 import { scheduleIdleEvaluation } from './harvested_skill_evaluator';
 import { extractInvokedSkillNamesFromParts, ensureLazyDepsForTurn } from './lazy_deps_turn_hook';
 import { isToolAllowed } from './mcp_dispatch_guard';
-import { opencodeEventHub } from './opencode_event_hub';
+import {
+  COORDINATOR_CHANGED_EVENT,
+  opencodeEventHub,
+  publishCoordinatorChanged,
+} from './opencode_event_hub';
+import { CoordinatorConversationsRepository } from '../repositories/coordinator_conversations_repository';
 import { getRelayUplinkClient } from './relay_uplink_runtime';
 import { classifyCommands, extractBashCommands } from '../security/command_approval';
 
@@ -615,9 +621,24 @@ export class OpencodeStreamBridge {
 
     const shouldAutoDeny = permissionMode === 'plan';
     const isDelegatedChild = dbSession?.parentSessionId != null;
-    const isHeadless = !shouldAutoDeny && isDelegatedChild;
+    // Interactive async delegates have a durable parent/result relationship
+    // and a visible approval path. Parentage alone is not unattended consent.
+    // Leave the legacy task/headless path unchanged; only the recorded async
+    // path retains its selected mode and profile's approval requests.
+    let isInteractiveAsyncChild = false;
+    if (isDelegatedChild && dbSession?.category === 'chat' &&
+        !dbSession.isSystem && dbSession.scheduledTaskId === null) {
+      try {
+        const delegation = new AgentAsyncDelegationsRepository().findByChildSessionId(localSessionId);
+        isInteractiveAsyncChild = delegation !== null;
+      } catch {
+        // Missing provenance is not evidence of unattended authorization.
+        isInteractiveAsyncChild = true;
+      }
+    }
+    const isHeadless = !shouldAutoDeny && isDelegatedChild && !isInteractiveAsyncChild;
     const isScheduledRun = Boolean(dbSession?.isSystem && dbSession?.scheduledTaskId);
-    const isUnattended = Boolean(dbSession?.parentSessionId) || isScheduledRun;
+    const isUnattended = (isDelegatedChild && !isInteractiveAsyncChild) || isScheduledRun;
 
     if (toolName.toLowerCase() === 'bash') {
       const toolInput =
@@ -666,6 +687,7 @@ export class OpencodeStreamBridge {
         }
         if (
           classification.decision === 'ask' &&
+          !shouldAutoDeny &&
           permissionMode !== 'bypassPermissions' &&
           !isUnattended
         ) {
@@ -683,7 +705,7 @@ export class OpencodeStreamBridge {
           });
           return;
         }
-        if (classification.decision === 'ask') {
+        if (classification.decision === 'ask' && !shouldAutoDeny) {
           logger.warn(
             `[OpencodeStreamBridge] #878 auto-allowing an 'ask' bash command in a ` +
               `${permissionMode === 'bypassPermissions' ? 'bypass' : 'unattended'} session ` +
@@ -1606,10 +1628,28 @@ export class OpencodeStreamBridge {
     this._publishToHub(event);
   }
 
+  /**
+   * Call only AFTER a canonical output write has returned successfully. The
+   * current local-primary lookup (not the SDK mapping) decides qualification, so
+   * ordinary/child/archived output publishes nothing. Never throws.
+   */
+  private notifyCanonicalOutput(localSessionId: string): void {
+    try {
+      const target = new CoordinatorConversationsRepository()
+        .findCanonicalNotificationScope({ sessionId: localSessionId });
+      if (target) publishCoordinatorChanged(target);
+    } catch {
+      // best-effort invalidation hint
+    }
+  }
+
   private _publishToHub(
     event: import('@opencode-ai/sdk').RhythmEvent & { __directory?: string },
   ): void {
     const { __directory: directory, ...payload } = event;
+    // The canonical-change hint is minted only by local producers; raw engine
+    // frames can never impersonate it.
+    if ((payload as { type?: unknown }).type === COORDINATOR_CHANGED_EVENT) return;
     opencodeEventHub.publish(
       directory === undefined ? { payload } : { directory, payload },
     );
@@ -1852,6 +1892,7 @@ export class OpencodeStreamBridge {
                 const sdkMessageId = hostedPart.messageID as string | undefined;
                 if (sdkMessageId) {
                   this.messagesRepo.upsertPart(localSessionId, sdkMessageId, hostedPart);
+                  this.notifyCanonicalOutput(localSessionId);
                 }
                 void getRelayUplinkClient()?.pushArtifact({
                   artifactId: artifact.id,
@@ -1894,6 +1935,7 @@ export class OpencodeStreamBridge {
                 turnMessageIds.add(sdkMessageId);
                 this.pendingStructuredMessageIds.set(localSessionId, turnMessageIds);
                 this.messagesRepo.upsertPart(localSessionId, sdkMessageId, part);
+                this.notifyCanonicalOutput(localSessionId);
               } catch (err) {
                 logger.error('[OpencodeStreamBridge] Failed to persist part:', err);
               }
@@ -1939,7 +1981,9 @@ export class OpencodeStreamBridge {
           // Write-through to DB — bounded loss on restart (only unsaved deltas lost).
           if (localSessionId && field) {
             try {
-              this.messagesRepo.applyPartDelta(localSessionId, messageID, partID, field, delta);
+              if (this.messagesRepo.applyPartDelta(localSessionId, messageID, partID, field, delta)) {
+                this.notifyCanonicalOutput(localSessionId);
+              }
             } catch (err) {
               logger.error('[OpencodeStreamBridge] Failed to apply part delta to DB:', err);
             }
@@ -2009,6 +2053,7 @@ export class OpencodeStreamBridge {
                 // only here.
                 JSON.stringify(info),
               );
+              this.notifyCanonicalOutput(localSessionId);
 
               // #930 — record the turn's user-message id as the revert target
               // for a mid-run cross-provider re-dispatch.
@@ -2216,6 +2261,8 @@ export class OpencodeStreamBridge {
               // Legacy path: no structured messages — persist the plain-text row.
               try {
                 this.messagesRepo.append(localSessionId, 'output', text, text);
+                // Append success qualifies even if the preview update below fails.
+                this.notifyCanonicalOutput(localSessionId);
                 this.sessionsRepo.updatePreview(
                   localSessionId,
                   text.slice(0, 200),
@@ -2597,6 +2644,9 @@ export class OpencodeStreamBridge {
               `Error: ${message}`,
               `Error: ${message}`,
             );
+            // The canonical row is committed: hint now, before status/indexing
+            // work below can throw. Failed append never reaches this line.
+            this.notifyCanonicalOutput(localSessionId);
             this.sessionsRepo.setErrorStatus(localSessionId, message);
             const updated = this.sessionsRepo.findById(localSessionId);
             if (updated) broadcastSessionUpdated(updated);

@@ -15,7 +15,7 @@ import {
 
 const observedAt = '2026-10-05T12:00:00.000Z';
 const conversation: CoordinatorConversation = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   id: 'conversation-1',
   sessionId: 'chat-1',
   ownerUserId: 7,

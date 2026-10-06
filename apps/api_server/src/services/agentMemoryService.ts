@@ -47,6 +47,7 @@ import {
   searchMemoryReferences,
   searchMemoryReferencesWithReceipts,
 } from './memory_retrieval';
+import { isGenericMemoryAdmissionAllowed } from './automatic_memory_preface';
 
 const memRepo = new AgentMemoryRepository();
 const schedRepo = new AgentScheduledTasksRepository();
@@ -78,19 +79,28 @@ export const agentMemoryService = {
 
   /** Search memories by text query. */
   async search(query: string, ownerUserId?: number, limit = 20) {
-    return memRepo.searchAsync(query, ownerUserId, limit);
+    // Admission is applied in the query (before LIMIT) so withheld rows cannot
+    // starve the shortlist; the JS predicate stays as the authoritative check.
+    return (await memRepo.searchAsync(query, ownerUserId, limit, { genericAdmissionOnly: true }))
+      .filter(isGenericMemoryAdmissionAllowed);
   },
 
   /** Explicit native-ranked evidence; intentionally distinct from legacy row search. */
   async searchReferences(query: string, ownerUserId?: number, limit?: number) {
-    const result = await searchMemoryReferences(query, ownerUserId ?? null, { limit });
+    const result = await searchMemoryReferences(query, ownerUserId ?? null, {
+      limit,
+      releaseAdmission: isGenericMemoryAdmissionAllowed,
+    });
     if (limit !== 0) return result;
     return { ...result, references: [], returned: 0, truncated: result.hitCount > 0 };
   },
 
   /** Internal managed-search form; canonical receipts never enter the public DTO. */
   async searchReferencesWithReceipts(query: string, ownerUserId?: number, limit?: number) {
-    const result = await searchMemoryReferencesWithReceipts(query, ownerUserId ?? null, { limit });
+    const result = await searchMemoryReferencesWithReceipts(query, ownerUserId ?? null, {
+      limit,
+      releaseAdmission: isGenericMemoryAdmissionAllowed,
+    });
     if (limit !== 0) return result;
     return {
       result: {
@@ -110,12 +120,16 @@ export const agentMemoryService = {
     limit = 50,
     options: MemoryListOptions = {},
   ) {
-    return memRepo.listAsync(ownerUserId, kind, limit, options);
+    return (await memRepo.listAsync(ownerUserId, kind, limit, { ...options, genericAdmissionOnly: true }))
+      .filter(isGenericMemoryAdmissionAllowed);
   },
 
-  /** Per-kind row counts (ignores the kind filter so every chip gets a number). */
+  /**
+   * Per-kind row counts (ignores the kind filter so every chip gets a number),
+   * over the same generic-admitted collection `list` pages through.
+   */
   async countByKind(ownerUserId?: number, includeDeprecated = true) {
-    return memRepo.countByKindAsync(ownerUserId, includeDeprecated);
+    return memRepo.countByKindAsync(ownerUserId, includeDeprecated, true);
   },
 
   /** Resolve either the derived index-row id or the frontmatter id returned by remember(). */
@@ -125,6 +139,15 @@ export const agentMemoryService = {
       row = await findMemoryRowByRememberId(id, memRepo, options);
     }
     return row;
+  },
+
+  /**
+   * Generic API/MCP reads use this visibility boundary. Internal qualified
+   * Dayflow validation deliberately uses the raw repository path instead.
+   */
+  async getGeneric(id: string, options?: MemoryVaultWriteOptions) {
+    const row = await this.get(id, options);
+    return row && isGenericMemoryAdmissionAllowed(row) ? row : null;
   },
 
   /**

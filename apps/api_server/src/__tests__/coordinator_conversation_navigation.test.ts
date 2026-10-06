@@ -9,6 +9,7 @@ import {
   CoordinatorConversationService,
   type CoordinatorConversationServiceDependencies,
 } from '../services/coordinator_conversation_service';
+import { CoordinatorConversationModelStatusService } from '../services/coordinator_conversation_model_status_service';
 
 const now = new Date('2026-10-05T12:00:00.000Z');
 const auth = { sessionToken: 'desktop-auth', user: { id: 7 } } as AuthContext;
@@ -25,6 +26,7 @@ function database(): Database.Database {
     archived_at TEXT,
     sdk_session_id TEXT,
     profile_id TEXT,
+    cwd TEXT,
     permission_mode TEXT NOT NULL DEFAULT 'default',
     approval_bypass_explicit INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
@@ -38,11 +40,29 @@ function database(): Database.Database {
     stripped_text TEXT NOT NULL
   )`);
   const insert = db.prepare(`INSERT INTO agent_sessions
-    (id, owner_user_id, project_id, parent_session_id, is_system, category, archived_at, sdk_session_id, profile_id, permission_mode, approval_bypass_explicit, created_at, updated_at)
-    VALUES (?, ?, ?, NULL, 0, 'chat', NULL, ?, 'profile-a', 'default', 0, ?, ?)`);
-  insert.run('chat-a', 7, 'project-a', 'sdk-a', now.toISOString(), now.toISOString());
-  insert.run('chat-b', 7, 'project-b', 'sdk-b', now.toISOString(), now.toISOString());
-  insert.run('chat-foreign', 8, 'project-foreign', 'sdk-foreign', now.toISOString(), now.toISOString());
+    (id, owner_user_id, project_id, parent_session_id, is_system, category, archived_at, sdk_session_id, profile_id, cwd, permission_mode, approval_bypass_explicit, created_at, updated_at)
+    VALUES (?, ?, ?, NULL, 0, 'chat', NULL, ?, 'profile-a', ?, 'default', 0, ?, ?)`);
+  insert.run('chat-a', 7, 'project-a', 'sdk-a', '/safe/project-a', now.toISOString(), now.toISOString());
+  insert.run('chat-b', 7, 'project-b', 'sdk-b', '/safe/project-b', now.toISOString(), now.toISOString());
+  insert.run('chat-foreign', 8, 'project-foreign', 'sdk-foreign', '/safe/project-foreign', now.toISOString(), now.toISOString());
+  db.exec(`CREATE TABLE agent_turn_dispatches (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    sdk_session_id TEXT,
+    sdk_user_message_id TEXT,
+    origin TEXT NOT NULL,
+    requested_source TEXT NOT NULL,
+    route_authed INTEGER,
+    reason_code TEXT,
+    outcome TEXT NOT NULL
+  )`);
+  db.exec(`CREATE TABLE agent_async_delegations (
+    id TEXT PRIMARY KEY,
+    parent_session_id TEXT NOT NULL,
+    child_session_id TEXT NOT NULL,
+    target_agent_config_id TEXT NOT NULL,
+    status TEXT NOT NULL
+  )`);
   installCoordinatorConversationSchema(db);
   return db;
 }
@@ -51,12 +71,12 @@ function service(
   repository: CoordinatorConversationsRepository,
   db: Database.Database,
   allowed: Map<number, Set<string>>,
-  extras: Partial<Pick<CoordinatorConversationServiceDependencies, 'foreground' | 'messages' | 'context' | 'projects' | 'projectSetup' | 'configs'>> = {},
+  extras: Partial<Pick<CoordinatorConversationServiceDependencies, 'foreground' | 'messages' | 'context' | 'projects' | 'projectSetup' | 'configs' | 'codingWorkflow'>> = {},
 ) {
   const sessions = new Map<string, Record<string, unknown>>([
-    ['chat-a', { id: 'chat-a', ownerUserId: 7, projectId: 'project-a', parentSessionId: null, isSystem: false, category: 'chat', sdkSessionId: 'sdk-a', profileId: 'profile-a', providerId: 'provider-a', modelId: 'model-a', modelMode: 'fixed', permissionMode: 'default', approvalBypassExplicit: false }],
-    ['chat-b', { id: 'chat-b', ownerUserId: 7, projectId: 'project-b', parentSessionId: null, isSystem: false, category: 'chat', sdkSessionId: 'sdk-b', profileId: 'profile-a', providerId: 'provider-a', modelId: 'model-a', modelMode: 'fixed', permissionMode: 'default', approvalBypassExplicit: false }],
-    ['chat-foreign', { id: 'chat-foreign', ownerUserId: 8, projectId: 'project-foreign', parentSessionId: null, isSystem: false, category: 'chat', sdkSessionId: 'sdk-foreign', profileId: 'profile-a', providerId: 'provider-a', modelId: 'model-a', modelMode: 'fixed', permissionMode: 'default', approvalBypassExplicit: false }],
+    ['chat-a', { id: 'chat-a', ownerUserId: 7, projectId: 'project-a', parentSessionId: null, isSystem: false, category: 'chat', sdkSessionId: 'sdk-a', profileId: 'profile-a', providerId: 'provider-a', modelId: 'model-a', modelMode: 'fixed', permissionMode: 'default', approvalBypassExplicit: false, cwd: '/safe/project-a' }],
+    ['chat-b', { id: 'chat-b', ownerUserId: 7, projectId: 'project-b', parentSessionId: null, isSystem: false, category: 'chat', sdkSessionId: 'sdk-b', profileId: 'profile-a', providerId: 'provider-a', modelId: 'model-a', modelMode: 'fixed', permissionMode: 'default', approvalBypassExplicit: false, cwd: '/safe/project-b' }],
+    ['chat-foreign', { id: 'chat-foreign', ownerUserId: 8, projectId: 'project-foreign', parentSessionId: null, isSystem: false, category: 'chat', sdkSessionId: 'sdk-foreign', profileId: 'profile-a', providerId: 'provider-a', modelId: 'model-a', modelMode: 'fixed', permissionMode: 'default', approvalBypassExplicit: false, cwd: '/safe/project-foreign' }],
   ]);
   let sequence = 0;
   return new CoordinatorConversationService({
@@ -80,6 +100,7 @@ function service(
           isSystem: false,
           category: 'chat',
           sdkSessionId: null,
+          cwd: `/safe/${row.project_id}`,
           profileId: row.profile_id,
           providerId: null,
           modelId: null,
@@ -101,6 +122,7 @@ function service(
           isSystem: false,
           category: 'chat',
           sdkSessionId: null,
+          cwd: `/safe/${input.projectId}`,
           profileId: input.profileId,
           providerId: null,
           modelId: null,
@@ -110,9 +132,9 @@ function service(
         };
         sessions.set(id, session);
         db.prepare(`INSERT INTO agent_sessions
-          (id, owner_user_id, project_id, parent_session_id, is_system, category, archived_at, sdk_session_id, profile_id, permission_mode, approval_bypass_explicit, created_at, updated_at)
-          VALUES (?, ?, ?, NULL, 0, 'chat', NULL, NULL, ?, 'plan', 0, ?, ?)`)
-          .run(id, input.ownerUserId, input.projectId, input.profileId, now.toISOString(), now.toISOString());
+          (id, owner_user_id, project_id, parent_session_id, is_system, category, archived_at, sdk_session_id, profile_id, cwd, permission_mode, approval_bypass_explicit, created_at, updated_at)
+          VALUES (?, ?, ?, NULL, 0, 'chat', NULL, NULL, ?, ?, 'plan', 0, ?, ?)`)
+          .run(id, input.ownerUserId, input.projectId, input.profileId, `/safe/${input.projectId}`, now.toISOString(), now.toISOString());
         return session as never;
       },
     },
@@ -134,10 +156,56 @@ function service(
     },
     projectSetup: extras.projectSetup,
     foreground: extras.foreground,
+    codingWorkflow: extras.codingWorkflow,
     messages: extras.messages,
     enabled: () => true,
     now: () => now,
   });
+}
+
+function qualifiedContext(overrides: Record<string, unknown> = {}) {
+  return {
+    timeZone: 'America/Los_Angeles',
+    asOf: now.toISOString(),
+    today: '2026-10-05',
+    yesterday: '2026-10-04',
+    availability: {
+      tasks: { state: 'available', reason: null },
+      schedules: { state: 'available', reason: null },
+      rhythms: { state: 'available', reason: null },
+      workstreams: { state: 'available', reason: null },
+      receipts: { state: 'available', reason: null },
+      manualActivity: { state: 'available', reason: null },
+    },
+    coverage: {
+      tasks: { strategy: 'complete', totalItems: 1, selectedItems: 1, maxItems: 25 },
+      schedules: { strategy: 'complete', totalItems: 0, selectedItems: 0, maxItems: 25 },
+      rhythms: { strategy: 'complete', totalItems: 0, selectedItems: 0, maxItems: 25 },
+      workstreams: { strategy: 'complete', totalItems: 0, selectedItems: 0, maxItems: 25 },
+      receipts: { strategy: 'complete', totalItems: 0, selectedItems: 0, maxItems: 25 },
+      manualActivity: { strategy: 'complete', totalItems: 1, selectedItems: 1, maxItems: 25 },
+    },
+    todayTasks: [{ id: 'task-a', title: 'Prepare weekly update', status: 'open', dueDate: '2026-10-05', scheduledDate: null, priority: 1 }],
+    waitingForReply: [],
+    doneWithUnknownCompletionDate: [],
+    scheduledPriorities: [],
+    activeRhythms: [],
+    activeWorkstreams: [],
+    executionSucceededGoalUnverified: [],
+    staleExecutions: [],
+    verifiedYesterday: [],
+    usageHolds: [],
+    receipts: [],
+    // Deliberately opaque: a model-status response must never copy this data.
+    manualActivity: [{ sourceId: 'opaque', expectedVersion: 'v1', observedAt: now.toISOString(), state: 'active', namespace: 'dayflow', sourceInstance: 'source', sourceRevision: 'revision', sourceHash: 'hash', canonicalId: 'canonical', canonicalVersion: 'version', consentGeneration: 'consent', configurationGeneration: 'config', expiresAt: '2026-10-05T13:00:00.000Z', eligibility: 'active' }],
+    manualActivityDependency: {
+      schemaVersion: 1, namespace: 'dayflow', sourceInstance: 'source', consentGeneration: 'consent',
+      configurationGeneration: 'config', sourceVersion: 'v1', sourceRevision: 'revision', sourceHash: 'hash',
+      expiresAt: '2026-10-05T13:00:00.000Z', observedAt: now.toISOString(), references: [],
+    },
+    modelContext: { kind: 'ready', bytes: 512 },
+    ...overrides,
+  } as never;
 }
 
 describe('dedicated primary Rhythm conversation resolution', () => {
@@ -331,6 +399,303 @@ describe('dedicated primary Rhythm conversation resolution', () => {
       .toEqual({ count: 0 });
   });
 
+  it('captures a conservative natural action as the exact durable goal while preserving the ordinary SDK foreground turn', async () => {
+    db = database();
+    const allowed = new Map([[7, new Set(['project-a'])]]);
+    const repository = new CoordinatorConversationsRepository(db, () => now);
+    expect(repository.designatePrimaryOwnerRoot({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' }))
+      .toMatchObject({ kind: 'found', conversation: { controlRevision: 1 } });
+    let calls = 0;
+    const coordinator = service(repository, db, allowed, {
+      context: { assemble: async () => qualifiedContext() } as never,
+      foreground: {
+        send: async (input) => {
+          calls += 1;
+          expect(input.system).toContain('Rhythm Secretary');
+          expect(input.system).not.toContain('opaque');
+          expect(await input.contextCurrent()).toBe(true);
+          return { kind: 'accepted' };
+        },
+      },
+    });
+    const input = {
+      sessionId: 'chat-a', projectId: 'project-a', expectedControlRevision: 1,
+      commandKey: 'plain-language-goal', message: 'Could you draft a weekly update from the current work?',
+    };
+    await expect(coordinator.receiveMessage(auth, input)).resolves.toMatchObject({
+      kind: 'foreground_accepted',
+      conversation: {
+        controlRevision: 2,
+        goals: [expect.objectContaining({ objective: input.message, state: 'captured' })],
+      },
+    });
+    // The native stream remains the one transcript owner; goal capture adds
+    // no synthetic local user/assistant event for the ordinary foreground turn.
+    expect(db.prepare('SELECT COUNT(*) AS count FROM agent_session_messages WHERE session_id=?').get('chat-a'))
+      .toEqual({ count: 0 });
+    await expect(coordinator.receiveMessage(auth, input)).resolves.toMatchObject({ kind: 'foreground_accepted' });
+    expect(calls).toBe(1);
+  });
+
+  it('starts one captured goal through the existing Coding Workflow, replays no child, and admits only its exact completion callback for status', async () => {
+    db = database();
+    const allowed = new Map([[7, new Set(['project-a'])]]);
+    const repository = new CoordinatorConversationsRepository(db, () => now);
+    expect(repository.designatePrimaryOwnerRoot({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' }))
+      .toMatchObject({ kind: 'found', conversation: { primaryOwnerRoot: true, controlRevision: 1 } });
+    let foregroundCalls = 0;
+    let codingCalls = 0;
+    const coordinator = service(repository, db, allowed, {
+      context: { assemble: async () => qualifiedContext() } as never,
+      foreground: { send: async () => { foregroundCalls += 1; return { kind: 'accepted' }; } },
+      codingWorkflow: {
+        dispatch: async (input) => {
+          codingCalls += 1;
+          expect(input).toEqual(expect.objectContaining({
+            parentSessionId: 'chat-a', parentSdkSessionId: 'sdk-a', parentProfileId: 'profile-a',
+            objective: 'Could you draft a weekly update from the current work?',
+          }));
+          return {
+            delegationId: 'delegation-1',
+            childSessionId: 'child-1',
+            targetAgentConfigId: 'workflow-orchestrator' as const,
+          };
+        },
+      },
+    });
+    await expect(coordinator.receiveMessage(auth, {
+      sessionId: 'chat-a', projectId: 'project-a', expectedControlRevision: 1,
+      commandKey: 'captured-workflow-goal', message: 'Could you draft a weekly update from the current work?',
+    })).resolves.toMatchObject({ kind: 'foreground_accepted' });
+    expect(foregroundCalls).toBe(1);
+    const captured = repository.get({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' });
+    expect(captured).toMatchObject({ kind: 'found' });
+    if (captured.kind !== 'found') throw new Error('expected captured coordinator goal');
+    const goalId = captured.conversation.goals[0]?.id;
+    expect(goalId).toEqual(expect.any(String));
+    const action = {
+      sessionId: 'chat-a', projectId: 'project-a', sdkSessionId: 'sdk-a', goalId: goalId!,
+      commandKey: 'goal-action-1', bindingCurrent: async () => true,
+    };
+    await expect(coordinator.startCodingWorkflow(auth, action)).resolves.toMatchObject({
+      kind: 'delegation_started', goalId,
+    });
+    // Exact command replay returns the durable child link and cannot create a
+    // second Coding Workflow child after the native boundary was crossed.
+    await expect(coordinator.startCodingWorkflow(auth, action)).resolves.toMatchObject({
+      kind: 'delegation_started', goalId,
+    });
+    expect(codingCalls).toBe(1);
+    expect(repository.get({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' })).toMatchObject({
+      kind: 'found', conversation: { commandDedupe: expect.arrayContaining([expect.objectContaining({
+        key: 'goal-action-1', kind: 'delegate_goal', goalId, state: 'dispatched',
+        delegationId: 'delegation-1', childSessionId: 'child-1', targetAgentConfigId: 'workflow-orchestrator',
+      })]) },
+    });
+
+    db.prepare(`INSERT INTO agent_async_delegations
+      (id, parent_session_id, child_session_id, target_agent_config_id, status)
+      VALUES ('delegation-1', 'chat-a', 'child-1', 'workflow-orchestrator', 'waking')`).run();
+    // This is the exact marker the existing completion service may attach to
+    // its native parent wake. A generic wake cannot mint it just by sharing
+    // the root SDK session.
+    expect(repository.coordinatorDelegationCallbackReason({
+      parentSessionId: 'chat-a',
+      parentSdkSessionId: 'sdk-a',
+      delegationId: 'delegation-1',
+      childSessionId: 'child-1',
+      targetAgentConfigId: 'workflow-orchestrator',
+    })).toBe('c2_goal_callback:delegation-1');
+    db.prepare(`INSERT INTO agent_turn_dispatches
+      (id, session_id, sdk_session_id, sdk_user_message_id, origin, requested_source, route_authed, reason_code, outcome)
+      VALUES ('callback-1', 'chat-a', 'sdk-a', 'native-completion-1', 'delegation_completion', 'agent_config', 1, 'c2_goal_callback:delegation-1', 'accepted')`).run();
+
+    const callbackStatus = new CoordinatorConversationModelStatusService({
+      conversations: coordinator,
+      records: repository,
+      engine: {
+        getCurrentTrustedMcpToolCall: async () => ({
+          sdkSessionId: 'sdk-a', assistantId: 'assistant-callback', toolCallId: 'tool-callback', agentName: 'Secretary',
+          userMessageId: 'native-completion-1', partId: 'part-callback', toolKey: 'rhythm_get_coordinator_status',
+          serverName: 'rhythm', toolName: 'rhythm_get_coordinator_status',
+        }),
+      },
+      verify: async () => ({
+        context: { sdkSessionId: 'sdk-a', turnId: 'assistant-callback', toolCallId: 'tool-callback', agentName: 'Secretary' },
+        arguments: {},
+      }),
+    });
+    await expect(callbackStatus.status(auth, { trustedCall: { ignored: true } })).resolves.toMatchObject({ status: 'available' });
+
+    // Completion callbacks can review the existing result but cannot recursively
+    // start another goal merely because they share the same SDK session.
+    const callbackAction = new CoordinatorConversationModelStatusService({
+      conversations: coordinator,
+      records: repository,
+      engine: {
+        getCurrentTrustedMcpToolCall: async () => ({
+          sdkSessionId: 'sdk-a', assistantId: 'assistant-callback', toolCallId: 'tool-callback', agentName: 'Secretary',
+          userMessageId: 'native-completion-1', partId: 'part-callback', toolKey: 'rhythm_start_coordinator_goal',
+          serverName: 'rhythm', toolName: 'rhythm_start_coordinator_goal',
+        }),
+      },
+      verify: async () => ({
+        context: { sdkSessionId: 'sdk-a', turnId: 'assistant-callback', toolCallId: 'tool-callback', agentName: 'Secretary' },
+        arguments: { goalId },
+      }),
+    });
+    await expect(callbackAction.startGoal(auth, { trustedCall: { ignored: true } })).resolves.toMatchObject({ status: 'unavailable' });
+    expect(codingCalls).toBe(1);
+
+    // A stale/terminal async record is not a current callback authority.
+    db.prepare("UPDATE agent_async_delegations SET status='completed' WHERE id='delegation-1'").run();
+    await expect(callbackStatus.status(auth, { trustedCall: { ignored: true } })).resolves.toEqual({
+      schemaVersion: 1, status: 'unavailable', text: '',
+    });
+  });
+
+  it('withholds qualified coordinator context when its Dayflow dependency changes during foreground preparation', async () => {
+    db = database();
+    const allowed = new Map([[7, new Set(['project-a'])]]);
+    const repository = new CoordinatorConversationsRepository(db, () => now);
+    expect(repository.designatePrimaryOwnerRoot({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' }))
+      .toMatchObject({ kind: 'found' });
+    let sourceRevision = 'revision-a';
+    const coordinator = service(repository, db, allowed, {
+      context: {
+        assemble: async () => qualifiedContext({
+          manualActivityDependency: {
+            schemaVersion: 1,
+            namespace: 'dayflow',
+            sourceInstance: 'source',
+            consentGeneration: 'consent',
+            configurationGeneration: 'config',
+            sourceVersion: 'v1',
+            sourceRevision,
+            sourceHash: 'hash',
+            expiresAt: '2026-10-05T13:00:00.000Z',
+            observedAt: now.toISOString(),
+            references: [],
+          },
+        }),
+      } as never,
+      foreground: {
+        send: async (input) => {
+          expect(await input.contextCurrent()).toBe(true);
+          sourceRevision = 'revision-b';
+          expect(await input.contextCurrent()).toBe(false);
+          return { kind: 'unavailable' };
+        },
+      },
+    });
+    await expect(coordinator.receiveMessage(auth, {
+      sessionId: 'chat-a', projectId: 'project-a', expectedControlRevision: 1,
+      commandKey: 'dayflow-generation-drift', message: 'Please draft the current update.',
+    })).resolves.toMatchObject({ kind: 'foreground_uncertain' });
+  });
+
+  it('keeps questions as ordinary foreground chat rather than creating a coordinator goal', async () => {
+    db = database();
+    const allowed = new Map([[7, new Set(['project-a'])]]);
+    const repository = new CoordinatorConversationsRepository(db, () => now);
+    expect(repository.designatePrimaryOwnerRoot({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' }))
+      .toMatchObject({ kind: 'found' });
+    let calls = 0;
+    const coordinator = service(repository, db, allowed, {
+      foreground: { send: async () => { calls += 1; return { kind: 'accepted' }; } },
+    });
+    await expect(coordinator.receiveMessage(auth, {
+      sessionId: 'chat-a', projectId: 'project-a', expectedControlRevision: 1,
+      commandKey: 'ordinary-question', message: 'Please explain why this dashboard is stale?',
+    })).resolves.toMatchObject({ kind: 'foreground_accepted', conversation: { goals: [] } });
+    expect(calls).toBe(1);
+  });
+
+  it('serves signed current coordinator status only for the exact accepted C2 foreground native user message', async () => {
+    db = database();
+    const allowed = new Map([[7, new Set(['project-a'])]]);
+    const repository = new CoordinatorConversationsRepository(db, () => now);
+    expect(repository.designatePrimaryOwnerRoot({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' }))
+      .toMatchObject({ kind: 'found' });
+    db.prepare(`INSERT INTO agent_turn_dispatches
+      (id, session_id, sdk_session_id, sdk_user_message_id, origin, requested_source, route_authed, reason_code, outcome)
+      VALUES ('dispatch-a', 'chat-a', 'sdk-a', 'native-user-a', 'prompt_api', 'session', 1, 'c2_foreground', 'accepted')`).run();
+    const coordinator = service(repository, db, allowed, {
+      context: { assemble: async () => qualifiedContext() } as never,
+    });
+    const verified = {
+      context: { sdkSessionId: 'sdk-a', turnId: 'assistant-a', toolCallId: 'tool-a', agentName: 'Secretary' },
+      arguments: {},
+    };
+    const modelStatus = new CoordinatorConversationModelStatusService({
+      conversations: coordinator,
+      records: repository,
+      engine: {
+        getCurrentTrustedMcpToolCall: async () => ({
+          sdkSessionId: 'sdk-a', assistantId: 'assistant-a', toolCallId: 'tool-a', agentName: 'Secretary',
+          userMessageId: 'native-user-a', partId: 'part-a', toolKey: 'rhythm_get_coordinator_status',
+          serverName: 'rhythm', toolName: 'rhythm_get_coordinator_status',
+        }),
+      },
+      verify: async () => verified,
+    });
+    await expect(modelStatus.status(auth, { trustedCall: { ignored: true } })).resolves.toMatchObject({
+      schemaVersion: 1,
+      status: 'available',
+    });
+    const response = await modelStatus.status(auth, { trustedCall: { ignored: true } });
+    // The first signed nonce verification would normally be single-use; this
+    // injected verifier models a distinct valid invocation for output checks.
+    expect(response.status).toBe('available');
+    if (response.status === 'available') {
+      expect(response.text).toContain('Prepare weekly update');
+      expect(response.text).not.toContain('opaque');
+      expect(response.text).toContain('not_composed_in_coordinator_context');
+    }
+    db.prepare("UPDATE agent_turn_dispatches SET sdk_user_message_id='different-native-user' WHERE id='dispatch-a'").run();
+    await expect(modelStatus.status(auth, { trustedCall: { ignored: true } })).resolves.toEqual({
+      schemaVersion: 1, status: 'unavailable', text: '',
+    });
+    allowed.set(7, new Set());
+    await expect(modelStatus.status(auth, { trustedCall: { ignored: true } })).resolves.toEqual({
+      schemaVersion: 1, status: 'unavailable', text: '',
+    });
+  });
+
+  it('withholds a signed status response when project access is revoked during the final active-tool reread', async () => {
+    db = database();
+    const allowed = new Map([[7, new Set(['project-a'])]]);
+    const repository = new CoordinatorConversationsRepository(db, () => now);
+    expect(repository.designatePrimaryOwnerRoot({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' }))
+      .toMatchObject({ kind: 'found' });
+    db.prepare(`INSERT INTO agent_turn_dispatches
+      (id, session_id, sdk_session_id, sdk_user_message_id, origin, requested_source, route_authed, reason_code, outcome)
+      VALUES ('dispatch-race', 'chat-a', 'sdk-a', 'native-user-a', 'prompt_api', 'session', 1, 'c2_foreground', 'accepted')`).run();
+    let activeReads = 0;
+    const modelStatus = new CoordinatorConversationModelStatusService({
+      conversations: service(repository, db, allowed, { context: { assemble: async () => qualifiedContext() } as never }),
+      records: repository,
+      engine: {
+        getCurrentTrustedMcpToolCall: async () => {
+          activeReads += 1;
+          if (activeReads === 2) allowed.set(7, new Set());
+          return {
+            sdkSessionId: 'sdk-a', assistantId: 'assistant-a', toolCallId: 'tool-a', agentName: 'Secretary',
+            userMessageId: 'native-user-a', partId: 'part-a', toolKey: 'rhythm_get_coordinator_status',
+            serverName: 'rhythm', toolName: 'rhythm_get_coordinator_status',
+          };
+        },
+      },
+      verify: async () => ({
+        context: { sdkSessionId: 'sdk-a', turnId: 'assistant-a', toolCallId: 'tool-a', agentName: 'Secretary' },
+        arguments: {},
+      }),
+    });
+    await expect(modelStatus.status(auth, { trustedCall: { ignored: true } })).resolves.toEqual({
+      schemaVersion: 1, status: 'unavailable', text: '',
+    });
+  });
+
   it('withholds a reserved foreground command when current project authority is revoked during adapter preparation', async () => {
     db = database();
     const allowed = new Map([[7, new Set(['project-a'])]]);
@@ -460,4 +825,55 @@ describe('dedicated primary Rhythm conversation resolution', () => {
     })).toEqual({ kind: 'not_found' });
     expect(repository.get({ ownerUserId: 7, ...request })).toMatchObject({ kind: 'found', conversation: { goals: [] } });
   });
+});
+
+// Sol verification only in isolated frozen reconstruction; no owner source edits.
+import { createTrustedMcpTestSigner } from './helpers/trusted_mcp_test_proof';
+import { clearTrustedMcpVerifier, pinTrustedMcpPublicKey } from '../security/trusted_mcp_call';
+
+it('SOL core: actual signed goal boundary dispatches exact durable objective once and blocks tampering and unbound native turns', async () => {
+  const db = database();
+  const allowed = new Map([[7, new Set(['project-a'])]]);
+  const repository = new CoordinatorConversationsRepository(db, () => now);
+  expect(repository.designatePrimaryOwnerRoot({ownerUserId:7,projectId:'project-a',sessionId:'chat-a'})).toMatchObject({kind:'found'});
+  let dispatches = 0;
+  const objective = 'Could you draft a weekly update from the current work?';
+  const coordinator = service(repository, db, allowed, {
+    context: {assemble:async()=>qualifiedContext()} as never,
+    foreground: {send:async()=>({kind:'accepted'})},
+    codingWorkflow: {dispatch:async(input)=>{
+      dispatches++;
+      expect(input.objective).toBe(objective);
+      expect(input.parentSessionId).toBe('chat-a');
+      expect(input.parentSdkSessionId).toBe('sdk-a');
+      return {delegationId:'sol-child-delegation',childSessionId:'sol-child-session',targetAgentConfigId:'workflow-orchestrator' as const};
+    }},
+  });
+  await expect(coordinator.receiveMessage(auth,{sessionId:'chat-a',projectId:'project-a',expectedControlRevision:1,commandKey:'sol-capture',message:objective})).resolves.toMatchObject({kind:'foreground_accepted'});
+  const captured=repository.get({ownerUserId:7,projectId:'project-a',sessionId:'chat-a'});
+  if(captured.kind!=='found')throw new Error('missing goal');
+  const goalId=captured.conversation.goals[0].id;
+  db.prepare(`INSERT INTO agent_turn_dispatches (id,session_id,sdk_session_id,sdk_user_message_id,origin,requested_source,route_authed,reason_code,outcome) VALUES ('sol-foreground','chat-a','sdk-a','sol-native-user','prompt_api','session',1,'c2_foreground','accepted')`).run();
+  const identity={sdkSessionId:'sdk-a',turnId:'sol-assistant',toolCallId:'sol-tool',agentName:'Secretary'};
+  let nativeUser='sol-native-user';
+  const model=new CoordinatorConversationModelStatusService({conversations:coordinator,records:repository,engine:{getCurrentTrustedMcpToolCall:async()=>({...identity,assistantId:identity.turnId,userMessageId:nativeUser,partId:'sol-part',toolKey:'rhythm_start_coordinator_goal',serverName:'rhythm',toolName:'rhythm_start_coordinator_goal'})}});
+  const signer=createTrustedMcpTestSigner();
+  pinTrustedMcpPublicKey(signer.publicDocument);
+  try{
+    const tampered=signer.signCall(identity,'rhythm_start_coordinator_goal',{goalId});
+    tampered.arguments.goalId='different-goal';
+    await expect(model.startGoal(auth,{trustedCall:tampered})).resolves.toMatchObject({status:'unavailable'});
+    expect(dispatches).toBe(0);
+    const first=signer.signCall(identity,'rhythm_start_coordinator_goal',{goalId});
+    await expect(model.startGoal(auth,{trustedCall:first})).resolves.toMatchObject({status:'started'});
+    expect(dispatches).toBe(1);
+    await expect(model.startGoal(auth,{trustedCall:first})).resolves.toMatchObject({status:'unavailable'});
+    const distinctProof=signer.signCall(identity,'rhythm_start_coordinator_goal',{goalId});
+    await expect(model.startGoal(auth,{trustedCall:distinctProof})).resolves.toMatchObject({status:'started'});
+    expect(dispatches).toBe(1);
+    expect(repository.get({ownerUserId:7,projectId:'project-a',sessionId:'chat-a'})).toMatchObject({kind:'found',conversation:{commandDedupe:expect.arrayContaining([expect.objectContaining({kind:'delegate_goal',goalId,state:'dispatched',delegationId:'sol-child-delegation',childSessionId:'sol-child-session'})])}});
+    nativeUser='sol-unbound-user';
+    await expect(model.startGoal(auth,{trustedCall:signer.signCall(identity,'rhythm_start_coordinator_goal',{goalId})})).resolves.toMatchObject({status:'unavailable'});
+    expect(dispatches).toBe(1);
+  }finally{clearTrustedMcpVerifier();db.close();}
 });

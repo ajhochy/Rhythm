@@ -10,6 +10,7 @@ import {
   getRelevantMemoriesSemantic,
   searchMemoryReferences,
 } from '../services/memory_retrieval';
+import { isGenericMemoryAdmissionAllowed } from '../services/automatic_memory_preface';
 import {
   EngraphHttpClient,
   mapEngraphFileToSourceId,
@@ -780,6 +781,42 @@ describe('hybrid memory retrieval', () => {
       expect(result.returned).toBeLessThanOrEqual(5);
       expect(JSON.stringify(result).length).toBeLessThanOrEqual(5_000);
     }
+  });
+
+  it('withholds Dayflow-shaped generic references without exposing their native hit count', async () => {
+    const dayflow = memory({
+      id: 'dayflow',
+      sourceId: 'context/dayflow.md',
+      content: 'Synthetic Dayflow activity must use the qualified reader.',
+      tagsJson: '["dayflow","activity-observation"]',
+    });
+    const ordinary = memory({
+      id: 'ordinary',
+      sourceId: 'fact/ordinary.md',
+      content: 'Synthetic ordinary preference remains available to generic memory search.',
+    });
+    const result = await searchMemoryReferences('synthetic evidence', 1, {
+      repo: repo([], [dayflow, ordinary]),
+      engraph: {
+        search: vi.fn().mockResolvedValue([
+          { file: dayflow.sourceId, snippet: dayflow.content },
+          { file: ordinary.sourceId, snippet: ordinary.content },
+        ]),
+      },
+      releaseAdmission: isGenericMemoryAdmissionAllowed,
+    });
+
+    expect(result.references.map(({ id }) => id)).toEqual(['ordinary']);
+    // The filtered Dayflow hit is not reflected in an output count or status.
+    expect(result.hitCount).toBe(1);
+    expect(result.status).toBe('used');
+
+    const onlyDayflow = await searchMemoryReferences('synthetic evidence', 1, {
+      repo: repo([], [dayflow]),
+      engraph: { search: vi.fn().mockResolvedValue([{ file: dayflow.sourceId, snippet: dayflow.content }]) },
+      releaseAdmission: isGenericMemoryAdmissionAllowed,
+    });
+    expect(onlyDayflow).toMatchObject({ references: [], returned: 0, hitCount: 0, status: 'unmapped' });
   });
 
   it('keeps a prompt-injection-like matched excerpt structurally fenced and never treats it as confidence', async () => {

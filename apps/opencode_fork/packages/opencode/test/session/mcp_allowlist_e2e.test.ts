@@ -13,7 +13,7 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { FetchHttpClient } from "effect/unstable/http"
 import { expect } from "bun:test"
-import { Effect, Layer } from "effect"
+import { Effect, Fiber, Layer } from "effect"
 import { dynamicTool, jsonSchema } from "ai"
 import * as Log from "@opencode-ai/core/util/log"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
@@ -119,7 +119,68 @@ function freshMockMcpTools(): Record<string, ReturnType<typeof dynamicTool>> {
   for (const [key, description] of Object.entries(MOCK_TOOL_DESCRIPTIONS)) {
     out[key] = makeMockTool(description)
   }
+  out.rhythm_strict = makeStrictTool()
+  out.rhythm_dialect = makeCountedTool("rhythm_dialect", {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    type: "object",
+    properties: { value: { type: "array", prefixItems: [{ type: "integer" }] } },
+    required: ["value"],
+    additionalProperties: false,
+  })
+  // Two distinct tools that reuse one $id with different schemas.
+  out.rhythm_id_a = makeCountedTool("rhythm_id_a", {
+    $id: "https://example.test/shared.json",
+    type: "object",
+    properties: { a: { type: "string" } },
+    required: ["a"],
+    additionalProperties: false,
+  })
+  out.rhythm_id_b = makeCountedTool("rhythm_id_b", {
+    $id: "https://example.test/shared.json",
+    type: "object",
+    properties: { b: { type: "integer" } },
+    required: ["b"],
+    additionalProperties: false,
+  })
   return out
+}
+
+const counted: Record<string, number> = {}
+/** JSON-schema-only tool (no validate hook) that counts real executions. */
+function makeCountedTool(name: string, schema: Record<string, unknown>) {
+  return dynamicTool({
+    description: name,
+    inputSchema: jsonSchema(schema as never),
+    execute: async () => {
+      counted[name] = (counted[name] ?? 0) + 1
+      return { content: [{ type: "text" as const, text: `${name}-ok` }], isError: false }
+    },
+  })
+}
+
+/**
+ * JSON-schema-only definition exactly like mcp/index.ts#convertMcpTool: plain
+ * `jsonSchema(schema)` with NO validate hook. Counts real executions so a
+ * malformed call that reaches the underlying tool is observable.
+ */
+let strictExecutions = 0
+function makeStrictTool() {
+  return dynamicTool({
+    description: "rhythm strict",
+    inputSchema: jsonSchema({
+      type: "object" as const,
+      properties: {
+        payload: { type: "string" as const },
+        nested: { type: "object" as const, properties: { n: { type: "integer" as const } }, required: ["n"] },
+      },
+      required: ["payload"],
+      additionalProperties: false,
+    }),
+    execute: async () => {
+      strictExecutions++
+      return { content: [{ type: "text" as const, text: "strict-ok" }], isError: false }
+    },
+  })
 }
 
 /** Keys only, for tests that just need the known-key set (no mutation risk). */
@@ -132,6 +193,10 @@ const MOCK_KEY_TO_SERVER: Record<string, string> = {
   rhythm_create_task: "rhythm",
   obsidian_get_file: "obsidian",
   obsidian_put_file: "obsidian",
+  rhythm_strict: "rhythm",
+  rhythm_dialect: "rhythm",
+  rhythm_id_a: "rhythm",
+  rhythm_id_b: "rhythm",
 }
 
 const mcpWithAllTools = Layer.succeed(
@@ -413,14 +478,14 @@ const addUserMessage = Effect.fn("test.addUserMessage")(function* (sessionID: Se
 // ---------------------------------------------------------------------------
 
 it.instance(
-  "Case A (no allowlist) — ALL 5 MCP tools offered to the model",
+  "Case A (no allowlist) — lazy default offers mcp_dispatch, cataloging all 5 MCP tools",
   () =>
     Effect.gen(function* () {
       const { llm } = yield* useServerConfig(providerCfg)
       const sessions = yield* Session.Service
       const prompt = yield* SessionPrompt.Service
 
-      // No mcpAllowlist → back-compat pass-through
+      // No mcpAllowlist → legacy session still defaults to lazy loading.
       const session = yield* sessions.create({
         title: "Case A — no allowlist",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
@@ -434,18 +499,21 @@ it.instance(
       const inputs = yield* llm.inputs
       const offeredMcpKeys = extractMcpToolNames(inputs)
 
-      console.log("[Case A] offered MCP tool keys:", JSON.stringify(offeredMcpKeys))
+      console.log("[Case A] eagerly offered MCP tool keys:", JSON.stringify(offeredMcpKeys))
 
-      expect(offeredMcpKeys).toEqual(
-        ["obsidian_get_file", "obsidian_put_file", "rhythm_create_task", "rhythm_list_tasks", "rhythm_ping"].sort(),
-      )
+      expect(offeredMcpKeys).toEqual([])
+      const dispatchEntry = findToolEntry(inputs, "mcp_dispatch")
+      const fn = dispatchEntry?.function as Record<string, unknown> | undefined
+      const description = typeof fn?.description === "string" ? fn.description : ""
+      expect(dispatchEntry).toBeDefined()
+      for (const key of ALL_MCP_KEYS) expect(description).toContain(key)
     }),
   { git: true, config: cfg },
   10_000,
 )
 
 it.instance(
-  "Case B (server-level allowlist: rhythm) — exactly 3 rhythm_* tools, NO obsidian_* tools",
+  "Case B (server-level allowlist: rhythm) — lazy default catalogs only the 3 rhythm tools",
   () =>
     Effect.gen(function* () {
       const { llm } = yield* useServerConfig(providerCfg)
@@ -465,21 +533,25 @@ it.instance(
       const inputs = yield* llm.inputs
       const offeredMcpKeys = extractMcpToolNames(inputs)
 
-      console.log("[Case B] offered MCP tool keys:", JSON.stringify(offeredMcpKeys))
+      console.log("[Case B] eagerly offered MCP tool keys:", JSON.stringify(offeredMcpKeys))
 
-      expect(offeredMcpKeys).toEqual(
-        ["rhythm_create_task", "rhythm_list_tasks", "rhythm_ping"].sort(),
-      )
-      // Explicitly verify obsidian tools are absent
-      expect(offeredMcpKeys).not.toContain("obsidian_get_file")
-      expect(offeredMcpKeys).not.toContain("obsidian_put_file")
+      expect(offeredMcpKeys).toEqual([])
+      const dispatchEntry = findToolEntry(inputs, "mcp_dispatch")
+      const fn = dispatchEntry?.function as Record<string, unknown> | undefined
+      const description = typeof fn?.description === "string" ? fn.description : ""
+      expect(dispatchEntry).toBeDefined()
+      expect(description).toContain("rhythm_create_task")
+      expect(description).toContain("rhythm_list_tasks")
+      expect(description).toContain("rhythm_ping")
+      expect(description).not.toContain("obsidian_get_file")
+      expect(description).not.toContain("obsidian_put_file")
     }),
   { git: true, config: cfg },
   10_000,
 )
 
 it.instance(
-  "Case C (explicit tool allowlist: obsidian_get_file) — exactly 1 tool, 4 others absent",
+  "Case C (explicit tool allowlist: obsidian_get_file) — lazy default catalogs only that tool",
   () =>
     Effect.gen(function* () {
       const { llm } = yield* useServerConfig(providerCfg)
@@ -499,21 +571,25 @@ it.instance(
       const inputs = yield* llm.inputs
       const offeredMcpKeys = extractMcpToolNames(inputs)
 
-      console.log("[Case C] offered MCP tool keys:", JSON.stringify(offeredMcpKeys))
+      console.log("[Case C] eagerly offered MCP tool keys:", JSON.stringify(offeredMcpKeys))
 
-      expect(offeredMcpKeys).toEqual(["obsidian_get_file"])
-      // Explicitly verify all others are absent
-      expect(offeredMcpKeys).not.toContain("obsidian_put_file")
-      expect(offeredMcpKeys).not.toContain("rhythm_ping")
-      expect(offeredMcpKeys).not.toContain("rhythm_list_tasks")
-      expect(offeredMcpKeys).not.toContain("rhythm_create_task")
+      expect(offeredMcpKeys).toEqual([])
+      const dispatchEntry = findToolEntry(inputs, "mcp_dispatch")
+      const fn = dispatchEntry?.function as Record<string, unknown> | undefined
+      const description = typeof fn?.description === "string" ? fn.description : ""
+      expect(dispatchEntry).toBeDefined()
+      expect(description).toContain("obsidian_get_file")
+      expect(description).not.toContain("obsidian_put_file")
+      expect(description).not.toContain("rhythm_ping")
+      expect(description).not.toContain("rhythm_list_tasks")
+      expect(description).not.toContain("rhythm_create_task")
     }),
   { git: true, config: cfg },
   10_000,
 )
 
 it.instance(
-  "Case D (empty allowlist: no servers, no tools) — ZERO MCP tools offered",
+  "Case D (empty allowlist: no servers, no tools) — lazy default offers only an empty dispatcher",
   () =>
     Effect.gen(function* () {
       const { llm } = yield* useServerConfig(providerCfg)
@@ -533,12 +609,16 @@ it.instance(
       const inputs = yield* llm.inputs
       const offeredMcpKeys = extractMcpToolNames(inputs)
 
-      console.log("[Case D] offered MCP tool keys:", JSON.stringify(offeredMcpKeys))
+      console.log("[Case D] eagerly offered MCP tool keys:", JSON.stringify(offeredMcpKeys))
 
       expect(offeredMcpKeys).toEqual([])
-      // Verify each MCP key is absent individually
+      const dispatchEntry = findToolEntry(inputs, "mcp_dispatch")
+      const fn = dispatchEntry?.function as Record<string, unknown> | undefined
+      const description = typeof fn?.description === "string" ? fn.description : ""
+      expect(dispatchEntry).toBeDefined()
+      expect(description).toContain("No MCP tools are currently available.")
       for (const key of ALL_MCP_KEYS) {
-        expect(offeredMcpKeys).not.toContain(key)
+        expect(description).not.toContain(key)
       }
     }),
   { git: true, config: cfg },
@@ -713,6 +793,260 @@ it.instance(
     }),
   { git: true, config: cfg },
   10_000,
+)
+
+// ---------------------------------------------------------------------------
+// Case I (F1): the selected tool is JSON-schema-only (no validate hook). describe
+// returns its exact schema; malformed execute arguments never reach the
+// underlying execute; the valid call executes exactly once.
+// ---------------------------------------------------------------------------
+
+it.instance(
+  "Case I (deferred mode) — JSON-schema-only arguments are enforced before execution; valid call runs once",
+  () =>
+    Effect.gen(function* () {
+      strictExecutions = 0
+      const { llm } = yield* useServerConfig(providerCfg)
+      const sessions = yield* Session.Service
+      const prompt = yield* SessionPrompt.Service
+
+      const session = yield* sessions.create({
+        title: "Case I — schema enforcement",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        mcpAllowlist: { servers: ["rhythm"], tools: [], deferred: true },
+      })
+      yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "use rhythm_strict" }],
+      })
+      const dispatch = (args: Record<string, unknown>) => llm.tool("mcp_dispatch", { name: "rhythm_strict", ...args })
+      yield* llm.tool("mcp_dispatch", { action: "search", query: "strict" })
+      yield* dispatch({ action: "describe" })
+      yield* dispatch({ action: "execute", arguments: {} })
+      yield* dispatch({ action: "execute", arguments: { payload: 1 } })
+      yield* dispatch({ action: "execute", arguments: { payload: "x", extra: true } })
+      yield* dispatch({ action: "execute", arguments: { payload: "x", nested: { n: "no" } } })
+      yield* dispatch({ action: "execute", arguments: { payload: "x", nested: { n: 2 } } })
+      yield* llm.text("done")
+
+      yield* prompt.loop({ sessionID: session.id })
+
+      const parts = (yield* MessageV2.filterCompactedEffect(session.id))
+        .flatMap((msg) => msg.parts)
+        .filter((part): part is MessageV2.ToolPart => part.type === "tool" && part.tool === "mcp_dispatch")
+      expect(parts.map((part) => part.state.status)).toEqual([
+        "completed",
+        "completed",
+        "error",
+        "error",
+        "error",
+        "error",
+        "completed",
+      ])
+      expect((parts[0].state as MessageV2.ToolStateCompleted).output).toContain("rhythm_strict")
+      const describe = parts[1].state as MessageV2.ToolStateCompleted
+      expect(describe.output).toContain('"required":["payload"]')
+      expect(describe.output).toContain('"additionalProperties":false')
+      expect(strictExecutions).toBe(1)
+      expect((parts[6].state as MessageV2.ToolStateCompleted).output).toContain("strict-ok")
+    }),
+  { git: true, config: cfg },
+  20_000,
+)
+
+// Hosted builtins: with the default (no allowlist) only mcp_dispatch is offered;
+// builtins are discovered, described and executed through family="builtin" using
+// the original wrapped executors, with current permission/eligibility applied.
+it.instance(
+  "Case K (lazy default) — hosted builtins are deferred behind mcp_dispatch family=builtin",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(providerCfg)
+      const directory = (yield* TestInstance).directory
+      const fs = yield* AppFileSystem.Service
+      yield* fs.writeWithDirs(`${directory}/hello.txt`, "hello-lazy-read")
+      const sessions = yield* Session.Service
+      const prompt = yield* SessionPrompt.Service
+
+      const session = yield* sessions.create({
+        title: "Case K — builtins",
+        // bash is denied for this session; everything else is allowed.
+        permission: [
+          { permission: "*", pattern: "*", action: "allow" },
+          { permission: "bash", pattern: "*", action: "deny" },
+        ],
+      })
+      yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "use builtins lazily" }],
+      })
+      const b = (args: Record<string, unknown>) => llm.tool("mcp_dispatch", { family: "builtin", ...args })
+      yield* b({ action: "search", query: "read" })
+      yield* b({ action: "describe", name: "read" })
+      yield* b({ action: "execute", name: "read", arguments: {} })
+      yield* b({ action: "execute", name: "read", arguments: { filePath: `${directory}/hello.txt` } })
+      yield* b({ action: "describe", name: "bash" })
+      yield* b({ action: "execute", name: "bash", arguments: { command: "echo denied", description: "x" } })
+      yield* b({ action: "execute", name: "no_such_builtin", arguments: {} })
+      yield* llm.tool("mcp_dispatch", { action: "execute", name: "read", arguments: { filePath: `${directory}/hello.txt` } })
+      yield* llm.text("done")
+
+      yield* prompt.loop({ sessionID: session.id })
+
+      const inputs = yield* llm.inputs
+      const offered = ((inputs.find((body) => Array.isArray((body as { tools?: unknown }).tools)) as { tools: unknown[] })
+        .tools as { function?: { name?: string } }[]).map((t) => t.function?.name)
+      expect(offered).toEqual(["mcp_dispatch"])
+      const description = String(
+        (findToolEntry(inputs, "mcp_dispatch")?.function as Record<string, unknown> | undefined)?.description,
+      )
+      expect(description).toContain("<builtin_tools")
+      expect(description).toContain("read")
+      expect(description).not.toContain("bash")
+
+      const parts = (yield* MessageV2.filterCompactedEffect(session.id))
+        .flatMap((msg) => msg.parts)
+        .filter((part): part is MessageV2.ToolPart => part.type === "tool" && part.tool === "mcp_dispatch")
+      expect(parts.map((part) => part.state.status)).toEqual([
+        "completed", // search
+        "completed", // describe read
+        "error", // read with {} fails original Schema decode
+        "completed", // read executes
+        "error", // bash denied: not discoverable
+        "error", // bash denied: not executable
+        "error", // unknown builtin
+        "error", // legacy mcp family cannot reach a builtin id
+      ])
+      const search = (parts[0].state as MessageV2.ToolStateCompleted).output
+      expect(search).toContain('"family":"builtin"')
+      expect(search).not.toContain('"name":"bash"')
+      expect((parts[1].state as MessageV2.ToolStateCompleted).output).toContain("filePath")
+      const read = parts[3].state as MessageV2.ToolStateCompleted
+      expect(read.output).toContain("hello-lazy-read")
+      // Native outer part keeps the dispatcher input, not the underlying args.
+      expect(read.input).toMatchObject({ family: "builtin", name: "read" })
+    }),
+  { git: true, config: cfg },
+  30_000,
+)
+
+// Revocation during an awaited tool.execute.before plugin hook: authority must be
+// read at the underlying ask (after the hook), not captured before the await.
+it.instance(
+  "Case L (deferred builtin) — path denial installed while tool.execute.before is awaiting blocks the read",
+  () =>
+    Effect.gen(function* () {
+      const g = globalThis as unknown as { __lazyBefore?: { entered: boolean; gate: Promise<void> } }
+      let release!: () => void
+      g.__lazyBefore = { entered: false, gate: new Promise<void>((done) => (release = done)) }
+      const { llm } = yield* useServerConfig(providerCfg)
+      const directory = (yield* TestInstance).directory
+      const fs = yield* AppFileSystem.Service
+      yield* fs.writeWithDirs(`${directory}/secret.txt`, "SYNTHETIC_HOOK_REVOKED")
+      yield* fs.writeWithDirs(
+        `${directory}/.opencode/plugin/before-gate.ts`,
+        [
+          "export default {",
+          '  id: "demo.before-gate",',
+          "  server: async () => ({",
+          '    "tool.execute.before": async () => {',
+          "      const state = (globalThis as any).__lazyBefore",
+          "      state.entered = true",
+          "      await state.gate",
+          "    },",
+          "  }),",
+          "}",
+        ].join("\n"),
+      )
+      const sessions = yield* Session.Service
+      const prompt = yield* SessionPrompt.Service
+      const session = yield* sessions.create({
+        title: "Case L",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+      yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "read secret" }],
+      })
+      yield* llm.tool("mcp_dispatch", {
+        family: "builtin",
+        action: "execute",
+        name: "read",
+        arguments: { filePath: `${directory}/secret.txt` },
+      })
+      yield* llm.text("done")
+      const fiber = yield* prompt.loop({ sessionID: session.id }).pipe(Effect.forkChild)
+      for (let attempt = 0; attempt < 300 && !g.__lazyBefore.entered; attempt++) yield* Effect.sleep("10 millis")
+      expect(g.__lazyBefore.entered).toBe(true)
+      yield* sessions.setPermission({
+        sessionID: session.id,
+        permission: [
+          { permission: "*", pattern: "*", action: "allow" },
+          { permission: "read", pattern: "secret.txt", action: "deny" },
+        ],
+      })
+      release()
+      yield* Fiber.join(fiber)
+
+      const part = (yield* MessageV2.filterCompactedEffect(session.id))
+        .flatMap((msg) => msg.parts)
+        .find((p): p is MessageV2.ToolPart => p.type === "tool" && p.tool === "mcp_dispatch")
+      expect(part?.state.status).toBe("error")
+      expect(JSON.stringify(part?.state)).not.toContain("SYNTHETIC_HOOK_REVOKED")
+    }),
+  { git: true, config: cfg },
+  30_000,
+)
+
+// F1 dialect/$id: declared 2020-12 prefixItems is refused (not silently ignored)
+// with zero effects; two tools sharing one $id each validate against their OWN schema.
+it.instance(
+  "Case J (deferred mode) — unsupported 2020-12 keywords are refused; shared $id never reuses another schema",
+  () =>
+    Effect.gen(function* () {
+      for (const key of ["rhythm_dialect", "rhythm_id_a", "rhythm_id_b"]) counted[key] = 0
+      const { llm } = yield* useServerConfig(providerCfg)
+      const sessions = yield* Session.Service
+      const prompt = yield* SessionPrompt.Service
+
+      const session = yield* sessions.create({
+        title: "Case J — dialect and $id",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        mcpAllowlist: { servers: ["rhythm"], tools: [], deferred: true },
+      })
+      yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "dialect and id" }],
+      })
+      const exec = (name: string, args: Record<string, unknown>) =>
+        llm.tool("mcp_dispatch", { action: "execute", name, arguments: args })
+      yield* exec("rhythm_dialect", { value: ["wrong"] })
+      yield* exec("rhythm_id_a", { a: "ok" })
+      yield* exec("rhythm_id_b", { b: 1 })
+      yield* exec("rhythm_id_a", { b: 1 })
+      yield* exec("rhythm_id_b", { a: "ok" })
+      yield* llm.text("done")
+
+      yield* prompt.loop({ sessionID: session.id })
+
+      const parts = (yield* MessageV2.filterCompactedEffect(session.id))
+        .flatMap((msg) => msg.parts)
+        .filter((part): part is MessageV2.ToolPart => part.type === "tool" && part.tool === "mcp_dispatch")
+      expect(parts.map((part) => part.state.status)).toEqual(["error", "completed", "completed", "error", "error"])
+      expect(counted.rhythm_dialect).toBe(0)
+      expect(counted.rhythm_id_a).toBe(1)
+      expect(counted.rhythm_id_b).toBe(1)
+    }),
+  { git: true, config: cfg },
+  20_000,
 )
 
 // ---------------------------------------------------------------------------

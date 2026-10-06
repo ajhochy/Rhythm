@@ -28,6 +28,7 @@ import { registerCreativePlatformTools } from './tools/creativePlatform.js';
 import { registerSetupReadinessTool } from './tools/setupReadiness.js';
 import { registerLiveArtifactTools } from './tools/liveArtifacts.js';
 import { registerDayflowTools } from './tools/dayflow.js';
+import { registerCoordinatorConversationTools } from './tools/coordinatorConversation.js';
 
 const RHYTHM_API_URL = process.env.RHYTHM_API_URL ?? 'https://api.vcrcapps.com';
 const RHYTHM_API_TOKEN = process.env.RHYTHM_API_TOKEN ?? '';
@@ -83,6 +84,10 @@ registerAgentMemoryTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN, {
 // pipeline. These two read tools carry the same engine-signed call envelope;
 // they do not grant scope or accept owner/project identifiers from the model.
 registerDayflowTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
+// Dedicated coordinator state is signed against the exact active foreground
+// native turn. The global registration is still narrowed per session by the
+// server-pushed profile MCP allowlist before any C2 prompt is exposed.
+registerCoordinatorConversationTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 // #806 — rhythm_list_sessions reads agent sessions/messages from the LOCAL
 // agent server (:4001), the store that owns sessions. The seeded Memory
 // Consolidation task calls it to review the past day's sessions before

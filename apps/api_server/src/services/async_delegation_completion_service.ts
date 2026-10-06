@@ -9,10 +9,16 @@ import {
 } from '../repositories/agent_configs_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { CoordinatorConversationsRepository } from '../repositories/coordinator_conversations_repository';
 import type { AgentSession } from '../models/agent_session';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { untrustedContext } from '../security/untrusted_fence';
+import { prepareAutomaticMemoryPreface } from './automatic_memory_preface';
+import type {
+  CoordinatorCallbackContext,
+  CoordinatorCallbackContextInput,
+} from './coordinator_conversation_service';
 import { getDb } from '../database/db';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { resolveProfileScope } from './agent_profile_scope';
@@ -30,6 +36,12 @@ import {
 } from '../shared_agents/native_workstream_wake_contract';
 
 const RESTART_RECOVERY_PARENT_LIMIT = 100;
+const CALLBACK_MEMORY_QUERY_CHARS = 1_000;
+
+/** Narrow server-composed preparer; implemented by the coordinator conversation service. */
+export interface CoordinatorCallbackContextPort {
+  prepare(input: CoordinatorCallbackContextInput): Promise<CoordinatorCallbackContext | null>;
+}
 const DISABLED_NATIVE_DELIVERY_POLICY: NativeWorkstreamDeliveryPolicy = {
   enabled: () => false,
   currentHostEpoch: () => null,
@@ -56,11 +68,58 @@ export class AsyncDelegationCompletionService {
   private messagesRepo = new AgentSessionMessagesRepository();
   private sessionsRepo = new AgentSessionsRepository();
   private bridgeRestartRecovered = false;
+  private coordinatorCallbackContext: CoordinatorCallbackContextPort | null = null;
 
   constructor(
     private readonly nativeDeliveryPolicy: NativeWorkstreamDeliveryPolicy =
       DISABLED_NATIVE_DELIVERY_POLICY,
   ) {}
+
+  /** Server composition supplies the coordinator contract preparer; absent means no overlay. */
+  setCoordinatorCallbackContext(port: CoordinatorCallbackContextPort | null): void {
+    this.coordinatorCallbackContext = port;
+  }
+
+  private async prepareCallbackOverlay(
+    parent: AgentSession,
+    parentSdkSessionId: string,
+    delegationId: string,
+    childSessionId: string,
+    wakeText: string,
+  ): Promise<{ text: string; current: () => Promise<boolean> } | null> {
+    const port = this.coordinatorCallbackContext;
+    if (!port || typeof parent.ownerUserId !== 'number' || !parent.projectId) return null;
+    try {
+      const contract = await port.prepare({
+        ownerUserId: parent.ownerUserId,
+        projectId: parent.projectId,
+        sessionId: parent.id,
+        sdkSessionId: parentSdkSessionId,
+        delegationId,
+        childSessionId,
+      });
+      if (!contract) return null;
+      let memoryText = '';
+      try {
+        const memory = await prepareAutomaticMemoryPreface({
+          query: wakeText.slice(0, CALLBACK_MEMORY_QUERY_CHARS),
+          sessionId: parent.id,
+          ownerUserId: parent.ownerUserId,
+        });
+        memoryText = memory?.text ?? '';
+      } catch {
+        // Retrieval/provenance stays fail-open, as in foreground ingress.
+      }
+      // Directly adjacent to enqueue: after every preparation await.
+      if (!(await contract.current())) return null;
+      return {
+        text: [contract.system, memoryText].filter((block) => block.length > 0).join('\n\n'),
+        current: () => contract.current(),
+      };
+    } catch {
+      return null;
+    }
+  }
 
   async onBridgeJobTerminal(parentSessionId: string): Promise<void> {
     await this.flushParent(parentSessionId);
@@ -369,6 +428,47 @@ export class AsyncDelegationCompletionService {
     const wakeText = activeNative.length > 0
       ? this.buildNativeWakeText(wakeDelegations, activeNative, messageID)
       : this.buildWakeText(wakeDelegations, messageID);
+    // A generic async completion must never acquire coordinator model-control
+    // authority merely because it shares the Secretary's SDK session. Only a
+    // single, previously bound Coding Workflow child gets this internal marker;
+    // mixed callbacks remain ordinary existing completion wakes.
+    const singleCoordinatorWake = activeNative.length === 0 && wakeDelegations.length === 1
+      ? wakeDelegations[0]
+      : null;
+    const singleCoordinatorChildSessionId = singleCoordinatorWake?.childSessionId;
+    const coordinatorCallbackReason = singleCoordinatorWake && singleCoordinatorChildSessionId
+      ? new CoordinatorConversationsRepository().coordinatorDelegationCallbackReason({
+        parentSessionId,
+        parentSdkSessionId,
+        delegationId: singleCoordinatorWake.id,
+        childSessionId: singleCoordinatorChildSessionId,
+        targetAgentConfigId: singleCoordinatorWake.targetAgentConfigId,
+      })
+      : null;
+
+    // Fresh bounded coordinator contract + automatic memory for the exact
+    // single bound child only. Mixed/native/unbound completions get neither.
+    // Both are rechecked after their awaits and directly before enqueue; a
+    // stale scope drops the overlay (the wake itself is unchanged), it never
+    // yields a qualified one.
+    let callbackFreshness: (() => Promise<boolean>) | null = null;
+    if (coordinatorCallbackReason && singleCoordinatorWake && singleCoordinatorChildSessionId) {
+      const overlay = await this.prepareCallbackOverlay(
+        parent,
+        parentSdkSessionId,
+        singleCoordinatorWake.id,
+        singleCoordinatorChildSessionId,
+        wakeText,
+      );
+      if (overlay) {
+        promptOpts.system = [
+          typeof promptOpts.system === 'string' ? promptOpts.system : '',
+          overlay.text,
+        ].filter((block) => block.length > 0).join('\n\n');
+        // The same recheck runs again at the client's final SDK boundary.
+        callbackFreshness = overlay.current;
+      }
+    }
 
     this.wakeInFlight.add(parentSessionId);
     let deliveryUnknown = false;
@@ -376,28 +476,46 @@ export class AsyncDelegationCompletionService {
       ? { context: nativeContext, items: activeNative }
       : null;
     try {
-      const enqueued = await opencodeClient.promptAsync(
-        parentSdkSessionId,
-        wakeText,
-        profileScope.model,
-        parent.cwd,
-        promptOpts,
-        undefined,
-        undefined,
-        {
-          sessionId: parentSessionId,
-          sdkSessionId: parentSdkSessionId,
-          origin: 'delegation_completion',
-          requestedSource: 'agent_config',
-          requestedProviderId: profileScope.model?.providerID ?? null,
-          requestedModelId: profileScope.model?.modelID ?? null,
-          resolvedProviderId: profileScope.model?.providerID ?? null,
-          resolvedModelId: profileScope.model?.modelID ?? null,
-          routeAuthed: null,
-          finalProviderId: profileScope.model?.providerID ?? null,
-          finalModelId: profileScope.model?.modelID ?? null,
-        },
-      );
+      const dispatchProvenance = {
+        sessionId: parentSessionId,
+        sdkSessionId: parentSdkSessionId,
+        origin: 'delegation_completion' as const,
+        requestedSource: 'agent_config' as const,
+        requestedProviderId: profileScope.model?.providerID ?? null,
+        requestedModelId: profileScope.model?.modelID ?? null,
+        resolvedProviderId: profileScope.model?.providerID ?? null,
+        resolvedModelId: profileScope.model?.modelID ?? null,
+        routeAuthed: null,
+        finalProviderId: profileScope.model?.providerID ?? null,
+        finalModelId: profileScope.model?.modelID ?? null,
+        ...(coordinatorCallbackReason ? { reasonCode: coordinatorCallbackReason } : {}),
+      };
+      // Ordinary completions keep the exact historical call shape; only the
+      // exact prepared callback appends its final-boundary freshness hook.
+      const enqueued = callbackFreshness
+        ? await opencodeClient.promptAsync(
+          parentSdkSessionId,
+          wakeText,
+          profileScope.model,
+          parent.cwd,
+          promptOpts,
+          undefined,
+          undefined,
+          dispatchProvenance,
+          undefined,
+          undefined,
+          { kind: 'coordinator_callback_v1', validate: callbackFreshness },
+        )
+        : await opencodeClient.promptAsync(
+          parentSdkSessionId,
+          wakeText,
+          profileScope.model,
+          parent.cwd,
+          promptOpts,
+          undefined,
+          undefined,
+          dispatchProvenance,
+        );
       if (!enqueued) {
         let nativeDelivered = attemptedNative
           ? wakeDelegations.length > 0

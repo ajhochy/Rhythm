@@ -350,12 +350,18 @@ describe('OpencodeClientService — SDK response unwrap (.data)', () => {
       (svc as unknown as { server: { url: string; close(): void } }).server = {
         url: 'http://engine.test', close() {},
       };
+      const shouldBindDayflow = vi.fn(async () => true);
+      svc.setDayflowSdkHistoryGuard({
+        shouldBindPrompt: shouldBindDayflow,
+        revalidateBeforeSdk: async () => true,
+      });
       const previousExports = process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS;
       process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS = '1';
-      vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const fetcher = vi.fn(async (url: string) => {
         expect(url).toBe(`http://engine.test/session/${sdkSessionId}/rhythm-prompt-anchor?directory=%2Fsafe%2Fc2`);
         return { ok: true, json: async () => ({ messageID: 'native-user-c2' }) };
-      }));
+      });
+      vi.stubGlobal('fetch', fetcher);
       try {
         await expect(svc.promptAsync(
           sdkSessionId,
@@ -401,6 +407,10 @@ describe('OpencodeClientService — SDK response unwrap (.data)', () => {
         )).resolves.toBe(true);
         expect(callbacks).toEqual(['prepare', 'before_sdk', 'sdk_exposure']);
         expect(sdkPromptAsync).toHaveBeenCalledTimes(1);
+        // The C2 dispatch anchor is also the qualified Dayflow receiving
+        // anchor. No second synthetic message may be minted for one turn.
+        expect(shouldBindDayflow).toHaveBeenCalledWith(sdkSessionId);
+        expect(fetcher).toHaveBeenCalledTimes(1);
         expect(new ModelProvenanceRepository().list(sessionId)).toEqual([
           expect.objectContaining({ sdkUserMessageId: 'native-user-c2', outcome: 'accepted' }),
         ]);

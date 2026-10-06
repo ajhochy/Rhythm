@@ -4,6 +4,23 @@ import {
   isMemoryInjectionEnabled,
   type MemoryPreface,
 } from './memory_retrieval';
+import type { AgentMemory } from '../repositories/agent_memory_repository';
+import { isGenericMemoryAdmissionAllowedFields } from '../utils/generic_memory_admission';
+
+/**
+ * Generic memory surfaces never release Dayflow activity (policy and rationale
+ * live with the one pure decision in `utils/generic_memory_admission`, which
+ * the SQLite scalar and retrieval share so membership is decided before any
+ * LIMIT/OFFSET/count/search budget).
+ */
+export function isGenericMemoryAdmissionAllowed(memory: AgentMemory): boolean {
+  return isGenericMemoryAdmissionAllowedFields(memory);
+}
+
+/** Automatic prompt ingress is a generic-memory surface with the same fence. */
+export function isAutomaticMemoryAdmissionAllowed(memory: AgentMemory): boolean {
+  return isGenericMemoryAdmissionAllowed(memory);
+}
 
 /**
  * Builds automatic, owner-scoped memory context and records body-free
@@ -19,7 +36,12 @@ export async function prepareAutomaticMemoryPreface(input: {
 
   let preface: MemoryPreface;
   try {
-    preface = await buildMemoryPreface(input.query, input.ownerUserId);
+    preface = await buildMemoryPreface(input.query, input.ownerUserId, {
+      // The function stays as the final defense; `genericAdmission` makes the
+      // same policy decide membership BEFORE each lane's shortlist/budget.
+      automaticAdmission: isAutomaticMemoryAdmissionAllowed,
+      genericAdmission: true,
+    });
   } catch {
     return null;
   }

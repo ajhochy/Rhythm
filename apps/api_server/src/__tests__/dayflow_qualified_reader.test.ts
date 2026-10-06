@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -14,13 +14,13 @@ import { dayflowCanonicalVersion } from '../contracts/dayflow_coordinator_reader
 import { DayflowConfigStore } from '../integrations/dayflow/config_store';
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
-import { MemoryLedger } from '../integrations/dayflow/ledger';
+import { MemoryLedger, type LedgerEntry } from '../integrations/dayflow/ledger';
 import { AuthenticatedDayflowMemoryClient } from '../integrations/dayflow/authenticated_memory_client';
 import { DayflowPersistedQualificationAuthority } from '../integrations/dayflow/persisted_qualification_authority';
-import { stableMemoryId } from '../integrations/dayflow/plan';
+import { contentFor, sourceIdFor, stableMemoryId } from '../integrations/dayflow/plan';
 import { DayflowIntegrationService } from '../integrations/dayflow/service';
 import type { DayflowMemoryClient } from '../integrations/dayflow/memory_client';
-import type { DayflowSource } from '../integrations/dayflow/types';
+import type { DayflowCandidate, DayflowSource } from '../integrations/dayflow/types';
 import {
   DayflowCanonicalEvidenceResolver,
   DayflowQualifiedEvidenceService,
@@ -30,7 +30,11 @@ import {
 } from '../services/dayflow_qualified_evidence_service';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { MemoryIndexService } from '../services/memory_index_service';
-import { createObservationIfAbsentInVault, generateUlid } from '../services/memoryVaultWriteService';
+import {
+  createObservationIfAbsentInVault,
+  forgetCanonicalMemoryById,
+  generateUlid,
+} from '../services/memoryVaultWriteService';
 
 const roots: string[] = [];
 const NOW = Date.parse('2026-10-04T12:00:00.000Z');
@@ -171,6 +175,58 @@ async function importOne(service: DayflowIntegrationService): Promise<void> {
   await service.commit(preview.token, preview.candidates.map((candidate) => candidate.candidateId));
 }
 
+function syntheticQualifiedLedgerEntry(
+  candidate: DayflowCandidate,
+  base: LedgerEntry,
+  overrides: Partial<{
+    ownerUserId: number;
+    projectId: string;
+    consentGeneration: string;
+    configurationGeneration: string;
+    expiresAt: string;
+  }> = {},
+): LedgerEntry {
+  const sourceId = sourceIdFor(candidate);
+  const memoryId = stableMemoryId(sourceId);
+  const contentHash = createHash('sha256').update(contentFor(candidate)).digest('hex');
+  const canonicalSourceKey = `memory/context/renewal-${memoryId.toLowerCase()}.md`;
+  const receipt = base.qualification!;
+  return {
+    sourceId,
+    revisionHash: candidate.revisionHash,
+    memoryId,
+    contentHash,
+    exportVersion: candidate.exportVersion,
+    operationId: `renewal_${memoryId}`,
+    importedAt: new Date(NOW).toISOString(),
+    canonicalSourceKey,
+    qualification: {
+      schemaVersion: 1,
+      canonicalContentHash: contentHash,
+      canonicalSourceKey,
+      qualifiedAt: receipt.qualifiedAt,
+      reference: {
+        ...receipt.reference,
+        sourceId: opaque('card', sourceId),
+        exporterVersion: candidate.exportVersion,
+        normalizerVersion: candidate.exportVersion,
+        sourceRevision: opaque('revision', candidate.revisionHash),
+        sourceHash: candidate.revisionHash,
+        canonicalId: memoryId,
+        canonicalVersion: dayflowCanonicalVersion(contentHash),
+        ownerUserId: overrides.ownerUserId ?? receipt.reference.ownerUserId,
+        projectId: overrides.projectId ?? receipt.reference.projectId,
+        consentGeneration: overrides.consentGeneration ?? receipt.reference.consentGeneration,
+        configurationGeneration: overrides.configurationGeneration ?? receipt.reference.configurationGeneration,
+        observedStart: new Date(candidate.observedStart).toISOString(),
+        observedEnd: new Date(candidate.observedEnd ?? candidate.observedStart).toISOString(),
+        expiresAt: overrides.expiresAt ?? receipt.reference.expiresAt,
+        eligibility: 'active',
+      },
+    },
+  };
+}
+
 describe('qualified Dayflow producer', () => {
   it('publishes the first qualified reference through the existing fifteen-minute synthetic importer', async () => {
     vi.useFakeTimers();
@@ -202,11 +258,13 @@ describe('qualified Dayflow producer', () => {
     const dayflowSource = source([{ id: 'automatic-refresh', start: '2026-10-04T08:00:00Z', summary: 'Synthetic automatic renewal.' }]);
     const persistedAuthority = new DayflowPersistedQualificationAuthority(store, ledger, () => now);
     let canonicalWrites = 0;
+    const requireExistingModes: boolean[] = [];
     const memoryClient = new AuthenticatedDayflowMemoryClient(persistedAuthority, {
       indexForOwner: () => ({} as never),
       claimOwner: async () => true,
-      createOnly: async (input) => {
+      createOnly: async (input, options) => {
         canonicalWrites++;
+        requireExistingModes.push(options?.requireExisting === true);
         return {
           id: input.id,
           path: `memory/context/import-${input.id.toLowerCase()}.md`,
@@ -242,9 +300,447 @@ describe('qualified Dayflow producer', () => {
 
     const renewed = ledger.currentEntries()[0]!;
     expect(canonicalWrites).toBe(2);
+    expect(requireExistingModes).toEqual([false, true]);
     expect(renewed.pendingCreateAt).toBeUndefined();
     expect(renewed.qualification?.reference.expiresAt).not.toBe(firstExpiry);
     expect(Date.parse(renewed.qualification!.reference.expiresAt)).toBeGreaterThan(now);
+    await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+      status: 'available', candidates: [expect.any(Object)],
+    });
+    service.dispose();
+  });
+
+  it.each(['the existing fifteen-minute importer', 'the minute scheduler renewal'] as const)(
+    'keeps a deleted canonical observation absent during %s',
+    async (cadence) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(NOW);
+      let now = NOW;
+      const stage = root();
+      const ledger = new MemoryLedger(join(stage, 'ledger.json'));
+      const store = configured(stage);
+      const vaultRoot = join(stage, 'vault');
+      const memoryDir = join(vaultRoot, 'memory');
+      const db = new Database(':memory:');
+      db.pragma('foreign_keys = ON');
+      runMigrations(db);
+      const previous = setDb(db);
+      db.prepare(`INSERT INTO users (id, name, email) VALUES (7, 'Dayflow owner', 'dayflow-owner@example.test')`).run();
+      const repo = new AgentMemoryRepository();
+      const ownerIndex = new MemoryIndexService(repo, 7);
+      let service: DayflowIntegrationService | undefined;
+      try {
+        const cadenceId = cadence === 'the existing fifteen-minute importer' ? 'automatic' : 'minute';
+        const dayflowSource = source([{ id: `deleted-${cadenceId}`, start: '2026-10-04T08:00:00Z', summary: 'Synthetic deleted canonical observation.' }]);
+        const persistedAuthority = new DayflowPersistedQualificationAuthority(store, ledger, () => now);
+        const memoryClient = new AuthenticatedDayflowMemoryClient(persistedAuthority, {
+          indexForOwner: (ownerUserId) => new MemoryIndexService(repo, ownerUserId),
+          createOnly: (input, options) => createObservationIfAbsentInVault(input, {
+            ...options,
+            memoryDir,
+          }),
+        });
+        service = new DayflowIntegrationService({
+          source: dayflowSource,
+          memoryClient,
+          ledger,
+          configStore: store,
+          now: () => now,
+          qualificationAuthority: persistedAuthority,
+          ...verifiedJournalBinding(dayflowSource),
+        });
+        service.grantAuthenticatedSourceConsent({
+          ownerUserId: 7,
+          projectId: 'project:dayflow',
+          authorizingSessionId: `session:deleted-${cadenceId}`,
+        });
+        await importOne(service);
+
+        const initial = ledger.currentEntries()[0]!;
+        const initialReceipt = structuredClone(initial.qualification!);
+        const canonicalSourceKey = initial.canonicalSourceKey!;
+        const canonicalPath = join(vaultRoot, canonicalSourceKey);
+        expect(existsSync(canonicalPath)).toBe(true);
+        expect(await repo.findBySourceIdsAsync('obsidian-memory', [canonicalSourceKey], 7)).toHaveLength(1);
+
+        expect(await forgetCanonicalMemoryById(initial.memoryId, {
+          memoryDir,
+          index: ownerIndex,
+        })).toBe(true);
+        expect(existsSync(canonicalPath)).toBe(false);
+        expect(await repo.findBySourceIdsAsync('obsidian-memory', [canonicalSourceKey], 7)).toHaveLength(0);
+
+        now = Date.parse(initialReceipt.reference.expiresAt) + 1;
+        if (cadence === 'the existing fifteen-minute importer') {
+          await vi.advanceTimersByTimeAsync(15 * 60_000);
+        } else {
+          await service.renewQualifiedEvidenceOnSchedulerTick();
+        }
+
+        const held = ledger.currentEntries()[0]!;
+        expect(held.qualification).toEqual(initialReceipt);
+        expect(existsSync(canonicalPath)).toBe(false);
+        expect(await repo.findBySourceIdsAsync('obsidian-memory', [canonicalSourceKey], 7)).toHaveLength(0);
+        await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+          status: 'available', candidates: [], references: [],
+        });
+      } finally {
+        service?.dispose();
+        setDb(previous);
+        db.close();
+      }
+    },
+  );
+
+  it('renews only an already canonical current receipt before expiry and recovers after restart without importing a new card', async () => {
+    let now = NOW;
+    const stage = root();
+    const ledger = new MemoryLedger(join(stage, 'ledger.json'));
+    const store = configured(stage);
+    const records = [{ id: 'renew-current', start: '2026-10-04T08:00:00Z', summary: 'Synthetic retained context.' }];
+    let sourceReads = 0;
+    const fixtureSource = source(records);
+    const dayflowSource: DayflowSource = {
+      ...fixtureSource,
+      read: async () => {
+        sourceReads++;
+        return fixtureSource.read();
+      },
+    };
+    const persistedAuthority = new DayflowPersistedQualificationAuthority(store, ledger, () => now);
+    const replayedMemoryIds: string[] = [];
+    let canonicalWrites = 0;
+    const requireExistingModes: boolean[] = [];
+    const memoryClient = new AuthenticatedDayflowMemoryClient(persistedAuthority, {
+      indexForOwner: () => ({} as never),
+      claimOwner: async () => true,
+      createOnly: async (input, options) => {
+        canonicalWrites++;
+        replayedMemoryIds.push(input.id);
+        requireExistingModes.push(options?.requireExisting === true);
+        return {
+          id: input.id,
+          path: `memory/context/import-${input.id.toLowerCase()}.md`,
+          kind: 'context' as const,
+          disposition: canonicalWrites === 1 ? 'created' as const : 'already_present' as const,
+          canonicalContentHash: createHash('sha256').update(input.content).digest('hex'),
+          sourceRevision: input.sourceRevision,
+          normalizerVersion: input.normalizerVersion,
+        };
+      },
+    });
+    const service = new DayflowIntegrationService({
+      source: dayflowSource, memoryClient, ledger, configStore: store, now: () => now,
+      qualificationAuthority: persistedAuthority, ...verifiedJournalBinding(dayflowSource),
+    });
+    service.grantAuthenticatedSourceConsent({ ownerUserId: 7, projectId: 'project:dayflow', authorizingSessionId: 'session:renew-before-expiry' });
+    await importOne(service);
+    const first = ledger.currentEntries()[0]!;
+    const firstExpiry = first.qualification!.reference.expiresAt;
+    records.push({ id: 'new-not-imported', start: '2026-10-04T09:00:00Z', summary: 'Synthetic new card outside renewal.' });
+
+    now = Date.parse(firstExpiry) - 60_000;
+    await service.renewQualifiedEvidenceOnSchedulerTick();
+
+    const renewed = ledger.currentEntries()[0]!;
+    expect(canonicalWrites).toBe(2);
+    expect(replayedMemoryIds).toEqual([first.memoryId, first.memoryId]);
+    expect(ledger.currentEntries()).toHaveLength(1);
+    expect(renewed.qualification?.reference.expiresAt).not.toBe(firstExpiry);
+    expect(Date.parse(renewed.qualification!.reference.expiresAt)).toBeGreaterThan(now);
+    await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+      status: 'available', candidates: [expect.any(Object)],
+    });
+    expect(sourceReads).toBeGreaterThan(1);
+    service.dispose();
+
+    // A process that starts after a receipt expired may recover it from the
+    // same explicit scope, but still only by proving the old canonical row.
+    now = Date.parse(renewed.qualification!.reference.expiresAt) + 1;
+    const restartedAuthority = new DayflowPersistedQualificationAuthority(store, ledger, () => now);
+    const restarted = new DayflowIntegrationService({
+      source: dayflowSource,
+      memoryClient: new AuthenticatedDayflowMemoryClient(restartedAuthority, {
+        indexForOwner: () => ({} as never), claimOwner: async () => true,
+        createOnly: async (input, options) => {
+          canonicalWrites++;
+          replayedMemoryIds.push(input.id);
+          requireExistingModes.push(options?.requireExisting === true);
+          return {
+            id: input.id,
+            path: `memory/context/import-${input.id.toLowerCase()}.md`,
+            kind: 'context' as const,
+            disposition: 'already_present' as const,
+            canonicalContentHash: createHash('sha256').update(input.content).digest('hex'),
+            sourceRevision: input.sourceRevision,
+            normalizerVersion: input.normalizerVersion,
+          };
+        },
+      }),
+      ledger, configStore: store, now: () => now, qualificationAuthority: restartedAuthority,
+      ...verifiedJournalBinding(dayflowSource),
+    });
+    await restarted.renewQualifiedEvidenceOnSchedulerTick();
+
+    expect(canonicalWrites).toBe(3);
+    expect(replayedMemoryIds).toEqual([first.memoryId, first.memoryId, first.memoryId]);
+    expect(requireExistingModes).toEqual([false, true, true]);
+    expect(ledger.currentEntries()).toHaveLength(1);
+    expect(Date.parse(ledger.currentEntries()[0]!.qualification!.reference.expiresAt)).toBeGreaterThan(now);
+    await expect(restarted.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+      status: 'available', candidates: [expect.any(Object)],
+    });
+    restarted.dispose();
+  });
+
+  it('renews only the due current scope when former, foreign, and distinct pending rows coexist', async () => {
+    let now = NOW;
+    const stage = root();
+    const ledger = new MemoryLedger(join(stage, 'ledger.json'));
+    const store = configured(stage);
+    const records = [
+      { id: 'renew-current-scope', start: '2026-10-04T08:00:00Z', summary: 'Synthetic current receipt.' },
+      { id: 'renew-former-scope', start: '2026-10-04T09:00:00Z', summary: 'Synthetic former receipt.' },
+      { id: 'renew-foreign-scope', start: '2026-10-04T10:00:00Z', summary: 'Synthetic foreign receipt.' },
+      { id: 'renew-pending-scope', start: '2026-10-04T11:00:00Z', summary: 'Synthetic pending row.' },
+      { id: 'renew-tombstoned-scope', start: '2026-10-04T12:00:00Z', summary: 'Synthetic retracted row.' },
+    ];
+    const dayflowSource = source(records);
+    const persistedAuthority = new DayflowPersistedQualificationAuthority(store, ledger, () => now);
+    const canonicalIds: string[] = [];
+    let canonicalWrites = 0;
+    const memoryClient = new AuthenticatedDayflowMemoryClient(persistedAuthority, {
+      indexForOwner: () => ({} as never), claimOwner: async () => true,
+      createOnly: async (input) => {
+        canonicalWrites++;
+        canonicalIds.push(input.id);
+        return {
+          id: input.id, path: `memory/context/import-${input.id.toLowerCase()}.md`, kind: 'context' as const,
+          disposition: canonicalWrites === 1 ? 'created' as const : 'already_present' as const,
+          canonicalContentHash: createHash('sha256').update(input.content).digest('hex'),
+          sourceRevision: input.sourceRevision, normalizerVersion: input.normalizerVersion,
+        };
+      },
+    });
+    const service = new DayflowIntegrationService({
+      source: dayflowSource, memoryClient, ledger, configStore: store, now: () => now,
+      qualificationAuthority: persistedAuthority, ...verifiedJournalBinding(dayflowSource),
+    });
+    service.grantAuthenticatedSourceConsent({ ownerUserId: 7, projectId: 'project:dayflow', authorizingSessionId: 'session:mixed-renewal' });
+    const initialPreview = await service.preview();
+    const currentCandidate = initialPreview.candidates.find((candidate) => candidate.recordId === 'renew-current-scope')!;
+    await service.commit(initialPreview.token, [currentCandidate.candidateId]);
+    const current = ledger.currentEntries()[0]!;
+    const formerCandidate = initialPreview.candidates.find((candidate) => candidate.recordId === 'renew-former-scope')!;
+    const foreignCandidate = initialPreview.candidates.find((candidate) => candidate.recordId === 'renew-foreign-scope')!;
+    const pendingCandidate = initialPreview.candidates.find((candidate) => candidate.recordId === 'renew-pending-scope')!;
+    const tombstonedCandidate = initialPreview.candidates.find((candidate) => candidate.recordId === 'renew-tombstoned-scope')!;
+
+    ledger.revokeSourceConsentGeneration('consent:former-scope', new Date(NOW - 1).toISOString());
+    const former = syntheticQualifiedLedgerEntry(formerCandidate, current, {
+      consentGeneration: 'consent:former-scope', configurationGeneration: 'config:former-scope',
+    });
+    const foreign = syntheticQualifiedLedgerEntry(foreignCandidate, current, {
+      ownerUserId: 9, projectId: 'project:foreign-scope',
+    });
+    ledger.save(former);
+    ledger.save(foreign);
+    const tombstoned = syntheticQualifiedLedgerEntry(tombstonedCandidate, current);
+    ledger.save(tombstoned);
+    ledger.tombstone(tombstoned.sourceId, new Date(NOW - 1).toISOString());
+    const pendingSourceId = sourceIdFor(pendingCandidate);
+    ledger.journalCreate({
+      sourceId: pendingSourceId,
+      revisionHash: pendingCandidate.revisionHash,
+      memoryId: stableMemoryId(pendingSourceId),
+      contentHash: createHash('sha256').update(contentFor(pendingCandidate)).digest('hex'),
+      exportVersion: pendingCandidate.exportVersion,
+      importedAt: new Date(NOW).toISOString(),
+      operationId: 'pending_renewal_operation',
+    });
+
+    now = Date.parse(current.qualification!.reference.expiresAt) - 60_000;
+    await service.renewQualifiedEvidenceOnSchedulerTick();
+
+    expect(canonicalIds).toEqual([current.memoryId, current.memoryId]);
+    expect(ledger.get(former.sourceId)?.qualification?.reference.configurationGeneration).toBe('config:former-scope');
+    expect(ledger.get(foreign.sourceId)?.qualification?.reference.ownerUserId).toBe(9);
+    expect(ledger.get(pendingSourceId)?.pendingCreateAt).toEqual(expect.any(String));
+    expect(ledger.get(tombstoned.sourceId)?.tombstonedAt).toEqual(expect.any(String));
+    expect(ledger.currentEntries()).toHaveLength(5);
+    await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+      status: 'available', candidates: [{ reference: { canonicalId: current.memoryId } }],
+    });
+    service.dispose();
+  });
+
+  it('is a bounded no-op before the receipt lead window and after disable', async () => {
+    let now = NOW;
+    const stage = root();
+    const ledger = new MemoryLedger(join(stage, 'ledger.json'));
+    const store = configured(stage);
+    let sourceReads = 0;
+    const fixtureSource = source([{ id: 'renew-noop', start: '2026-10-04T08:00:00Z', summary: 'Synthetic no-op.' }]);
+    const dayflowSource: DayflowSource = {
+      ...fixtureSource,
+      read: async () => {
+        sourceReads++;
+        return fixtureSource.read();
+      },
+    };
+    const persistedAuthority = new DayflowPersistedQualificationAuthority(store, ledger, () => now);
+    let canonicalWrites = 0;
+    const service = new DayflowIntegrationService({
+      source: dayflowSource,
+      memoryClient: new AuthenticatedDayflowMemoryClient(persistedAuthority, {
+        indexForOwner: () => ({} as never), claimOwner: async () => true,
+        createOnly: async (input) => {
+          canonicalWrites++;
+          return {
+            id: input.id, path: `memory/context/import-${input.id.toLowerCase()}.md`, kind: 'context' as const,
+            disposition: canonicalWrites === 1 ? 'created' as const : 'already_present' as const,
+            canonicalContentHash: createHash('sha256').update(input.content).digest('hex'),
+            sourceRevision: input.sourceRevision, normalizerVersion: input.normalizerVersion,
+          };
+        },
+      }),
+      ledger, configStore: store, now: () => now, qualificationAuthority: persistedAuthority,
+      ...verifiedJournalBinding(dayflowSource),
+    });
+    service.grantAuthenticatedSourceConsent({ ownerUserId: 7, projectId: 'project:dayflow', authorizingSessionId: 'session:renew-noop' });
+    await importOne(service);
+    const readsAfterImport = sourceReads;
+    await service.renewQualifiedEvidenceOnSchedulerTick();
+    expect(sourceReads).toBe(readsAfterImport);
+    expect(canonicalWrites).toBe(1);
+
+    await service.disable();
+    await service.renewQualifiedEvidenceOnSchedulerTick();
+    expect(sourceReads).toBe(readsAfterImport);
+    expect(canonicalWrites).toBe(1);
+    service.dispose();
+  });
+
+  it.each([
+    'missing canonical memory',
+    'mutated canonical memory',
+    'source mutation',
+    'consent revocation',
+    'configuration rotation',
+  ] as const)('leaves the expired receipt held when %s occurs during scheduler renewal', async (scenario) => {
+    let now = NOW;
+    let changedJournal = false;
+    const scenarioId = scenario.replaceAll(' ', '-');
+    const stage = root();
+    const ledger = new MemoryLedger(join(stage, `${scenario.replaceAll(' ', '-')}.json`));
+    const store = configured(stage);
+    const dayflowSource = source([{ id: `renew-race-${scenarioId}`, start: '2026-10-04T08:00:00Z', summary: 'Synthetic renewal race.' }]);
+    const persistedAuthority = new DayflowPersistedQualificationAuthority(store, ledger, () => now);
+    let canonicalWrites = 0;
+    const requireExistingModes: boolean[] = [];
+    let service!: DayflowIntegrationService;
+    const memoryClient = new AuthenticatedDayflowMemoryClient(persistedAuthority, {
+      indexForOwner: () => ({} as never), claimOwner: async () => true,
+      createOnly: async (input, options) => {
+        canonicalWrites++;
+        requireExistingModes.push(options?.requireExisting === true);
+        if (canonicalWrites === 2) {
+          if (scenario === 'source mutation') changedJournal = true;
+          if (scenario === 'consent revocation') {
+            service.revokeAuthenticatedSourceConsent({
+              ownerUserId: 7, projectId: 'project:dayflow', authorizingSessionId: 'session:renewal-revoke',
+            });
+          }
+          if (scenario === 'configuration rotation') await service.updateConfig({ exclusions: ['category:private'] });
+        }
+        const expectedPath = `memory/context/import-${input.id.toLowerCase()}.md`;
+        return {
+          id: input.id,
+          path: canonicalWrites === 2 && scenario === 'mutated canonical memory'
+            ? `memory/context/mutated-${input.id.toLowerCase()}.md` : expectedPath,
+          kind: 'context' as const,
+          disposition: canonicalWrites === 1 || (canonicalWrites === 2 && scenario === 'missing canonical memory')
+            ? 'created' as const : 'already_present' as const,
+          canonicalContentHash: createHash('sha256').update(input.content).digest('hex'),
+          sourceRevision: input.sourceRevision, normalizerVersion: input.normalizerVersion,
+        };
+      },
+    });
+    service = new DayflowIntegrationService({
+      source: dayflowSource, memoryClient, ledger, configStore: store, now: () => now,
+      qualificationAuthority: persistedAuthority,
+      journalVerifier: {
+        verify: () => ({
+          canonicalPath: '/private/tmp/sanitized-dayflow.sqlite',
+          fileIdentity: changedJournal ? '9:10' : '1:2',
+          schemaFingerprint: changedJournal ? HASH_B : HASH_A,
+        }),
+      },
+      sourceForJournal: () => dayflowSource,
+    });
+    service.grantAuthenticatedSourceConsent({ ownerUserId: 7, projectId: 'project:dayflow', authorizingSessionId: 'session:renewal-race' });
+    await importOne(service);
+    const before = structuredClone(ledger.currentEntries()[0]!);
+    now = Date.parse(before.qualification!.reference.expiresAt) + 1;
+
+    await service.renewQualifiedEvidenceOnSchedulerTick();
+
+    const held = ledger.currentEntries()[0]!;
+    expect(canonicalWrites).toBe(2);
+    expect(requireExistingModes).toEqual([false, true]);
+    expect(held.pendingCreateAt).toBeUndefined();
+    expect(held.qualification).toEqual(before.qualification);
+    await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+      candidates: [], references: [],
+    });
+    service.dispose();
+  });
+
+  it('coalesces duplicate scheduler ticks and serializes a concurrent manual commit', async () => {
+    let now = NOW;
+    const stage = root();
+    const ledger = new MemoryLedger(join(stage, 'ledger.json'));
+    const store = configured(stage);
+    const dayflowSource = source([{ id: 'renew-concurrent', start: '2026-10-04T08:00:00Z', summary: 'Synthetic concurrent renewal.' }]);
+    const persistedAuthority = new DayflowPersistedQualificationAuthority(store, ledger, () => now);
+    const entered = deferred();
+    const release = deferred();
+    let canonicalWrites = 0;
+    const service = new DayflowIntegrationService({
+      source: dayflowSource,
+      memoryClient: new AuthenticatedDayflowMemoryClient(persistedAuthority, {
+        indexForOwner: () => ({} as never), claimOwner: async () => true,
+        createOnly: async (input) => {
+          canonicalWrites++;
+          if (canonicalWrites === 2) {
+            entered.resolve();
+            await release.promise;
+          }
+          return {
+            id: input.id, path: `memory/context/import-${input.id.toLowerCase()}.md`, kind: 'context' as const,
+            disposition: canonicalWrites === 1 ? 'created' as const : 'already_present' as const,
+            canonicalContentHash: createHash('sha256').update(input.content).digest('hex'),
+            sourceRevision: input.sourceRevision, normalizerVersion: input.normalizerVersion,
+          };
+        },
+      }),
+      ledger, configStore: store, now: () => now, qualificationAuthority: persistedAuthority,
+      ...verifiedJournalBinding(dayflowSource),
+    });
+    service.grantAuthenticatedSourceConsent({ ownerUserId: 7, projectId: 'project:dayflow', authorizingSessionId: 'session:renew-concurrent' });
+    await importOne(service);
+    now = Date.parse(ledger.currentEntries()[0]!.qualification!.reference.expiresAt) - 60_000;
+
+    const firstTick = service.renewQualifiedEvidenceOnSchedulerTick();
+    const secondTick = service.renewQualifiedEvidenceOnSchedulerTick();
+    await entered.promise;
+    const manualPreview = await service.preview();
+    const manualCommit = service.commit(manualPreview.token, manualPreview.candidates.map((candidate) => candidate.candidateId));
+    release.resolve();
+    await Promise.all([firstTick, secondTick, manualCommit]);
+
+    expect(canonicalWrites).toBe(2);
+    expect(Date.parse(ledger.currentEntries()[0]!.qualification!.reference.expiresAt)).toBeGreaterThan(now);
     await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
       status: 'available', candidates: [expect.any(Object)],
     });

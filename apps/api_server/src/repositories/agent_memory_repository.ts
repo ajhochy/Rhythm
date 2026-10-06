@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { getDb, getPostgresPool } from '../database/db';
 import { env } from '../config/env';
 import {
+  GENERIC_ADMISSION_SQL_FUNCTION,
+  isGenericMemoryAdmissionAllowedFields,
+} from '../utils/generic_memory_admission';
+import {
   deriveMemoryTitle,
   type MemoryStatus,
   type MemoryTrustTier,
@@ -64,6 +68,8 @@ export interface MemorySearchOptions {
   injectableOnly?: boolean;
   /** YYYY-MM-DD boundary captured at retrieval call time. */
   today?: string;
+  /** Generic (non-Dayflow) admission applied before the LIMIT; see MemoryListOptions. */
+  genericAdmissionOnly?: boolean;
 }
 
 function rowToModel(row: Record<string, unknown>): AgentMemory {
@@ -113,6 +119,62 @@ function rowToModel(row: Record<string, unknown>): AgentMemory {
 export interface MemoryListOptions {
   offset?: number;
   includeDeprecated?: boolean;
+  /**
+   * Apply the generic (non-Dayflow) release admission in SQL BEFORE
+   * LIMIT/OFFSET, so withheld rows can neither starve a page nor inflate a
+   * count. Qualified Dayflow readers never set this and keep the raw path.
+   */
+  genericAdmissionOnly?: boolean;
+}
+
+/**
+ * SQLite form of the generic admission: the deterministic scalar registered by
+ * `database/db.ts` runs the EXACT decoded-values policy, so membership is
+ * decided before any LIMIT/OFFSET/count/search budget. No substring/json_tree
+ * approximation exists anywhere.
+ */
+function genericAdmissionSql(prefix = ''): string {
+  return `${GENERIC_ADMISSION_SQL_FUNCTION}(${prefix}source, ${prefix}tags_json, ${prefix}sources_json) = 1`;
+}
+
+/**
+ * PostgreSQL has no registered scalar (no migration/function is added), so the
+ * same policy is applied in JS over ordered, finite batches. If the bound is
+ * exhausted before the answer is known the call FAILS with this explicit
+ * error: never a partial count presented as exact, never a full-looking empty
+ * or short page that silently omits eligible rows.
+ */
+export const GENERIC_ADMISSION_BATCH_ROWS = 200;
+export const GENERIC_ADMISSION_MAX_BATCHES = 25;
+
+export class GenericAdmissionScanIncompleteError extends Error {
+  constructor() {
+    super(
+      `Generic memory admission scan reached its bound of ${GENERIC_ADMISSION_BATCH_ROWS * GENERIC_ADMISSION_MAX_BATCHES} candidates before completing; result withheld as incomplete`,
+    );
+    this.name = 'GenericAdmissionScanIncompleteError';
+  }
+}
+
+/** Rows (in the query's own order) that pass admission, skipping `skip`, taking at most `take`. */
+async function admittedWindow(
+  fetchBatch: (limit: number, offset: number) => Promise<AgentMemory[]>,
+  skip: number,
+  take: number,
+): Promise<AgentMemory[]> {
+  const out: AgentMemory[] = [];
+  let toSkip = Math.max(0, skip);
+  for (let batch = 0; batch < GENERIC_ADMISSION_MAX_BATCHES; batch += 1) {
+    const rows = await fetchBatch(GENERIC_ADMISSION_BATCH_ROWS, batch * GENERIC_ADMISSION_BATCH_ROWS);
+    for (const row of rows) {
+      if (!isGenericMemoryAdmissionAllowedFields(row)) continue;
+      if (toSkip > 0) { toSkip -= 1; continue; }
+      out.push(row);
+      if (out.length >= take) return out;
+    }
+    if (rows.length < GENERIC_ADMISSION_BATCH_ROWS) return out; // exhausted: answer is exact
+  }
+  throw new GenericAdmissionScanIncompleteError();
 }
 
 /** Renumber `?` placeholders as `$1..$n` for pg (callers never embed a literal `?`). */
@@ -334,23 +396,30 @@ export class AgentMemoryRepository {
       if (options.injectableOnly) {
         filters.push('auto_injectable = TRUE');
       }
-      params.push(limit);
       const extraFilters = filters.length > 0
         ? `AND ${filters.join(' AND ')}`
         : '';
-      const r = await getPostgresPool().query(
-        `SELECT id, kind, content, source, source_id, tags_json,
-                status, stale_after, verified_json, sources_json,
-                generated_by, generated_at, trust_tier, auto_injectable,
-                owner_user_id, created_at, updated_at,
-                ts_rank(search_vector, plainto_tsquery('english', $1)) AS rank
-         FROM agent_memory
-         WHERE search_vector @@ plainto_tsquery('english', $1) ${extraFilters}
-         ORDER BY rank DESC
-         LIMIT $${params.length}`,
-        params,
-      );
-      return r.rows.map(rowToModel);
+      const page = async (pageLimit: number, pageOffset: number): Promise<AgentMemory[]> => {
+        const pageParams = [...params, pageLimit, pageOffset];
+        const r = await getPostgresPool().query(
+          `SELECT id, kind, content, source, source_id, tags_json,
+                  status, stale_after, verified_json, sources_json,
+                  generated_by, generated_at, trust_tier, auto_injectable,
+                  owner_user_id, created_at, updated_at,
+                  ts_rank(search_vector, plainto_tsquery('english', $1)) AS rank
+           FROM agent_memory
+           WHERE search_vector @@ plainto_tsquery('english', $1) ${extraFilters}
+           ORDER BY rank DESC, id ASC
+           LIMIT $${pageParams.length - 1} OFFSET $${pageParams.length}`,
+          pageParams,
+        );
+        return r.rows.map(rowToModel);
+      };
+      // Hosted: no SQL scalar, so admission runs over ordered finite batches
+      // (explicit incomplete error at the bound; see admittedWindow).
+      return options.genericAdmissionOnly
+        ? admittedWindow(page, 0, limit)
+        : page(limit, 0);
     }
 
     // SQLite: try FTS5 first, fall back to LIKE
@@ -361,9 +430,9 @@ export class AgentMemoryRepository {
         ? `AND m.status != 'deprecated'
            AND (m.stale_after IS NULL OR m.stale_after > ?)`
         : '';
-      const injectableFilter = options.injectableOnly
+      const injectableFilter = (options.injectableOnly
         ? 'AND m.auto_injectable = 1'
-        : '';
+        : '') + (options.genericAdmissionOnly ? ` AND ${genericAdmissionSql('m.')}` : '');
       const params: unknown[] = [query];
       if (ownerUserId != null) params.push(ownerUserId);
       if (options.activeOnly) {
@@ -390,9 +459,9 @@ export class AgentMemoryRepository {
         ? `AND status != 'deprecated'
            AND (stale_after IS NULL OR stale_after > ?)`
         : '';
-      const injectableFilter = options.injectableOnly
+      const injectableFilter = (options.injectableOnly
         ? 'AND auto_injectable = 1'
-        : '';
+        : '') + (options.genericAdmissionOnly ? ` AND ${genericAdmissionSql()}` : '');
       const params: unknown[] = [likeQuery];
       if (ownerUserId != null) params.push(ownerUserId);
       if (options.activeOnly) {
@@ -494,7 +563,7 @@ export class AgentMemoryRepository {
     options: MemoryListOptions = {},
   ): Promise<AgentMemory[]> {
     const { where, params } = this._listFilters(
-      ownerUserId, kind, options.includeDeprecated ?? true,
+      ownerUserId, kind, options.includeDeprecated ?? true, options.genericAdmissionOnly,
     );
     const order = `ORDER BY CASE WHEN status = 'deprecated' THEN 1 ELSE 0 END,
                    updated_at DESC, id ASC`;
@@ -502,16 +571,21 @@ export class AgentMemoryRepository {
                 status, stale_after, verified_json, sources_json,
                 generated_by, generated_at, trust_tier, auto_injectable,
                 owner_user_id, created_at, updated_at`;
-    params.push(limit, Math.max(0, options.offset ?? 0));
     if (env.dbClient === 'postgres') {
-      const r = await getPostgresPool().query(
-        toPgPlaceholders(
-          `SELECT ${columns} FROM agent_memory ${where} ${order} LIMIT ? OFFSET ?`,
-        ),
-        params,
-      );
-      return r.rows.map(rowToModel);
+      const page = async (pageLimit: number, pageOffset: number): Promise<AgentMemory[]> => {
+        const r = await getPostgresPool().query(
+          toPgPlaceholders(
+            `SELECT ${columns} FROM agent_memory ${where} ${order} LIMIT ? OFFSET ?`,
+          ),
+          [...params, pageLimit, pageOffset],
+        );
+        return r.rows.map(rowToModel);
+      };
+      return options.genericAdmissionOnly
+        ? admittedWindow(page, Math.max(0, options.offset ?? 0), limit)
+        : page(limit, Math.max(0, options.offset ?? 0));
     }
+    params.push(limit, Math.max(0, options.offset ?? 0));
     const rows = getDb().prepare(
       `SELECT ${columns} FROM agent_memory ${where} ${order} LIMIT ? OFFSET ?`,
     ).all(...params);
@@ -522,8 +596,32 @@ export class AgentMemoryRepository {
   async countByKindAsync(
     ownerUserId?: number,
     includeDeprecated = true,
+    genericAdmissionOnly = false,
   ): Promise<Record<string, number>> {
-    const { where, params } = this._listFilters(ownerUserId, undefined, includeDeprecated);
+    const { where, params } = this._listFilters(ownerUserId, undefined, includeDeprecated, genericAdmissionOnly);
+    if (env.dbClient === 'postgres' && genericAdmissionOnly) {
+      // Exact count of the admitted collection or an explicit incomplete error.
+      const counts: Record<string, number> = {};
+      let exhausted = false;
+      for (let batch = 0; batch < GENERIC_ADMISSION_MAX_BATCHES && !exhausted; batch += 1) {
+        const r = await getPostgresPool().query(
+          toPgPlaceholders(`SELECT kind, source, tags_json, sources_json FROM agent_memory ${where}
+            ORDER BY id ASC LIMIT ? OFFSET ?`),
+          [...params, GENERIC_ADMISSION_BATCH_ROWS, batch * GENERIC_ADMISSION_BATCH_ROWS],
+        );
+        for (const row of r.rows as Array<Record<string, unknown>>) {
+          if (!isGenericMemoryAdmissionAllowedFields({
+            source: row.source as string | null,
+            tagsJson: row.tags_json as string | null,
+            sourcesJson: row.sources_json as string | null,
+          })) continue;
+          counts[String(row.kind)] = (counts[String(row.kind)] ?? 0) + 1;
+        }
+        exhausted = r.rows.length < GENERIC_ADMISSION_BATCH_ROWS;
+      }
+      if (!exhausted) throw new GenericAdmissionScanIncompleteError();
+      return counts;
+    }
     const sql = `SELECT kind, COUNT(*) AS n FROM agent_memory ${where} GROUP BY kind`;
     const rows = env.dbClient === 'postgres'
       ? (await getPostgresPool().query(toPgPlaceholders(sql), params)).rows
@@ -538,6 +636,7 @@ export class AgentMemoryRepository {
     ownerUserId: number | undefined,
     kind: string | undefined,
     includeDeprecated: boolean,
+    genericAdmissionOnly = false,
   ): { where: string; params: unknown[] } {
     const conditions: string[] = [];
     const params: unknown[] = [];
@@ -549,6 +648,9 @@ export class AgentMemoryRepository {
     }
     if (kind) { conditions.push('kind = ?'); params.push(kind); }
     if (!includeDeprecated) conditions.push(`status != 'deprecated'`);
+    // SQLite decides membership in SQL via the registered scalar; PostgreSQL
+    // applies the same policy in JS over finite batches (see admittedWindow).
+    if (genericAdmissionOnly && env.dbClient !== 'postgres') conditions.push(genericAdmissionSql());
     return {
       where: conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '',
       params,

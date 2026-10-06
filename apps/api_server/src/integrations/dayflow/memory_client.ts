@@ -3,10 +3,31 @@ import type { DayflowObservation } from './types';
 
 export class DayflowImportConflictError extends Error { constructor() { super('Dayflow canonical import conflict.'); this.name = 'DayflowImportConflictError'; } }
 
+export type DayflowCanonicalObservationInput = {
+  operationId: string;
+  id: string;
+  content: string;
+  sourceId: string;
+  observation: DayflowObservation;
+};
+
+export type DayflowCanonicalObservationReceipt = {
+  id: string;
+  disposition: 'created' | 'already_present';
+  canonicalContentHash: string;
+  /** Private canonical vault key from the server receipt. */
+  canonicalSourceKey?: string;
+};
+
 export interface DayflowMemoryClient {
   create(input: { id: string; content: string; sourceId: string; observation: DayflowObservation }): Promise<{ id: string }>;
   remove(id: string): Promise<void>;
-  createOnly?(input: { operationId: string; id: string; content: string; sourceId: string; observation: DayflowObservation }): Promise<{ id: string; disposition: 'created' | 'already_present'; canonicalContentHash: string; /** Private canonical vault key from the server receipt. */ canonicalSourceKey?: string }>;
+  createOnly?(input: DayflowCanonicalObservationInput): Promise<DayflowCanonicalObservationReceipt>;
+  /**
+   * Reattestation-only canonical validation. Unlike `createOnly`, this must
+   * never create a missing canonical observation.
+   */
+  validateExisting?(input: DayflowCanonicalObservationInput): Promise<DayflowCanonicalObservationReceipt>;
 }
 
 /** Local API client; dependency-inject a fake in tests. No hosted Settings URL is accepted. */
