@@ -64,3 +64,8 @@ The first frozen-source formal idle run completed both manager ordinals and serv
 ## Additional user request before the next build: Dayflow height
 
 The integrated Dayflow host must follow the available screen height as well as width. The browser contract reproduced a fixed 420px host at viewport heights 560 and 900. A scoped flex layout now assigns remaining height to the host and preserves a scrollable body for short windows, with a nonshrinking Settings/footer area. Native bridge lifecycle, bounds reporting and modal blocking remain unchanged. Run the resize/reachability contract and existing bridge negatives, then check actual native height and scrolling in the signed installed candidate; browser facade results alone do not qualify native scrolling.
+
+
+## Full-regression follow-up
+
+C6 formal chat-only idle and stock-restart qualification succeeded with exact two checked criteria and no third ordinal. Its full PR gate failed API and MCP tests while 20 other stages succeeded. Repair only the public-DTO expectation, exact 111-tool registration inventory, and dedicated signed-workflow role-graph tests, keeping the production privacy and authority boundaries intact. Preserve full failed-stage output in the next external runner rather than its default 30-line tail, correct the gate TMPDIR to /private/tmp (the prior Documents/Codex location caused the three stock sandbox foreground failures), and repeat the complete gate on the new frozen source. See `runs/2026-10-06-chat-workflow-regression-tests.md`. Packaging remains held.

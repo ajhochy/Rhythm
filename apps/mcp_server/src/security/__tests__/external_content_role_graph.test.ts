@@ -128,6 +128,14 @@ const serverSignedGoalWrites = new Map<string, string>([
   ["rhythm_start_coordinator_goal", "coordinatorConversation.ts"],
 ]);
 
+// Dedicated finite-workflow actions carry engine-signed arguments to the API.
+// Proposal only queues an exact human card; start requires its approved native
+// continuation. Neither action uses the ordinary goal or taint-bypass grant.
+const serverSignedWorkflowWrites = new Map<string, { route: string; verifierPurpose: string }>([
+  ["rhythm_propose_bounded_coding_workflow", { route: "/coordinator-agent/propose-workflow", verifierPurpose: "coordinator_workflow_proposal" }],
+  ["rhythm_start_bounded_coding_workflow", { route: "/coordinator-agent/start-workflow", verifierPurpose: "coordinator_workflow_start" }],
+]);
+
 const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
   [
     ["rhythm_send_email", { action: "email.send", sourceFile: "google.ts" }],
@@ -471,6 +479,7 @@ describe("#1175 external-content role graph", () => {
         reviewerReadTools.has(tool),
         humanReviewQueueWrites.has(tool),
         serverSignedGoalWrites.has(tool),
+        serverSignedWorkflowWrites.has(tool),
         tool === approvalRequestTool,
       ].filter(Boolean);
       expect(
@@ -486,6 +495,7 @@ describe("#1175 external-content role graph", () => {
       ...retiredNoopTools.keys(),
       ...reviewerReadTools.keys(),
       ...humanReviewQueueWrites.keys(),
+      ...serverSignedWorkflowWrites.keys(),
       approvalRequestTool,
     ]) {
       expect(
@@ -570,6 +580,42 @@ describe("#1175 external-content role graph", () => {
       ).toContain("COORDINATOR_GOAL_TOOL = 'rhythm_start_coordinator_goal'");
     }
 
+    const workflowToolSource = readFileSync(join(toolsDir, "coordinatorConversation.ts"), "utf8");
+    const boundedCall = workflowToolSource.slice(workflowToolSource.indexOf("const boundedCall ="), workflowToolSource.indexOf("registerTool(server, 'rhythm_propose_bounded_coding_workflow'"));
+    const workflowApiSource = readFileSync(join(repoRoot, "apps/api_server/src/services/coordinator_conversation_model_status_service.ts"), "utf8");
+    const workflowAuthoritySource = readFileSync(join(repoRoot, "apps/api_server/src/services/coordinator_foreground_mcp_authority.ts"), "utf8");
+    const workflowApprovalSource = readFileSync(join(repoRoot, "apps/api_server/src/services/chat_bounded_workflow.ts"), "utf8");
+    for (const [tool, boundary] of serverSignedWorkflowWrites) {
+      const block = toolBlock(workflowToolSource, tool);
+      expect(block, `${tool} must use its dedicated signed route`).toContain(`boundedCall('${boundary.route}')`);
+      expect(boundedCall).toContain("currentTrustedSecurityCall()");
+      expect(boundedCall).toContain("if (!trustedCall) return unavailable()");
+      expect(boundedCall).toContain("apiPost(apiUrl, apiToken, route, { trustedCall })");
+      expect(block).not.toContain("authorizeOutboundAction");
+      expect(boundedCall).not.toContain("authorizeOutboundAction");
+      const proposal = tool === "rhythm_propose_bounded_coding_workflow";
+      const apiBlock = workflowApiSource.slice(
+        workflowApiSource.indexOf(proposal ? "async proposeWorkflow(" : "async startWorkflow("),
+        workflowApiSource.indexOf(proposal ? "async startWorkflow(" : "async status("),
+      );
+      expect(apiBlock).toContain(`this.verify(envelope, '${tool}', Date.now(), '${boundary.verifierPurpose}')`);
+      if (proposal) {
+        expect(apiBlock).toContain(`this.authority.resolveForeground(auth, verified, '${tool}')`);
+        expect(apiBlock).toContain("securityAction: WORKFLOW_APPROVAL_ACTION");
+        expect(apiBlock).toContain("status: 'approval_pending'");
+        expect(apiBlock).not.toContain("preparePlan(");
+      } else {
+        expect(apiBlock).toContain("this.authority.resolveWorkflowApprovalResume(auth, verified, a.approval_id, a.proposal_digest)");
+        expect(apiBlock).toContain("status='approved' AND actor=?");
+        expect(apiBlock).toContain("WORKFLOW_APPROVAL_ACTION,binding.proposalDigest,JSON.stringify(p)");
+        expect(workflowAuthoritySource).toContain(`activeMatches(active, verified, '${tool}')`);
+        expect(workflowAuthoritySource).toContain("workflowResumeDispatchCurrent({ ...current, sdkUserMessageId: active.userMessageId })");
+        expect(workflowApprovalSource).toContain("approval.actor !== `user:${p.ownerUserId}`");
+        expect(workflowApprovalSource).toContain("rows.length === 1 && rows[0].origin === 'approval_continuation'");
+      }
+      expect(workflowApprovalSource).toContain("WORKFLOW_APPROVAL_ACTION = 'coordinator.workflow.start'");
+    }
+
     for (const role of roles) {
       const configuredTools = rhythmTools(role);
       const tools = configuredTools.includes("*")
@@ -590,6 +636,7 @@ describe("#1175 external-content role graph", () => {
           reviewerReadTools.has(tool),
           humanReviewQueueWrites.has(tool),
           serverSignedGoalWrites.has(tool),
+          serverSignedWorkflowWrites.has(tool),
           tool === approvalRequestTool,
           !registered.has(tool) && unavailableLegacyTools.has(tool),
         ].filter(Boolean);

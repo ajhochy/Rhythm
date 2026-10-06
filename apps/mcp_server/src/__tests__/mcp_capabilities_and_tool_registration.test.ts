@@ -105,7 +105,7 @@ const REGISTRARS_IN_INDEX_ORDER: Registrar[] = [
  * guards nothing.
  */
 const EXPECTED_REGISTRAR_CALLS = 27;
-const EXPECTED_TOOL_NAMES = 109;
+const EXPECTED_TOOL_NAMES = 111;
 
 /** Builds a fresh McpServer, applies `registrars` in order, and returns it. */
 function buildServer(registrars: Registrar[]): McpServer {
@@ -168,6 +168,8 @@ describe('MCP server tool registration (issue #864 guard)', () => {
           'rhythm_recent_dayflow_summaries',
           'rhythm_get_coordinator_status',
           'rhythm_start_coordinator_goal',
+          'rhythm_propose_bounded_coding_workflow',
+          'rhythm_start_bounded_coding_workflow',
         ]),
       );
     } finally {
