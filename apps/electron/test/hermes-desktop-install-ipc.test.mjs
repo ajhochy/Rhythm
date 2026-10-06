@@ -32,8 +32,8 @@ async function interactiveRuntime(argv, userData, selectDirectory = async () => 
   class Server {
     onStatusChange() {} async start() {} async restart() { return { ok: true }; } async stopGracefully() {} async stopForQuit() {}
   }
-  class Window {
-    constructor(options) {
+  class Window extends EventEmitter {
+    constructor(options) { super();
       this.options = options; windows.push(this);
       this.webContents = Object.assign(new EventEmitter(), { mainFrame: { url: 'rhythm://app/index.html#/hermes' }, isDestroyed: () => false, send() {}, setWindowOpenHandler() {}, executeJavaScript: async () => {} });
     }
@@ -43,7 +43,7 @@ async function interactiveRuntime(argv, userData, selectDirectory = async () => 
   }
   const file = new URL('../src/main.mjs', import.meta.url);
   const context = createContext({ process: processBoundary, URL, Response, console });
-  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
+  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.url = file.href; meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
     let values;
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showOpenDialog: selectDirectory, showErrorBox: () => {}, showMessageBox: async () => ({ response: 1 }) } };

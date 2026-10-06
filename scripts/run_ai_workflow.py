@@ -163,7 +163,6 @@ DESKTOP_WEB_PR_CHECKS: list[Check] = [
     Check("desktop web build", WEB_DIR, ["npm", "run", "build", "--silent"]),
     Check("electron typecheck", ELECTRON_DIR, ["npm", "run", "typecheck", "--silent"]),
     Check("electron unit tests", ELECTRON_DIR, ["npm", "test", "--silent"]),
-    Check("native Dayflow host", ELECTRON_DIR, ["node", "--test", "test/native-dayflow-production-host.test.mjs"]),
 ]
 
 

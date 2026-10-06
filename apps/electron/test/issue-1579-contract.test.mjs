@@ -104,7 +104,7 @@ async function hostFixture({ fetcher, supported = true, supportThrow = false, fo
     requests.push({ url: String(url), authorization: new Headers(init.headers).get('authorization'), redirect: init.redirect });
     return new Response(JSON.stringify({ session: { id: '18aa886d-0f9e-4530-ac35-767bf3d1ce91', name: 'Synthetic session' }, messages: [], transcriptPage: { nextCursor: null, hasMore: false } }), { status: 200 });
   }) });
-  const module = new SourceTextModule(fixtureSource, { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
+  const module = new SourceTextModule(fixtureSource, { context, initializeImportMeta(meta) { meta.url = new URL('../src/main.mjs', import.meta.url).href; meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
     let values;
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: Native, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler(fn) { permissions.request = fn; }, setPermissionCheckHandler(fn) { permissions.check = fn; } }) }, shell: {}, dialog: { showMessageBox: async () => ({ response: 1 }) } };

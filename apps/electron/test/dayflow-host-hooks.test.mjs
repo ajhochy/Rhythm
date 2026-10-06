@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { readFile } from 'node:fs/promises';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createContext, runInNewContext, SourceTextModule, SyntheticModule } from 'node:vm';
 import test from 'node:test';
@@ -97,8 +97,8 @@ async function hostRuntime({
     quit() {},
     exit() {},
   });
-  class Window {
-    constructor() {
+  class Window extends EventEmitter {
+    constructor() { super();
       this.destroyed = false;
       this.webContents = Object.assign(new EventEmitter(), {
         mainFrame: { url: 'rhythm://app/index.html#/agents' },
@@ -133,7 +133,7 @@ async function hostRuntime({
   const main = new SourceTextModule(await readFile(mainPath, 'utf8'), {
     context,
     identifier: mainPath,
-    initializeImportMeta(meta) { meta.dirname = '/fixture'; },
+    initializeImportMeta(meta) { meta.url = new URL('../src/main.mjs', import.meta.url).href; meta.dirname = '/fixture'; },
   });
   const fakeExecFile = (command, args, options, callback) => {
     commandCalls.push({ command, args, options });
@@ -159,6 +159,8 @@ async function hostRuntime({
         dialog: { showErrorBox() {}, showMessageBox: async () => ({ response: 1 }) },
       };
     } else if (name === 'node:child_process') values = { execFile: fakeExecFile };
+    else if (name === 'node:module') values = { ...await import('node:module') };
+    else if (name === './native-dayflow-production-host.mjs') values = { ...await import(new URL('../src/native-dayflow-production-host.mjs', import.meta.url).href) };
     else if (name === 'node:util') values = { promisify: fakePromisify };
     else if (name === 'node:crypto') values = { createHash };
     else if (name === 'node:fs') values = {
@@ -183,7 +185,7 @@ async function hostRuntime({
       realpath: async (value) => String(value), rm: async () => {}, stat: async () => ({ isDirectory: () => false }), writeFile: async () => {},
     };
     else if (name === 'node:os') values = { tmpdir: () => '/private/tmp', userInfo: () => ({ homedir: '/fixture/home' }) };
-    else if (name === 'node:path') values = { dirname, isAbsolute, resolve };
+    else if (name === 'node:path') values = { dirname, isAbsolute, join, resolve };
     else if (name === 'node:url') values = { pathToFileURL };
     else if (name === './agent-server.mjs') values = { AgentServerService: class {}, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096, electronDbPath: () => '/fixture/electron.db', legacyFlutterDbPath: () => '/fixture/legacy.db' };
     else if (name === './artifact-frame-protocol.mjs') values = { injectArtifactFrameBridge: (value) => value, isAllowedArtifactFrameNavigation: () => false, parseArtifactFrameRequest: () => undefined };

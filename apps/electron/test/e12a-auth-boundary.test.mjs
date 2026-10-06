@@ -30,8 +30,8 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
     await writeFile(join(directory, 'auth-session.bin'), Buffer.from(JSON.stringify({ productionApiBase: A, sessionToken: initialSession, user: { id: 1 } })));
   }
   const preload = await readFile(new URL('../src/preload.cjs', import.meta.url), 'utf8');
-  class Window {
-    constructor() {
+  class Window extends EventEmitter {
+    constructor() { super();
       this.destroyed = false;
       if (Notification.isSupported()) { this.isMinimized = () => false; this.focus = () => {}; }
       this.webContents = Object.assign(new EventEmitter(), {
@@ -83,7 +83,7 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
     fetch: async (url, init) => { requests.push({ url, bearer: new Headers(init?.headers).get('authorization') }); return new Response('<html></html>'); },
   });
   const file = new URL('../src/main.mjs', import.meta.url);
-  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = directory; } });
+  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.url = file.href; meta.dirname = directory; } });
   await module.link(async (name) => {
     let values;
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification, protocol: { registerSchemesAsPrivileged() {}, handle: (key, fn) => protocols.set(key, fn) }, safeStorage, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal(url) { opened.push(url); } }, dialog: { showErrorBox() {} } };

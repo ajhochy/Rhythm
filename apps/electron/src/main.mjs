@@ -137,7 +137,7 @@ if (hasSingleInstanceLock) {
   });
   registerAgentToolAdapter(agentToolAdapters, 'dayflow', nativeDayflowHost);
   // Every existing main-process dialog hides the native view while it is up.
-  const modalDialog = new Proxy(dialog, { get: (target, key) => (typeof target[key] === 'function' ? (/** @type {unknown[]} */ ...args) => nativeDayflowHost.runModal(() => target[key](...args)) : target[key]) });
+  const modalDialog = new Proxy(dialog, { get: (target, key) => (typeof target[/** @type {keyof Electron.Dialog} */ (key)] === 'function' ? (/** @type {unknown[]} */ ...args) => nativeDayflowHost.runModal(() => (/** @type {Function} */ (target[/** @type {keyof Electron.Dialog} */ (key)]))(...args)) : target[/** @type {keyof Electron.Dialog} */ (key)]) });
   // The UN delegate must be registered before launch finishes for cold-start taps; this loads no data,
   // storage, services or permission and never touches Electron's own notification delegate.
   app.on('will-finish-launching', () => { nativeDayflowHost.startNotifications(); });
@@ -1501,6 +1501,10 @@ if (hasSingleInstanceLock) {
     dayflowDesktop: {
       keys: Object.keys(window.rhythmShell?.dayflowDesktop || {}),
       frozen: Object.isFrozen(window.rhythmShell?.dayflowDesktop),
+    },
+    dayflowView: {
+      keys: Object.keys(window.rhythmShell?.dayflowView || {}),
+      frozen: Object.isFrozen(window.rhythmShell?.dayflowView),
     },
   nodeExposed: typeof process !== 'undefined' || typeof require !== 'undefined',
   value: { version: window.rhythmShell?.version }

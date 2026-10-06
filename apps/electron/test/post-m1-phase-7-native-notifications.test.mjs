@@ -42,10 +42,16 @@ test('post-m1-p7-c4e: Electron owns permission presentation deduplication cancel
     /\.close\(\)|\.destroy\(\)|cancelNotification/i.test(mainSource),
     'resolved asks must cancel their native presentation',
   );
+  // Match a signing property, not the tail of the approved open-design:status
+  // channel string. Every prohibited primitive must still trip this guard.
+  const unsafePrimitive = /showNotification|newNotification|(?:^|[\n{},])\s*sign\s*:|signPayload|privateKey/i;
   assert.ok(
-    !/showNotification|newNotification|sign\s*:\s*|signPayload|privateKey/i.test(preloadSource),
+    !unsafePrimitive.test(preloadSource),
     'the preload must not expose arbitrary renderer-controlled notification or signing primitives',
   );
+  for (const mutation of ['showNotification() {}', 'newNotification() {}', '{ sign: () => {} }', 'signPayload() {}', 'const privateKey = "secret"']) {
+    assert.ok(unsafePrimitive.test(mutation), `unsafe primitive guard must catch ${mutation}`);
+  }
 });
 
 test('rhythm_notify push: preload forwards a closed-schema push frame to main and nothing wider', () => {

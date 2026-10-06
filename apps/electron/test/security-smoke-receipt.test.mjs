@@ -5,7 +5,7 @@ import { runInNewContext } from 'node:vm';
 
 import {
   AGENT_SERVER_KEYS, AI_ACCOUNTS_KEYS, AUTH_KEYS, BRIDGE_KEYS, COLONY_VIEW_KEYS,
-  DAYFLOW_DESKTOP_KEYS, GATEWAY_KEYS, HERMES_KEYS, HERMES_VIEW_KEYS, HUMAN_APPROVAL_KEYS, OPEN_DESIGN_VIEW_KEYS, REMOTE_ENVIRONMENTS_KEYS, UPDATE_KEYS,
+  DAYFLOW_DESKTOP_KEYS, DAYFLOW_VIEW_KEYS, GATEWAY_KEYS, HERMES_KEYS, HERMES_VIEW_KEYS, HUMAN_APPROVAL_KEYS, OPEN_DESIGN_VIEW_KEYS, REMOTE_ENVIRONMENTS_KEYS, UPDATE_KEYS,
   validateSecuritySmokeReceipt,
 } from '../src/security-smoke-receipt.mjs';
 
@@ -28,6 +28,7 @@ const validReceipt = {
     remoteEnvironments: { keys: REMOTE_ENVIRONMENTS_KEYS, frozen: true },
     updates: { keys: UPDATE_KEYS, frozen: true },
     dayflowDesktop: { keys: DAYFLOW_DESKTOP_KEYS, frozen: true },
+    dayflowView: { keys: DAYFLOW_VIEW_KEYS, frozen: true },
     nodeExposed: false,
     value: { version: 7 },
   },
@@ -69,6 +70,7 @@ async function receiptFromRealPreload() {
       remoteEnvironments: keys(bridge.remoteEnvironments),
       updates: keys(bridge.updates),
       dayflowDesktop: keys(bridge.dayflowDesktop),
+      dayflowView: keys(bridge.dayflowView),
       nodeExposed: false,
       value: { version: bridge.version },
     },
@@ -122,6 +124,35 @@ test('Dayflow desktop receipt requires the exact frozen metadata-only bridge', (
   assert.deepEqual(validateSecuritySmokeReceipt(unfrozen), {
     ok: false,
     reason: 'bridge.dayflowDesktop.frozen must be true',
+  });
+});
+
+test('native Dayflow receipt requires the exact frozen six-method bridge', async () => {
+  assert.deepEqual(DAYFLOW_VIEW_KEYS, ['getStatus', 'attach', 'setBounds', 'setBlocked', 'detach', 'returnFocus']);
+  assert.deepEqual(validateSecuritySmokeReceipt(await receiptFromRealPreload()), { ok: true });
+  for (const mutate of [
+    (receipt) => { delete receipt.bridge.dayflowView; },
+    (receipt) => { receipt.bridge.dayflowView.keys.push('loadAddon'); },
+    (receipt) => { receipt.bridge.dayflowView.keys.reverse(); },
+  ]) {
+    const receipt = structuredClone(validReceipt);
+    mutate(receipt);
+    assert.deepEqual(validateSecuritySmokeReceipt(receipt), {
+      ok: false,
+      reason: 'bridge.dayflowView.keys does not match the closed capability surface',
+    });
+  }
+  const unfrozen = structuredClone(validReceipt);
+  unfrozen.bridge.dayflowView.frozen = false;
+  assert.deepEqual(validateSecuritySmokeReceipt(unfrozen), {
+    ok: false,
+    reason: 'bridge.dayflowView.frozen must be true',
+  });
+  const real = await receiptFromRealPreload();
+  real.bridge.dayflowView.keys.push('loadAddon');
+  assert.deepEqual(validateSecuritySmokeReceipt(real), {
+    ok: false,
+    reason: 'bridge.dayflowView.keys does not match the closed capability surface',
   });
 });
 
@@ -201,7 +232,7 @@ test('main.mjs security-smoke receipt collects every object sub-bridge the valid
   // The packaged --security-smoke receipt is built in main.mjs, not from preload directly; a bridge the
   // validator checks but main.mjs never collects fails every signed release smoke (regressed once by #1374).
   const main = await readFile(new URL('../src/main.mjs', import.meta.url), 'utf8');
-  const objectBridges = ['gateway', 'auth', 'humanApproval', 'agentServer', 'hermes', 'hermesView', 'colonyView', 'openDesignView', 'aiAccounts', 'remoteEnvironments', 'dayflowDesktop'];
+  const objectBridges = ['gateway', 'auth', 'humanApproval', 'agentServer', 'hermes', 'hermesView', 'colonyView', 'openDesignView', 'aiAccounts', 'remoteEnvironments', 'dayflowDesktop', 'dayflowView'];
   for (const bridge of objectBridges) {
     assert.ok(BRIDGE_KEYS.includes(bridge), `${bridge} is a validated bridge`);
     assert.match(main, new RegExp(`Object\\.keys\\(window\\.rhythmShell\\?\\.${bridge}\\b`), `main.mjs receipt must collect ${bridge}`);

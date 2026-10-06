@@ -20,9 +20,11 @@ let smokeResult;
 let saveDialog = async () => ({ canceled: true });
 
 // Execute the real main module; replace only host boundaries, never its flag/lifecycle logic.
-// No Electron child, network, screenshot writes, timers, or real runtime ownership in this check.
+// No Electron child, network, screenshot writes, or real runtime ownership in this check.
 async function interactiveRuntime(argv, userData = '/fixture/interactive-user-data', selectDirectory = async () => ({ canceled: true, filePaths: [] }), autoQuit = true) {
   const calls = [], windows = [], handlers = new Map(), paths = new Map();
+  let reportWindowReady;
+  const windowReady = new Promise((ready) => { reportWindowReady = ready; });
   const processBoundary = Object.assign(new EventEmitter(), {
     argv, env: { RHYTHM_LIVE_API_URL: 'http://127.0.0.1:4098', RHYTHM_LIVE_ENGINE_URL: 'http://127.0.0.1:4097', ...(userData ? { RHYTHM_SHELL_USER_DATA: userData } : {}) },
     resourcesPath: '/fixture/Resources', arch: 'arm64',
@@ -42,18 +44,18 @@ async function interactiveRuntime(argv, userData = '/fixture/interactive-user-da
     async stopGracefully() { calls.push('stop'); }
     async stopForQuit() { calls.push('stop'); }
   }
-  class Window {
-    constructor(options) {
+  class Window extends EventEmitter {
+    constructor(options) { super();
       this.options = options; windows.push(this);
       this.webContents = Object.assign(new EventEmitter(), { mainFrame: { url: 'rhythm://app/index.html#/agents' }, isDestroyed: () => false, send() {}, setWindowOpenHandler() {}, executeJavaScript: async () => {} });
     }
     static fromWebContents(contents) { return windows.find((window) => window.webContents === contents) ?? null; }
     isDestroyed() { return false; }
-    async loadURL(url) { this.url = url; this.webContents.emit('did-finish-load'); }
+    async loadURL(url) { this.url = url; this.webContents.emit('did-finish-load'); reportWindowReady(); }
   }
   const file = new URL('../src/main.mjs', import.meta.url);
   const context = createContext({ process: processBoundary, URL, Response, console });
-  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
+  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.url = file.href; meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
     let values;
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal: async (url) => calls.push(['openExternal', url]) }, dialog: { showOpenDialog: selectDirectory, showSaveDialog: (...args) => saveDialog(...args), showErrorBox: () => calls.push('ownership-error'), showMessageBox: async () => { calls.push('migration'); return { response: 1 }; } } };
@@ -64,7 +66,13 @@ async function interactiveRuntime(argv, userData = '/fixture/interactive-user-da
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
   await module.evaluate();
-  await new Promise((done) => setImmediate(done));
+  let readinessTimeout;
+  try {
+    await Promise.race([
+      windowReady,
+      new Promise((_, reject) => { readinessTimeout = setTimeout(() => reject(new Error('Synthetic main window did not finish loading')), 2000); }),
+    ]);
+  } finally { clearTimeout(readinessTimeout); }
   if (autoQuit) {
     app.emit('before-quit', { preventDefault: () => calls.push('prevent-quit') });
     await new Promise((done) => setImmediate(done));

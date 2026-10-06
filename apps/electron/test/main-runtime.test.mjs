@@ -24,10 +24,10 @@ test('e11-c6 / 1555:electron-local-runtime-restart-ipc:6 / review:main.mjs:774 r
     whenReady: async () => {}, getVersion: () => 'test', quit() {}, exit() {},
   });
   const contents = Object.assign(new EventEmitter(), { mainFrame: { url: 'rhythm://app/index.html#/agents' }, isDestroyed: () => false, send: (...args) => sent.push(args), setWindowOpenHandler() {}, executeJavaScript: async () => {} });
-  class Window { constructor() { this.webContents = contents; } isDestroyed() { return false; } async loadURL() { contents.emit('did-finish-load'); } }
+  class Window extends EventEmitter { constructor() { super(); this.webContents = contents; } isDestroyed() { return false; } async loadURL() { contents.emit('did-finish-load'); } }
   const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: {}, resourcesPath: '/fixture/Resources', arch: 'arm64', cwd: () => '/fixture', stderr: { write() {} } }), URL, Response, console });
   const file = new URL('../src/main.mjs', import.meta.url);
-  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
+  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.url = file.href; meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
     let values;
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showErrorBox: (...args) => dialogs.push(args), showMessageBox: async (options) => { dialogs.push([options.title, options.message, options.buttons]); return { response: 1 }; } } };
@@ -78,10 +78,10 @@ test('1584: failure dialog Retry routes through restart(), which respawns, not t
     whenReady: async () => {}, getVersion: () => 'test', quit() {}, exit() {},
   });
   const contents = Object.assign(new EventEmitter(), { mainFrame: { url: 'rhythm://app/index.html#/agents' }, isDestroyed: () => false, send() {}, setWindowOpenHandler() {}, executeJavaScript: async () => {} });
-  class Window { constructor() { this.webContents = contents; } isDestroyed() { return false; } async loadURL() { contents.emit('did-finish-load'); } }
+  class Window extends EventEmitter { constructor() { super(); this.webContents = contents; } isDestroyed() { return false; } async loadURL() { contents.emit('did-finish-load'); } }
   const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: {}, resourcesPath: '/fixture/Resources', arch: 'arm64', cwd: () => '/fixture', stderr: { write() {} } }), URL, Response, console });
   const file = new URL('../src/main.mjs', import.meta.url);
-  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
+  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.url = file.href; meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
     let values;
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle() {} }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showErrorBox() {}, showMessageBox: async () => ({ response: 0 }) } };
@@ -134,9 +134,9 @@ async function hermesRuntimeFixture({ argv = ['--interactive-smoke'], enabled = 
     async start() { calls.push('start-agent'); }
     async stopGracefully() { calls.push('stop-agent'); }
   }
-  class Window {
+  class Window extends EventEmitter {
     static getAllWindows() { return windows; }
-    constructor() {
+    constructor() { super();
       this.webContents = Object.assign(new EventEmitter(), {
         mainFrame: { url: 'rhythm://app/index.html#/agents' },
         send() {}, isDestroyed: () => false, setWindowOpenHandler() {}, executeJavaScript: async () => {},
@@ -161,7 +161,7 @@ async function hermesRuntimeFixture({ argv = ['--interactive-smoke'], enabled = 
   });
   const file = new URL('../src/main.mjs', import.meta.url);
   const context = createContext({ process: processBoundary, URL, Response, console });
-  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
+  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.url = file.href; meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
     let values;
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showErrorBox() {}, showMessageBox: async () => ({ response: 1 }) } };

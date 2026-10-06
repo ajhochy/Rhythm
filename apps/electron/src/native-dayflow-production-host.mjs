@@ -24,7 +24,7 @@ const UNAVAILABLE = Object.freeze({ state: 'unavailable', code: 'unavailable' })
 const exactObject = (value, keys) => Boolean(value && typeof value === 'object' && !Array.isArray(value)
   && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)));
 
-/** Exact four finite CSS keys, bounded, non-negative size. */
+/** Exact four finite CSS keys, bounded, non-negative size. @param {unknown} value */
 function parseBounds(value) {
   if (!exactObject(value, ['x', 'y', 'width', 'height'])) return null;
   const { x, y, width, height } = /** @type {Record<string, unknown>} */ (value);
@@ -36,7 +36,7 @@ function parseBounds(value) {
 /**
  * @param {{
  *   ipcMain: { handle(channel: string, listener: Function): void, removeHandler(channel: string): void },
- *   getWindow: () => any,
+ *   getWindow: () => Electron.BrowserWindow | undefined,
  *   isTrustedSender?: (event: any) => boolean,
  *   loadModule: (wrapperPath: string) => any,
  *   loadAddon: (addonPath: string) => any,
@@ -59,7 +59,7 @@ export function registerNativeDayflowProductionHost(options) {
   const isTrustedSender = options.isTrustedSender ?? (() => true);
   const isSupported = options.isSupported ?? (() => true);
   const exists = options.exists ?? (() => true);
-  const scheduler = options.scheduler ?? { set: (fn, ms) => { const handle = setInterval(fn, ms); handle.unref?.(); return handle; }, clear: (handle) => clearInterval(handle) };
+  const scheduler = options.scheduler ?? { set: (fn, ms) => { const handle = setInterval(fn, ms); handle.unref?.(); return handle; }, clear: (handle) => clearInterval(/** @type {ReturnType<typeof setInterval>} */ (handle)) };
   const newLease = options.newLease ?? (() => randomBytes(16).toString('hex'));
   const log = options.log ?? (() => {});
 
@@ -68,16 +68,17 @@ export function registerNativeDayflowProductionHost(options) {
   let services = 'idle';
   let moduleFailed = false;
   /** @type {any} */ let nativeMod;
-  let readyWindow;
+  /** @type {Electron.BrowserWindow | undefined} */ let readyWindow;
   let ticking = false;
   let pumpGeneration = 0;
   let notificationsStarted = false;
   let disposed = false;
-  let pump;
+  /** @type {unknown} */ let pump;
   let modals = 0;
   let epoch = 0;
   let transition = Promise.resolve();
-  /** @type {{ window: any, webContents: any, mainFrame: any, lease: string, epoch: number, measured: boolean, rendererBlocked: boolean, shown: boolean } | undefined} */
+  /** @typedef {{ window: Electron.BrowserWindow, webContents: Electron.WebContents, mainFrame: Electron.WebFrameMain, lease: string, epoch: number, measured: boolean, rendererBlocked: boolean, shown: boolean }} Attachment */
+  /** @type {Attachment | undefined} */
   let active;
   const bound = new WeakSet();
 
@@ -120,11 +121,11 @@ export function registerNativeDayflowProductionHost(options) {
       const host = getWrapper();
       host.install(mod.createInstallConfiguration({ nativeRoot, dataRoot, ...identity }));
       services = 'context';
-      try { host.configureHelper(mod.resolveHelperPath(appBundlePath)); } catch (error) { log(`native Dayflow helper not configured: ${error?.code ?? 'error'}`); }
+      try { host.configureHelper(mod.resolveHelperPath(appBundlePath)); } catch (error) { log(`native Dayflow helper not configured: ${/** @type {{ code?: unknown } | null | undefined} */ (error)?.code ?? 'error'}`); }
       return true;
     } catch (error) {
       services = 'failed';
-      log(`native Dayflow unavailable: ${error?.code ?? 'error'}`);
+      log(`native Dayflow unavailable: ${/** @type {{ code?: unknown } | null | undefined} */ (error)?.code ?? 'error'}`);
       return false;
     }
   };
@@ -140,7 +141,7 @@ export function registerNativeDayflowProductionHost(options) {
       return true;
     } catch (error) {
       services = 'failed';
-      log(`native Dayflow unavailable: ${error?.code ?? 'error'}`);
+      log(`native Dayflow unavailable: ${/** @type {{ code?: unknown } | null | undefined} */ (error)?.code ?? 'error'}`);
       return false;
     }
   };
@@ -164,13 +165,15 @@ export function registerNativeDayflowProductionHost(options) {
     showHostWindow: showDayflow,
     quitAndReopenRequested: () => showQuitReopenInstruction(),
   };
+  /** @param {boolean} enabled */
   const setLoginItem = (enabled) => {
     loginItem.set(enabled);
     wrapper.setLaunchAtLoginState(loginItem.get() === true); // report what the OS actually says
   };
   // One bounded in-flight batch: fixed effects run in order, each guarded by disposal/generation.
+  /** @param {number} generation */
   const drain = async (generation) => {
-    let events;
+    /** @type {(keyof typeof handlers)[]} */ let events;
     try { events = wrapper.drainHostEvents(MAX_EVENTS_PER_TICK); } catch { return; }
     for (const name of events) {
       if (disposed || generation !== pumpGeneration) return;
@@ -198,11 +201,13 @@ export function registerNativeDayflowProductionHost(options) {
   }
 
   // ---- ownership: own window + own webContents + MAIN frame + exact route + lease + epoch ----
+  /** @param {Attachment} record */
   const routeLive = (record) => {
     const { window, webContents, mainFrame } = record;
     return !window.isDestroyed() && !webContents.isDestroyed() && getWindow() === window
       && webContents.mainFrame === mainFrame && ROUTE_PATTERN.test(webContents.getURL());
   };
+  /** @param {Electron.IpcMainInvokeEvent} event */
   const ownsEvent = (event) => {
     const window = getWindow();
     if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return false;
@@ -210,6 +215,7 @@ export function registerNativeDayflowProductionHost(options) {
     return event?.sender === webContents && event.senderFrame === webContents.mainFrame
       && ROUTE_PATTERN.test(event.senderFrame.url ?? '') && isTrustedSender(event) === true;
   };
+  /** @param {Electron.IpcMainInvokeEvent} event @param {Record<string, unknown>} value @param {string[]} keys */
   const ownsLease = (event, value, keys) => {
     const record = active;
     return Boolean(record && ownsEvent(event) && exactObject(value, ['attachment', ...keys]) && value.attachment === record.lease
@@ -236,6 +242,7 @@ export function registerNativeDayflowProductionHost(options) {
     if (record.shown && !shouldShow) restoreWebFocus(record);
     record.shown = shouldShow;
   };
+  /** @param {Attachment} record */
   const restoreWebFocus = (record) => {
     try {
       if (!record.webContents.isDestroyed() && !record.window.isDestroyed() && record.window.isVisible() && !record.window.isMinimized()) record.webContents.focus();
@@ -244,6 +251,7 @@ export function registerNativeDayflowProductionHost(options) {
 
   // Immediately mark the captured view inactive/blocked (before any deferred detach) so a departed
   // route/window can never leave a visible clip; an old lease can no longer reveal it.
+  /** @param {Attachment} record */
   const hideNow = (record) => {
     try {
       wrapper?.setLifecycle({ activeTool: false, modalVisible: true, windowVisible: record.window.isDestroyed() ? false : record.window.isVisible(), minimized: record.window.isDestroyed() ? false : record.window.isMinimized(), hostCrashed: false });
@@ -255,6 +263,7 @@ export function registerNativeDayflowProductionHost(options) {
     active = undefined;
     return record;
   };
+  /** @param {Attachment} record */
   const cleanup = (record) => {
     try { wrapper?.detach(); } catch { /* the view is already unreachable to the renderer */ }
     restoreWebFocus(record);
@@ -267,12 +276,13 @@ export function registerNativeDayflowProductionHost(options) {
     return transition;
   };
 
+  /** @param {Electron.BrowserWindow | undefined} window */
   const bindWindow = (window) => {
     if (disposed || !window || bound.has(window)) return;
     bound.add(window);
     if (active && active.window !== window) void revoke();
     const { webContents } = window;
-    const departs = (url) => { if (!ROUTE_PATTERN.test(String(url))) void revoke(); };
+    const departs = (/** @type {string} */ url) => { if (!ROUTE_PATTERN.test(String(url))) void revoke(); };
     // Reload/navigation of the same route is a NEW document: the old lease never survives it.
     webContents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
       if (isMainFrame === false) return;
@@ -281,14 +291,15 @@ export function registerNativeDayflowProductionHost(options) {
     webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => { if (isMainFrame !== false) departs(url); });
     webContents.on('render-process-gone', () => { void revoke(); });
     webContents.on('destroyed', () => { void revoke(); });
-    for (const name of ['show', 'hide', 'minimize', 'restore']) window.on(name, applyLifecycle);
+    for (const name of ['show', 'hide', 'minimize', 'restore']) (/** @type {NodeJS.EventEmitter} */ (window)).on(name, applyLifecycle);
     window.on('closed', () => { void revoke(); });
   };
 
   // ---- IPC (zero renderer authority beyond intent) ----
+  /** @param {Electron.IpcMainInvokeEvent} event @param {unknown[]} args */
   const attach = async (event, args) => {
     if (args.length !== 0 || !ownsEvent(event)) return { ok: false, reason: 'denied' };
-    const window = getWindow();
+    const window = /** @type {Electron.BrowserWindow} */ (getWindow());
     const current = active;
     // A newer call on the same live document reuses the active record (a stale earlier result is dropped by preload).
     if (current && current.epoch === epoch && routeLive(current) && current.webContents === window.webContents && current.mainFrame === window.webContents.mainFrame) return { ok: true, lease: current.lease };
@@ -316,6 +327,7 @@ export function registerNativeDayflowProductionHost(options) {
     }
   };
 
+  /** @param {Electron.IpcMainInvokeEvent} event @param {Record<string, unknown>} value */
   const setBounds = (event, value) => {
     if (!ownsLease(event, value, ['bounds'])) return false;
     const record = /** @type {NonNullable<typeof active>} */ (active);
@@ -337,12 +349,14 @@ export function registerNativeDayflowProductionHost(options) {
       return true;
     } catch { return hide(record); }
   };
+  /** @param {Attachment} record */
   const hide = (record) => {
     record.measured = false;
     applyLifecycle();
     return false;
   };
 
+  /** @param {string} channel @param {Parameters<Electron.IpcMain['handle']>[1]} listener */
   const handle = (channel, listener) => ipcMain.handle(channel, listener);
   handle('dayflow:view:status', (event, ...args) => (args.length === 0 && ownsEvent(event) && available() ? { state: 'ready' } : { ...UNAVAILABLE }));
   handle('dayflow:view:attach', (event, ...args) => {
@@ -378,7 +392,7 @@ export function registerNativeDayflowProductionHost(options) {
         const registered = getWrapper().startNotificationBridge() !== false;
         if (registered) ensurePump(); // the same single pump; it cannot install before the window is ready
         return registered;
-      } catch (error) { log(`native Dayflow notification bridge unavailable: ${error?.code ?? 'error'}`); return false; }
+      } catch (error) { log(`native Dayflow notification bridge unavailable: ${/** @type {{ code?: unknown } | null | undefined} */ (error)?.code ?? 'error'}`); return false; }
     },
     /** The main window finished loading: a qualified cold-start tap may now bring services up on the next tick. */
     windowReady() {
@@ -386,13 +400,14 @@ export function registerNativeDayflowProductionHost(options) {
     },
     bindWindow,
     /** Wrap an existing main-process dialog so its native view is hidden while it is up. */
+    /** @template T @param {() => T} run @returns {T} */
     runModal(run) {
       const begin = () => { modals += 1; applyLifecycle(); };
       const end = () => { modals = Math.max(0, modals - 1); applyLifecycle(); };
       begin();
       try {
         const result = run();
-        if (result && typeof result.then === 'function') return result.finally(end);
+        if (result && typeof (/** @type {{ then?: unknown }} */ (result)).then === 'function') return /** @type {T} */ ((/** @type {Promise<unknown>} */ (/** @type {unknown} */ (result))).finally(end));
         end();
         return result;
       } catch (error) { end(); throw error; }

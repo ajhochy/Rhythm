@@ -315,9 +315,9 @@ async function mainFixture({ enabled = '1', argv = [] } = {}) {
     stop: () => { calls.push('stop-hermes'); return new Promise((done) => { releaseStop = done; }); },
   };
   class Server { onStatusChange() {} async start() {} async stopForQuit() { calls.push('stop-agent'); } }
-  class Window {
+  class Window extends EventEmitter {
     static getAllWindows() { return windows; }
-    constructor() {
+    constructor() { super();
       this.sent = [];
       this.webContents = Object.assign(new EventEmitter(), {
         send: (...args) => this.sent.push(args), isDestroyed: () => false, setWindowOpenHandler() {}, executeJavaScript: async () => {},
@@ -334,7 +334,7 @@ async function mainFixture({ enabled = '1', argv = [] } = {}) {
   });
   const context = createContext({ process: Object.assign(new EventEmitter(), { argv, env: { RHYTHM_HERMES_ENABLED: enabled, RHYTHM_SHELL_USER_DATA: '/fixture' }, resourcesPath: '/fixture/Resources', arch: 'arm64', cwd: () => '/fixture', stderr: { write() {} } }), URL, Response, console });
   const file = new URL('../src/main.mjs', import.meta.url);
-  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
+  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.url = file.href; meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
     let values;
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showErrorBox() {}, showMessageBox: async (options) => { dialogs.push(options); return { response: 0 }; } } };
