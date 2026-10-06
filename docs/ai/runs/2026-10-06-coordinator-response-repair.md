@@ -71,3 +71,9 @@ C11 `5c2189590b378a9d30ddee22d9983d5e974454fc` passed issue4 and actual Copy-but
 Root reviewed the actual profile-resync route and registration lifecycle. The live test now invokes existing `/agent-configs/:id/resync-agent-file` only for its three invented profiles, verifies actual files and eligibility, and requires all three named profiles plus native Explore in the real fork registry with the exact scoped MCP allowlist. No manual agent-file write or mock projection was substituted. Production code is unchanged in this recovery; only the live fixture and this record change.
 
 Root cancelled C11's remaining PR gate to repair the fixture first: stages1–6 passed, API stage7 deliberately interrupted (130), racing offline build finished before owned workers closed. No full C11 PR pass is claimed. Next candidate runs the nested behavior first; the complete repository gates follow once its live harness succeeds.
+
+### C12 fixture scope expectation recovery
+
+C12 `1622a88a0c772b1368744aaf102e237b917b558e` built the exact engine successfully, then both live cases reached real profile resync and stopped at an incorrect fixture scope expectation: unchanged startup `backfillObsidianReadScope` adds exactly `obsidian_simple_search`. No root session/grant/native permission event occurred; both teardown0 and all five preservation checks passed.
+
+The test now expects that exact existing read-only advertise key and its exact qualified registry name, keeping `servers: []` and prohibiting arbitrary additions. The fixture config contains only its owned loopback Rhythm MCP; no Obsidian MCP or normal vault/service is configured. Product backfill/parser/permissions are unchanged. Empty tool arrays were rejected as a fixture alternative because existing scope expansion would inherit all tools, which would broaden scope. Complete live behavior remains pending.

@@ -224,7 +224,7 @@ describe.skipIf(!enabled)('Coordinator native → async → native permission ce
           expect(projected.status).toBe(200);
           expect(projected.body).toMatchObject({ id, enabled: true, isAgent: true, locked: false,
             ocAgent: id, sessionSelectable: true, modelProvider: 'test', modelId: 'test-model' });
-          expect(JSON.parse(projected.body.allowedMcpsJson)).toEqual({ rhythm: ['rhythm_delegate_async', 'rhythm_list_sessions'] });
+          expect(JSON.parse(projected.body.allowedMcpsJson)).toEqual({ rhythm: ['rhythm_delegate_async', 'rhythm_list_sessions'], obsidian: ['obsidian_simple_search'] });
           const generated = await readFile(path.join(sb, 'home/.config/opencode/agents', `${id}.md`), 'utf8');
           expect(generated).toContain('mode: all');
           expect(generated).toMatch(/^model: ["']?test\/test-model["']?$/m);
@@ -249,7 +249,7 @@ describe.skipIf(!enabled)('Coordinator native → async → native permission ce
           expect(agent, `Actual fork registry must resolve ${name}`).toBeTruthy();
           if (name !== 'explore') {
             expect(agent.mode).toBe('all');
-            expect(agent.options.mcpAllowlist).toEqual({ servers: [], tools: ['rhythm_rhythm_delegate_async', 'rhythm_rhythm_list_sessions'] });
+            expect(agent.options.mcpAllowlist).toEqual({ servers: [], tools: ['rhythm_rhythm_delegate_async', 'rhythm_rhythm_list_sessions', 'obsidian_obsidian_simple_search'] });
           }
           return { name: agent.name, mode: agent.mode, model: agent.model,
             permissionRuleCount: agent.permission?.length ?? 0, mcpAllowlist: agent.options?.mcpAllowlist };
