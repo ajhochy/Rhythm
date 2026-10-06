@@ -88,6 +88,9 @@ const trustedNonUserReads = new Set([
   "rhythm_creative_capability_status",
   "rhythm_verify_creative_capability",
   "rhythm_get_setup_readiness",
+  // Server-resolved coordinator status for the signed foreground turn; the
+  // model supplies no selector and the tool returns Rhythm-owned metadata only.
+  "rhythm_get_coordinator_status",
 ]);
 
 const unavailableLegacyTools = new Set([
@@ -115,6 +118,14 @@ const reviewerReadBoundaries = new Map<string, [string, string]>([
 
 const humanReviewQueueWrites = new Map<string, string>([
   ["rhythm_submit_org_review_proposal", "orgReviewer.ts"],
+]);
+
+// Writes admitted by the API through the engine-signed goal action
+// (COORDINATOR_GOAL_ACTION = delegation.start-async) on the exact foreground
+// turn, not through an MCP-bound approval: the model supplies only a captured
+// goal id and the server derives target/profile/workspace.
+const serverSignedGoalWrites = new Map<string, string>([
+  ["rhythm_start_coordinator_goal", "coordinatorConversation.ts"],
 ]);
 
 const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
@@ -459,6 +470,7 @@ describe("#1175 external-content role graph", () => {
         retiredNoopTools.has(tool),
         reviewerReadTools.has(tool),
         humanReviewQueueWrites.has(tool),
+        serverSignedGoalWrites.has(tool),
         tool === approvalRequestTool,
       ].filter(Boolean);
       expect(
@@ -538,6 +550,24 @@ describe("#1175 external-content role graph", () => {
       expect(block, `${tool} must not consume a bypass approval`).not.toContain(
         "authorizeOutboundAction",
       );
+    }
+
+    for (const [tool, sourceFile] of serverSignedGoalWrites) {
+      const source = readFileSync(join(toolsDir, sourceFile), "utf8");
+      const block = toolBlock(source, tool);
+      expect(block, `${tool} must send engine-signed identity`).toContain(
+        "currentTrustedSecurityCall",
+      );
+      expect(block, `${tool} must use only the signed goal seam`).toContain(
+        "/coordinator-agent/start-goal",
+      );
+      expect(block, `${tool} must not consume a bypass approval`).not.toContain(
+        "authorizeOutboundAction",
+      );
+      expect(
+        apiSecuritySource,
+        `${tool} must be admitted by the API signed goal action`,
+      ).toContain("COORDINATOR_GOAL_TOOL = 'rhythm_start_coordinator_goal'");
     }
 
     for (const role of roles) {

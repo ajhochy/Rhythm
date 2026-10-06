@@ -28,6 +28,11 @@ jobs:
           cache: 'npm'
           cache-dependency-path: apps/web/package-lock.json
       - run: npm ci
+      # Three coordinator suites render with react / react-test-renderer resolved
+      # from apps/mobile (createRequire('../mobile/package.json')).
+      - name: Install mobile deps for react-test-renderer
+        working-directory: apps/mobile
+        run: npm ci
       - name: Unit tests (node:test)
         run: >
           node --experimental-vm-modules --test --test-concurrency=1
