@@ -120,7 +120,12 @@ if (hasSingleInstanceLock) {
     loadAddon: (/** @type {string} */ addonPath) => requireNative(addonPath),
     nativeRoot: nativeDayflowRoot,
     appBundlePath: resolve(dirname(app.getPath('exe')), '..', '..'),
-    dataRoot: join(app.getPath('userData'), 'df'), // short physical root: it holds agent.sock
+    // Short physical root: it holds agent.sock (sockaddr_un ~104 bytes). Profiles living under long paths
+    // (the current candidate profile is 125 bytes) would make the native view report unavailable, so an
+    // absolute override may be supplied at launch; the host still refuses any root whose socket path is too long.
+    dataRoot: (process.env.RHYTHM_NATIVE_DAYFLOW_DATA_ROOT && isAbsolute(process.env.RHYTHM_NATIVE_DAYFLOW_DATA_ROOT))
+      ? process.env.RHYTHM_NATIVE_DAYFLOW_DATA_ROOT
+      : join(app.getPath('userData'), 'df'),
     identity: { bundleIdentifier: RHYTHM_BUNDLE_IDENTIFIER, displayName: 'Rhythm', shortVersion: app.getVersion(), build: app.getVersion() },
     isSupported: () => process.platform === 'darwin',
     exists: (/** @type {string} */ path) => existsSync(path),
