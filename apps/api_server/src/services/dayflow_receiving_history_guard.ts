@@ -6,9 +6,13 @@ import {
   PROVIDER_ADMISSION_BOUNDS,
   canonicalJson,
   parseProviderAdmissionRequest,
+  parseWorkflowProviderDecision,
+  parseWorkflowProviderRequest,
   providerBasisDigest,
   sha256Hex,
   sameProviderRequest,
+  sameWorkflowBinding,
+  sameWorkflowScope,
   validateProviderAdmissionResponse,
   type ProviderAdmissionRequest,
   type ProviderAdmissionResponse,
@@ -16,6 +20,9 @@ import {
   type ProviderPendingExport,
   type ProviderReason,
   type ProviderSourceProof,
+  type WorkflowProviderDecision,
+  type WorkflowProviderPendingExport,
+  type WorkflowProviderRequest,
 } from '../contracts/dayflow_provider_admission_contract';
 import { DayflowPersistedQualificationAuthority } from '../integrations/dayflow/persisted_qualification_authority';
 import type { AuthContext } from '../middleware/auth_middleware';
@@ -130,8 +137,29 @@ export class DayflowReceivingHistoryGuard implements DayflowSdkHistoryGuard {
 // ── Provider admission (C2): the per-attempt receiving decision ────────────────
 
 export type ProviderAdmissionResult =
-  | { ok: true; response: ProviderAdmissionResponse; finalize(): ProviderAdmissionResponse }
+  | {
+    ok: true;
+    response: ProviderAdmissionResponse | (WorkflowProviderDecision & { readonly overlay?: undefined });
+    finalize(): ProviderAdmissionResponse | (WorkflowProviderDecision & { readonly overlay?: undefined });
+  }
   | { ok: false };
+
+/** Server-composed G2 consumer; it owns no Dayflow/source authority. */
+export interface WorkflowProviderAdmissionGate {
+  admit(input: {
+    auth: AuthContext;
+    request: WorkflowProviderRequest;
+    frame: WorkflowProviderPendingExport;
+    /** Read from the owned engine's session metadata, never from request JSON. */
+    nativeParentSessionId: string;
+  }): Promise<{
+    status: 'allow' | 'hold';
+    reason: WorkflowProviderDecision['workflow']['reason'];
+    authorityDigest: string;
+    /** Synchronous final current proof after all admission awaits. */
+    current(): boolean;
+  }>;
+}
 
 interface FrameFacts {
   agentName: string;
@@ -182,14 +210,18 @@ function witnessKey(entries: readonly DayflowProviderDependency[]): string {
 export class DayflowProviderAdmissionService {
   constructor(private readonly dependencies: {
     records: DayflowReceivingContextRepository;
-    engine: Pick<OpencodeClientService, 'getDayflowProviderFrame'>;
+    engine: Pick<OpencodeClientService, 'getDayflowProviderFrame' | 'getWorkflowProviderFrame' | 'getSession'>;
     reader: DayflowQualifiedReader;
     evidence: Pick<DayflowQualifiedEvidenceService, 'readAutomaticOverlay' | 'enrollmentBeforeBody' | 'canonicalCandidateCurrent'>;
     authority: Pick<DayflowPersistedQualificationAuthority, 'activeScope'>;
     enrollment: DayflowGuardEnrollment;
+    /** Absent means schema-2 workflow provider calls fail closed. */
+    workflow?: WorkflowProviderAdmissionGate;
   }) {}
 
   async admit(auth: AuthContext, body: unknown): Promise<ProviderAdmissionResult> {
+    const workflow = parseWorkflowProviderRequest(body);
+    if (workflow.ok) return this.admitWorkflow(auth, workflow.value);
     const parsed = parseProviderAdmissionRequest(body);
     if (!parsed.ok) return { ok: false };
     const request = parsed.value;
@@ -207,6 +239,125 @@ export class DayflowProviderAdmissionService {
       try { current = FINALIZERS.get(prepared)?.() ?? prepared; } catch { current = this.hold(request, 'proof_unavailable'); }
       const checked = validateProviderAdmissionResponse(current, request);
       return checked.ok ? checked.value : this.hold(request, 'proof_unavailable');
+    };
+    return { ok: true, response: finalize(), finalize };
+  }
+
+  /**
+   * Schema-2 always proves the native-owned frame and current finite-job gate
+   * before an ordinary/no-receiver response is even considered. It never
+   * treats its workflow marker as a Dayflow grant: retained Dayflow history
+   * without its own current receiver remains a hold.
+   */
+  private async admitWorkflow(auth: AuthContext, request: WorkflowProviderRequest): Promise<ProviderAdmissionResult> {
+    const unavailable = (reason: WorkflowProviderDecision['workflow']['reason'], frame?: WorkflowProviderPendingExport): WorkflowProviderDecision => {
+      const response = this.hold(request.request, 'proof_unavailable');
+      const candidate: WorkflowProviderDecision = {
+        schemaVersion: 2,
+        kind: 'coordinator_workflow_provider_decision',
+        binding: request.binding,
+        scope: request.scope,
+        response,
+        workflow: {
+          status: 'hold',
+          reason,
+          authorityDigest: sha256Hex(canonicalJson({ v: 1, job: request.binding.jobId, reason })),
+          nativeLineageDigest: frame?.nativeLineageDigest ?? sha256Hex(canonicalJson({ v: 1, job: request.binding.jobId, pending: false })),
+        },
+      };
+      const checked = parseWorkflowProviderDecision(candidate, request);
+      return checked.ok ? checked.value : candidate;
+    };
+    const readFrame = async (): Promise<WorkflowProviderPendingExport | null> => {
+      let frame: Awaited<ReturnType<OpencodeClientService['getWorkflowProviderFrame']>>;
+      try {
+        frame = await this.dependencies.engine.getWorkflowProviderFrame(
+          request.request.sdkSessionId,
+          request.request.requestNonce,
+          undefined,
+        );
+      } catch {
+        return null;
+      }
+      if (
+        !frame || frame.schemaVersion !== 2 || frame.kind !== 'coordinator_workflow_provider_frame' ||
+        !sameWorkflowBinding(frame.binding, request.binding) || !sameWorkflowScope(frame.scope, request.scope) ||
+        !sameProviderRequest(frame.frame.request, request.request)
+      ) return null;
+      return frame;
+    };
+    const initial = await readFrame();
+    if (!initial) {
+      const response = unavailable('binding_changed');
+      return { ok: true, response, finalize: () => response };
+    }
+    const gate = this.dependencies.workflow;
+    if (!gate) {
+      const response = unavailable('authority_unavailable', initial);
+      return { ok: true, response, finalize: () => response };
+    }
+    let nativeParentSessionId: string | null = null;
+    try {
+      const native = await this.dependencies.engine.getSession(request.request.sdkSessionId);
+      nativeParentSessionId = typeof native?.parentID === 'string' && native.parentID.length > 0
+        ? native.parentID
+        : null;
+    } catch {
+      nativeParentSessionId = null;
+    }
+    if (!nativeParentSessionId) {
+      const response = unavailable('membership_unavailable', initial);
+      return { ok: true, response, finalize: () => response };
+    }
+    let decision: Awaited<ReturnType<WorkflowProviderAdmissionGate['admit']>>;
+    try {
+      decision = await gate.admit({ auth, request, frame: initial, nativeParentSessionId });
+    } catch {
+      const response = unavailable('authority_unavailable', initial);
+      return { ok: true, response, finalize: () => response };
+    }
+    const latest = await readFrame();
+    if (!latest || latest.nativeLineageDigest !== initial.nativeLineageDigest) {
+      const response = unavailable('binding_changed', initial);
+      return { ok: true, response, finalize: () => response };
+    }
+    const base = (() => {
+      // A workflow marker is not a substitute for a Dayflow receiver. If the
+      // SDK already carries retained Dayflow evidence, do not expose it via an
+      // ordinary workflow response; the established receiver path must decide.
+      const lookup = this.dependencies.records.lookupProviderSession(request.request.sdkSessionId);
+      if (lookup.kind !== 'none' || this.dependencies.records.hasSdkHistory(request.request.sdkSessionId)) {
+        return this.hold(request.request, 'receiver_changed');
+      }
+      return this.build(request.request, {
+        decision: 'ordinary', rawHistoryReusable: true, overlay: null, projection: null, reason: 'none',
+      }, {
+        version: 2,
+        receiver: {
+          ownerUserId: auth.user.id, projectId: '', sessionId: '', sdkSessionId: request.request.sdkSessionId,
+          agent: '', receiverKind: 'none', consentGeneration: null, configurationGeneration: null, overlayEligible: false,
+        },
+        witnesses: [], decision: 'ordinary', reason: 'none', rawHistoryReusable: true, projection: null, overlaySha256: null,
+      });
+    })();
+    const finalize = (): WorkflowProviderDecision => {
+      const allowed = decision.status === 'allow' && decision.reason === 'none' && decision.current() === true;
+      const response = allowed ? base : this.hold(request.request, 'proof_unavailable');
+      const candidate: WorkflowProviderDecision = {
+        schemaVersion: 2,
+        kind: 'coordinator_workflow_provider_decision',
+        binding: request.binding,
+        scope: request.scope,
+        response,
+        workflow: {
+          status: allowed ? 'allow' : 'hold',
+          reason: allowed ? 'none' : decision.reason === 'none' ? 'authority_unavailable' : decision.reason,
+          authorityDigest: decision.authorityDigest,
+          nativeLineageDigest: latest.nativeLineageDigest,
+        },
+      };
+      const checked = parseWorkflowProviderDecision(candidate, request);
+      return checked.ok ? checked.value : unavailable('bounds_exceeded', latest);
     };
     return { ok: true, response: finalize(), finalize };
   }

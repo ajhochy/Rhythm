@@ -71,6 +71,7 @@ import {
   parseCodingWorkflowDispatchReceipt,
   type CodingWorkflowCoverageIds,
   type CodingWorkflowCoverageResult,
+  type CodingWorkflowAuthorization,
   type CodingWorkflowDispatchReceipt,
   type CodingWorkflowHoldReason,
   type CodingWorkflowRootTurn,
@@ -176,6 +177,25 @@ export interface CoordinatorFiniteConversationAuthority {
   };
 }
 
+/**
+ * Server-private handoff to the pre-existing async Coding Workflow route. It
+ * is attached only after a finite ordinal has been durably reserved and this
+ * coordinator job has claimed one host-global slot.  It contains no bearer,
+ * caller-selected target, path, model, tool or permission.
+ */
+export interface CoordinatorWorkflowDispatchInput {
+  authorization: CodingWorkflowAuthorization;
+  dispatch(input: {
+    ownerUserId: number;
+    projectId: string;
+    workstream: AgentWorkstream;
+    job: AgentBridgeJobRow;
+    parent: AgentSession;
+    targetProfile: AgentConfig;
+    targetProfileScope: ProfileScope;
+  }): Promise<'accepted' | 'unknown' | 'rejected'>;
+}
+
 /** Status-only post-reconciliation event; it deliberately carries no prose. */
 export interface CoordinatorTerminalObserver {
   onCoordinatorTerminal(input: {
@@ -249,6 +269,8 @@ export interface WorkstreamRunRequest {
   softTokenBudgetAcknowledged: true;
   policy: WorkstreamRunPolicy;
   references: WorkstreamReferenceInput[];
+  /** Internal-only fixed G2 manager route; no HTTP parser accepts this field. */
+  workflow?: CoordinatorWorkflowDispatchInput;
 }
 
 /**
@@ -928,6 +950,21 @@ export class PersistentWorkstreamCoordinator {
     input: WorkstreamRunRequest,
   ): Promise<WorkstreamStatusView> {
     const ownerUserId = authority.ownerUserId;
+    const workflow = input.workflow;
+    if (workflow) {
+      // The workflow adapter is a private finite-consumer branch, never an
+      // alternate public Run-next shape. It must be tied to the consumed
+      // authority/ordinal and fixed manager profile before any row/session or
+      // engine operation.
+      if (
+        authority.kind !== 'conversation_finite' ||
+        input.policy.outputContract !== 'coding_workflow_durable_consumer_v1' ||
+        input.targetProfileId !== 'workflow-orchestrator' ||
+        workflow.authorization.workstreamId !== workstreamId ||
+        workflow.authorization.authorizationId !== authority.authorizationId ||
+        !Number.isSafeInteger(workflow.authorization.ordinal) || workflow.authorization.ordinal < 1
+      ) throw AppError.forbidden('workflow finite authority is invalid');
+    }
     if (input.softTokenBudgetAcknowledged !== true) {
       throw AppError.badRequest('Run next requires explicit acknowledgement of the soft total-token authorization');
     }
@@ -1222,17 +1259,29 @@ export class PersistentWorkstreamCoordinator {
       return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
     }
 
-    await this.dispatchFreshWorker({
-      authority,
-      workstream: queued,
-      parent,
-      profile: currentProfile,
-      profileScope,
-      job: claim.row,
-      assembled,
-      declaredReferences: input.references,
-      finiteExecutionScope,
-    });
+    if (workflow) {
+      await this.dispatchWorkflowManager({
+        authority,
+        workstream: queued,
+        parent,
+        profile: currentProfile,
+        profileScope,
+        job: claim.row,
+        workflow,
+      });
+    } else {
+      await this.dispatchFreshWorker({
+        authority,
+        workstream: queued,
+        parent,
+        profile: currentProfile,
+        profileScope,
+        job: claim.row,
+        assembled,
+        declaredReferences: input.references,
+        finiteExecutionScope,
+      });
+    }
     return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
   }
 
@@ -2247,9 +2296,10 @@ export class PersistentWorkstreamCoordinator {
     acknowledgedByUserId: number,
     acknowledgedAt: string,
   ): Record<string, unknown> {
+    const workflow = input.workflow;
     return {
       schemaVersion: 1,
-      executionKind: 'read_only_managed_worker',
+      executionKind: workflow ? 'coding_workflow_durable_consumer' : 'read_only_managed_worker',
       targetProfileId: profile.id,
       targetProfileRevision: profile.revision ?? 1,
       parentSessionId: parent.id,
@@ -2293,6 +2343,19 @@ export class PersistentWorkstreamCoordinator {
         observedVersion: reference.observedVersion,
         observedHash: reference.observedHash,
       })),
+      ...(workflow ? {
+        // The prepared/accepted delivery and every native provider member are
+        // appended by the existing job repository under its byte-bounded CAS.
+        // This initial descriptor is intentionally identity-only.
+        workflow: {
+          schemaVersion: 1,
+          kind: 'coding_workflow',
+          authorization: workflow.authorization,
+          prepared: null,
+          delivery: 'unprepared',
+          membership: [],
+        },
+      } : {}),
     };
   }
 
@@ -2533,6 +2596,77 @@ export class PersistentWorkstreamCoordinator {
         executorEpoch: this.hostEpoch,
       });
     }
+  }
+
+  /**
+   * The G2 path uses the already-owned async delegation manager, not a second
+   * managed worker.  The private callback is responsible for the atomic
+   * prepared binding before prompt exposure; this coordinator only retains the
+   * ordinary job/workstream lifecycle and fails closed around it.
+   */
+  private async dispatchWorkflowManager(input: {
+    authority: WorkstreamDispatchAuthority;
+    workstream: AgentWorkstream;
+    parent: AgentSession;
+    profile: AgentConfig;
+    profileScope: ProfileScope;
+    job: AgentBridgeJobRow;
+    workflow: CoordinatorWorkflowDispatchInput;
+  }): Promise<void> {
+    const { authority, workstream, parent, profile, profileScope, job, workflow } = input;
+    if (authority.kind !== 'conversation_finite' || !authority.stillAuthorized()) {
+      this.markUnknown(workstream, job, 'workflow_authority_changed_before_dispatch');
+      return;
+    }
+    const current = this.jobs.getNativeForWorkstream({
+      localUserId: workstream.ownerUserId,
+      workstreamId: workstream.id,
+      jobId: job.id,
+    });
+    if (
+      !current || current.state !== 'claimed' || current.host_epoch !== this.hostEpoch ||
+      current.parent_session_id !== parent.id || current.target_agent_id !== profile.id ||
+      current.workstream_revision !== workstream.revision || !this.dispatchStillAuthorized(workstream, job.id, profile)
+    ) {
+      if (current) this.markUnknown(workstream, current, 'workflow_dispatch_binding_changed');
+      return;
+    }
+    let outcome: 'accepted' | 'unknown' | 'rejected';
+    try {
+      outcome = await workflow.dispatch({
+        ownerUserId: workstream.ownerUserId,
+        projectId: workstream.projectId,
+        workstream,
+        job: current,
+        parent,
+        targetProfile: profile,
+        targetProfileScope: profileScope,
+      });
+    } catch {
+      outcome = 'unknown';
+    }
+    const latest = this.jobs.getNativeForWorkstream({
+      localUserId: workstream.ownerUserId,
+      workstreamId: workstream.id,
+      jobId: job.id,
+    });
+    if (!latest) return;
+    if (outcome === 'accepted' && latest.state === 'running' && authority.stillAuthorized()) {
+      this.publishRuntime(workstream, job.id, 'running', null, {
+        expectedStates: ['queued', 'running'], executorEpoch: this.hostEpoch,
+      });
+      return;
+    }
+    if (outcome === 'rejected' || latest.state === 'failed') {
+      this.publishRuntime(workstream, job.id, 'blocked', 'workflow_delivery_rejected', {
+        expectedStates: ['queued', 'running', 'blocked'], executorEpoch: this.hostEpoch,
+      });
+      return;
+    }
+    // A thrown transport call or any missing/changed durable prepared receipt
+    // may have reached the engine.  Preserve the consumed ordinal as unknown;
+    // neither this path nor a later scheduler pass retries it.
+    this.markUnknown(workstream, latest, 'workflow_delivery_unknown');
   }
 
   private async reconcileJob(

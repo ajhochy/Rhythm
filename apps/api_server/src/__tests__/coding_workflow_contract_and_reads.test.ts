@@ -1,7 +1,7 @@
 /**
  * G2 first adapter: admission contract/acknowledgement, strict receipt parser,
  * strict (non-defaulting) native reads, typed-context refusals, and the existing
- * conversation service's fail-closed answer for the not-yet-issuable purpose.
+ * conversation service's fail-closed answer for a workflow admission lacking its check.
  */
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -57,7 +57,11 @@ describe('admission contract: fixed Coding Workflow purpose and explicit acknowl
   });
 });
 
-describe('the existing conversation service has no issuance path for workflow yet', () => {
+// The former absence pin ("no issuance path for workflow yet") is superseded by
+// the positive schema-6 admission in coding_workflow_admission.test.ts. What
+// remains true here: a workflow admission WITHOUT the selected-reference check
+// is never issued and funds nothing.
+describe('the conversation service refuses workflow issuance without a selected check', () => {
   const now = new Date('2026-10-05T12:00:00.000Z');
   const scope = { ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' };
   const auth = { sessionToken: 'test-auth', user: { id: scope.ownerUserId } } as AuthContext;
@@ -82,7 +86,7 @@ describe('the existing conversation service has no issuance path for workflow ye
   });
   afterEach(() => { setDb(previous); db.close(); });
 
-  it('answers planning_authority_conflict, creates no workstream and funds no worker', async () => {
+  it('answers planning_authority_unavailable, creates no workstream and funds no worker', async () => {
     const available = <T>(items: T[]) => ({
       availability: 'available' as const, reason: null, complete: true as const, authoritative: true as const,
       observedAt: now.toISOString(), sourceVersion: 'v1', items,
@@ -128,7 +132,7 @@ describe('the existing conversation service has no issuance path for workflow ye
       goalId: captured.goal.id,
       admission: { ...admissionBase, purpose: 'workflow', acknowledgesCodingWorkflowCoverage: true } as never,
     });
-    expect(result.kind).toBe('planning_authority_conflict');
+    expect(result.kind).toBe('planning_authority_unavailable');
     expect(workstreams.list(scope.ownerUserId, scope.projectId, 10)).toEqual([]);
     expect(runNext).not.toHaveBeenCalled();
     expect(repository.get(scope)).toMatchObject({ kind: 'found', conversation: { continuations: [] } });

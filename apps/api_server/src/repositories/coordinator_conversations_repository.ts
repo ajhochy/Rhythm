@@ -1885,12 +1885,21 @@ export class CoordinatorConversationsRepository {
     scope: CoordinatorConversationScope,
   ): boolean {
     const permission = authority.permissionAuthority;
+    const workflow = authority.purpose === 'workflow';
     if (!(permission !== null &&
-      permission.schemaVersion === 1 &&
+      (workflow ? permission.schemaVersion === 2 : permission.schemaVersion === 1) &&
       permission.parent.sessionId === scope.sessionId &&
       permission.worker.parentSessionId === scope.sessionId &&
       permission.worker.permissionMode === 'default' &&
-      permission.worker.managedReadOnly === true &&
+      permission.worker.managedReadOnly === (workflow ? false : true) &&
+      (!workflow || (
+        authority.schemaVersion === 6 && authority.workflow?.kind === 'coding_workflow' &&
+        authority.workflow.targetAgentConfigId === 'workflow-orchestrator' &&
+        permission.workflow?.parentSessionId === scope.sessionId &&
+        permission.workflow.permissionMode === permission.parent.permissionMode &&
+        permission.workflow.approvalBypassExplicit === permission.parent.approvalBypassExplicit &&
+        permission.workflow.targetAgentConfigId === 'workflow-orchestrator'
+      )) &&
       (permission.parent.permissionMode !== 'bypassPermissions' || permission.parent.approvalBypassExplicit === true))) {
       return false;
     }

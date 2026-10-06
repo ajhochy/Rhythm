@@ -48,8 +48,12 @@ import {
   PROVIDER_ADMISSION_BOUNDS,
   parseEnrollmentResponse,
   parseProviderFrameExportText,
+  parseWorkflowEnrollmentResponse,
+  parseWorkflowProviderFrameExportText,
   type ProviderPendingExport,
   type ProviderUnavailableExport,
+  type WorkflowEnrollmentRequest,
+  type WorkflowProviderPendingExport,
 } from '../contracts/dayflow_provider_admission_contract';
 
 const modelProvenanceRepo = new ModelProvenanceRepository();
@@ -925,21 +929,33 @@ export interface CodingWorkflowPromptDispatchContext {
   /** Synchronous freshness proof, run after the last await and immediately before the SDK call. */
   isCurrent(): boolean;
   /** Durable pre-SDK receipt. Returning anything but true holds the request. */
-  onPrepared(binding: { dispatchId: string; sdkUserMessageId: string }): boolean;
+  onPrepared?(binding: { dispatchId: string; sdkUserMessageId: string }): boolean;
+  /**
+   * The owning server has already made `onPrepared` durable.  This is the
+   * only await introduced between that receipt and SDK exposure: it installs
+   * the strict schema-2 native marker for the exact minted user anchor.  A
+   * false/throw is a closed refusal, never a fallback to an ordinary prompt.
+   */
+  enroll?(binding: { dispatchId: string; sdkUserMessageId: string }): Promise<boolean>;
   /** Exactly once, only after the SDK request was attempted. */
-  onOutcome(outcome: { delivery: 'accepted' | 'unknown' | 'rejected'; dispatchId: string; sdkUserMessageId: string }): void;
+  onOutcome?(outcome: { delivery: 'accepted' | 'unknown' | 'rejected'; dispatchId: string; sdkUserMessageId: string }): void;
 }
+
+type CompleteCodingWorkflowPromptDispatchContext = CodingWorkflowPromptDispatchContext & Required<Pick<
+  CodingWorkflowPromptDispatchContext,
+  'onPrepared' | 'enroll' | 'onOutcome'
+>>;
 
 function isCodingWorkflowPromptContext(
   value: CodingWorkflowPromptDispatchContext | undefined,
   sessionId: string,
   provenance: DispatchInput | undefined,
-): value is CodingWorkflowPromptDispatchContext {
+): value is CompleteCodingWorkflowPromptDispatchContext {
   return Boolean(
     value &&
     value.kind === 'coding_workflow_dispatch_v1' &&
     typeof value.validate === 'function' && typeof value.isCurrent === 'function' &&
-    typeof value.onPrepared === 'function' && typeof value.onOutcome === 'function' &&
+    typeof value.onPrepared === 'function' && typeof value.enroll === 'function' && typeof value.onOutcome === 'function' &&
     provenance &&
     provenance.sdkSessionId === sessionId &&
     provenance.sessionId !== undefined && provenance.sessionId !== sessionId &&
@@ -1319,6 +1335,44 @@ export class OpencodeClientService {
   }
 
   /**
+   * Same owned read-only native route as the C1 frame, but preserving the
+   * strict G2 wrapper when the SDK session carries a workflow marker. This is
+   * intentionally separate from the C1 consumer so an unexpected schema-2
+   * response cannot be mistaken for ordinary Dayflow history evidence.
+   */
+  async getWorkflowProviderFrame(
+    sdkSessionId: string,
+    requestNonce: string,
+    directory: string | undefined,
+    sourceAnchorIds: readonly string[] = [],
+  ): Promise<WorkflowProviderPendingExport | ProviderUnavailableExport | null> {
+    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' || !ownedUrl || !sdkSessionId || !requestNonce) return null;
+    if (sourceAnchorIds.length > PROVIDER_ADMISSION_BOUNDS.sourceAnchors) return null;
+    const params: string[] = [];
+    if (directory) params.push(`directory=${encodeURIComponent(directory)}`);
+    if (sourceAnchorIds.length > 0) params.push(`sourceAnchorIds=${encodeURIComponent(JSON.stringify(sourceAnchorIds))}`);
+    const query = params.length > 0 ? `?${params.join('&')}` : '';
+    try {
+      const response = await fetch(
+        `${ownedUrl}/session/${encodeURIComponent(sdkSessionId)}/rhythm-provider-frame/${encodeURIComponent(requestNonce)}${query}`,
+        {
+          headers: { Accept: 'application/json' },
+          redirect: 'error',
+          signal: AbortSignal.timeout(PROVIDER_ADMISSION_BOUNDS.exchangeDeadlineMs),
+        },
+      );
+      if (!response.ok) return null;
+      const parsed = parseWorkflowProviderFrameExportText(await response.text());
+      // A workflow caller must never downgrade a V2 marker to a V1 pending
+      // frame. V1 remains readable by the existing C1 consumer only.
+      return parsed.ok && parsed.value.schemaVersion === 2 ? parsed.value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Durable, idempotent, monotonic enrollment of an SDK in the owned engine's
    * guard record (frozen C1 route). Returns the engine generation only after
    * the exact echoed success; any other outcome is null (no body may follow).
@@ -1343,6 +1397,38 @@ export class OpencodeClientService {
       );
       if (!response.ok) return null;
       const parsed = parseEnrollmentResponse(JSON.parse(await response.text()), sdkSessionId);
+      return parsed.ok ? { engineGeneration: parsed.value.engineGeneration } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Persist the private G2 marker before an SDK worker can expose a provider
+   * request. The engine echoes the exact binding/scope; any transport or
+   * parser failure remains an admission hold.
+   */
+  async enrollWorkflowProviderGuard(
+    sdkSessionId: string,
+    directory: string | undefined,
+    enrollment: WorkflowEnrollmentRequest,
+  ): Promise<{ engineGeneration: string } | null> {
+    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' || !ownedUrl || !sdkSessionId) return null;
+    const query = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const response = await fetch(
+        `${ownedUrl}/session/${encodeURIComponent(sdkSessionId)}/rhythm-dayflow-guard${query}`,
+        {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify(enrollment),
+          redirect: 'error',
+          signal: AbortSignal.timeout(PROVIDER_ADMISSION_BOUNDS.exchangeDeadlineMs),
+        },
+      );
+      if (!response.ok) return null;
+      const parsed = parseWorkflowEnrollmentResponse(JSON.parse(await response.text()), sdkSessionId, enrollment);
       return parsed.ok ? { engineGeneration: parsed.value.engineGeneration } : null;
     } catch {
       return null;
@@ -3245,8 +3331,29 @@ function validFiniteExecutionPermissionRules(
       }
       if (!prepared) {
         settleDispatch(dispatchId, 'rejected');
+        try { codingWorkflow.onOutcome({ delivery: 'rejected', dispatchId, sdkUserMessageId: workflowMessageID! }); } catch { /* durable consumer holds */ }
         return false;
       }
+      // The durable prepared receipt is deliberately synchronous; marker
+      // enrollment is the one owned-client await after it.  Authority is not
+      // carried across that await: 'sdk_exposure' and isCurrent re-prove it.
+      let enrolled = false;
+      try {
+        enrolled = (await codingWorkflow.enroll({
+          dispatchId,
+          sdkUserMessageId: workflowMessageID!,
+        })) === true;
+      } catch {
+        enrolled = false;
+      }
+      if (!enrolled) {
+        settleDispatch(dispatchId, 'rejected');
+        try { codingWorkflow.onOutcome({ delivery: 'rejected', dispatchId, sdkUserMessageId: workflowMessageID! }); } catch { /* durable consumer holds */ }
+        return false;
+      }
+      // ponytail: no extra 'before_sdk' here — the existing awaited
+      // 'sdk_exposure' validate + synchronous isCurrent below already re-prove
+      // authority after this await, keeping the accepted phase sequence.
     }
     dispatchId ??= beginDispatch(dayflowMessageID && provenance
       ? { ...provenance, sdkUserMessageId: dayflowMessageID }

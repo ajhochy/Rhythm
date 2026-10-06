@@ -116,6 +116,12 @@ describe('Coding Workflow dispatch receipt at the actual SDK boundary', () => {
       expectedProjectId: PROJECT,
       validate: (phase) => { phases.push(phase); return true; },
       isCurrent: () => { phases.push('final_sync'); return true; },
+      // Production's only typed caller always supplies these durable hooks
+      // (coordinator onPrepared/onOutcome + server enroll); they are required.
+      workflowBinding: { jobId: 'job-1', expiresAt: '2099-01-01T00:00:00.000Z' },
+      onPrepared: () => true,
+      enroll: async () => true,
+      onOutcome: () => {},
       ...over,
     };
   }
@@ -404,5 +410,30 @@ describe('Coding Workflow dispatch receipt at the actual SDK boundary', () => {
     } }))).rejects.toThrow();
     expect(sdkPrompt).not.toHaveBeenCalled();
     expect(childDispatches()).not.toContainEqual(expect.objectContaining({ outcome: 'accepted' }));
+  });
+
+  describe('G2 S2: durable hooks are required only AFTER the accepted preflight refusals', () => {
+    const hookless = (over: Partial<CodingWorkflowDispatchInput> = {}): CodingWorkflowDispatchInput => {
+      const full = workflow(over);
+      delete full.workflowBinding; delete full.onPrepared; delete full.enroll; delete full.onOutcome;
+      return full;
+    };
+    it('a hookless input still reports the accepted project/admission refusal reasons', async () => {
+      const parentId = seedParent();
+      await expect(delegate(parentId, hookless({ expectedProjectId: 'other-project' }))).rejects.toThrow(/project scope/);
+      await expect(delegate(parentId, hookless({ validate: () => false }))).rejects.toThrow(/admission is no longer current/);
+    });
+    it('a current hookless input is refused by name before any worktree, child session or SDK request', async () => {
+      const parentId = seedParent();
+      engine.createWorktree.mockResolvedValue({ name: 'isolated', directory: '/repo/worktree', branch: 'test-branch' });
+      await expect(delegateToAgentAsync({
+        authenticatedUserId: 42, callerSessionId: parentId, targetAgentConfigId: 'workflow-orchestrator',
+        prompt: 'x', isolateWorktree: true, codingWorkflow: hookless(),
+      })).rejects.toThrow(/durable enrollment is unavailable/);
+      expect(engine.createWorktree).not.toHaveBeenCalled();
+      expect(createCalls).toBe(0);
+      expect(sdkPrompt).not.toHaveBeenCalled();
+      expect(childDispatches()).toEqual([]);
+    });
   });
 });
