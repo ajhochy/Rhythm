@@ -33,15 +33,15 @@ Commands run from this integration worktree; test commands use `apps/electron`.
 - PASS: `node --experimental-vm-modules --test --test-concurrency=1 test/security-smoke-receipt.test.mjs test/post-m1-phase-7-native-notifications.test.mjs`: 12/12. `/private/tmp/rhythm-resume-electron-security-focused.log`.
 - First repaired full `npm test`: 560 total, 552 passed, 4 failed, 4 existing gated skips. All four failures were undefined-window errors in external link/save-file/restart tests, before their ownership assertions. The shared synthetic `interactiveRuntime` returned after one tick; auth restoration I/O had not settled. This is fixture readiness, not a failed product policy assertion.
 - PASS: `node --experimental-vm-modules --test --test-concurrency=1 test/electron-shell.test.mjs` after explicit fixture load readiness: 23/23. `/private/tmp/rhythm-resume-electron-shell-focused.log`.
-- Pending final repeat: exact `npm test` full checkpoint, including newly added native-host and Dayflow hook files. Output `/private/tmp/rhythm-resume-electron-unit-repaired.log`.
+- PASS: final exact `npm test` full checkpoint, including newly added native-host and Dayflow hook files: exit 0, 560 tests, 556 passed, zero failed, four existing gated skips; 35988.719333 ms. Output `/private/tmp/rhythm-resume-electron-unit-repaired.log`. The four skips require `COLONY_NATIVE_ARTIFACT` (one also requires `COLONY_NATIVE_SOURCE_COMMIT`) for qualified Colony artifact contracts; no new skip was added.
 - PASS: `git diff --check`.
 
 ## Notes
 
-- Source context: dispatch baseline `9de19872`; first read `99ed379f`; full checkpoint launched at `25705e3e511dee389256590b3f538982b1ba484b`, plus uncommitted owned harness/source repairs. Orchestrator must record final committed source SHA.
+- Source context: dispatch baseline `9de19872`; first read `99ed379f`; full checkpoint launched at `25705e3e511dee389256590b3f538982b1ba484b`, plus uncommitted owned harness/source repairs. Orchestrator committed this lane at `adf89d68` while verification ran; observed HEAD after completion is `5c638bbf304fe6ba271c21292e87ffc130c1be9e`. The checkpoint qualifies the tested filesystem, not later unrelated commits; orchestrator owns the final integrated exact-source gate.
 - GitNexus upstream impact on each edited named fixture helper, Window class, and `receiptFromRealPreload`: LOW, no indexed direct callers/processes. Source inspection confines callers to these test files. No HIGH/CRITICAL symbol edits in this lane.
 - No policy assertions weakened, no new skips/exclusions, no normal-profile app launch, no production API/manual API startup, no phone installation, no commit/push/release.
-- Full suite's existing uniquely owned isolated Electron smoke subprocesses are authorized by orchestrator; those are test fixtures, separate from normal-profile live acceptance. Any generated tracked shell screenshot is evidence noise for the orchestrator to restore before committing.
+- Full suite's existing uniquely owned isolated Electron smoke subprocesses are authorized by orchestrator; those are test fixtures, separate from normal-profile live acceptance. Generated tracked shell screenshot baseline was restored after the checkpoint under explicit orchestrator authorization and is clean.
 - Remaining acceptance: orchestrator independent diff review/verification-gate, signed packaged/native real hardware behavior. Unit tests do not establish these gates.
 - Decisions: fix VM metadata and implement real Electron event behavior at the host seam; retain strict closed receipt capability enforcement and report source mismatch to its owner.
 - Deviations: none within test ownership.
