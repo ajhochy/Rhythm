@@ -4,9 +4,10 @@
  * (SQLite); only the owned-engine reads and the S2 service gate are stubbed.
  */
 import { randomUUID } from 'node:crypto';
+import { setImmediate as waitImmediate } from 'node:timers/promises';
 
 import Database from 'better-sqlite3';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 
 import type { AuthContext } from '../middleware/auth_middleware';
 import { installAgentWorkstreamsSchema } from '../database/agent_workstreams_schema';
@@ -21,6 +22,15 @@ const auth = { sessionToken: 't', user: { id: OWNER } } as AuthContext;
 
 function fixture(parent: string, options: { gate: 'append_first' | 'append_after'; wireMembership?: boolean; parentExists?: boolean }) {
   const db = new Database(':memory:');
+  const pendingAppends: Promise<unknown>[] = [];
+  const flushAppends = () => Promise.all(pendingAppends);
+  onTestFinished(async () => {
+    try {
+      await flushAppends();
+    } finally {
+      db.close();
+    }
+  });
   installAgentWorkstreamsSchema(db);
   installAgentBridgeSchema(db);
   const jobs = new AgentBridgeJobsRepository(db);
@@ -68,7 +78,7 @@ function fixture(parent: string, options: { gate: 'append_first' | 'append_after
   const gate = {
     admit: async () => {
       if (options.gate === 'append_first') append();
-      else setImmediate(append); // the mutation: membership lands after the decision
+      else pendingAppends.push(waitImmediate().then(append)); // the mutation: membership lands after the decision
       return { status: 'allow' as const, reason: 'none' as const, authorityDigest: HASH, current: () => true };
     },
   };
@@ -90,7 +100,7 @@ function fixture(parent: string, options: { gate: 'append_first' | 'append_after
       },
     }),
   });
-  return { guard, body, db };
+  return { guard, body, db, flushAppends };
 }
 
 const decide = async (f: ReturnType<typeof fixture>) => {
@@ -103,14 +113,15 @@ describe('G2 S4 API-descendant membership precedes the SDK request', () => {
   it('append before the decision: allowed', async () => {
     const f = fixture('sdk-manager', { gate: 'append_first' });
     expect((await decide(f)).workflow).toMatchObject({ status: 'allow', reason: 'none' });
-    f.db.close();
   });
 
   it('membership landing after the decision holds: no dispatch', async () => {
     const f = fixture('sdk-manager', { gate: 'append_after' });
     const verdict = (await decide(f)).workflow;
     expect(verdict.status).toBe('hold');
-    f.db.close();
+    await f.flushAppends();
+    expect(f.db.prepare(`SELECT native_metadata_json AS m FROM agent_bridge_jobs WHERE native_execution_kind='coordinator'`).get())
+      .toMatchObject({ m: expect.stringContaining('"nativeSessionId":"sdk-child"') });
   });
 
   it('a deleted known member (descendant of a vanished parent) holds without reaching the gate', async () => {
@@ -118,12 +129,10 @@ describe('G2 S4 API-descendant membership precedes the SDK request', () => {
     expect((await decide(f)).workflow).toMatchObject({ status: 'hold', reason: 'membership_unavailable' });
     expect(f.db.prepare(`SELECT native_metadata_json AS m FROM agent_bridge_jobs WHERE native_execution_kind='coordinator'`).get())
       .toMatchObject({ m: expect.stringContaining('"membership":[]') });
-    f.db.close();
   });
 
   it('a live known member parent is admitted', async () => {
     const f = fixture('sdk-known-member', { gate: 'append_first', parentExists: true });
     expect((await decide(f)).workflow.status).toBe('allow');
-    f.db.close();
   });
 });
