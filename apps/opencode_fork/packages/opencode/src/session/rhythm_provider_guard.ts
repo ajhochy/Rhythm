@@ -880,6 +880,14 @@ export const readGuardRecord = Effect.fn("RhythmProviderGuard.readRecord")(funct
   return record ? ({ state: "record", record } satisfies GuardRecordState) : ({ state: "error" } satisfies GuardRecordState)
 })
 
+/** True only when the stored value is a schema-1-shaped object that failed validation. */
+const isCorruptV1 = (sdkSessionId: string) =>
+  Effect.gen(function* () {
+    const storage = yield* Storage.Service
+    const raw = yield* storage.read<unknown>(recordKey(sdkSessionId)).pipe(Effect.catch(() => Effect.succeed(undefined)))
+    return isObject(raw) && raw.schemaVersion === GUARD_SCHEMA_VERSION
+  })
+
 /**
  * Monotonic merge: flags only ever become true; there is no disable path. An
  * unreadable record is a hold rather than evidence it was ordinary: otherwise
@@ -890,7 +898,16 @@ const raise = (sdkSessionId: string, next: { managedSeen: true; guarded?: true }
     if (!SAFE_SDK_ID.test(sdkSessionId)) return yield* Effect.die(new Error("Unsafe SDK session id for guard record"))
     const storage = yield* Storage.Service
     const existing = yield* readGuardRecord(sdkSessionId)
-    if (existing.state === "error") return yield* Effect.die(new Error("Unreadable Rhythm guard record"))
+    if (existing.state === "error") {
+      // A corrupt LEGACY (schema 1) record cannot disprove a prior `guarded:true`, so it is only ever
+      // replaced upward by the protective managed+guarded superset (never guarded:false). Anything that
+      // is not provably schema-1 (unknown/corrupt schema-2 workflow marker, unreadable storage, unsafe
+      // id) may hide a stricter marker: hold, never downgrade it to a v1 record.
+      if (!(yield* isCorruptV1(sdkSessionId))) return yield* Effect.die(new Error("Unreadable Rhythm guard record"))
+      const record: GuardRecord = { schemaVersion: 1, managedSeen: true, guarded: true }
+      yield* storage.write(recordKey(sdkSessionId), record)
+      return record
+    }
     const prior = existing.state === "record" ? existing.record : undefined
     // A legacy enrollment/flag-raise may never erase the stricter workflow
     // discriminator. Its already-monotonic flags are enough for the v1 caller.
@@ -988,6 +1005,8 @@ export const enrollWorkflowGuard = Effect.fn("RhythmProviderGuard.enrollWorkflow
 /** Strict current marker lookup for projection/create/task paths. */
 export const workflowGuardFor = Effect.fn("RhythmProviderGuard.workflowFor")(function* (sdkSessionId: string) {
   const record = yield* readGuardRecord(sdkSessionId)
+  // A corrupt/unreadable record is an error state (callers hold), never "no marker" (= ordinary).
+  if (record.state === "error") return yield* Effect.die(new Error("Unreadable Rhythm guard record"))
   if (record.state !== "record" || record.record.schemaVersion !== 2) return undefined
   return record.record.workflow
 })
