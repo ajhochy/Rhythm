@@ -63,3 +63,11 @@ The actual browser Copy control kept both step labels and omitted snapshot hashe
 Both new nested live cases failed before provider/sandbox startup: the guard dereferenced tracked `copilot/AGENTS.md -> README.md`, whose target is absent. A typed source inventory now hashes literal symlink bytes and regular-file bytes separately, rejecting missing regular files or unexpected kinds and preserving strict before/after integrity. Read-only audit found 2,305 regular entries and this one symlink. No runtime permission conclusion was drawn from that failure.
 
 The next frozen candidate must run the complete gates and live checks again. Real-model decision replay is separate, bounded, synthetic-context evidence; it cannot qualify the installed Coordinator's existing history or turn scripted provider decisions into model proof.
+
+### C11 live fixture projection recovery
+
+C11 `5c2189590b378a9d30ddee22d9983d5e974454fc` passed issue4 and actual Copy-button checks (external C1 and tracked E23-c7, 1/1 each); source, normal listeners and disposable Vite cleanup were verified. Both nested cases started the stock sandbox then failed before any root session, grant or native permission event because raw fixture profile INSERTs did not project engine agent files. Teardown0 and all five source/binary/listener guards passed. This is fixture initialization failure, not permission repair evidence.
+
+Root reviewed the actual profile-resync route and registration lifecycle. The live test now invokes existing `/agent-configs/:id/resync-agent-file` only for its three invented profiles, verifies actual files and eligibility, and requires all three named profiles plus native Explore in the real fork registry with the exact scoped MCP allowlist. No manual agent-file write or mock projection was substituted. Production code is unchanged in this recovery; only the live fixture and this record change.
+
+Root cancelled C11's remaining PR gate to repair the fixture first: stages1–6 passed, API stage7 deliberately interrupted (130), racing offline build finished before owned workers closed. No full C11 PR pass is claimed. Next candidate runs the nested behavior first; the complete repository gates follow once its live harness succeeds.

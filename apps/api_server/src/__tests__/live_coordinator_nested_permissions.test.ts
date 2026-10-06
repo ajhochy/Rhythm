@@ -216,6 +216,20 @@ describe.skipIf(!enabled)('Coordinator native → async → native permission ce
         sandboxAttempted = true;
         const up = await command(path.join(root, 'tools/dev/sandbox.sh'), ['up'], env, 240_000);
         await writeFile(path.join(out, 'sandbox-up.log'), up.output); expect(up.code).toBe(0);
+        // Raw fixture DB rows do not trigger ordinary profile projection. Drive
+        // the same real API boundary used to reconcile a missing profile file.
+        receipt.fixtureProfileProjection = [];
+        for (const id of ['secretary', 'workflow-orchestrator', 'planning-agent']) {
+          const projected = await request(`/agent-configs/${id}/resync-agent-file`, {});
+          expect(projected.status).toBe(200);
+          expect(projected.body).toMatchObject({ id, enabled: true, isAgent: true, locked: false,
+            ocAgent: id, sessionSelectable: true, modelProvider: 'test', modelId: 'test-model' });
+          expect(JSON.parse(projected.body.allowedMcpsJson)).toEqual({ rhythm: ['rhythm_delegate_async', 'rhythm_list_sessions'] });
+          const generated = await readFile(path.join(sb, 'home/.config/opencode/agents', `${id}.md`), 'utf8');
+          expect(generated).toContain('mode: all');
+          expect(generated).toMatch(/^model: ["']?test\/test-model["']?$/m);
+          receipt.fixtureProfileProjection.push({ id, revision: projected.body.revision, fileSha256: hash(generated) });
+        }
         const projectedSecretary = await readFile(path.join(sb, 'home/.config/opencode/agents/secretary.md'), 'utf8');
         const codingSection = projectedSecretary.match(/For any coding[\s\S]*?Do this regardless of how the request is phrased\./)?.[0];
         expect(codingSection).toBeTruthy();
@@ -227,6 +241,20 @@ describe.skipIf(!enabled)('Coordinator native → async → native permission ce
         const health = await request('/global/health', undefined, true); receipt.engineHealth = health;
         expect(health.body.version).toBe(`0.0.0-rhythm-${sha}`); checks.engineExactSource = true;
         for (const dir of [cwd, approvedDir, path.dirname(outside)]) await mkdir(dir, { recursive: true });
+        const actualRoster = await request('/agent', undefined, true, cwd);
+        expect(actualRoster.status).toBe(200); expect(Array.isArray(actualRoster.body)).toBe(true);
+        const names = ['secretary', 'workflow-orchestrator', 'planning-agent', 'explore'];
+        receipt.actualNamedAgentRoster = names.map(name => {
+          const agent = actualRoster.body.find((item: any) => item.name === name);
+          expect(agent, `Actual fork registry must resolve ${name}`).toBeTruthy();
+          if (name !== 'explore') {
+            expect(agent.mode).toBe('all');
+            expect(agent.options.mcpAllowlist).toEqual({ servers: [], tools: ['rhythm_rhythm_delegate_async', 'rhythm_rhythm_list_sessions'] });
+          }
+          return { name: agent.name, mode: agent.mode, model: agent.model,
+            permissionRuleCount: agent.permission?.length ?? 0, mcpAllowlist: agent.options?.mcpAllowlist };
+        });
+        checks.actualNamedAgentsRegistered = true;
         await writeFile(note, marker); await chmod(note, 0o400);
         await writeFile(outside, forbiddenMarker); await chmod(outside, 0o400);
         await writeFile(editFile, 'UNCHANGED');
