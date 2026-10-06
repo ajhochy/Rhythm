@@ -1,0 +1,76 @@
+{
+  "issue": null,
+  "generated": "2026-10-06",
+  "request": "Repair Coordinator clipboard metadata leakage, date grounding, and nested delegation permission loss reported by the user.",
+  "criteria": [
+    {
+      "criterion_id": "coordinator-response-c1",
+      "text": "Copying a Coordinator answer through the real transcript mapPart/blockSource path copies its prose without either step-start or step-finish snapshot hash; on-screen step labels and other supported clipboard content remain intact.",
+      "mode": "unit",
+      "status": "local_regression_pass",
+      "test_file": "apps/web/tests/gateway/sessions-gateway.spec.ts",
+      "reason": "Genuine pre-repair RED and focused GREEN captured; root reviewed the production diff. Combined and live qualification remain pending."
+    },
+    {
+      "criterion_id": "coordinator-response-c2",
+      "text": "Authorized foreground context and both full and bounded read-only status payloads carry the server projection's asOf, timeZone, today and yesterday; UTC/PDT midnight cases and the next foreground turn use the correct local day without turning clock ticks into permission-fingerprint drift.",
+      "mode": "integration",
+      "status": "local_regression_pass",
+      "test_file": "apps/api_server/src/__tests__/coordinator_calendar_project_context.test.ts",
+      "reason": "Genuine pre-repair RED and focused GREEN captured; root reviewed the production diff. Combined and live qualification remain pending.",
+      "live_test_file": "apps/api_server/src/__tests__/live_chat_bounded_workflow.test.ts"
+    },
+    {
+      "criterion_id": "coordinator-response-c3",
+      "text": "The real native Task prompt path preserves inherited directory grants, edit denies and ask rules through a third delegation level while retaining task/todo and experimental primary-tool prohibitions; it never replaces all inherited permissions with the legacy tool-toggle rules.",
+      "mode": "integration",
+      "status": "local_regression_pass",
+      "test_file": "apps/opencode_fork/packages/opencode/test/tool/coordinator-task-permissions.test.ts",
+      "reason": "Genuine pre-repair RED and focused GREEN captured; root reviewed the production diff. Combined and live qualification remain pending."
+    },
+    {
+      "criterion_id": "coordinator-response-c4",
+      "text": "A newly projected native child inherits its canonical parent's valid permission mode instead of defaulting locally; repeated events preserve the child's own later choice, invalid parent modes fail closed, and ancestry never sets the child's own explicit human approval-bypass marker.",
+      "mode": "integration",
+      "status": "local_regression_pass",
+      "test_file": "apps/api_server/src/__tests__/coordinator_native_child_permission_mode.test.ts",
+      "reason": "Genuine pre-repair RED and focused GREEN captured; root reviewed the production diff. Combined and live qualification remain pending."
+    },
+    {
+      "criterion_id": "coordinator-response-c5",
+      "text": "An env-gated live behavioral test on the approved stock sandbox drives the actual API and newly built fork through the native-task/async/native-task hierarchy, proves approved fixture reading is reachable at the third level and preserved denies remain enforced, and records exact-source output and sandbox cleanup.",
+      "mode": "integration",
+      "status": "UNVERIFIED",
+      "reason": "Prepared two opt-in real API/fork/MCP hierarchy cases; scripted model and narrow invented human grants are explicit. Actual execution is pending.",
+      "test_file": "apps/api_server/src/__tests__/live_coordinator_nested_permissions.test.ts"
+    },
+    {
+      "criterion_id": "coordinator-response-c6",
+      "text": "The actual Secretary session tool can search and page bounded local session history, includes native and async descendants with status and parent identifiers, and clearly reports listing scope so an empty bounded/direct-child result cannot be interpreted as proof that no work exists. The real mixed hierarchy is discoverable through MCP in the sandbox.",
+      "mode": "integration",
+      "status": "local_regression_pass",
+      "test_file": "apps/mcp_server/src/__tests__/agentSessions_tool.test.ts",
+      "additional_test_file": "apps/api_server/src/repositories/agent_sessions_history.test.ts",
+      "reason": "Genuine RED; repository 10/10 and MCP session/status 12/12 passed. Actual MCP sandbox coverage remains pending."
+    },
+    {
+      "criterion_id": "coordinator-response-c7",
+      "text": "The generated Secretary coding instructions consistently select rhythm_delegate_async in interactive chat so completion returns to that same caller, while scheduled/headless routing retains native Task. The workflow manager does not delegate to itself. Actual authored-profile regeneration removes the contradictory unconditional Task coding clause without rewriting user-authored prompt bodies.",
+      "mode": "integration",
+      "status": "local_regression_pass",
+      "test_file": "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
+      "reason": "Genuine RED; 58 writer regressions and API typecheck passed. Actual sandbox projection assertion is prepared; real provider decisions remain unqualified."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "coordinator-response-c5",
+    "coordinator-response-c6",
+    "coordinator-response-c7"
+  ],
+  "limits": [
+    "No global allow rules, automatic approval, ancestor human-marker copying, or taint-policy bypass are authorized by this repair.",
+    "Dayflow source admission and provider response quality require distinct evidence; advertised tools and readiness alone do not prove a tool call succeeded.",
+    "Scripted provider responses prove real software plumbing only, never actual Coordinator model decisions or unsolicited ancestor completion forwarding."
+  ]
+}

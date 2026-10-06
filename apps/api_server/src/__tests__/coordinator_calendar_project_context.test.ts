@@ -482,6 +482,50 @@ describe('(5) actual service seams: freshness, fingerprint, byte bounds, no new 
     expect(body.calendarMirror).toMatchObject({ state: 'account_unavailable' });
   });
 
+  it('foreground and signed status carry server dates across the UTC/PDT boundary and the next local day', async () => {
+    const internals = service as unknown as {
+      currentRootSelection(a: unknown, r: unknown): unknown;
+      foregroundCoordinatorContract(a: unknown, r: unknown, s: unknown, rev: number): Promise<{ fingerprint: string; system: string; contextQualified: boolean } | null>;
+      foregroundCoordinatorContextCurrent(a: unknown, r: unknown, s: unknown, rev: number, fp: string, q: boolean): Promise<boolean>;
+    };
+    const selection = internals.currentRootSelection(actor, request);
+    const found = repo.get({ ownerUserId: OWNER, projectId: 'proj-main', sessionId: 'root' });
+    if (found.kind !== 'found') throw new Error('conversation');
+    for (const [asOf, today, yesterday] of [
+      ['2026-10-06T02:30:00.000Z', '2026-10-05', '2026-10-04'],
+      ['2026-10-06T07:30:00.000Z', '2026-10-06', '2026-10-05'],
+    ]) {
+      clock.value = new Date(asOf);
+      const contract = await internals.foregroundCoordinatorContract(actor, request, selection, found.conversation.controlRevision);
+      expect(contract).not.toBeNull();
+      const snapshot = JSON.parse(contract!.system.split('Current bounded coordinator snapshot: ')[1]);
+      const expected = { asOf, timeZone: 'America/Los_Angeles', today, yesterday };
+      expect.soft(snapshot).toMatchObject(expected);
+      expect.soft(JSON.parse((await status()).replace(/^[^{]*/, ''))).toMatchObject(expected);
+      clock.value = new Date(clock.value.valueOf() + 1_000);
+      expect(await internals.foregroundCoordinatorContextCurrent(
+        actor, request, selection, found.conversation.controlRevision, contract!.fingerprint, true,
+      )).toBe(true); // Clock movement cannot invalidate unchanged authority/source proofs.
+    }
+  });
+
+  it('bounded status retains the same authoritative server dates', async () => {
+    clock.value = new Date('2026-10-06T02:30:00.000Z');
+    for (let i = 0; i < 12; i += 1) {
+      expect(repo.addGoal({
+        ownerUserId: OWNER, projectId: 'proj-main', sessionId: 'root',
+        expectedControlRevision: i + 1, commandKey: `date-goal-${i}`,
+        objective: `Synthetic goal ${i} ${'z'.repeat(400)}`,
+      }).kind).toBe('created');
+    }
+    const text = await status();
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(3_800);
+    expect(JSON.parse(text.replace(/^[^{]*/, ''))).toMatchObject({
+      state: 'bounded_summary', asOf: '2026-10-06T02:30:00.000Z',
+      timeZone: 'America/Los_Angeles', today: '2026-10-05', yesterday: '2026-10-04',
+    });
+  });
+
   it('the semantic fingerprint ignores the ticking clock but changes with a real source change', async () => {
     const first = await fingerprintOf();
     clock.value = new Date(NOW.valueOf() + 20 * 60_000); // sync age grows, same window content

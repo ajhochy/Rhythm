@@ -55,6 +55,29 @@ const taskPart = (over: Record<string, unknown> = {}, state: Record<string, unkn
 });
 const sessionsOrFail = async () => { const sessions = await loadSessions(); expect(sessions).not.toBeNull(); return sessions; };
 
+test('coordinator-response-c1: copied transcript preserves prose but omits step snapshot hashes', async () => {
+  const sessions = await sessionsOrFail();
+  const snapshot = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+  const blocks = [
+    sessions.mapPart({ type: 'step-start', snapshot }, 'step-start'),
+    sessions.mapPart({ type: 'text', text: 'The coordinator response.' }, 'text'),
+    sessions.mapPart({ type: 'step-finish', reason: 'stop', snapshot }, 'step-finish'),
+  ];
+  const copied = blocks.map(sessions.blockSource).join('\n\n');
+
+  expect(blocks[0]).toMatchObject({ kind: 'step-start', content: '' });
+  expect(blocks[2]).toMatchObject({ kind: 'step-finish', content: '', meta: 'stop' });
+  expect(copied).toContain('The coordinator response.');
+  expect(copied).not.toContain(snapshot);
+
+  // Older in-memory blocks may still carry a snapshot, but copy must remain safe.
+  const legacyCopied = [
+    { id: 'legacy-start', kind: 'step-start', content: snapshot },
+    { id: 'legacy-finish', kind: 'step-finish', content: snapshot, meta: 'stop' },
+  ].map(sessions.blockSource).join('\n\n');
+  expect(legacyCopied).not.toContain(snapshot);
+});
+
 test('deferred-task-child-link-c1: native eager task is unchanged', async () => {
   const sessions = await sessionsOrFail();
   const block = sessions.mapPart(taskPart({}, { input: { description: 'inspect' }, metadata: {} }, 'task'), 'prt_task');

@@ -410,7 +410,10 @@ export type RichTranscriptMessage = TranscriptMessage & {
   cost?: number; tokens?: { input?: number; output?: number; reasoning?: number; cache?: { read?: number; write?: number } };
 };
 export const canonicalText = (value: unknown): string => typeof value === 'string' ? value : value === undefined ? '' : JSON.stringify(value, null, 2);
-export const blockSource = (block: RichTranscriptBlock): string => block.tool ? canonicalText(block.tool) : block.content;
+export const blockSource = (block: RichTranscriptBlock): string =>
+  block.kind === 'step-start' || block.kind === 'step-finish'
+    ? ''
+    : block.tool ? canonicalText(block.tool) : block.content;
 
 // A deferred builtin `task` execution: outer tool `mcp_dispatch` whose dispatcher input is
 // {family:'builtin', name:'task', action:'execute'|omitted}. Search/describe, MCP family, other
@@ -454,8 +457,8 @@ export function mapPart(raw: Record<string, unknown>, id: string): RichTranscrip
   if (raw.type === 'tool') {
     return { id, kind: 'tool', title: string(state.title, string(raw.tool, 'Tool')), content: canonicalText(state.output), meta: state.status === 'error' && record(state.metadata).interrupted === true ? 'Interrupted' : tool?.status, tool, terminal: state.status === 'completed' || state.status === 'error' };
   }
-  if (raw.type === 'step-start') return { id, kind: 'step-start', content: string(raw.snapshot) };
-  if (raw.type === 'step-finish') return { id, kind: 'step-finish', content: string(raw.snapshot), meta: string(raw.reason) };
+  if (raw.type === 'step-start') return { id, kind: 'step-start', content: '' };
+  if (raw.type === 'step-finish') return { id, kind: 'step-finish', content: '', meta: string(raw.reason) };
   if (raw.type === 'compaction') return { id, kind: 'compaction', content: raw.auto === true ? 'Context compacted automatically' : 'Context compacted' };
   if (raw.type === 'file') return { id, kind: 'file', title: string(raw.filename), content: string(raw.url), meta: string(raw.mime), artifactId: string(raw.artifactId) || undefined, artifactProject: string(raw.artifactProject) || undefined };
   if (raw.type === 'agent') { const source = record(raw.source); return { id, kind: 'agent', title: string(raw.name, 'Agent'), content: string(source.value) }; }

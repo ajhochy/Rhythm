@@ -180,7 +180,7 @@ export const TaskTool = Tool.define(
             }),
             ...(cfg.experimental?.primary_tools?.map((item) => ({
               pattern: "*",
-              action: "allow" as const,
+              action: "deny" as const,
               permission: item,
             })) ?? []),
           ],
@@ -239,11 +239,9 @@ export const TaskTool = Tool.define(
                   providerID: model.providerID,
                 },
                 agent: next.name,
-                tools: {
-                  ...(next.permission.some((rule) => rule.permission === "todowrite") ? {} : { todowrite: false }),
-                  ...(next.permission.some((rule) => rule.permission === id) ? {} : { task: false }),
-                  ...Object.fromEntries((cfg.experimental?.primary_tools ?? []).map((item) => [item, false])),
-                },
+                // All Task restrictions are already persisted on the child.
+                // Legacy prompt.tools replaces the entire session ruleset,
+                // which would discard inherited grants and security ceilings.
                 parts,
               })
 

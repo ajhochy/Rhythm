@@ -149,10 +149,12 @@ const HUB_PREAMBLE_MARKER = '## Routing (mandatory — hub)';
  */
 const CODING_HANDOFF_BODY =
   'For any coding, development, implementation, debugging, refactor, or PR/issue task, ' +
-  'you MUST hand off to the workflow-orchestrator by calling the `task` tool with ' +
-  '`subagent_type="workflow-orchestrator"` — name that delegate explicitly; never use ' +
-  '`"general"` and never omit `subagent_type`. Do this regardless of how the request is ' +
-  'phrased.';
+  'you MUST hand off to the workflow-orchestrator. In an interactive chat with AJ, call ' +
+  '`rhythm_delegate_async` with `targetAgentConfigId="workflow-orchestrator"`. In a ' +
+  'scheduled, headless, or system run, call the `task` tool with ' +
+  '`subagent_type="workflow-orchestrator"`. Name that delegate explicitly; never use ' +
+  '`"general"` and never omit the delegate target. Do this regardless of how the ' +
+  'request is phrased.';
 
 const WORKFLOW_ORCHESTRATOR_CODING_BODY =
   'Own the coding workflow in this session. Delegate implementation work through the ' +

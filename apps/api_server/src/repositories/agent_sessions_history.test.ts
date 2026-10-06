@@ -75,6 +75,16 @@ describe('E26 SQLite history contract', () => {
     expect(page({ search: '%' }).sessions).toEqual([]);
   });
 
+  it('coordinator-sessions-c1: trusted SDK identity search returns only the authenticated owner session', () => {
+    seed('caller', { sdk_session_id: 'sdk-current-caller-123', owner_user_id: 1 });
+    seed('other-owner', { sdk_session_id: 'sdk-current-caller-123', owner_user_id: 2 });
+
+    const found = page({ search: 'sdk-current-caller-123', ownerUserId: 1 });
+    expect(found.sessions.map((session) => session.id)).toEqual(['caller']);
+    expect(found.sessions[0]).toMatchObject({ sdkSessionId: 'sdk-current-caller-123', ownerUserId: 1 });
+    expect(found.pageInfo).toMatchObject({ hasMore: false, nextCursor: null });
+  });
+
   it('E26-c4: scope/category, archived and project filters compose without exposing other owners', () => {
     seed('chat');
     seed('scheduled', { category: 'scheduled', is_system: 1, project_id: 'p', archived_at: '2026-02-01' });
