@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { ActionSheetIOS } from 'react-native';
-import { PaperProvider } from 'react-native-paper';
+import { Dialog, PaperProvider } from 'react-native-paper';
 
 import { ResearchProjectWorkspace } from '@/components/tools/research-project-workspace';
 import { Colors } from '@/constants/theme';
@@ -78,7 +78,7 @@ test('Sol: stale settings completion must preserve a newer project draft and ope
   expect(saveOld).toHaveBeenCalledWith('p1', { budget: { maxTokens: 777777 } });
   const second = { ...first, selectedProjectId: 'p2' };
   screen.rerender(tree(second));
-  await waitFor(() => expect(screen.queryByTestId('research-settings-dialog-surface')).toBeNull());
+  await waitFor(() => expect(screen.UNSAFE_getAllByType(Dialog).find((n: any) => n.props.testID === 'research-settings-dialog')?.props.visible).toBe(false));
   fireEvent.press(screen.getByLabelText('Edit research settings'));
   fireEvent.changeText(within(screen.getByTestId('research-settings-dialog-surface')).getByLabelText('Token limit'), '888888');
   expect(within(screen.getByTestId('research-settings-dialog-surface')).getByLabelText('Token limit').props.value).toBe('888888');
