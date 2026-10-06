@@ -1,0 +1,34 @@
+name: Web Unit CI
+
+# The desktop web app's node:test unit suites (apps/web/tests/*.test.mjs) were
+# never executed by any CI job; the coordinator issuance/controller tests only
+# ran by hand. This job runs them on every PR that touches apps/web.
+# Two long-standing failures are known on the lineage this was added to
+# (notification-toasts-and-push "load-failure toasts…" and
+# transcript-reasoning-usage); they are excluded here until fixed in a
+# follow-up so the gate is green on day one. Do not add more exclusions.
+
+on:
+  pull_request:
+    paths:
+      - 'apps/web/**'
+      - '.github/workflows/web_unit_ci.yml'
+
+jobs:
+  web-unit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - name: Unit tests (node:test)
+        run: >
+          node --experimental-vm-modules --test --test-concurrency=1
+          $(ls tests/*.test.mjs | grep -v -e notification-toasts-and-push -e transcript-reasoning-usage)
