@@ -6,6 +6,7 @@ import { DayflowTool } from '../src/components/tools/DayflowTool';
 // Synthetic rhythmShell.dayflowView: records calls only. This is not the native host and proves no native pixels.
 const mode = new URLSearchParams(location.search).get('mode') ?? 'ok';
 const calls: string[] = [];
+let lastBounds: { x: number; y: number; width: number; height: number } | null = null;
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const view = {
   getStatus: async () => { calls.push('status'); return mode === 'status-unavailable' ? { state: 'unavailable', code: 'unavailable' } : mode === 'status-malformed' ? { state: 'ready', path: '/x' } : { state: 'ready' }; },
@@ -16,13 +17,14 @@ const view = {
     if (mode === 'malformed') return { ok: true, attachment: 'leaked-lease' };
     return { ok: true };
   },
-  setBounds: async (bounds: { x: number; y: number; width: number; height: number }) => { calls.push(`bounds:${JSON.stringify(bounds)}`); return true; },
+  setBounds: async (bounds: { x: number; y: number; width: number; height: number }) => { lastBounds = { ...bounds }; calls.push(`bounds:${JSON.stringify(bounds)}`); return true; },
   setBlocked: async (blocked: boolean) => { calls.push(`blocked:${blocked}`); return true; },
   detach: async () => { calls.push('detach'); return true; },
   returnFocus: async () => { calls.push('focus'); return true; },
 };
 Object.assign(window, {
   __dayflowView: calls,
+  __getDayflowLastBounds: () => lastBounds,
   rhythmShell: {
     ...(mode === 'none' ? {} : { dayflowView: view }),
     // The external opener must never be used as an embedded fallback.
@@ -33,7 +35,7 @@ Object.assign(window, {
   },
 });
 const root = createRoot(document.getElementById('root')!);
-root.render(<main><DayflowTool /></main>);
+root.render(<main style={{ height: '100%', minHeight: 0 }}><DayflowTool /></main>);
 Object.assign(window, {
   __unmount: () => root.unmount(),
   __setModal: (open: boolean) => {

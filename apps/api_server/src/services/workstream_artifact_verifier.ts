@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { promises as fs, lstatSync, realpathSync, readFileSync } from 'node:fs';
+import { env } from '../config/env';
+import { getDb } from '../database/db';
 import path from 'node:path';
 
 import { resolveMemoryDirPath } from '../config/env';
@@ -34,6 +36,8 @@ export interface QualifiedWorkstreamArtifact {
   receipt: WorkstreamArtifactReceipt;
   eligible: boolean;
   managedReference: ManagedContextReference | null;
+  /** Server-only final synchronous proof; never serialized or persisted. */
+  isCurrent?: () => boolean;
 }
 
 export class WorkstreamArtifactResolutionError extends Error {
@@ -143,6 +147,7 @@ export class WorkstreamArtifactAuthorityResolver {
       throw new WorkstreamArtifactResolutionError('reference_authority_stale');
     }
     const observedHash = hash(raw);
+    const observedSize = raw.byteLength;
     const observedVersion = `sha256:${observedHash}`;
     const sourceInstance = hash(JSON.stringify([
       'rhythm.memory-vault.source-instance.v1', root, rootStat.dev, rootStat.ino,
@@ -160,10 +165,42 @@ export class WorkstreamArtifactAuthorityResolver {
       indexMemoryId: memory.id,
     };
     const eligible = receipt.verified && activeMemory(memory);
+    // Legacy verifier-only callers need no database; the optional chat proof fails closed without it.
+    let localDb: ReturnType<typeof getDb> | null = null;
+    try { if (env.dbClient === 'sqlite') localDb = getDb(); } catch { /* no local authority */ }
     return {
       selector: input.reference.sourceId,
       receipt,
       eligible,
+      isCurrent: () => {
+        try {
+          // The compact SQLite proof is deliberately unavailable in hosted
+          // Postgres. Capture the exact local connection as well as the source.
+          if (env.dbClient !== 'sqlite' || !localDb || getDb() !== localDb) return false;
+          const rows = localDb.prepare(`SELECT id, content, source, source_id, owner_user_id, status, stale_after
+            FROM agent_memory WHERE source='obsidian-memory' AND source_id=?
+              AND (owner_user_id=? OR owner_user_id IS NULL) LIMIT 2`)
+            .all(memory.sourceId, input.ownerUserId) as Array<Record<string, unknown>>;
+          if (rows.length !== 1) return false;
+          const current = rows[0];
+          if (current.id !== memory.id || current.source_id !== memory.sourceId ||
+              current.content !== memory.content || current.status !== memory.status ||
+              (current.stale_after ?? null) !== memory.staleAfter ||
+              (current.owner_user_id ?? null) !== memory.ownerUserId || !activeMemory(memory)) return false;
+          const currentRoot = realpathSync(path.resolve(this.memoryRoot()));
+          const currentRootStat = lstatSync(currentRoot);
+          if (currentRoot !== root || !currentRootStat.isDirectory() ||
+              currentRootStat.dev !== rootStat.dev || currentRootStat.ino !== rootStat.ino) return false;
+          const candidate = resolveWithinMemoryDir(rootPath, vaultKeyToMemoryDirRelative(rootPath, memory.sourceId!));
+          const before = lstatSync(candidate);
+          const currentPath = realpathSync(candidate);
+          if (!before.isFile() || before.size !== observedSize || (before.mode & 0o444) === 0 || !containedBy(root, currentPath)) return false;
+          const bytes = readFileSync(currentPath);
+          const after = lstatSync(candidate);
+          return after.isFile() && after.size === observedSize && before.dev === after.dev && before.ino === after.ino &&
+            hash(bytes) === observedHash && observedVersion === input.reference.expectedVersion;
+        } catch { return false; }
+      },
       managedReference: eligible ? {
         schemaVersion: 1,
         dependencyId: hash(JSON.stringify([

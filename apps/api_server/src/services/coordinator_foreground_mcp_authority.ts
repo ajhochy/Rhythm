@@ -1,3 +1,4 @@
+import { workflowApprovalResumeCandidate, workflowResumeDispatchCurrent, type WorkflowApprovalResumeCandidate } from './chat_bounded_workflow';
 import type { AuthContext } from '../middleware/auth_middleware';
 import {
   CoordinatorConversationsRepository,
@@ -163,6 +164,21 @@ export class CoordinatorForegroundMcpAuthority {
     // The engine inspection and the repository proof are both boundaries.
     const reread = this.dependencies.records.findGoalApprovalResumeMcpDispatch({ ...lookup, ...bound });
     return reread && sameBinding(bound, reread) ? reread as CoordinatorGoalApprovalResumeMcpDispatchBinding : null;
+  }
+
+  /** Dedicated exact finite-proposal wake; never admitted by generic status/goal resolution. */
+  async resolveWorkflowApprovalResume(auth: AuthContext, verified: VerifiedTrustedMcpCall,
+    approvalId: string, digest: string, linkedWorkstreamId?: string): Promise<(WorkflowApprovalResumeCandidate & { sdkUserMessageId: string }) | null> {
+    const initial = workflowApprovalResumeCandidate(approvalId, this.dependencies.records, { linkedWorkstreamId });
+    if (!initial || initial.ownerUserId !== auth.user.id || initial.proposalDigest !== digest ||
+        initial.sdkSessionId !== verified.context.sdkSessionId || initial.proposal.profileId !== verified.context.agentName) return null;
+    const active = await this.dependencies.engine.getCurrentTrustedMcpToolCall(
+      verified.context.sdkSessionId, verified.context.turnId, verified.context.toolCallId, initial.cwd);
+    if (!active || !activeMatches(active, verified, 'rhythm_start_bounded_coding_workflow')) return null;
+    const current = workflowApprovalResumeCandidate(approvalId, this.dependencies.records, { linkedWorkstreamId });
+    if (!current || JSON.stringify(current) !== JSON.stringify(initial)) return null;
+    return workflowResumeDispatchCurrent({ ...current, sdkUserMessageId: active.userMessageId })
+      ? { ...current, sdkUserMessageId: active.userMessageId } : null;
   }
 
   async resolve(

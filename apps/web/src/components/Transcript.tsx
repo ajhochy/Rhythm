@@ -261,16 +261,39 @@ function LiveQuestionCard({ sessionId, question }: { sessionId: string; question
 // The transcript consumes the same refreshable queue as the bell. It never starts an independent
 // read, so a post-mount approval, a retained failure, or a newer queue snapshot stays consistent.
 function PendingApprovalBanner({ sessionId }: { sessionId: string }) {
-  const { pendingApprovals } = useFixtures();
+  const { pendingApprovals, approvalError, decidingApprovalIds, decideApproval } = useFixtures();
   const approvals = pendingApprovals.filter((item) => item.sessionId === sessionId && item.status === 'pending');
   if (approvals.length === 0) return null;
+  const workflowApprovals = approvals.filter((item) => item.securityAction === 'coordinator.workflow.start');
+  const otherApprovals = approvals.filter((item) => item.securityAction !== 'coordinator.workflow.start');
   return (
-    <div className="pending-trigger-banner" role="status" data-testid="pending-approval-banner">
+    <>
+      {workflowApprovals.map((approval) => {
+        const deciding = decidingApprovalIds.includes(approval.id);
+        const signable = Boolean(approval.decisionNonce?.trim() && approval.payloadDigest?.trim());
+        return <section key={approval.id} className="decision-card workflow-approval-card" aria-labelledby={`workflow-approval-title-${approval.id}`} data-testid={`workflow-approval-card-${approval.id}`}>
+          <div className="decision-icon"><Icon name="check" /></div>
+          <div className="decision-main">
+            <h3 id={`workflow-approval-title-${approval.id}`}>{approval.action}</h3>
+            {approval.preview && <p className="workflow-approval-preview">{approval.preview}</p>}
+            {approval.consequence && <p>{approval.consequence}</p>}
+            <p>To adjust these limits, reply in chat before approving.</p>
+            {!signable && <p role="status">This proposal cannot be signed. Ask the agent to prepare it again.</p>}
+            {approvalError && <p role="status">{approvalError}</p>}
+            <div className="decision-actions">
+              <button type="button" className="primary-button" disabled={!signable || deciding} onClick={() => void decideApproval(approval.id, 'approved')}>{deciding ? 'Sending decision…' : 'Approve and start'}</button>
+              <button type="button" className="secondary-button" disabled={!signable || deciding} onClick={() => void decideApproval(approval.id, 'rejected')}>Deny</button>
+            </div>
+          </div>
+        </section>;
+      })}
+      {otherApprovals.length > 0 && <div className="pending-trigger-banner" role="status" data-testid="pending-approval-banner">
       <span className="status-dot waiting" />
       <span>
-        {approvals.map((approval) => `Human approval pending · ${approval.action}${approval.preview ? ` · ${approval.preview}` : ''}${approval.consequence ? ` · ${approval.consequence}` : ''}`).join(' · ')}
+        {otherApprovals.map((approval) => `Human approval pending · ${approval.action}${approval.preview ? ` · ${approval.preview}` : ''}${approval.consequence ? ` · ${approval.consequence}` : ''}`).join(' · ')}
       </span>
-    </div>
+      </div>}
+    </>
   );
 }
 

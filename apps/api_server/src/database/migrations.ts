@@ -2984,6 +2984,8 @@ The Step 2 / Runbook B helpers live in \`~/.config/opencode/tools/\` (\`classify
   };
   addAgentApprovalColumn('security_action', 'TEXT');
   addAgentApprovalColumn('payload_digest', 'TEXT');
+  // Compact exact chat workflow proposal, local SQLite execution state only.
+  addAgentApprovalColumn('bound_payload_json', 'TEXT');
   addAgentApprovalColumn('taint_id', 'TEXT');
   addAgentApprovalColumn('tainted_turn_id', 'TEXT');
   addAgentApprovalColumn('bound_agent', 'TEXT');

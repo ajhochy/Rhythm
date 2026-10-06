@@ -1,5 +1,9 @@
 import { Buffer } from 'node:buffer';
-import { createHash } from 'node:crypto';
+import path from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { getDb } from '../database/db';
+import { AgentApprovalsRepository } from '../repositories/agent_approvals_repository';
+import { WORKFLOW_APPROVAL_ACTION, parseBoundedWorkflowEstimate, readWorkflowProposal, workflowProposalDigest, workflowApprovalResumeCandidate, workflowResumeDispatchCurrent, type BoundedWorkflowProposal } from './chat_bounded_workflow';
 
 import type { AuthContext } from '../middleware/auth_middleware';
 import type {
@@ -133,6 +137,124 @@ export class CoordinatorConversationModelStatusService {
       records: dependencies.records,
     });
     this.verify = dependencies.verify ?? verifyTrustedMcpCall;
+  }
+
+  async proposeWorkflow(auth: AuthContext | undefined, body: unknown) {
+    const held = () => ({ schemaVersion: 1 as const, status: 'held' as const, text: 'Bounded Coding Workflow proposal is held; check the current captured goal, indexed reference and plan-root scope.' });
+    try {
+      const envelope = trustedEnvelope(body);
+      if (!auth || !envelope) return held();
+      const verified = await this.verify(envelope, 'rhythm_propose_bounded_coding_workflow', Date.now(), 'coordinator_workflow_proposal');
+      const a = verified.arguments;
+      if (Object.keys(a).length !== 5 || !['goalSelector','referenceSelector','referenceSourceId','referenceVersion','estimate'].every(k => Object.hasOwn(a,k)) ||
+          !['goalSelector','referenceSelector','referenceSourceId','referenceVersion'].every(k => typeof a[k] === 'string' && (a[k] as string).trim().length > 0 && (a[k] as string).length <= 4_000)) return held();
+      const estimate = parseBoundedWorkflowEstimate(a.estimate);
+      if (!estimate) return held();
+      const binding = await this.authority.resolveForeground(auth, verified, 'rhythm_propose_bounded_coding_workflow');
+      if (!binding || !this.dependencies.conversations.modelStatusScopeCurrent(auth, binding)) return held();
+      const initial = this.dependencies.conversations.boundedWorkflowSelection(auth, binding, a.goalSelector as string);
+      if (!initial || initial.profileId !== verified.context.agentName) return held();
+      const resolved = await this.dependencies.conversations.resolveBoundedWorkflowReference(auth, binding, a.referenceSourceId as string, a.referenceVersion as string);
+      if (!resolved?.eligible || !resolved.managedReference || resolved.receipt.kind !== 'memory_vault' ||
+          !resolved.receipt.verified || resolved.receipt.reason !== null || !resolved.receipt.sourceInstance || !resolved.isCurrent) return held();
+      if (!(await this.authority.isCurrent(binding, auth, verified, 'rhythm_propose_bounded_coding_workflow'))) return held();
+      const current = this.dependencies.conversations.boundedWorkflowSelection(auth, binding, a.goalSelector as string);
+      if (!current || JSON.stringify(current) !== JSON.stringify(initial) || !resolved.isCurrent()) return held();
+      const approvals = new AgentApprovalsRepository();
+      const now = new Date();
+      const candidate: BoundedWorkflowProposal = {
+        schemaVersion: 1, purpose: 'selected_reference_summary_v1', proposalId: randomUUID(),
+        ownerUserId: auth.user.id, sessionId: binding.sessionId, projectId: binding.projectId, sdkSessionId: binding.sdkSessionId,
+        profileId: current.profileId, profileRevision: current.profileRevision, scopeFingerprint: current.scopeFingerprint,
+        controlRevision: current.conversation.controlRevision, goalId: current.goal.id, goalRevision: current.goal.revision,
+        objective: current.goal.objective, referenceSourceId: resolved.selector, referenceVersion: resolved.receipt.observedVersion,
+        canonicalSource: resolved.receipt.canonicalId, sourceInstance: resolved.receipt.sourceInstance, estimate,
+        proposedAt: now.toISOString(), expiresAt: new Date(now.valueOf() + estimate.expirySeconds * 1_000).toISOString(),
+      };
+      // Identical pending terms reuse the latest exact card; changed estimates are fresh immutable proposals.
+      const last = getDb().prepare(`SELECT id FROM agent_approvals WHERE session_id=? AND security_action=?
+        AND json_extract(bound_payload_json,'$.goalId')=? ORDER BY rowid DESC LIMIT 1`)
+        .get(binding.sessionId, WORKFLOW_APPROVAL_ACTION, candidate.goalId) as { id: string } | undefined;
+      const previous = last ? approvals.getById(last.id) : null;
+      const old = previous ? readWorkflowProposal(previous) : null;
+      const comparable = (p: BoundedWorkflowProposal) => { const { proposalId, proposedAt, expiresAt, ...terms } = p; return JSON.stringify(terms); };
+      let approval;
+      if (previous?.status === 'pending' && old && Date.parse(old.expiresAt) > now.valueOf() && comparable(old) === comparable(candidate)) {
+        approval = previous;
+      } else {
+        const sourceLabel = path.basename(candidate.canonicalSource, '.md').replace(/[-_]+/g, ' ').slice(0, 160);
+        const preview = `Goal: ${candidate.objective}\nSource: ${sourceLabel} (${candidate.canonicalSource}) @ ${candidate.referenceVersion}\n` +
+          `${estimate.totalSoftTokens.toLocaleString('en-US')} soft tokens total (input/output/reasoning/cache; no hard output cap); ` +
+          `${estimate.workerWallSeconds} seconds per worker; ${estimate.outerTurns} checked outer turns.\n` +
+          `Expiry allowance: ${estimate.expirySeconds} seconds from proposal, absolute deadline ${candidate.expiresAt}; approval does not extend it.\n` +
+          `Estimate rationale: ${estimate.rationale}`;
+        approval = getDb().transaction(() => {
+          if (!resolved.isCurrent!() || JSON.stringify(this.dependencies.conversations.boundedWorkflowSelection(auth, binding, candidate.goalId)) !== JSON.stringify(current)) {
+            throw new Error('proposal scope changed');
+          }
+          const created = approvals.create({ sessionId: binding.sessionId, agentConfigId: current.profileId,
+            action: 'Approve finite Coding Workflow', preview,
+            consequence: 'One selected-reference workflow using the existing manager and distinct reviewer, with two server-checked criteria and a checked stop. No new tools, permissions, workspace or schedule are granted.',
+            securityAction: WORKFLOW_APPROVAL_ACTION, payloadDigest: workflowProposalDigest(candidate),
+            boundAgent: current.profileId, expiresAt: candidate.expiresAt, boundPayloadJson: JSON.stringify(candidate) });
+          getDb().prepare(`UPDATE agent_approvals SET status='rejected', actor='system:workflow_superseded',
+            decided_at=?, decision_nonce=NULL, continuation_state=NULL WHERE session_id=? AND security_action=?
+            AND status='pending' AND id<>? AND json_extract(bound_payload_json,'$.goalId')=?`)
+            .run(now.toISOString(),binding.sessionId,WORKFLOW_APPROVAL_ACTION,created.id,candidate.goalId);
+          return created;
+        })();
+      }
+      return { schemaVersion: 1 as const, status: 'approval_pending' as const,
+        text: `${approval.preview}\nApproval is pending in this same chat. Wait for the signed human decision; prose is not consent.\napproval_id: ${approval.id}\nproposal_digest: ${approval.payloadDigest}` };
+    } catch { return held(); }
+  }
+
+  async startWorkflow(auth: AuthContext | undefined, body: unknown) {
+    const held = () => ({ schemaVersion: 1 as const, status: 'held' as const, text: 'Bounded Coding Workflow start is held; no additional ordinal is authorized.' });
+    try {
+      const envelope = trustedEnvelope(body);
+      if (!auth || !envelope) return held();
+      const verified = await this.verify(envelope, 'rhythm_start_bounded_coding_workflow', Date.now(), 'coordinator_workflow_start');
+      const a = verified.arguments;
+      if (Object.keys(a).length !== 2 || typeof a.approval_id !== 'string' || a.approval_id.length > 256 ||
+          typeof a.proposal_digest !== 'string' || !/^[a-f0-9]{64}$/.test(a.proposal_digest)) return held();
+      if (!(await this.dependencies.conversations.boundedWorkflowRuntimeReady())) return held();
+      const binding = await this.authority.resolveWorkflowApprovalResume(auth, verified, a.approval_id, a.proposal_digest);
+      if (!binding) return held();
+      const p = binding.proposal;
+      const selection = this.dependencies.conversations.boundedWorkflowSelection(auth, binding, p.goalId, binding.linkedWorkstreamId);
+      if (!selection || selection.scopeFingerprint !== p.scopeFingerprint || selection.profileRevision !== p.profileRevision) return held();
+      const commandKey = `chat-workflow:${p.proposalId}`;
+      const result = await this.dependencies.conversations.preparePlan(auth, {
+        sessionId: p.sessionId, projectId: p.projectId, expectedControlRevision: p.controlRevision + (binding.linkedWorkstreamId ? 1 : 0), goalId: p.goalId,
+        admission: { commandKey, totalTokenAuthorization: p.estimate.totalSoftTokens, maxTurns: p.estimate.outerTurns,
+          maxWallTimeSeconds: p.estimate.workerWallSeconds, expiresInSeconds: p.estimate.expirySeconds,
+          acknowledgesSoftTotalTokenAuthorization: true, acknowledgesCodingWorkflowCoverage: true, purpose: 'workflow',
+          workflowCheck: { kind: 'selected_reference_summary_v1', sourceId: p.referenceSourceId, expectedVersion: p.referenceVersion } },
+      }, {
+        expiresAt: p.expiresAt,
+        reprove: async ({ workstreamId, resolved }) => {
+          if (!(await this.dependencies.conversations.boundedWorkflowRuntimeReady())) return null;
+          const next = await this.authority.resolveWorkflowApprovalResume(auth, verified, binding.approvalId, binding.proposalDigest, workstreamId);
+          if (!next || next.sdkUserMessageId !== binding.sdkUserMessageId || !resolved.isCurrent ||
+              resolved.selector !== p.referenceSourceId || resolved.receipt.canonicalId !== p.canonicalSource ||
+              resolved.receipt.observedVersion !== p.referenceVersion || resolved.receipt.sourceInstance !== p.sourceInstance) return null;
+          return () => {
+            const live = workflowApprovalResumeCandidate(binding.approvalId, this.dependencies.records, { linkedWorkstreamId: workstreamId });
+            const selected = this.dependencies.conversations.boundedWorkflowSelection(auth, binding, p.goalId, workstreamId);
+            if (!live || live.proposalDigest !== binding.proposalDigest || !selected || selected.scopeFingerprint !== p.scopeFingerprint ||
+                selected.profileRevision !== p.profileRevision || !resolved.isCurrent!()) return false;
+            if (!workflowResumeDispatchCurrent(binding)) return false;
+            const consumedAt = new Date().toISOString();
+            return getDb().prepare(`UPDATE agent_approvals SET consumed_at=? WHERE id=? AND status='approved' AND actor=?
+              AND security_action=? AND payload_digest=? AND bound_payload_json=? AND consumed_at IS NULL AND decision_nonce IS NULL AND expires_at>?`)
+              .run(consumedAt,binding.approvalId,`user:${p.ownerUserId}`,WORKFLOW_APPROVAL_ACTION,binding.proposalDigest,JSON.stringify(p),consumedAt).changes === 1;
+          };
+        },
+      });
+      return result.kind === 'planned' ? { schemaVersion: 1 as const, status: 'started' as const,
+        text: 'Exact approved finite Coding Workflow dispatched. Only selected_reference_current and reviewed_summary_with_citation are server-checked; await those checks and the checked stop.' } : held();
+    } catch { return held(); }
   }
 
   async status(auth: AuthContext | undefined, body: unknown): Promise<CoordinatorAgentToolStatusResponse> {

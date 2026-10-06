@@ -25,20 +25,27 @@ import {
   parseTrustedSecurityContext,
 } from '../services/external_content_security_service';
 import { verifyHumanApprovalSignature } from '../security/human_approval_security';
+import { WORKFLOW_APPROVAL_ACTION, readWorkflowProposal } from '../services/chat_bounded_workflow';
 import { agentApprovalContinuationService } from '../services/agent_approval_continuation_service';
 
 const repo = new AgentApprovalsRepository();
 const security = new ExternalContentSecurityService();
 const sessions = new AgentSessionsRepository();
 
+function publicApproval(approval: AgentApproval) {
+  const { boundPayloadJson: _privateProposal, ...visible } = approval;
+  return visible;
+}
+
 function withApprovalLane(approval: AgentApproval) {
+  const visible = publicApproval(approval);
   if (approval.taintId) {
-    return { ...approval, lane: 'hardline', laneReason: 'external_data_taint' } as const;
+    return { ...visible, lane: 'hardline', laneReason: 'external_data_taint' } as const;
   }
   if (approval.securityAction) {
-    return { ...approval, lane: 'hardline', laneReason: 'consequential_action' } as const;
+    return { ...visible, lane: 'hardline', laneReason: 'consequential_action' } as const;
   }
-  return { ...approval, lane: 'approval', laneReason: 'approval_gate' } as const;
+  return { ...visible, lane: 'approval', laneReason: 'approval_gate' } as const;
 }
 
 export class AgentApprovalsController {
@@ -103,7 +110,7 @@ export class AgentApprovalsController {
           boundAgent: binding.boundAgent,
           expiresAt: binding.expiresAt,
         });
-        res.status(201).json(approval);
+        res.status(201).json(publicApproval(approval));
         return;
       }
 
@@ -128,7 +135,7 @@ export class AgentApprovalsController {
         autoApprove: isAutoApproveProfile(agentConfigId),
       });
 
-      res.status(201).json(approval);
+      res.status(201).json(publicApproval(approval));
     } catch (err) {
       next(err);
     }
@@ -150,7 +157,9 @@ export class AgentApprovalsController {
         throw AppError.badRequest('status must be one of pending, approved, rejected, all');
       }
 
-      res.json(repo.list(status).map(withApprovalLane));
+      const ownerUserId = req.auth?.user.id;
+      res.json(repo.list(status).filter(approval => approval.securityAction !== WORKFLOW_APPROVAL_ACTION ||
+        (ownerUserId !== undefined && readWorkflowProposal(approval)?.ownerUserId === ownerUserId)).map(withApprovalLane));
     } catch (err) {
       next(err);
     }
@@ -175,6 +184,9 @@ export class AgentApprovalsController {
         throw AppError.notFound(
           'agent approval (or it is no longer pending)',
         );
+      }
+      if (existing.securityAction === WORKFLOW_APPROVAL_ACTION && readWorkflowProposal(existing)?.ownerUserId !== actorUser.id) {
+        throw AppError.forbidden('The exact workflow proposal belongs to another chat owner or is invalid');
       }
       if (!existing.decisionNonce) {
         throw AppError.forbidden(
@@ -206,7 +218,7 @@ export class AgentApprovalsController {
       // machine-authored continuation before answering an idle-session PATCH
       // so the approving user never has to type "try again" manually.
       await agentApprovalContinuationService.onDecision(updated);
-      res.json(updated);
+      res.json(publicApproval(updated));
     } catch (err) {
       next(err);
     }

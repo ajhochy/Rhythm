@@ -2,6 +2,8 @@ import cors from 'cors';
 import express, { type Router } from 'express';
 
 import { env } from './config/env';
+import { getDb } from './database/db';
+import { agentApprovalContinuationService } from './services/agent_approval_continuation_service';
 import { errorHandler } from './middleware/error_handler';
 import { localAgentSurfaceGuard } from './middleware/local_agent_surface_guard';
 import { authRouter } from './routes/auth_routes';
@@ -293,6 +295,13 @@ export function createApp(options: {
     app.use('/agent-capability-status', agentCapabilityStatusRouter);
     app.use('/creative-platform', creativePlatformRouter);
     app.use('/setup-readiness', setupReadinessRouter);
+    // Local server-only probe is bound to this composition's actual SQLite
+    // instance; a later test/runtime DB cannot borrow its readiness.
+    const workflowConversations = options.coordinatorConversationService;
+    const workflowDb = workflowConversations ? getDb() : null;
+    agentApprovalContinuationService.configureWorkflowReadiness(workflowConversations
+      ? async () => getDb() === workflowDb && await workflowConversations.boundedWorkflowRuntimeReady() && getDb() === workflowDb
+      : null);
     app.use('/agent-approvals', agentApprovalsRouter);
     app.use('/agents/usage-budget', usageBudgetRouter);
     app.use('/agents/run-quality', runQualityRouter);

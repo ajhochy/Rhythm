@@ -44,8 +44,8 @@ import {
   MEMORY_CONSOLIDATION_SEED_NAME,
 } from './memory_consolidation_seed';
 import {
-  searchMemoryReferences,
   searchMemoryReferencesWithReceipts,
+  EXPLICIT_REFERENCE_MAX_SERIALIZED_CHARS,
 } from './memory_retrieval';
 import { isGenericMemoryAdmissionAllowed } from './automatic_memory_preface';
 
@@ -87,11 +87,28 @@ export const agentMemoryService = {
 
   /** Explicit native-ranked evidence; intentionally distinct from legacy row search. */
   async searchReferences(query: string, ownerUserId?: number, limit?: number) {
-    const result = await searchMemoryReferences(query, ownerUserId ?? null, {
+    const searched = await searchMemoryReferencesWithReceipts(query, ownerUserId ?? null, {
       limit,
       releaseAdmission: isGenericMemoryAdmissionAllowed,
     });
-    if (limit !== 0) return result;
+    const result = searched.result;
+    const references = result.references.map(reference => {
+      const receipt = searched.canonicalReceipts.find(r => r.indexMemoryId === reference.id && r.sourceId === reference.sourceId);
+      return receipt && receipt.sourceNamespace === 'memory-vault' &&
+        (receipt.indexOwnerUserId === null || receipt.indexOwnerUserId === ownerUserId) &&
+        /^sha256:[a-f0-9]{64}$/.test(receipt.observedVersion)
+        ? { ...reference, referenceSourceId: `memory:${receipt.indexMemoryId}`, referenceVersion: receipt.observedVersion }
+        : reference;
+    });
+    if (limit !== 0) {
+      const envelope = { ...result, references, returned: references.length };
+      while (JSON.stringify(envelope).length > EXPLICIT_REFERENCE_MAX_SERIALIZED_CHARS && references.length > 0) {
+        references.pop();
+        envelope.returned = references.length;
+        envelope.truncated = true;
+      }
+      return envelope;
+    }
     return { ...result, references: [], returned: 0, truncated: result.hitCount > 0 };
   },
 

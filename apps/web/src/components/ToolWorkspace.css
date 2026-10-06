@@ -67,6 +67,20 @@
 .research-budget-fields .segmented-control button:disabled { cursor: default; }
 .research-runs ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .research-runs button { width: 100%; min-height: 36px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 4px 8px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); color: var(--fg-2); background: var(--surface); cursor: pointer; font-size: 11px; text-align: left; }
+.dayflow-workspace-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.dayflow-native-host {
+  flex: 1 0 160px;
+  min-height: 0;
+  width: 100%;
+  overflow: auto;
+}
+
+.dayflow-workspace-footer { flex: 0 0 auto; }
+
 .research-runs button[aria-pressed="true"] { border-color: var(--border); color: var(--fg); background: var(--surface-warm); }
 .research-stages { width: 100%; border-collapse: collapse; font-size: 11px; }
 .research-stages th, .research-stages td { padding: 5px 6px; border-bottom: 1px solid var(--border-soft); text-align: left; vertical-align: top; }

@@ -2,6 +2,46 @@ import { expect, test, type Page } from '@playwright/test';
 
 const calls = (page: Page) => page.evaluate(() => (window as typeof window & { __dayflowView: string[] }).__dayflowView);
 
+test('native Dayflow fills the available height, tracks resized bounds, and keeps Settings reachable when short', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 560 });
+  await page.goto('/tests/dayflow-view-harness.html');
+  const host = page.getByTestId('dayflow-native-host');
+  await expect(host).toHaveAttribute('data-phase', 'attached');
+  await expect.poll(async () => (await calls(page)).includes('blocked:false')).toBe(true);
+  const boundsMatchHost = async () => page.evaluate(() => {
+    const host = document.querySelector<HTMLElement>('[data-testid="dayflow-native-host"]')!;
+    const bounds = (window as typeof window & { __getDayflowLastBounds(): { x: number; y: number; width: number; height: number } | null }).__getDayflowLastBounds();
+    if (!bounds) return false;
+    const rect = host.getBoundingClientRect();
+    return Math.abs(bounds.x - rect.x) < 0.5 && Math.abs(bounds.y - rect.y) < 0.5 &&
+      Math.abs(bounds.width - rect.width) < 0.5 && Math.abs(bounds.height - rect.height) < 0.5;
+  });
+  await expect.poll(boundsMatchHost).toBe(true);
+  const shortHeight = await host.evaluate((node) => node.getBoundingClientRect().height);
+  const readGeometry = () => page.evaluate(() => {
+    const rect = document.querySelector<HTMLElement>('[data-testid="dayflow-native-host"]')!.getBoundingClientRect();
+    const native = (window as typeof window & { __getDayflowLastBounds(): { x: number; y: number; width: number; height: number } | null }).__getDayflowLastBounds();
+    return { host: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }, native };
+  });
+  const shortGeometry = await readGeometry();
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect.poll(async () => await host.evaluate((node) => node.getBoundingClientRect().height)).toBeGreaterThan(shortHeight + 100);
+  await expect.poll(boundsMatchHost).toBe(true);
+  const tallGeometry = await readGeometry();
+  console.info(`Dayflow view geometry at 1280px wide: ${JSON.stringify({ viewportHeight: 560, ...shortGeometry })} -> ${JSON.stringify({ viewportHeight: 900, ...tallGeometry })}`);
+
+  await page.setViewportSize({ width: 1280, height: 480 });
+  const settings = page.getByRole('button', { name: 'Dayflow Settings' });
+  await settings.scrollIntoViewIfNeeded();
+  await expect(settings).toBeInViewport();
+
+  await page.setViewportSize({ width: 1280, height: 300 });
+  await settings.scrollIntoViewIfNeeded();
+  await expect(settings).toBeInViewport();
+  expect(await page.locator('.tool-workspace-body').evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+});
+
 test('attaches hidden, sends positive bounds, then unblocks; never uses the external opener', async ({ page }) => {
   await page.goto('/tests/dayflow-view-harness.html');
   await expect(page.getByTestId('dayflow-native-host')).toHaveAttribute('data-phase', 'attached');

@@ -87,3 +87,7 @@
 @media (forced-colors: active) {
   .transcript :is(button, a, summary, pre):focus-visible, .transcript-scroll:focus-visible { outline-color: Highlight; }
 }
+.workflow-approval-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

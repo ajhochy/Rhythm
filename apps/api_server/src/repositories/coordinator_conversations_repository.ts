@@ -1610,7 +1610,23 @@ export class CoordinatorConversationsRepository {
      * replace an unused or settled finite record.
      */
     replaceInvalidatedAuthority?: boolean;
+    /** Internal synchronous approval consumption + final proof, in the authority CAS transaction. */
+    authorize?: () => boolean;
   }): CoordinatorConversationAuthorityWrite {
+    if (input.authorize) {
+      const { authorize, ...ordinary } = input;
+      try {
+        return this.db.transaction(() => {
+          if (authorize() !== true) throw new GoalAuthorizationRefused(null);
+          const written = this.setContinuationAuthority(ordinary);
+          if (written.kind !== 'updated') throw new GoalAuthorizationRefused(written);
+          return written;
+        })();
+      } catch (error) {
+        if (!(error instanceof GoalAuthorizationRefused)) throw error;
+        return error.refusal as CoordinatorConversationAuthorityWrite ?? this.authorityReread(input);
+      }
+    }
     const snapshot = this.record(input);
     const current = snapshot.result;
     if (current.kind !== 'found') return current;

@@ -889,7 +889,7 @@ function isCoordinatorForegroundPromptContext(
  * await and is invoked again immediately before the SDK call.
  */
 export interface CoordinatorApprovalResumePromptDispatchContext {
-  readonly kind: 'coordinator_goal_approval_resume_v1';
+  readonly kind: 'coordinator_goal_approval_resume_v1' | 'coordinator_workflow_approval_resume_v1';
   validate(): boolean;
 }
 
@@ -903,7 +903,7 @@ function isCoordinatorApprovalResumePromptContext(
 ): value is CoordinatorApprovalResumePromptDispatchContext {
   return Boolean(
     value &&
-    value.kind === 'coordinator_goal_approval_resume_v1' &&
+    (value.kind === 'coordinator_goal_approval_resume_v1' || value.kind === 'coordinator_workflow_approval_resume_v1') &&
     typeof value.validate === 'function' &&
     typeof sessionId === 'string' && sessionId.length > 0 &&
     provenance &&
@@ -912,7 +912,9 @@ function isCoordinatorApprovalResumePromptContext(
     provenance.requestedSource === 'agent_config' &&
     provenance.routeAuthed == null &&
     typeof provenance.reasonCode === 'string' &&
-    APPROVAL_RESUME_REASON_CODE.test(provenance.reasonCode),
+    (value.kind === 'coordinator_goal_approval_resume_v1'
+      ? APPROVAL_RESUME_REASON_CODE.test(provenance.reasonCode)
+      : /^workflow_approval_resume_[0-9a-f]{32}$/.test(provenance.reasonCode)),
   );
 }
 
@@ -5662,6 +5664,32 @@ function validFiniteExecutionPermissionRules(
       );
     }
     return raw.data === true;
+  }
+
+  /** Existing local core only: exact workflow recovery must never install or enable an MCP. */
+  async reconnectConfiguredLocalRhythmMcp(): Promise<boolean> {
+    const { readFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const { homedir } = require('os') as typeof import('os');
+    const configPath = join(homedir(), '.config', 'opencode', 'opencode.json');
+    const read = (): string | null => {
+      if (this._removedPendingRestart.has('rhythm') || this.readMcpDeletions().has('rhythm')) return null;
+      const config = JSON.parse(readFileSync(configPath, 'utf8')).mcp?.rhythm;
+      if (!config || config.type !== 'local' || config.enabled === false || !Array.isArray(config.command) ||
+          config.command.length === 0 || config.command.some((value: unknown) => typeof value !== 'string' || !value.trim())) return null;
+      return JSON.stringify(config);
+    };
+    try {
+      const expected = read();
+      if (!expected) return false;
+      const status = (await this.listMcp()).rhythm?.status;
+      if (read() !== expected) return false;
+      if (status === 'configured') {
+        if (!(await this.reconnectMcp('rhythm')) || read() !== expected) return false;
+      } else if (status !== 'connected') return false;
+      const connected = (await this.listMcp()).rhythm?.status === 'connected';
+      return connected && read() === expected;
+    } catch { return false; }
   }
 
   /**

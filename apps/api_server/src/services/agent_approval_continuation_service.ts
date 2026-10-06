@@ -4,6 +4,7 @@ import {
   CoordinatorConversationsRepository,
   type CoordinatorGoalApprovalResumeCandidate,
 } from '../repositories/coordinator_conversations_repository';
+import { WORKFLOW_APPROVAL_ACTION, workflowApprovalResumeCandidate } from './chat_bounded_workflow';
 import { logger } from '../utils/logger';
 import { resolveProfileScope } from './agent_profile_scope';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
@@ -17,6 +18,13 @@ export class AgentApprovalContinuationService {
   private readonly approvals = new AgentApprovalsRepository();
   private readonly sessions = new AgentSessionsRepository();
   private readonly sessionChains = new Map<string, Promise<void>>();
+
+  private workflowReadiness: (() => Promise<boolean>) | null = null;
+
+  /** Server composition only; no request or model input can supply this probe. */
+  configureWorkflowReadiness(probe: (() => Promise<boolean>) | null): void {
+    this.workflowReadiness = probe;
+  }
 
   async onDecision(approval: AgentApproval): Promise<void> {
     if (!approval.sessionId) return;
@@ -108,13 +116,29 @@ export class AgentApprovalContinuationService {
       if (await this.reconcileWaking(approval, sdkSessionId, session.cwd)) {
         continue;
       }
+      // Only an exact current approved workflow may reconnect its existing
+      // local core. Failed connection/readiness leaves the durable wake queued.
+      if (approval.securityAction === WORKFLOW_APPROVAL_ACTION && approval.status === 'approved') {
+        const before = workflowApprovalResumeCandidate(approval.id);
+        if (before?.sdkSessionId === sdkSessionId) {
+          if (!this.workflowReadiness || !(await opencodeClient.reconnectConfiguredLocalRhythmMcp()) ||
+              !(await this.workflowReadiness())) continue;
+          const after = workflowApprovalResumeCandidate(approval.id);
+          const live = opencodeSessionMap.get(session.id) ?? this.sessions.findById(session.id)?.sdkSessionId;
+          if (live !== sdkSessionId || !after || JSON.stringify(before) !== JSON.stringify(after)) continue;
+        }
+      }
       if (!this.approvals.claimContinuation(approval.id)) continue;
 
       // Qualified from CURRENT rows after every producer await above and only
       // for the exact approved goal approval; anything else is the ordinary wake.
+      const workflowResume = workflowApprovalResumeCandidate(approval.id);
+      const workflow = workflowResume?.sdkSessionId === sdkSessionId ? workflowResume : null;
       const resume = this.qualifyGoalResume(approval, sdkSessionId);
       const controls = resume ? this.captureControls(session.id) : null;
-      const continuation = this.buildContinuation(approval, resume);
+      const continuation = workflow
+        ? `[Rhythm exact finite workflow human decision]\napproval_id: ${workflow.approvalId}\nproposal_digest: ${workflow.proposalDigest}\nCall rhythm_start_bounded_coding_workflow exactly once with these two values. Do not change the proposal, grant authority yourself, or create another approval.\n${this.marker(approval.id)}`
+        : this.buildContinuation(approval, resume);
       try {
         const accepted = await opencodeClient.promptAsync(
           sdkSessionId,
@@ -136,7 +160,7 @@ export class AgentApprovalContinuationService {
             routeAuthed: null,
             finalProviderId: scope.model?.providerID ?? null,
             finalModelId: scope.model?.modelID ?? null,
-            ...(resume ? { reasonCode: resume.reasonCode } : {}),
+            ...(workflow ? { reasonCode: workflow.reasonCode } : resume ? { reasonCode: resume.reasonCode } : {}),
           },
           undefined,
           undefined,
@@ -145,7 +169,16 @@ export class AgentApprovalContinuationService {
           // the native message id, persists the exact dispatch row with it before
           // exposure and runs this SYNCHRONOUS check again immediately before the
           // SDK call, after its last awaited history/authority guard.
-          resume
+          workflow
+            ? {
+              kind: 'coordinator_workflow_approval_resume_v1' as const,
+              validate: () => {
+                const current = workflowApprovalResumeCandidate(approval.id);
+                const live = opencodeSessionMap.get(session.id) ?? this.sessions.findById(session.id)?.sdkSessionId;
+                return live === sdkSessionId && current !== null && JSON.stringify(current) === JSON.stringify(workflow);
+              },
+            }
+            : resume
             ? {
               kind: 'coordinator_goal_approval_resume_v1' as const,
               validate: () => this.resumeCurrent(approval, session.id, sdkSessionId, resume, controls),
@@ -289,6 +322,9 @@ export class AgentApprovalContinuationService {
     resume: CoordinatorGoalApprovalResumeCandidate | null = null,
   ): string {
     const marker = this.marker(approval.id);
+    if (approval.securityAction === WORKFLOW_APPROVAL_ACTION) {
+      return `[Rhythm finite workflow decision]\nApproval ${approval.id} is ${approval.status}, but no current exact native workflow resume is qualified. Hold this workflow; do not start a goal, grant authority, retry, or infer consent from this message.\n${marker}`;
+    }
     if (approval.status === 'approved') {
       return (
         '[Rhythm human approval decision]\n' +

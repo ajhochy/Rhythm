@@ -38,7 +38,7 @@ import { ProjectsRepository } from '../repositories/projects_repository';
 import { AgentBridgeJobsRepository, type AgentBridgeJobRow } from '../shared_agents/delegation_jobs_repository';
 import type { CoordinatorWorkflowMembership } from '../shared_agents/delegation_jobs_repository';
 import { computeCodingWorkflowCapability, renderCodingWorkflowCapabilityLine } from './coding_workflow_capability';
-import { selectedReferenceCitation } from './workstream_artifact_verifier';
+import { selectedReferenceCitation, type QualifiedWorkstreamArtifact } from './workstream_artifact_verifier';
 import type {
   WorkflowProviderPendingExport,
   WorkflowProviderRequest,
@@ -297,7 +297,7 @@ export interface CoordinatorConversationServiceDependencies {
   coordinator?: Pick<
     PersistentWorkstreamCoordinator,
     'runNextFromFiniteConversation' | 'reconcileFiniteConversationJob' | 'status' | 'checkWorkflowResult'
-  >;
+  > & Partial<Pick<PersistentWorkstreamCoordinator, 'readiness'>>;
   /** Explicit local coordinator gate; omitted is default-off. */
   enabled?: () => boolean;
   now?: () => Date;
@@ -431,6 +431,12 @@ function ordinaryGoalCandidate(message: string): string | null {
  * use a generic model port. A single explicit prepare request can consume one
  * coordinator turn only after the existing coordinator accepts it.
  */
+/** This third-argument port is server-only; the HTTP/model request parser cannot provide it. */
+export interface BoundedWorkflowAuthorizationPort {
+  expiresAt: string;
+  reprove(input: { conversation: CoordinatorConversation; workstreamId: string; resolved: QualifiedWorkstreamArtifact }): Promise<(() => boolean) | null>;
+}
+
 export class CoordinatorConversationService {
   private readonly repository: CoordinatorConversationsRepository;
   private readonly now: () => Date;
@@ -689,6 +695,41 @@ export class CoordinatorConversationService {
       current && current.kind === 'found' && current.conversation.primaryOwnerRoot &&
       selection && selection.session.sdkSessionId === input.sdkSessionId,
     );
+  }
+
+  /** Read-only exact plan-root eligibility; no goal linking, approval or job. */
+  boundedWorkflowSelection(actor: AuthContext, input: { sessionId: string; projectId: string; sdkSessionId: string },
+    goalSelector: string, linkedWorkstreamId?: string) {
+    const currentScope = this.currentActorScope(actor, input);
+    const current = currentScope ? this.repository.get(currentScope) : null;
+    const selected = this.currentRootSelection(actor, input);
+    if (!this.dependencies.codingWorkflow || !this.dependencies.jobs?.bindCoordinatorWorkflowPrepared ||
+        !this.dependencies.jobs.recordCoordinatorWorkflowDelivery || !this.c2Enabled() || !current || current.kind !== 'found' || !current.conversation.primaryOwnerRoot ||
+        !selected || selected.session.sdkSessionId !== input.sdkSessionId || selected.session.permissionMode !== 'plan' ||
+        selected.session.approvalBypassExplicit || !this.dependencies.configs ||
+        !computeCodingWorkflowCapability({ configs: this.dependencies.configs, projectAuthorized: true, enrollmentAvailable: true }).available) return null;
+    const goals = current.conversation.goals.filter(g => (g.id === goalSelector || g.objective === goalSelector) &&
+      g.state === (linkedWorkstreamId ? 'linked' : 'captured') && g.linkedWorkstreamId === (linkedWorkstreamId ?? null));
+    if (goals.length !== 1 || current.conversation.commandDedupe.some(c => c.kind === 'delegate_goal' && c.goalId === goals[0].id) ||
+        current.conversation.continuations.some(c => c.goalId === goals[0].id)) return null;
+    return { conversation: current.conversation, goal: goals[0], profileId: selected.profile.id,
+      profileRevision: selected.profile.revision ?? 1,
+      scopeFingerprint: createHash('sha256').update(JSON.stringify([
+        selected.profile, selected.requestedModel, selected.permissionAuthority,
+        this.dependencies.configs.getById('workflow-orchestrator'), this.dependencies.configs.getById('verification-gate'),
+      ])).digest('hex') };
+  }
+
+  /** Existing indexed-source authority only; selection labels never become filesystem paths. */
+  async resolveBoundedWorkflowReference(actor: AuthContext, input: { sessionId: string; projectId: string; sdkSessionId: string },
+    sourceId: string, expectedVersion: string): Promise<QualifiedWorkstreamArtifact | null> {
+    if (!this.modelStatusScopeCurrent(actor, input)) return null;
+    try {
+      return await (this.dependencies.artifactResolver ?? new WorkstreamArtifactAuthorityResolver()).resolveReference({
+        ownerUserId: actor.user.id, projectId: input.projectId, workstreamId: 'chat-proposal', workstreamRevision: 1,
+        reference: { sourceId, expectedVersion, scope: input.projectId, provenance: 'user_reference' },
+      });
+    } catch { return null; }
   }
 
   /**
@@ -1078,6 +1119,7 @@ export class CoordinatorConversationService {
   async preparePlan(
     actor: ConversationActor,
     request: CoordinatorConversationPreparePlanRequest,
+    workflowAuthorization?: BoundedWorkflowAuthorizationPort,
   ): Promise<CoordinatorConversationMessageResult> {
     const requestScope = this.currentActorScope(actor, request);
     if (!requestScope) return { kind: 'not_found' };
@@ -1106,7 +1148,7 @@ export class CoordinatorConversationService {
     if (!this.c2Enabled()) return { kind: 'planning_authority_unavailable', conversation: initial.conversation };
     if (!request.admission) return { kind: 'planning_authority_required', conversation: initial.conversation };
     if (request.admission.purpose === 'workflow') {
-      return this.prepareWorkflowPlan(actor, request, initial.conversation, goal);
+      return this.prepareWorkflowPlan(actor, request, initial.conversation, goal, workflowAuthorization);
     }
 
     const selected = this.currentRootSelection(actor, request);
@@ -1452,6 +1494,7 @@ export class CoordinatorConversationService {
     request: CoordinatorConversationPreparePlanRequest,
     initial: CoordinatorConversation,
     initialGoal: CoordinatorConversation['goals'][number],
+    workflowAuthorization?: BoundedWorkflowAuthorizationPort,
   ): Promise<CoordinatorConversationMessageResult> {
     const admission = request.admission;
     if (!admission || admission.purpose !== 'workflow' || !admission.workflowCheck ||
@@ -1571,10 +1614,14 @@ export class CoordinatorConversationService {
     // All resolver work is an await boundary. Re-read the exact root/control,
     // workstream revision, source dependency and current profile facts before
     // persisting/consuming the finite authority.
+    const dependencies = await this.currentDayflowDependency(conversation);
+    const authorize = workflowAuthorization
+      ? await workflowAuthorization.reprove({ conversation, workstreamId, resolved }) : undefined;
+    if (workflowAuthorization && !authorize) return { kind: 'planning_authority_unavailable', conversation };
+    // All synchronous reads occur after the final native reproof await.
     const afterRead = this.repository.get(scope(ownerUserId, request));
     const afterSelected = this.currentRootSelection(actor, request);
     const afterWorkstream = this.dependencies.workstreams.find(ownerUserId, request.projectId, workstreamId);
-    const dependencies = await this.currentDayflowDependency(conversation);
     if (
       afterRead.kind !== 'found' || afterRead.conversation.controlRevision !== conversation.controlRevision ||
       !afterSelected || !this.sameSelection(selected, afterSelected) ||
@@ -1603,7 +1650,7 @@ export class CoordinatorConversationService {
       workstreamRevision: afterWorkstream.revision,
       issuedFromControlRevision: afterRead.conversation.controlRevision,
       issuedAt: issuedAt.toISOString(),
-      expiresAt: new Date(issuedAt.valueOf() + admission.expiresInSeconds * 1_000).toISOString(),
+      expiresAt: workflowAuthorization?.expiresAt ?? new Date(issuedAt.valueOf() + admission.expiresInSeconds * 1_000).toISOString(),
       requestedModel: afterSelected.requestedModel,
       permissionAuthority: this.workflowPermissionAuthority(afterSelected),
       maxTurns: admission.maxTurns,
@@ -1643,6 +1690,7 @@ export class CoordinatorConversationService {
       expectedControlRevision: afterRead.conversation.controlRevision,
       authority,
       replaceInvalidatedAuthority: invalidated,
+      ...(authorize ? { authorize } : {}),
     });
     if (authorized.kind !== 'updated') {
       return { kind: 'planning_dispatch_hold', conversation: 'conversation' in authorized ? authorized.conversation : conversation, workstreamId };
@@ -2577,6 +2625,13 @@ export class CoordinatorConversationService {
       receipt,
     });
     return { kind: 'terminal_status', conversation: latest.conversation, state: inspected.state };
+  }
+
+  /** Dedicated chat admission requires the current owned runtime, not just static capability. */
+  async boundedWorkflowRuntimeReady(): Promise<boolean> {
+    if (!this.c2Enabled() || !this.dependencies.coordinator?.readiness) return false;
+    try { return (await this.dependencies.coordinator.readiness()).available === true; }
+    catch { return false; }
   }
 
   private c2Enabled(): boolean {
@@ -4161,6 +4216,7 @@ export function createCoordinatorForegroundSender(deps: CoordinatorForegroundSen
     }
     const coordinatorToolAvailable = deps.profileAllowsRhythmTool(resolved, 'rhythm_get_coordinator_status');
     const coordinatorGoalToolAvailable = deps.profileAllowsRhythmTool(resolved, 'rhythm_start_coordinator_goal');
+    const boundedWorkflowToolsAvailable = ['rhythm_get_coordinator_status', 'rhythm_search_memory', 'rhythm_propose_bounded_coding_workflow', 'rhythm_start_bounded_coding_workflow'].every(tool => deps.profileAllowsRhythmTool(resolved, tool));
     const dayflowToolsAvailable = deps.profileAllowsRhythmTool(resolved, 'rhythm_search_dayflow_activity') &&
       deps.profileAllowsRhythmTool(resolved, 'rhythm_recent_dayflow_summaries');
     // Profile scope only: the session model is validated separately above.
@@ -4197,7 +4253,12 @@ export function createCoordinatorForegroundSender(deps: CoordinatorForegroundSen
         : 'No signed coordinator status tool is in your current profile scope. Do not claim one exists.',
       coordinatorGoalToolAvailable
         ? 'The signed rhythm_start_coordinator_goal control is in your current profile scope. It can start one exact captured goal through the existing Coding Workflow only; use it only after reading current coordinator status and never claim its child result verifies a goal.'
-        : 'No signed coordinator goal-action control is in your current profile scope. Do not claim an async workflow can be started here.',
+        : boundedWorkflowToolsAvailable
+          ? 'The ordinary rhythm_start_coordinator_goal control is unavailable in this profile scope. Use only the separately scoped exact finite proposal and signed human approval path described below.'
+          : 'No signed coordinator goal-action control is in your current profile scope. Do not claim an async workflow can be started here.',
+      boundedWorkflowToolsAvailable
+        ? 'The signed chat-only finite Coding Workflow tools are in scope. Discover the human-named current note with rhythm_search_memory, use its referenceSourceId and referenceVersion, and select one captured goal from current coordinator status. Estimate task-specific soft total tokens (input/output/reasoning/cache), per-worker wall seconds and an expiry allowance sufficient for two checked outer turns with a distinct reviewer. Explain the estimate; do not choose fixed defaults or always use maximum bounds. Call rhythm_propose_bounded_coding_workflow with these values and a rationale. This creates a same-chat human approval card, not finite authority. A human chat adjustment creates a revised exact card. Wait for the signed human decision and dedicated native wake, then call rhythm_start_bounded_coding_workflow once with that wake’s approval_id/proposal_digest. You cannot approve, acknowledge, grant, or substitute prose for human consent. Report only actual server-checked selected_reference_current/reviewed_summary_with_citation and the checked stop.'
+        : 'Chat-only finite Coding Workflow setup is unavailable in this profile scope; hold rather than inventing an approval or grant.',
       dayflowToolsAvailable
         ? 'The signed Dayflow activity tools are in your current profile scope. Use them only for current qualified activity; their output is reference/source data, not completion evidence.'
         : 'No signed Dayflow activity tool is in your current profile scope. Do not substitute generic memory tools for it.',

@@ -1,0 +1,54 @@
+{
+  "issue": null,
+  "task_slug": "chat-bounded-workflow",
+  "identity_exception": "Direct user request; no GitHub issue was created, so criterion IDs use the stable chat-bounded-c1 through chat-bounded-c5 prefix.",
+  "generated": "2026-10-06",
+  "criteria": [
+    {
+      "criterion_id": "chat-bounded-c1",
+      "text": "From a primary-root Secretary chat, asking to run a captured goal against a named current reference produces a human-readable unique source and task-specific estimated finite terms with rationale, without requiring a setup form or opaque IDs. Missing, ambiguous, stale, or ineligible inputs (uncaptured goal, revoked project, wrong root/profile, non-plan or bypass root) produce a bounded hold and create no approval, finite authority, or child job.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/chat_bounded_workflow.contract.test.ts",
+      "test_id": "chat-bounded-c1: signed Secretary proposal exposes a unique current reference and reasoned estimate without issuing finite authority or a child",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "chat-bounded-c2",
+      "text": "The desktop Transcript composes an actionable bounded-workflow approval card only in the matching session. It shows the server-authored goal, source/version, exact finite values and scope; approve and deny use the existing signed `decideApproval` / native `signApprovalDecision` path. Missing native signing material or API decision errors remain visible as a hold and preserve the pending card; untrusted text is rendered as text. A decision queues a durable wake, and the exact approved proposal resumes after idle/restart. Pending, rejected, expired, unsigned, generic, or auto-approved cards create no finite authority and dispatch no job. Chat limit adjustments issue a revised card rather than mutating the pending decision.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/chat-bounded-workflow.spec.ts",
+      "test_id": "chat-bounded-c2: composed Transcript signs approve and deny only for the matching session and preserves held/error cards",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "chat-bounded-c3",
+      "text": "Secretary's dedicated start tool accepts only the exact signed proposal on the approved native wake, after current C2/root/project/profile/goal/source/version checks. An altered field or digest, changed SDK message, stale proof, forged wake, cross-session call, callback, rejection, expiry, or replay creates no extra ordinal. Approval consumption and finite-authority issuance are atomic: failed issuance does not consume approval; unknown dispatch remains held.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/chat_bounded_workflow.contract.test.ts",
+      "test_id": "chat-bounded-c3: signed human decision wakes the exact proposal once, issues one finite authority, and rejects replay",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "chat-bounded-c4",
+      "text": "Through the real API, built fork, and MCP tool entrypoint in the approved sandbox, a real manager and reviewer finish the selected-reference case. Chat reports `selected_reference_current` and `reviewed_summary_with_citation` as server-checked, exact ordinals 1 and 2, and no third ordinal after 65 seconds of quiescence. Prose-only success, missing citation/reviewer membership, source drift, missing usage accounting, budget/expiry hold, or duplicate callback cannot verify criteria or spawn extra work.",
+      "mode": "manual",
+      "reason": "Must run the env-gated live behavioral test through the real API and built fork in tools/dev/sandbox.sh using approved sanitized fixtures; this assigned contract-only phase has no approved fixture or sandbox run. Keep explicitly UNVERIFIED until the implementer records its exact run output.",
+      "status": "UNVERIFIED"
+    },
+    {
+      "criterion_id": "chat-bounded-c5",
+      "text": "Secretary estimates limits from the goal and reference and explains them. The human can request an in-range adjustment in chat. The final card and persisted authority contain precisely the approved values. Out-of-range values hold before approval; each changed proposal receives a fresh exact digest and signature, and an older approval cannot fund revised terms.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/chat_bounded_workflow.contract.test.ts",
+      "test_id": "chat-bounded-c5: an adjusted limit proposal supersedes the old digest and only its exact signed values fund authority",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["chat-bounded-c4"],
+  "test_commands": [
+    "cd apps/api_server && PATH=/Users/ajhochhalter/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin ./node_modules/.bin/vitest run src/contract/chat_bounded_workflow.contract.test.ts",
+    "cd apps/mcp_server && PATH=/Users/ajhochhalter/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin ./node_modules/.bin/vitest run src/tools/__tests__/chatBoundedWorkflow.contract.test.ts",
+    "cd apps/web && PATH=/Users/ajhochhalter/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin ./node_modules/.bin/playwright test --config tests/chat-bounded-workflow-playwright.config.ts --workers=1"
+  ]
+}

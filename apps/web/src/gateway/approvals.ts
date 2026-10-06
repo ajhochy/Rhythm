@@ -14,6 +14,8 @@ export interface PendingApproval {
   createdAt: string;
   decisionNonce: string | null;
   payloadDigest: string | null;
+  /** Server-owned action; absent on legacy approval responses. */
+  securityAction?: string | null;
 }
 
 // The P-256 decision signature over {approvalId,status,decisionNonce,payloadDigest}
@@ -92,7 +94,8 @@ export function createLiveApprovalGateway(apiBase: string, token: string | undef
         return !nullableText(row.sessionId) || typeof row.action !== 'string' || !row.action.trim()
           || !nullableText(row.preview) || !nullableText(row.consequence) || row.status !== 'pending'
           || typeof row.createdAt !== 'string' || !Number.isFinite(Date.parse(row.createdAt))
-          || !(row.decisionNonce === null || (typeof row.decisionNonce === 'string' && row.decisionNonce.trim())) || !nullableText(row.payloadDigest);
+          || !(row.decisionNonce === null || (typeof row.decisionNonce === 'string' && row.decisionNonce.trim())) || !nullableText(row.payloadDigest)
+          || !(row.securityAction === undefined || nullableText(row.securityAction));
       })) throw new ApprovalGatewayError(502, 'Invalid approval response. Pending cards were not replaced. Retry or check the desktop API configuration.');
       return rows as PendingApproval[];
     },

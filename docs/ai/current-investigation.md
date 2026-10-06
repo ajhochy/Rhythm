@@ -1,61 +1,11 @@
-> Current investigation (2026-09-19): [Hermes Desktop replacement — verified state, architecture and open proof gates](plans/2026-09-19-hermes-desktop-in-rhythm.md). Historical investigation below is retained.
+# Investigation — chat-only bounded Coding Workflow
 
-# Investigation — #1123 interactive asynchronous delegation
+Date: 2026-10-06. Targeted read-only pass on baseline be1af7df90e499ad8ec0de3ec62cc619543407d2. Integration checkout, API, fork, and normal app were untouched.
 
-## Trigger and current behavior
+- apps/mcp_server/src/tools/coordinatorConversation.ts has signed rhythm_get_coordinator_status and rhythm_start_coordinator_goal. The latter starts one ordinary async Coding Workflow child, not finite prepareWorkflowPlan.
+- CoordinatorConversationModelStatusService verifies exact signed envelope and active native call. CoordinatorForegroundMcpAuthority binds the call to the current C2 foreground/root or narrow approved goal resume. Child callbacks are status-only.
+- CoordinatorConversationService.preparePlan routes purpose workflow to prepareWorkflowPlan. Existing admission includes explicit soft total-token authorization, outer turns, wall limit, expiry, workflow coverage acknowledgement, and selected_reference_summary_v1 source ID/version. Server re-resolves the indexed memory-vault source, checks plan/non-bypass and current profile, persists finite authority, then dispatches through G2. Existing web CoordinatorConversationCard gathers these via a form.
+- AgentApprovalsRepository has decision nonce, security action, payload digest, expiry, one-use consume, and queued continuation. Human PATCH requires separate capability plus signature. Existing taint approval helper returns no binding for clean/bypass sessions, so it cannot prove finite consent. Goal approval resume is limited to delegation.start-async/{goalId}/current taint.
+- Baseline live_coding_workflow_bounded.test.ts and tools/dev/live-coding-workflow-s8* prove direct-admission G2 with actual API/fork/MCP and synthetic external model. Chat and new approval entry remain untested.
 
-`rhythm_delegate` posts to `POST /agent-delegation/delegate`, whose service awaits `agent_runner.run()` through completion. The parent tool call therefore remains blocked and the parent cannot finish its turn while the specialist works.
-
-## Existing seams to reuse
-
-- `OpencodeClientService.createSession` and `promptAsync` already create and enqueue real engine sessions.
-- `AgentSessionsRepository.upsertChildSession` persists a child by SDK `parentID`, and the stream bridge maps subsequent child events to the local row.
-- `resolveProfileScope` resolves the target model, MCP scope, skill scope, system prompt, and OpenCode agent.
-- `OpencodeStreamBridge._relayEvent` persists message parts and treats `session.idle` as the real interactive turn boundary.
-- Parent session status is durable in `agent_sessions`, so callback delivery can defer while the parent is `starting` or `working`.
-
-## Gaps
-
-- Session creation does not currently accept an engine `parentID` from api_server callers.
-- No durable record distinguishes async-delegated children from native `task` children or records whether a callback was already delivered.
-- The stream bridge has no child-completion callback hook.
-- Existing manager/delegate guards do not distinguish interactive from scheduled/system invocation because synchronous headless delegation is intentionally supported.
-- Concurrent child completions have no parent-keyed serialization/coalescing mechanism.
-
-## Failure modes to test
-
-1. Listener/map readiness race before the child emits its first event.
-2. Child completes while the parent is processing a user turn.
-3. Two children complete before one parent wake begins.
-4. A second child completes while an earlier callback wake is in flight.
-5. Duplicate/replayed `session.idle` events.
-6. API restart after child dispatch or completion.
-7. Prompt enqueue failure after the engine child/local row exists.
-8. Headless/scheduled/system caller attempts to bypass tool exposure.
-
-## Resolved implementation direction
-
-Use a small durable delegation table and an in-process per-parent coordinator backed by transactional state. The database supplies restart/idempotency guarantees; the in-memory coordinator only serializes the current process. Completion uses the already-persisted final assistant text and wakes the parent with `promptAsync`. No native fork tool changes or Flutter-specific protocol are required.
-
-## Live recon result
-
-The isolated branch-built sandbox ran on API `:4198` and fork engine `:4197`.
-The manual Recon sequence created disposable manager/child profiles, started a
-parent user turn, dispatched the child while the parent was working, and
-observed the completion only through the parent's `/ws/agents` stream:
-
-- dispatch returned HTTP 202 in 43 ms with local and SDK child identifiers;
-- the concurrent parent turn emitted `USER_STEER_ACCEPTED` first;
-- the child emitted `CHILD_RECON_DONE`;
-- the completion coordinator injected one normal parent input beginning
-  `[Async delegation update]` with the stable local child id;
-- the parent emitted `PARENT_WAKE_RECON` and `CHILD_RECON_DONE` on its existing
-  `message.part.delta` stream;
-- `/agent-sessions/:parent/children` exposed the real engine child with
-  `parentID` equal to the manager's SDK session id.
-
-The first codified run failed only because that last endpoint returns SDK
-session identities rather than local database identities. Failure triage
-corrected the assertion domain without weakening the behavior check. The
-second live run passed in 6.31 seconds and cleaned up all disposable profiles
-and sessions.
+Conclusion: add a dedicated signed foreground proposal/start and always-human exact-payload approval card. Recompute current facts on start, consume approval with finite authority issuance, and reuse the existing G2 checked path. The existing approval table needs one narrow additive canonical payload field so an approved proposal can resume after restart; never reconstruct authority from display preview or model memory. Source discovery requires a focused check. Desktop Transcript currently shows only a read-only pending banner; Shell has the actionable ApprovalCard. Reuse its signed decision path in a bounded same-chat card, with no general approval UI rewrite.

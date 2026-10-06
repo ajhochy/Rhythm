@@ -10,7 +10,7 @@ const unavailable = () => ({ schemaVersion: 1 as const, status: 'unavailable' as
  * browser API and it intentionally has no generic memory/history fallback.
  */
 export function createCoordinatorAgentToolsRouter(options: {
-  service?: Pick<CoordinatorConversationModelStatusService, 'status' | 'startGoal'>;
+  service?: Pick<CoordinatorConversationModelStatusService, 'status' | 'startGoal' | 'proposeWorkflow' | 'startWorkflow'>;
 } = {}): Router {
   const router = Router();
   router.post('/status', requireLocalOrCloudAuth, async (req, res) => {
@@ -33,5 +33,13 @@ export function createCoordinatorAgentToolsRouter(options: {
       res.json({ schemaVersion: 1 as const, status: 'unavailable' as const, text: 'Coordinator goal action is unavailable.' });
     }
   });
+  for (const [path, method] of [['/propose-workflow','proposeWorkflow'], ['/start-workflow','startWorkflow']] as const) {
+    router.post(path, requireLocalOrCloudAuth, async (req, res) => {
+      try {
+        res.json(options.service && req.auth ? await options.service[method](req.auth, req.body)
+          : { schemaVersion: 1, status: 'held', text: 'Bounded Coding Workflow is held.' });
+      } catch { res.json({ schemaVersion: 1, status: 'held', text: 'Bounded Coding Workflow is held.' }); }
+    });
+  }
   return router;
 }

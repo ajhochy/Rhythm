@@ -924,6 +924,13 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     if (!context || context.gateway !== gateway || context.deciding.has(id)) return;
     const approval = pendingApprovals.find((item) => item.id === id);
     if (!approval) return;
+    if (approval.securityAction === 'coordinator.workflow.start') {
+      const native = (window as Window & { rhythmShell?: { humanApproval?: { signDecision?: unknown } } }).rhythmShell?.humanApproval;
+      if (typeof native?.signDecision !== 'function' || !approval.payloadDigest?.trim()) {
+        setApprovalState((state) => ({ ...state, decisionError: 'Native signer unavailable. Reopen the signed Rhythm desktop chat to decide this workflow proposal.' }));
+        return;
+      }
+    }
     if (!approval.decisionNonce?.trim()) { setApprovalState((state) => ({ ...state, decisionError: 'This legacy approval cannot be signed. Ask the agent to request approval again.' })); return; }
     const current = () => approvalContextRef.current === context && currentApprovalGateway.current === gateway;
     context.deciding.add(id); setApprovalState((state) => ({ ...state, deciding: [...context.deciding] }));

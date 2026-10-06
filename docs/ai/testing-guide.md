@@ -805,3 +805,33 @@ source HEAD, product/harness hashes, raw guard transport observations, runtime
 logs/guard markers and invented-data SQLite snapshots before stock teardown.
 A held, timed-out or interrupted run is unqualified; retain its receipt for
 failure triage rather than changing a guard response or weakening an assertion.
+
+### Chat-only bounded Workflow live check
+
+`live_chat_bounded_workflow.test.ts` adds real scoped MCP reference discovery,
+proposal, a signed human decision, the dedicated native approval wake, and
+one-use admission to the same bounded execution path. It runs two cases: an
+idle wake and a stock sandbox API/engine restart after approval. External model
+responses and semantic ranking hints are invented fixtures; the actual API,
+fork, MCP, indexed source, filesystem checks, approval verification, accounting
+and manager/reviewer execution are exercised.
+
+From `apps/api_server` on the committed clean candidate, use an existing
+task-owned external receipt parent and the full source SHA:
+
+```sh
+env -i PATH="$PATH" RHYTHM_LIVE_E2E=1 \
+  RHYTHM_LIVE_SOURCE_SHA=<full-40-hex-candidate-sha> \
+  RHYTHM_CHAT_LIVE_TEST_OUT=<absolute-external-receipt-parent> \
+  node_modules/.bin/vitest run src/__tests__/live_chat_bounded_workflow.test.ts
+```
+
+Each case owns the same isolated ports and stock sandbox lifecycle described
+above. Do not run another sandbox or build in that worktree concurrently.
+The harness checks the exact SHA and clean tracked source before and after,
+actual MCP inventory (111 tools), unchanged signed proposal/deadline after
+restart, exact approved values, one consumed approval, held native replay,
+both checked criteria, two ordinals, reviewer membership and 65 seconds of
+quiescence, plus source/fixture/listener cleanup. New unqualified recon receipts
+must remain distinct from these exact committed-source results. Browser card
+tests and native installed-app acceptance are separate evidence.
