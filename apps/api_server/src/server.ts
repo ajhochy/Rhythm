@@ -60,7 +60,7 @@ async function main() {
     { mobileGatewayListenPort },
     { ManagedWorkstreamContextRepository },
     { ManagedMemorySearchService },
-    { PersistentWorkstreamCoordinator },
+    { PersistentWorkstreamCoordinator, CodingWorkflowCoverageInspector },
     { CoordinatorConversationContextAssembler },
     { CoordinatorConversationService, createCoordinatorForegroundSender },
     { CoordinatorConversationModelStatusService },
@@ -74,6 +74,7 @@ async function main() {
     { ProjectsRepository },
     { AgentBridgeJobsRepository },
     { AgentAsyncDelegationsRepository },
+    { ModelProvenanceRepository },
     { CoordinatorConversationsRepository },
     { delegateToAgentAsync, CodingWorkflowDeliveryUnknownError },
     { resolveProfileScope },
@@ -120,6 +121,7 @@ async function main() {
     import('./repositories/projects_repository'),
     import('./shared_agents/delegation_jobs_repository'),
     import('./repositories/agent_async_delegations_repository'),
+    import('./repositories/model_provenance_repository'),
     import('./repositories/coordinator_conversations_repository'),
     import('./services/agent_delegation_service'),
     import('./services/agent_profile_scope'),
@@ -218,6 +220,12 @@ async function main() {
     coordinatorRef = new PersistentWorkstreamCoordinator({
       engine: opencodeClient,
       records,
+      workflowCoverage: new CodingWorkflowCoverageInspector({
+        engine: opencodeClient,
+        sessions: new AgentSessionsRepository(),
+        delegations: new AgentAsyncDelegationsRepository(),
+        dispatches: new ModelProvenanceRepository(),
+      }),
       // The coordinator independently checks the live rhythm MCP status; this
       // callback additionally proves that its owned capture persistence seam
       // is present instead of treating service construction as readiness.
