@@ -30,6 +30,7 @@ import {
 } from '@/providers/coordinator-conversation-journal';
 import { createSessionDraftStore } from '@/components/chat/chat-drafts';
 import {
+  isDedicatedCoordinatorSchema,
   createPairedCoordinatorConversationGateway,
   parseMobileCoordinatorHistoryResult,
   parseMobileCoordinatorPlanResult,
@@ -1673,5 +1674,188 @@ describe('coordinator conversation mobile transport and view journal', () => {
     expect(screen.getByText(/120 actual of 20,000 authorized tokens/i)).toBeTruthy();
     expect(screen.getByText(/paired Mac setup.*does not change/i)).toBeTruthy();
     expect(screen.queryByText(/workstream-a/i)).toBeNull();
+  });
+});
+
+// Known conversation schema 4 (installed f77): same top-level DTO as 3; the only addition is server command metadata.
+describe('known coordinator conversation schema 4 compatibility', () => {
+  const delegation = {
+    key: 'synthetic-command', intentHash: 'a'.repeat(64), kind: 'delegate_goal', goalId: 'goal-a',
+    parentSdkSessionId: 'synthetic-sdk', targetAgentConfigId: 'workflow-orchestrator', state: 'dispatched',
+    delegationId: 'synthetic-delegation', childSessionId: 'synthetic-child',
+  };
+  const v4 = (revision = 1, overrides: Record<string, unknown> = {}): MobileCoordinatorConversation => ({
+    ...c2Conversation(revision),
+    schemaVersion: 4,
+    commandDedupe: [delegation],
+    createdAt: '2026-10-06T04:00:00.000Z',
+    updatedAt: '2026-10-06T04:00:00.000Z',
+    ...overrides,
+  } as never);
+  const completeContext = () => ({
+    ...context(),
+    availability: { ...context().availability, rhythms: { state: 'available' as const } },
+    coverage: {}, activeRhythms: [], manualActivity: [], manualActivityDependency: null, modelContext: {},
+  });
+  const v4Status = (value: MobileCoordinatorConversation) => ({ kind: 'status', conversation: value, context: completeContext() });
+  const rootIds = { sessionId: binding.sessionId, projectId: binding.projectId };
+
+  test('decodes every dedicated envelope and keeps schemas 1-3 readable', () => {
+    expect(parseMobileCoordinatorResult({ kind: 'replay', conversation: v4() }, binding, 200)).toMatchObject({ kind: 'replay' });
+    expect(parseMobileCoordinatorResult({ kind: 'created', conversation: v4() }, binding, 201)).toMatchObject({ kind: 'created' });
+    expect(parseMobileCoordinatorResult({ kind: 'foreground_accepted', conversation: v4() }, binding, 200)).toMatchObject({ kind: 'foreground_accepted' });
+    expect(parseMobileCoordinatorResult(v4Status(v4()), binding, 200)).toMatchObject({ kind: 'status' });
+    expect(parseMobileCoordinatorResolveResult({ kind: 'resolved', created: false, ...rootIds, conversation: v4() }, 200)).toMatchObject({ kind: 'resolved' });
+    expect(parseMobileCoordinatorSetupResult({
+      kind: 'setup_replay', ...rootIds, profileId: 'profile-a', workspaceGeneration: 1, conversation: v4(),
+    }, 200)).toMatchObject({ kind: 'setup_replay' });
+    expect(parseMobileCoordinatorHistoryResult({
+      kind: 'history', conversation: v4(), messages: [], nextCursor: null, hasMore: false,
+    }, binding, 200)).toMatchObject({ kind: 'history' });
+    expect(parseMobileCoordinatorPlanResult({
+      kind: 'planned', conversation: v4(), workstream: plannedWorkstream(),
+    }, binding, 200)).toMatchObject({ kind: 'planned' });
+    // Legacy and current v3 behavior is unchanged.
+    expect(parseMobileCoordinatorResult({ kind: 'replay', conversation: conversation() }, binding, 200)).toMatchObject({ kind: 'replay' });
+    expect(parseMobileCoordinatorResolveResult({ kind: 'resolved', created: false, ...rootIds, conversation: c2Conversation() }, 200)).toMatchObject({ kind: 'resolved' });
+  });
+
+  test('holds unknown versions, malformed required fields, foreign identity and non-primary dedicated roots', () => {
+    const mutations: Record<string, unknown>[] = [
+      { schemaVersion: 5 }, { schemaVersion: 99 }, { schemaVersion: '4' }, { schemaVersion: 4.5 },
+      { ownerUserId: '7' }, { ownerUserId: 0 }, { ownerUserId: undefined },
+      { primaryOwnerRoot: 'true' }, { primaryOwnerRoot: undefined },
+      { controlRevision: 0 }, { sessionId: 'foreign-root' }, { projectId: 'foreign-project' },
+      { goals: {} }, { commandDedupe: {} }, { commandDedupe: undefined }, { continuations: {} }, { continuations: undefined },
+      { createdAt: false }, { createdAt: '' }, { createdAt: 'not a date' }, { updatedAt: undefined },
+      // Date.parse-valid but noncanonical: the backend requires new Date(v).toISOString() === v.
+      { createdAt: '1' }, { createdAt: 'January 1, 2026' }, { updatedAt: '1' }, { updatedAt: 'January 1, 2026' },
+      { createdAt: '2026-10-06T04:00:00Z' }, { updatedAt: '2026-10-06' },
+      { commandDedupe: Array.from({ length: 101 }, () => delegation) },
+      { goals: [{ ...c2Conversation().goals[0], objective: 'x'.repeat(4001) }] },
+    ];
+    for (const mutation of mutations) {
+      expect(parseMobileCoordinatorResult({ kind: 'replay', conversation: v4(1, mutation) }, binding, 200)).toBeUndefined();
+    }
+    expect(parseMobileCoordinatorResolveResult({
+      kind: 'resolved', created: false, ...rootIds, conversation: v4(1, { primaryOwnerRoot: false }),
+    }, 200)).toBeUndefined();
+    expect(parseMobileCoordinatorSetupResult({
+      kind: 'setup_created', ...rootIds, profileId: 'profile-a', workspaceGeneration: 1, conversation: v4(1, { primaryOwnerRoot: false }),
+    }, 201)).toBeUndefined();
+    expect(parseMobileCoordinatorResolveResult({
+      kind: 'resolved', created: false, ...rootIds, conversation: v4(1, { schemaVersion: 5 }),
+    }, 200)).toBeUndefined();
+    expect(parseMobileCoordinatorResolveResult({
+      kind: 'resolved', created: false, ...rootIds, conversation: conversation(),
+    }, 200)).toBeUndefined();
+    const { coverage: _coverage, ...incomplete } = completeContext();
+    expect(parseMobileCoordinatorResult({ kind: 'status', conversation: v4(), context: incomplete }, binding, 200)).toBeUndefined();
+    expect(parseMobileCoordinatorResult({ kind: 'status', conversation: v4(), context: { ...completeContext(), modelContext: null } }, binding, 200)).toBeUndefined();
+    expect(isDedicatedCoordinatorSchema(4)).toBe(true);
+    expect(isDedicatedCoordinatorSchema(3)).toBe(true);
+    for (const version of [1, 2, 5, '3', '4', undefined]) expect(isDedicatedCoordinatorSchema(version)).toBe(false);
+  });
+
+  function pairedV4Client(log: { path: string; body: Record<string, unknown> }[], conversationValue = v4()) {
+    return {
+      fetchResponse: async (path: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body));
+        log.push({ path, body });
+        const respond = (status: number, json: unknown) => ({ status, json: async () => json } as Response);
+        if (path.endsWith('/open')) return respond(200, { kind: 'replay', conversation: conversationValue });
+        if (path.endsWith('/status')) return respond(200, v4Status(conversationValue));
+        if (path.endsWith('/history')) return respond(200, { kind: 'history', conversation: conversationValue, messages: [], nextCursor: null, hasMore: false });
+        if (path.endsWith('/message')) return respond(200, { kind: 'foreground_accepted', conversation: v4(2) });
+        return respond(503, { kind: 'schema_unavailable' });
+      },
+    };
+  }
+
+  test('the real decoder feeds the real controller through open, status, history and a foreground acknowledgement', async () => {
+    const log: { path: string; body: Record<string, unknown> }[] = [];
+    const transport = createPairedCoordinatorConversationGateway(pairedV4Client(log) as never);
+    const controller = new MobileCoordinatorConversationController(() => transport, createMemoryMobileCoordinatorJournal());
+    expect(await controller.open(binding)).toBe(true);
+    await flush();
+    const state = controller.get(binding);
+    expect(state.phase).toBe('ready');
+    expect(state.conversation?.schemaVersion).toBe(4);
+    expect(state.canonicalHistory?.messages).toEqual([]);
+    expect((await controller.send(binding, 'Ask Rhythm what to do today')).accepted).toBe(true);
+    await flush();
+    const message = log.find((entry) => entry.path.endsWith('/message'));
+    expect(Object.keys(message?.body ?? {}).sort()).toEqual(['commandKey', 'expectedControlRevision', 'message', 'projectId', 'sessionId']);
+    expect(message?.body.expectedControlRevision).toBe(1);
+    expect(controller.get(binding).pendingCommand).toBeUndefined();
+    expect(controller.get(binding).conversation?.controlRevision).toBe(2);
+  });
+
+  test('a malformed or unknown-version v4 response holds the view and never reaches the message wire', async () => {
+    for (const overrides of [{ schemaVersion: '4' }, { schemaVersion: 5 }, { ownerUserId: undefined }, { commandDedupe: {} }, { sessionId: 'foreign-root' }]) {
+      const log: { path: string; body: Record<string, unknown> }[] = [];
+      const transport = createPairedCoordinatorConversationGateway(pairedV4Client(log, v4(1, overrides)) as never);
+      const controller = new MobileCoordinatorConversationController(() => transport, createMemoryMobileCoordinatorJournal());
+      expect(await controller.open(binding)).toBe(false);
+      await flush();
+      expect(controller.get(binding).conversation).toBeUndefined();
+      expect((await controller.send(binding, 'must not send')).accepted).toBe(false);
+      expect(log.some((entry) => entry.path.endsWith('/message'))).toBe(false);
+    }
+  });
+
+  test('a stale v4 response after the root changes does not retarget the new view or send anything', async () => {
+    const log: { path: string; body: Record<string, unknown> }[] = [];
+    const release = deferred<void>();
+    const base = pairedV4Client(log);
+    const client = {
+      fetchResponse: async (path: string, init: RequestInit) => {
+        if (path.endsWith('/open')) await release.promise;
+        return base.fetchResponse(path, init);
+      },
+    };
+    const transport = createPairedCoordinatorConversationGateway(client as never);
+    const controller = new MobileCoordinatorConversationController(() => transport, createMemoryMobileCoordinatorJournal());
+    const opening = controller.open(binding);
+    await flush();
+    const other = { ...binding, sessionId: 'local-root-b', uiSessionId: 'sdk-session-b' };
+    controller.activate(other);
+    release.resolve();
+    await opening;
+    await flush();
+    expect(controller.get(binding).conversation).toBeUndefined();
+    expect(controller.get(other).conversation).toBeUndefined();
+    expect(log.some((entry) => entry.path.endsWith('/message'))).toBe(false);
+  });
+
+  test('finite planning on v4 stays behind exact consent and the primary gate', async () => {
+    const consent = {
+      totalTokenAuthorization: 20000, maxTurns: 2 as const, maxWallTimeSeconds: 90, expiresInSeconds: 900,
+      acknowledgesSoftTotalTokenAuthorization: true as const, purpose: 'decompose' as const,
+    };
+    const attempts: unknown[] = [];
+    const controller = new MobileCoordinatorConversationController(() => gateway({
+      open: async () => ({ kind: 'replay', conversation: v4() }),
+      status: async () => v4Status(v4()) as MobileCoordinatorResult,
+      preparePlan: async (input) => {
+        attempts.push(input);
+        return { kind: 'planned', conversation: v4(2), workstream: plannedWorkstream() } as never;
+      },
+    }), createMemoryMobileCoordinatorJournal());
+    await controller.open(binding);
+    await flush();
+    expect(await controller.preparePlan(binding, 'goal-a', { ...consent, acknowledgesSoftTotalTokenAuthorization: false as never })).toBe(false);
+    expect(attempts).toHaveLength(0);
+    expect(await controller.preparePlan(binding, 'goal-a', consent)).toBe(true);
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]).not.toHaveProperty('schemaVersion');
+    const nonPrimary = new MobileCoordinatorConversationController(() => gateway({
+      open: async () => ({ kind: 'replay', conversation: v4(1, { primaryOwnerRoot: false }) }),
+      status: async () => v4Status(v4(1, { primaryOwnerRoot: false })) as MobileCoordinatorResult,
+      preparePlan: async () => { throw new Error('must not reach prepare wire'); },
+    }), createMemoryMobileCoordinatorJournal());
+    await nonPrimary.open(binding);
+    await flush();
+    expect(await nonPrimary.preparePlan(binding, 'goal-a', consent)).toBe(false);
   });
 });

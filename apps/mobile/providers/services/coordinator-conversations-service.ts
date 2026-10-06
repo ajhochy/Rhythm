@@ -30,8 +30,8 @@ export type MobileCoordinatorContinuation = {
 };
 
 export type MobileCoordinatorConversation = {
-  /** Older C1/C2 records remain readable; current published roots are v3. */
-  schemaVersion: 1 | 2 | 3;
+  /** Older C1/C2 records remain readable; v3 and v4 share one top-level DTO (v4 adds server command metadata only). */
+  schemaVersion: 1 | 2 | 3 | 4;
   id: string;
   sessionId: string;
   projectId: string;
@@ -257,13 +257,40 @@ function continuation(value: unknown): value is MobileCoordinatorContinuation {
     (value.consumedTurns as number) <= (value.maxTurns as number) && text(value.expiresAt);
 }
 
+/** Literal known versions for the dedicated root protocol; an unknown, string or nested-authority version never qualifies. */
+export function isDedicatedCoordinatorSchema(version: unknown): version is 3 | 4 {
+  return version === 3 || version === 4;
+}
+
+const SCHEMA4_COLLECTION_LIMIT = 100;
+const SCHEMA4_OBJECTIVE_LIMIT = 4000;
+
+function isoTimestamp(value: unknown): boolean {
+  // Same rule as the published backend: a valid date whose canonical ISO form equals the input exactly.
+  if (typeof value !== 'string') return false;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value;
+}
+
+/** Published v4 requires every field the server emits; command/continuation arrays are opaque metadata. */
+function schema4Record(value: Record<string, unknown>): boolean {
+  return typeof value.primaryOwnerRoot === 'boolean' &&
+    Number.isSafeInteger(value.ownerUserId) && (value.ownerUserId as number) > 0 &&
+    Array.isArray(value.goals) && value.goals.length <= SCHEMA4_COLLECTION_LIMIT &&
+    value.goals.every((item) => record(item) && (item.objective as string).length <= SCHEMA4_OBJECTIVE_LIMIT) &&
+    Array.isArray(value.commandDedupe) && value.commandDedupe.length <= SCHEMA4_COLLECTION_LIMIT &&
+    Array.isArray(value.continuations) && value.continuations.length <= SCHEMA4_COLLECTION_LIMIT &&
+    isoTimestamp(value.createdAt) && isoTimestamp(value.updatedAt);
+}
+
 function conversation(value: unknown, scope: MobileCoordinatorScope): value is MobileCoordinatorConversation {
-  if (!record(value) || (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3) || !text(value.id) ||
+  if (!record(value) || (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4) || !text(value.id) ||
     value.sessionId !== scope.sessionId || value.projectId !== scope.projectId ||
     !Number.isSafeInteger(value.controlRevision) || (value.controlRevision as number) < 1 ||
     !Array.isArray(value.goals) || !value.goals.every(goal) ||
     (value.primaryOwnerRoot !== undefined && typeof value.primaryOwnerRoot !== 'boolean') ||
     (value.continuations !== undefined && (!Array.isArray(value.continuations) || !value.continuations.every(continuation)))) return false;
+  if (value.schemaVersion === 4) return schema4Record(value);
   return value.schemaVersion !== 3 ||
     (typeof value.primaryOwnerRoot === 'boolean' &&
       (value.ownerUserId === undefined || (Number.isSafeInteger(value.ownerUserId) && (value.ownerUserId as number) > 0)) &&
@@ -373,7 +400,7 @@ export function parseMobileCoordinatorResult(
   if ((kind === 'created' || kind === 'replay') && !conversation(value.conversation, scope)) return undefined;
   if (kind === 'status' && (
     !conversation(value.conversation, scope) ||
-    !context(value.context, value.conversation.schemaVersion === 3)
+    !context(value.context, isDedicatedCoordinatorSchema(value.conversation.schemaVersion))
   )) return undefined;
   if ((kind === 'created' || kind === 'replay') && value.goal !== undefined && !goal(value.goal)) return undefined;
   if (kind === 'planning_terminal_hold' || kind === 'planning_dispatch_hold') {
@@ -413,7 +440,7 @@ export function parseMobileCoordinatorResolveResult(value: unknown, status: numb
     // The mobile permanent entry may only adopt the server-designated C2
     // primary root; a C1/non-primary response cannot move the selected chat.
     return conversation(value.conversation, scope) &&
-      value.conversation.schemaVersion === 3 &&
+      isDedicatedCoordinatorSchema(value.conversation.schemaVersion) &&
       value.conversation.primaryOwnerRoot === true
       ? value as MobileCoordinatorResolveResult
       : undefined;
@@ -449,7 +476,7 @@ export function parseMobileCoordinatorSetupResult(value: unknown, status: number
     if (status !== expected || !text(value.sessionId) || !text(value.projectId) || !text(value.profileId) ||
       !Number.isSafeInteger(value.workspaceGeneration) || (value.workspaceGeneration as number) < 1) return undefined;
     const scope = { sessionId: value.sessionId, projectId: value.projectId };
-    return conversation(value.conversation, scope) && value.conversation.schemaVersion === 3 && value.conversation.primaryOwnerRoot === true
+    return conversation(value.conversation, scope) && isDedicatedCoordinatorSchema(value.conversation.schemaVersion) && value.conversation.primaryOwnerRoot === true
       ? value as MobileCoordinatorSetupResult
       : undefined;
   }

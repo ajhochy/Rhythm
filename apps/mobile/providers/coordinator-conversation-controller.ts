@@ -1081,7 +1081,7 @@ export class MobileCoordinatorConversationController {
       });
       return false;
     }
-    if (record.conversation.schemaVersion !== 3 || record.conversation.primaryOwnerRoot !== true) {
+    if ((record.conversation.schemaVersion !== 3 && record.conversation.schemaVersion !== 4) || record.conversation.primaryOwnerRoot !== true) {
       this.update(key, (next) => {
         next.enabled = true;
         next.phase = 'unavailable';
@@ -1152,7 +1152,7 @@ export class MobileCoordinatorConversationController {
       });
       return false;
     }
-    if (record.conversation.schemaVersion !== 3 || record.conversation.primaryOwnerRoot !== true) {
+    if ((record.conversation.schemaVersion !== 3 && record.conversation.schemaVersion !== 4) || record.conversation.primaryOwnerRoot !== true) {
       this.update(key, (next) => {
         next.enabled = true;
         next.phase = 'unavailable';

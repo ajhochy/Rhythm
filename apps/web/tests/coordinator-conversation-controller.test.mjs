@@ -768,3 +768,135 @@ test('stale view-only refreshes cannot retire another controller’s uncertain c
   assert.deepEqual(journal.load(scope).pendingCommand, original);
   assert.deepEqual(stale.get(scope).pendingCommand, original);
 });
+
+// Known schema 4: the real decoder feeds the real controller; only transport is faked.
+const v4Delegation = {
+  key: 'synthetic-command', intentHash: 'a'.repeat(64), kind: 'delegate_goal', goalId: 'goal-a',
+  parentSdkSessionId: 'synthetic-sdk', targetAgentConfigId: 'workflow-orchestrator', state: 'dispatched',
+  delegationId: 'synthetic-delegation', childSessionId: 'synthetic-child',
+};
+const v4Conversation = (revision = 1, overrides = {}) => ({
+  ...c2Conversation(revision),
+  schemaVersion: 4,
+  commandDedupe: [v4Delegation],
+  createdAt: '2026-10-06T04:00:00.000Z',
+  updatedAt: '2026-10-06T04:00:00.000Z',
+  ...overrides,
+});
+const v4Status = (conversation) => ({
+  kind: 'status',
+  conversation,
+  context: {
+    ...contextResult().context,
+    availability: { ...contextResult().context.availability, rhythms: { state: 'available' } },
+    coverage: {}, activeRhythms: [], manualActivity: [], manualActivityDependency: null, modelContext: {},
+  },
+});
+function v4Fetcher(log, options = {}) {
+  return async (url, init) => {
+    const body = JSON.parse(init.body);
+    log.push({ path: new URL(url).pathname, body });
+    const respond = (status, json) => ({ status, json: async () => json });
+    const conversationValue = options.conversation ?? v4Conversation();
+    if (url.endsWith('/open')) return respond(200, { kind: 'replay', conversation: conversationValue });
+    if (url.endsWith('/status')) return respond(200, v4Status(conversationValue));
+    if (url.endsWith('/history')) return respond(200, { kind: 'history', conversation: conversationValue, messages: [], nextCursor: null, hasMore: false });
+    if (url.endsWith('/message')) return respond(200, { kind: 'foreground_accepted', conversation: v4Conversation(2) });
+    return respond(500, { kind: 'schema_unavailable' });
+  };
+}
+
+test('known schema 4 opens, reads status and history, and acknowledges a foreground message without changing the command body', async () => {
+  const log = [];
+  const gateway = createLiveCoordinatorConversationGateway('http://local-api', v4Fetcher(log), undefined, 'invented-signed-in-token');
+  const controller = new CoordinatorConversationController(() => gateway, createMemoryCoordinatorConversationJournal());
+  assert.equal(await controller.open(scope), true);
+  await settle();
+  assert.equal(controller.get(scope).phase, 'ready');
+  assert.equal(controller.get(scope).conversation.schemaVersion, 4);
+  assert.equal(controller.get(scope).canonicalHistory.messages.length, 0);
+  assert.equal((await controller.send(scope, 'Ask Rhythm what to do today')).accepted, true);
+  await settle();
+  const message = log.find((entry) => entry.path.endsWith('/message'));
+  assert.deepEqual(Object.keys(message.body).sort(), ['commandKey', 'expectedControlRevision', 'message', 'projectId', 'sessionId']);
+  assert.equal(message.body.expectedControlRevision, 1);
+  assert.equal(controller.get(scope).pendingCommand, undefined);
+  assert.equal(controller.get(scope).conversation.controlRevision, 2);
+});
+
+test('a malformed or unknown-version schema 4 response holds the view, keeps the draft path closed, and sends nothing', async () => {
+  for (const [label, conversation] of [
+    ['string version', v4Conversation(1, { schemaVersion: '4' })],
+    ['unknown version 5', v4Conversation(1, { schemaVersion: 5 })],
+    ['missing owner', v4Conversation(1, { ownerUserId: undefined })],
+    ['array not object', v4Conversation(1, { commandDedupe: {} })],
+    ['foreign root', v4Conversation(1, { sessionId: 'foreign-root' })],
+  ]) {
+    const log = [];
+    const gateway = createLiveCoordinatorConversationGateway('http://local-api', v4Fetcher(log, { conversation }), undefined, 'invented-signed-in-token');
+    const controller = new CoordinatorConversationController(() => gateway, createMemoryCoordinatorConversationJournal());
+    assert.equal(await controller.open(scope), false, label);
+    await settle();
+    assert.equal(controller.get(scope).conversation, undefined, label);
+    assert.equal((await controller.send(scope, 'must not send')).accepted, false, label);
+    assert.equal(log.some((entry) => entry.path.endsWith('/message')), false, label);
+  }
+});
+
+test('a stale schema 4 response after the root changes does not retarget the new view or retire the pending command', async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const log = [];
+  const inner = v4Fetcher(log);
+  const journal = createMemoryCoordinatorConversationJournal();
+  const gateway = createLiveCoordinatorConversationGateway('http://local-api', async (url, init) => {
+    if (url.endsWith('/open')) await gate;
+    return inner(url, init);
+  }, undefined, 'invented-signed-in-token');
+  const controller = new CoordinatorConversationController(() => gateway, journal);
+  const opening = controller.open(scope);
+  await settle();
+  const other = { ...scope, sessionId: 'root-b' };
+  controller.activate(other);
+  release();
+  await opening;
+  await settle();
+  assert.equal(controller.get(scope).conversation, undefined);
+  assert.equal(controller.get(other).conversation, undefined);
+  assert.equal(log.some((entry) => entry.path.endsWith('/message')), false);
+});
+
+test('known schema 4 keeps finite planning behind exact consent and the existing primary gate', async () => {
+  const consent = {
+    totalTokenAuthorization: 20000, maxTurns: 2, maxWallTimeSeconds: 90, expiresInSeconds: 900,
+    acknowledgesSoftTotalTokenAuthorization: true, purpose: 'decompose',
+  };
+  const attempts = [];
+  const controller = new CoordinatorConversationController(() => ({
+    open: async () => ({ kind: 'replay', conversation: v4Conversation() }),
+    status: async () => v4Status(v4Conversation()),
+    message: async () => { throw new Error('ordinary message must not run'); },
+    preparePlan: async (input) => {
+      attempts.push(input);
+      return { kind: 'planned', conversation: v4Conversation(2), workstream: { workstream: { id: 'workstream-a', state: 'queued' }, readiness: { available: true }, jobs: [], budget: {} } };
+    },
+  }), createMemoryCoordinatorConversationJournal());
+  await controller.open(scope);
+  await settle();
+  // Consent is still required: an unacknowledged request never reaches the wire.
+  assert.equal(await controller.preparePlan(scope, 'goal-a', { ...consent, acknowledgesSoftTotalTokenAuthorization: false }), false);
+  assert.equal(attempts.length, 0);
+  assert.equal(await controller.preparePlan(scope, 'goal-a', consent), true);
+  assert.equal(attempts.length, 1);
+  assert.equal('schemaVersion' in attempts[0], false);
+  // A non-primary v4 record is never offered the finite controls.
+  const nonPrimary = new CoordinatorConversationController(() => ({
+    open: async () => ({ kind: 'replay', conversation: v4Conversation(1, { primaryOwnerRoot: false }) }),
+    status: async () => v4Status(v4Conversation(1, { primaryOwnerRoot: false })),
+    message: async () => { throw new Error('not used'); },
+    preparePlan: async () => { throw new Error('must not reach prepare wire'); },
+  }), createMemoryCoordinatorConversationJournal());
+  await nonPrimary.open(scope);
+  await settle();
+  assert.equal(await nonPrimary.preparePlan(scope, 'goal-a', consent), false);
+});

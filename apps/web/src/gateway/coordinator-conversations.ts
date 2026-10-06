@@ -39,8 +39,8 @@ export type CoordinatorContinuation = {
 };
 
 export type CoordinatorConversation = {
-  /** C1/C2 records remain readable while the current published record is v3. */
-  schemaVersion: 1 | 2 | 3;
+  /** C1/C2 records remain readable; v3 and v4 share one top-level DTO (v4 adds server command metadata only). */
+  schemaVersion: 1 | 2 | 3 | 4;
   id: string;
   sessionId: string;
   projectId: string;
@@ -301,8 +301,34 @@ function isContinuation(value: unknown): value is CoordinatorContinuation {
     (value.consumedTurns as number) <= (value.maxTurns as number) && string(value.expiresAt);
 }
 
+/** Literal known versions for the dedicated root protocol; an unknown, string or nested-authority version never qualifies. */
+export function isDedicatedCoordinatorSchema(version: unknown): version is 3 | 4 {
+  return version === 3 || version === 4;
+}
+
+const SCHEMA4_COLLECTION_LIMIT = 100;
+const SCHEMA4_OBJECTIVE_LIMIT = 4000;
+
+function isIsoTimestamp(value: unknown): boolean {
+  // Same rule as the published backend: a valid date whose canonical ISO form equals the input exactly.
+  if (typeof value !== 'string') return false;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value;
+}
+
+/** Published v4 requires every field the server emits; command/continuation arrays are opaque metadata. */
+function isSchema4Record(value: Record<string, unknown>): boolean {
+  return typeof value.primaryOwnerRoot === 'boolean' &&
+    Number.isSafeInteger(value.ownerUserId) && (value.ownerUserId as number) > 0 &&
+    Array.isArray(value.goals) && value.goals.length <= SCHEMA4_COLLECTION_LIMIT &&
+    value.goals.every((goal) => isRecord(goal) && (goal.objective as string).length <= SCHEMA4_OBJECTIVE_LIMIT) &&
+    Array.isArray(value.commandDedupe) && value.commandDedupe.length <= SCHEMA4_COLLECTION_LIMIT &&
+    Array.isArray(value.continuations) && value.continuations.length <= SCHEMA4_COLLECTION_LIMIT &&
+    isIsoTimestamp(value.createdAt) && isIsoTimestamp(value.updatedAt);
+}
+
 function isConversation(value: unknown, scope: Pick<CoordinatorConversationScope, 'sessionId' | 'projectId'>): value is CoordinatorConversation {
-  if (!isRecord(value) || (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3) || !string(value.id) ||
+  if (!isRecord(value) || (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4) || !string(value.id) ||
     value.sessionId !== scope.sessionId || value.projectId !== scope.projectId ||
     !Number.isSafeInteger(value.controlRevision) || (value.controlRevision as number) < 1 ||
     !Array.isArray(value.goals) || !value.goals.every(isGoal) ||
@@ -310,6 +336,7 @@ function isConversation(value: unknown, scope: Pick<CoordinatorConversationScope
     (value.continuations !== undefined && (!Array.isArray(value.continuations) || !value.continuations.every(isContinuation)))) return false;
   // Schema v3 is the current dedicated-root protocol. A missing primary bit
   // would make a response indistinguishable from an older generic record.
+  if (value.schemaVersion === 4) return isSchema4Record(value);
   return value.schemaVersion !== 3 ||
     (typeof value.primaryOwnerRoot === 'boolean' &&
       (value.ownerUserId === undefined || (Number.isSafeInteger(value.ownerUserId) && (value.ownerUserId as number) > 0)) &&
@@ -426,7 +453,7 @@ export function parseCoordinatorConversationResult(
   if ((kind === 'created' || kind === 'replay') && !isConversation(value.conversation, scope)) return undefined;
   if (kind === 'status' && (
     !isConversation(value.conversation, scope) ||
-    !isContext(value.context, value.conversation.schemaVersion === 3)
+    !isContext(value.context, isDedicatedCoordinatorSchema(value.conversation.schemaVersion))
   )) return undefined;
   if ((kind === 'created' || kind === 'replay') && value.goal !== undefined && !isGoal(value.goal)) return undefined;
   if (kind === 'planning_terminal_hold' || kind === 'planning_dispatch_hold') {
@@ -466,7 +493,7 @@ export function parseCoordinatorResolveResult(value: unknown, status: number): C
     // Resolve is the permanent C2 entry, not a general C1 lookup. Never let
     // an older/non-primary conversation redirect the client to a session.
     return isConversation(value.conversation, scope) &&
-      value.conversation.schemaVersion === 3 &&
+      isDedicatedCoordinatorSchema(value.conversation.schemaVersion) &&
       value.conversation.primaryOwnerRoot === true
       ? value as CoordinatorResolveResult
       : undefined;
@@ -503,7 +530,7 @@ export function parseCoordinatorSetupResult(value: unknown, status: number): Coo
       !Number.isSafeInteger(value.workspaceGeneration) || (value.workspaceGeneration as number) < 1) return undefined;
     const scope = { sessionId: value.sessionId, projectId: value.projectId };
     return isConversation(value.conversation, scope) &&
-      value.conversation.schemaVersion === 3 &&
+      isDedicatedCoordinatorSchema(value.conversation.schemaVersion) &&
       value.conversation.primaryOwnerRoot === true
       ? value as CoordinatorSetupResult
       : undefined;

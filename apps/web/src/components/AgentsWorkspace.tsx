@@ -693,7 +693,7 @@ export function AgentsWorkspace() {
     live &&
     gateway.domains.dayflowSourceConsent &&
     coordinator.state.enabled &&
-    coordinator.state.conversation?.schemaVersion === 3 &&
+    (coordinator.state.conversation?.schemaVersion === 3 || coordinator.state.conversation?.schemaVersion === 4) &&
     coordinator.state.conversation.primaryOwnerRoot === true &&
     coordinator.state.conversation.sessionId === selected.id &&
     coordinator.state.conversation.projectId === selected.projectId,
@@ -703,7 +703,7 @@ export function AgentsWorkspace() {
     const actorId = auth?.user.id;
     const conversation = coordinator.state.conversation;
     const selection = { sessionId: selected.id, projectId: selected.projectId };
-    if (!consentGateway || !actorId || !conversation || conversation.schemaVersion !== 3 || conversation.primaryOwnerRoot !== true ||
+    if (!consentGateway || !actorId || !conversation || (conversation.schemaVersion !== 3 && conversation.schemaVersion !== 4) || conversation.primaryOwnerRoot !== true ||
       conversation.sessionId !== selection.sessionId || conversation.projectId !== selection.projectId) {
       setDayflowConsentNotice('Dayflow source controls are unavailable for this chat.');
       return;

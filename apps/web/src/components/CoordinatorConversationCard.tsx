@@ -188,12 +188,12 @@ export function CoordinatorConversationCard({
                   Inspect linked workstream
                 </button>
               ) : null}
-              {onPreparePlan && state.conversation?.schemaVersion === 3 && state.conversation.primaryOwnerRoot === true && !goal.linkedWorkstreamId ? (
+              {onPreparePlan && (state.conversation?.schemaVersion === 3 || state.conversation?.schemaVersion === 4) && state.conversation.primaryOwnerRoot === true && !goal.linkedWorkstreamId ? (
                 <button className="link-button" type="button" disabled={busy || Boolean(state.pendingPlan)} onClick={() => setPlanningGoalId((current) => current === goal.id ? undefined : goal.id)}>
                   {planningGoalId === goal.id ? 'Hide managed planning consent' : 'Plan this goal'}
                 </button>
               ) : null}
-              {onContinuePlan && state.conversation?.schemaVersion === 3 && state.conversation.primaryOwnerRoot === true ? state.conversation?.continuations?.filter((continuation) =>
+              {onContinuePlan && (state.conversation?.schemaVersion === 3 || state.conversation?.schemaVersion === 4) && state.conversation.primaryOwnerRoot === true ? state.conversation?.continuations?.filter((continuation) =>
                 continuation.goalId === goal.id && continuation.status === 'consumed' && continuation.consumedTurns < continuation.maxTurns,
               ).map((continuation) => (
                 <button key={continuation.authorizationId} className="link-button" type="button" disabled={busy || Boolean(state.pendingPlan)} onClick={() => onContinuePlan(goal.id, continuation.authorizationId)}>

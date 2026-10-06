@@ -409,3 +409,115 @@ test('C2 foreground acknowledgement and bounded canonical history stay distinct 
     kind: 'history', conversation: c2Conversation(), messages: [{ ...canonicalRows[0], sessionId: 'foreign-root' }], nextCursor: null, hasMore: false,
   }, scope, 200), undefined);
 });
+
+// Known conversation schema 4 (installed f77): same top-level DTO as 3; the only addition is server command metadata.
+const delegationMetadata = {
+  key: 'synthetic-command', intentHash: 'a'.repeat(64), kind: 'delegate_goal', goalId: 'goal-a',
+  parentSdkSessionId: 'synthetic-sdk', targetAgentConfigId: 'workflow-orchestrator', state: 'dispatched',
+  delegationId: 'synthetic-delegation', childSessionId: 'synthetic-child',
+};
+const v4Conversation = (overrides = {}) => ({
+  ...c2Conversation(),
+  schemaVersion: 4,
+  commandDedupe: [delegationMetadata],
+  createdAt: '2026-10-06T04:00:00.000Z',
+  updatedAt: '2026-10-06T04:00:00.000Z',
+  ...overrides,
+});
+const completeContext = () => ({
+  timeZone: 'America/Los_Angeles', asOf: '2026-10-06T04:00:00.000Z', today: '2026-10-06', yesterday: '2026-10-05',
+  availability: {
+    tasks: { state: 'available' }, schedules: { state: 'available' }, workstreams: { state: 'available' },
+    receipts: { state: 'available' }, manualActivity: { state: 'not_configured' }, rhythms: { state: 'available' },
+  },
+  todayTasks: [], waitingForReply: [], doneWithUnknownCompletionDate: [], scheduledPriorities: [], activeWorkstreams: [],
+  executionSucceededGoalUnverified: [], staleExecutions: [], verifiedYesterday: [], usageHolds: [], receipts: [],
+  coverage: {}, activeRhythms: [], manualActivity: [], manualActivityDependency: null, modelContext: {},
+});
+const rootIds = { sessionId: 'root-a', projectId: 'project-a' };
+
+test('known schema 4 decodes through every dedicated envelope and keeps schemas 1-3 readable', () => {
+  const parse = gatewayModule.parseCoordinatorConversationResult;
+  assert.equal(parse({ kind: 'replay', conversation: v4Conversation() }, scope, 200)?.conversation.schemaVersion, 4);
+  assert.equal(parse({ kind: 'created', conversation: v4Conversation() }, scope, 201)?.kind, 'created');
+  assert.equal(parse({ kind: 'foreground_accepted', conversation: v4Conversation() }, scope, 200)?.kind, 'foreground_accepted');
+  assert.equal(parse({ kind: 'status', conversation: v4Conversation(), context: completeContext() }, scope, 200)?.kind, 'status');
+  assert.equal(gatewayModule.parseCoordinatorResolveResult({
+    kind: 'resolved', created: false, ...rootIds, conversation: v4Conversation(),
+  }, 200)?.kind, 'resolved');
+  assert.equal(gatewayModule.parseCoordinatorSetupResult({
+    kind: 'setup_replay', ...rootIds, profileId: 'profile-a', workspaceGeneration: 1, conversation: v4Conversation(),
+  }, 200)?.kind, 'setup_replay');
+  assert.equal(gatewayModule.parseCoordinatorHistoryResult({
+    kind: 'history', conversation: v4Conversation(), messages: [], nextCursor: null, hasMore: false,
+  }, scope, 200)?.kind, 'history');
+  assert.equal(gatewayModule.parseCoordinatorPlanResult({
+    kind: 'planned', conversation: v4Conversation(), workstream: plannedWorkstream(),
+  }, scope, 200)?.kind, 'planned');
+  // Nested continuation authority metadata is unrelated to the conversation version.
+  assert.equal(parse({ kind: 'replay', conversation: v4Conversation({ continuations: [{ ...c2Conversation().continuations[0], schemaVersion: 5 }] }) }, scope, 200)?.kind, 'replay');
+  // Legacy and current-v3 behavior is unchanged.
+  assert.equal(parse({ kind: 'replay', conversation: conversation() }, scope, 200)?.kind, 'replay');
+  assert.equal(parse({ kind: 'replay', conversation: c2Conversation() }, scope, 200)?.kind, 'replay');
+  assert.equal(gatewayModule.parseCoordinatorResolveResult({
+    kind: 'resolved', created: false, ...rootIds, conversation: c2Conversation(),
+  }, 200)?.kind, 'resolved');
+});
+
+test('schema 4 holds on unknown versions, malformed required fields, foreign identity and non-primary dedicated roots', () => {
+  const parse = gatewayModule.parseCoordinatorConversationResult;
+  const mutations = [
+    { schemaVersion: 5 }, { schemaVersion: 99 }, { schemaVersion: '4' }, { schemaVersion: 4.5 },
+    { ownerUserId: '7' }, { ownerUserId: 0 }, { ownerUserId: undefined },
+    { primaryOwnerRoot: 'true' }, { primaryOwnerRoot: undefined },
+    { controlRevision: 0 }, { controlRevision: 1.5 },
+    { sessionId: 'foreign-root' }, { projectId: 'foreign-project' },
+    { goals: {} }, { commandDedupe: {} }, { commandDedupe: undefined }, { continuations: {} }, { continuations: undefined },
+    { createdAt: false }, { createdAt: '' }, { createdAt: 'not a date' }, { updatedAt: undefined },
+    // Date.parse-valid but noncanonical: the backend requires new Date(v).toISOString() === v.
+    { createdAt: '1' }, { createdAt: 'January 1, 2026' }, { updatedAt: '1' }, { updatedAt: 'January 1, 2026' },
+    { createdAt: '2026-10-06T04:00:00Z' }, { updatedAt: '2026-10-06' },
+    { commandDedupe: Array.from({ length: 101 }, () => delegationMetadata) },
+    { goals: Array.from({ length: 101 }, (_, index) => ({ ...c2Conversation().goals[0], id: `goal-${index}` })) },
+    { goals: [{ ...c2Conversation().goals[0], objective: 'x'.repeat(4001) }] },
+  ];
+  for (const mutation of mutations) {
+    assert.equal(parse({ kind: 'replay', conversation: v4Conversation(mutation) }, scope, 200), undefined, JSON.stringify(mutation).slice(0, 80));
+  }
+  // Dedicated entry never accepts a non-primary v4 root, an unknown version, or legacy 1/2.
+  assert.equal(gatewayModule.parseCoordinatorResolveResult({
+    kind: 'resolved', created: false, ...rootIds, conversation: v4Conversation({ primaryOwnerRoot: false }),
+  }, 200), undefined);
+  assert.equal(gatewayModule.parseCoordinatorSetupResult({
+    kind: 'setup_created', ...rootIds, profileId: 'profile-a', workspaceGeneration: 1, conversation: v4Conversation({ primaryOwnerRoot: false }),
+  }, 201), undefined);
+  assert.equal(gatewayModule.parseCoordinatorResolveResult({
+    kind: 'resolved', created: false, ...rootIds, conversation: v4Conversation({ schemaVersion: 5 }),
+  }, 200), undefined);
+  assert.equal(gatewayModule.parseCoordinatorResolveResult({
+    kind: 'resolved', created: false, ...rootIds, conversation: conversation(),
+  }, 200), undefined);
+  // v4 status requires the complete current context, never the relaxed legacy branch.
+  const { coverage: _coverage, ...incomplete } = completeContext();
+  assert.equal(parse({ kind: 'status', conversation: v4Conversation(), context: incomplete }, scope, 200), undefined);
+  assert.equal(parse({ kind: 'status', conversation: v4Conversation(), context: { ...completeContext(), modelContext: null } }, scope, 200), undefined);
+  assert.equal(gatewayModule.isDedicatedCoordinatorSchema(4), true);
+  assert.equal(gatewayModule.isDedicatedCoordinatorSchema(3), true);
+  for (const version of [1, 2, 5, '3', '4', undefined]) assert.equal(gatewayModule.isDedicatedCoordinatorSchema(version), false);
+});
+
+test('a schema 4 foreground acknowledgement uses a byte-equivalent request body and no schema field', async () => {
+  const bodies = [];
+  const gateway = gatewayModule.createLiveCoordinatorConversationGateway('http://local-api', async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    return { status: 200, json: async () => ({ kind: 'foreground_accepted', conversation: v4Conversation() }) };
+  }, undefined, 'invented-signed-in-token');
+  const result = await gateway.message({
+    ...scope, expectedControlRevision: 1, commandKey: 'v4-command', message: 'Ask Rhythm what to do today',
+  });
+  assert.equal(result.kind, 'foreground_accepted');
+  assert.deepEqual(bodies, [{
+    sessionId: 'root-a', projectId: 'project-a', expectedControlRevision: 1,
+    commandKey: 'v4-command', message: 'Ask Rhythm what to do today',
+  }]);
+});
