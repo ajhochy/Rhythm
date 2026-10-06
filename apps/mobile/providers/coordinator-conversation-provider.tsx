@@ -8,6 +8,7 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react';
+import { usePathname } from 'expo-router';
 import { AppState } from 'react-native';
 
 import {
@@ -54,6 +55,8 @@ type CoordinatorConversationContextValue = {
   reviewConflict: () => Promise<boolean>;
   beginNewMessageAfterReview: () => Promise<boolean>;
   returnToNormal: () => void;
+  /** Synchronous early fence for known explicit navigation (Back, ordinary chat, new chat). */
+  revokePrimaryIntent: () => void;
   /** Ephemeral navigation state for the server-owned permanent Rhythm root. */
   primaryEntry: PrimaryEntry;
   resolvePrimary: () => Promise<boolean>;
@@ -80,6 +83,8 @@ type PendingPrimaryRoot = {
   projectOpenRequested?: boolean;
   /** No paired SDK catalog row exists for this server-owned root. */
   inertBindingRequested?: boolean;
+  /** Set only for a transport-replacement requalification; its intent must stay current across every await. */
+  requalification?: PrimaryIntent;
   coordinatorOpenRequested?: boolean;
 };
 
@@ -117,6 +122,45 @@ type ServerPrimaryBinding = {
   binding: MobileCoordinatorBinding;
 };
 
+/**
+ * The user's explicit choice to view the server-owned primary, retained across a
+ * transport (paired-client) replacement. It is NOT a binding, SDK row, response
+ * body, canonical state or grant: it only lets the provider make ONE fresh
+ * read-only resolve through the new current client for the exact same scope.
+ */
+type PrimaryIntent = {
+  userId: number;
+  hostId: string;
+  deviceId: string;
+  actorKey: string;
+  projectId: string;
+  localRoot: string;
+  /** The ordinary selection the primary was opened over (undefined = none). */
+  originUiSessionId?: string;
+  /** Route where the explicit entry happened (the Agents screen), before the chat route is reached. */
+  creationPath: string;
+  /** True once the user is on the primary chat route; from then on ANY other route revokes it for good. */
+  bound: boolean;
+  /** Route epoch observed when it became bound; a later epoch (leave and re-enter) never revives it. */
+  routeEpoch: number;
+  /** Last paired client seen for this intent. Only a REPLACEMENT of it arms requalification. */
+  lastClient: object | null;
+  armed: boolean;
+};
+
+/** The route `agents.tsx` pushes after the explicit Rhythm entry (app/agents/chat.tsx). */
+const PRIMARY_ROUTE = '/agents/chat';
+
+function intentBinding(intent: PrimaryIntent): MobileCoordinatorBinding {
+  return {
+    actorKey: intent.actorKey,
+    projectId: intent.projectId,
+    sessionId: intent.localRoot,
+    uiSessionId: `server-primary:${intent.localRoot}`,
+    source: 'server_primary',
+  };
+}
+
 export function CoordinatorConversationProvider({ children }: PropsWithChildren) {
   const account = useRhythmAccount();
   const pairedHost = usePairedHost();
@@ -124,8 +168,10 @@ export function CoordinatorConversationProvider({ children }: PropsWithChildren)
     activeProject,
     activeProjectPath,
     activeSession,
+    connection,
     coordinatorSessionProvenance,
     currentSessionId,
+    isHydrated,
     openProjectSessionState,
     openProjectSession,
     refreshWorkspaceCatalog,
@@ -160,8 +206,52 @@ export function CoordinatorConversationProvider({ children }: PropsWithChildren)
   const activeProjectPathRef = useRef(activeProjectPath);
   activeProjectPathRef.current = activeProjectPath;
   const primaryGenerationRef = useRef(0);
+  const primaryIntentRef = useRef<PrimaryIntent | null>(null);
+  const previousPointerPresentRef = useRef(false);
+  const accountUserIdRef = useRef(account.user?.id);
+  accountUserIdRef.current = account.user?.id;
+  const pairedHostRecordRef = useRef(pairedHost.host);
+  pairedHostRecordRef.current = pairedHost.host;
+  const currentSessionIdRef = useRef(currentSessionId);
+  currentSessionIdRef.current = currentSessionId;
+  // Actual router identity. The provider wraps the whole Stack, so project/session equality cannot show that the
+  // user left the chat route; every observed pathname change advances a monotonic local route epoch.
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  const routeEpochRef = useRef(0);
+  if (pathnameRef.current !== pathname) {
+    pathnameRef.current = pathname;
+    routeEpochRef.current += 1;
+  }
   const pendingPrimaryRef = useRef<PendingPrimaryRoot | null>(null);
   const pendingSetupRef = useRef<PendingPrimarySetup | null>(null);
+  // ponytail: optional chaining only because provider tests mock useOpencode without `connection`.
+  const connectionStatus = connection?.status;
+  const connectionStatusRef = useRef(connectionStatus);
+  connectionStatusRef.current = connectionStatus;
+
+  /** Synchronous: reads refs updated during render, so it is also valid right after an await. */
+  const intentStillCurrent = useCallback((intent: PrimaryIntent): boolean => {
+    if (primaryIntentRef.current !== intent) return false;
+    const host = pairedHostRecordRef.current;
+    if (
+      accountUserIdRef.current !== intent.userId ||
+      host?.hostId !== intent.hostId ||
+      host?.deviceId !== intent.deviceId ||
+      actorKeyRef.current !== intent.actorKey
+    ) return false;
+    const path = pathnameRef.current;
+    if (intent.bound) return path === PRIMARY_ROUTE && routeEpochRef.current === intent.routeEpoch;
+    return path === intent.creationPath || path === PRIMARY_ROUTE;
+  }, []);
+  /** Revoke for good; cancels an in-flight requalification so a late result cannot publish. */
+  const revokePrimaryIntent = useCallback(() => {
+    const intent = primaryIntentRef.current;
+    if (!intent) return;
+    primaryIntentRef.current = null;
+    primaryGenerationRef.current += 1;
+    if (pendingPrimaryRef.current?.requalification) pendingPrimaryRef.current = null;
+  }, []);
   const [primaryEntry, setPrimaryEntry] = useState<PrimaryEntry>({ phase: 'idle' });
   // A same-project resolve does not change the catalog props, so it needs an
   // explicit render tick to begin the server-root transition.
@@ -305,6 +395,7 @@ export function CoordinatorConversationProvider({ children }: PropsWithChildren)
   useEffect(() => () => controller.dispose(), [controller]);
   useEffect(() => () => {
     primaryGenerationRef.current += 1;
+    primaryIntentRef.current = null;
     pendingPrimaryRef.current = null;
     pendingSetupRef.current = null;
   }, []);
@@ -313,8 +404,9 @@ export function CoordinatorConversationProvider({ children }: PropsWithChildren)
     pendingPrimaryRef.current === pending &&
     primaryGenerationRef.current === pending.generation &&
     actorKeyRef.current === pending.actorKey &&
-    pairedClientRef.current === pending.client
-  ), []);
+    pairedClientRef.current === pending.client &&
+    (!pending.requalification || intentStillCurrent(pending.requalification))
+  ), [intentStillCurrent]);
 
   // An account/paired-host change makes a previously resolved root
   // inaccessible. Keep ordinary chat intact and never let the old response
@@ -329,6 +421,30 @@ export function CoordinatorConversationProvider({ children }: PropsWithChildren)
     pendingSetupRef.current = null;
     setPrimaryEntry({ phase: 'idle', notice: 'Rhythm selection changed. Ordinary chats remain available.' });
   }, [actorKey, pairedHost.client]);
+
+  // Revocation. Route exit and explicit selection/identity change end the intent for good; an undefined
+  // project/selection/host value is transport clearing and is neither authority nor a reason to revoke.
+  useEffect(() => {
+    const intent = primaryIntentRef.current;
+    if (!intent) return;
+    const host = pairedHost.host;
+    if (
+      account.user?.id !== intent.userId ||
+      !host || host.hostId !== intent.hostId || host.deviceId !== intent.deviceId ||
+      (activeProjectPath !== undefined && activeProjectPath !== intent.projectId) ||
+      (currentSessionId !== undefined && currentSessionId !== intent.originUiSessionId) ||
+      (intent.bound
+        ? pathname !== PRIMARY_ROUTE || routeEpochRef.current !== intent.routeEpoch
+        : pathname !== intent.creationPath && pathname !== PRIMARY_ROUTE)
+    ) {
+      revokePrimaryIntent();
+      return;
+    }
+    if (!intent.bound && pathname === PRIMARY_ROUTE) {
+      intent.bound = true;
+      intent.routeEpoch = routeEpochRef.current;
+    }
+  }, [account.user?.id, activeProjectPath, currentSessionId, pairedHost.host, pathname, revokePrimaryIntent]);
 
   useEffect(() => {
     setServerPrimaryBinding((current) => {
@@ -350,6 +466,7 @@ export function CoordinatorConversationProvider({ children }: PropsWithChildren)
     actorKey: string;
     client: Parameters<typeof createPairedCoordinatorConversationGateway>[0];
     originProjectId: string;
+    requalification?: PrimaryIntent;
   }): boolean => {
     if (result.conversation.primaryOwnerRoot !== true) {
       setPrimaryEntry({ phase: 'unavailable', notice: 'Rhythm could not confirm its server-bound root. Ordinary chats remain available.' });
@@ -363,6 +480,7 @@ export function CoordinatorConversationProvider({ children }: PropsWithChildren)
       projectId: result.projectId,
       sessionId: result.sessionId,
       phase: 'switching_project',
+      ...(input.requalification ? { requalification: input.requalification } : {}),
     };
     pendingPrimaryRef.current = pending;
     setPrimaryNavigationRevision((revision) => revision + 1);
@@ -373,11 +491,76 @@ export function CoordinatorConversationProvider({ children }: PropsWithChildren)
     return true;
   }, [selectProject]);
 
+  // Requalification: ONLY a proven transport-only client replacement (same user/host/device, connected to
+  // connected) arms ONE fresh read-only resolve through the new client. A pointer merely disappearing never does.
+  useEffect(() => {
+    const intent = primaryIntentRef.current;
+    const client = pairedHost.client;
+    if (!intent) return;
+    if (client !== intent.lastClient) {
+      if (intent.lastClient && client && intent.bound && intent.hostId === pairedHost.host?.hostId &&
+        intent.deviceId === pairedHost.host?.deviceId && pairedHost.state === 'connected') {
+        intent.armed = true;
+      }
+      intent.lastClient = client;
+    }
+    if (
+      !intent.armed || !client || !intentStillCurrent(intent) ||
+      pairedHost.state !== 'connected' || connectionStatus !== 'connected' || !isHydrated ||
+      activeProjectPath !== intent.projectId || activeProject?.id !== intent.projectId ||
+      !registeredGatewayProjectIds.has(intent.projectId) || currentSessionId !== intent.originUiSessionId
+    ) return;
+    intent.armed = false;
+    // A pending command is never carried into new authority: stay unavailable instead.
+    if (!controller.discardCanonicalView(intentBinding(intent))) {
+      revokePrimaryIntent();
+      setPrimaryEntry({ phase: 'unavailable', notice: 'Rhythm could not be restored. Ordinary chats remain available.' });
+      return;
+    }
+    const generation = ++primaryGenerationRef.current;
+    pendingPrimaryRef.current = null;
+    const current = () => (
+      generation === primaryGenerationRef.current &&
+      pairedClientRef.current === client &&
+      intentStillCurrent(intent) &&
+      connectionStatusRef.current === 'connected' &&
+      activeProjectPathRef.current === intent.projectId &&
+      currentSessionIdRef.current === intent.originUiSessionId
+    );
+    setPrimaryEntry({ phase: 'resolving', notice: 'Restoring your Rhythm chat…' });
+    void createPairedCoordinatorConversationGateway(client).resolve!({ projectId: intent.projectId }).then((result) => {
+      if (!current()) return;
+      if (
+        result.kind !== 'resolved' || result.conversation.primaryOwnerRoot !== true ||
+        result.projectId !== intent.projectId || result.sessionId !== intent.localRoot
+      ) {
+        revokePrimaryIntent();
+        setPrimaryEntry({ phase: 'unavailable', notice: 'Rhythm could not be restored. Ordinary chats remain available.' });
+        return;
+      }
+      beginPrimaryNavigation(result, {
+        generation,
+        actorKey: intent.actorKey,
+        client,
+        originProjectId: intent.projectId,
+        requalification: intent,
+      });
+    }).catch(() => {
+      if (!current()) return;
+      setPrimaryEntry({ phase: 'unavailable', notice: 'Rhythm could not be reached. Ordinary chats remain available.' });
+    });
+  }, [
+    activeProject, activeProjectPath, beginPrimaryNavigation, connectionStatus, controller, currentSessionId,
+    intentStillCurrent, isHydrated, pairedHost.client, pairedHost.host, pairedHost.state,
+    registeredGatewayProjectIds, revokePrimaryIntent,
+  ]);
+
   const resolvePrimary = useCallback(async (): Promise<boolean> => {
     const client = pairedHost.client;
     const projectId = activeProjectPath?.trim();
     const currentActor = actorKey;
     const generation = ++primaryGenerationRef.current;
+    primaryIntentRef.current = null;
     pendingPrimaryRef.current = null;
     pendingSetupRef.current = null;
     setServerPrimaryBinding(null);
@@ -500,6 +683,7 @@ export function CoordinatorConversationProvider({ children }: PropsWithChildren)
       return false;
     }
     const generation = ++primaryGenerationRef.current;
+    primaryIntentRef.current = null;
     const attempt: PendingPrimarySetup = { ...current, generation };
     pendingSetupRef.current = attempt;
     setPrimaryEntry({
@@ -666,6 +850,25 @@ export function CoordinatorConversationProvider({ children }: PropsWithChildren)
       // changes the normal selection beneath it or its paired scope changes.
       pending.inertBindingRequested = true;
       pending.phase = 'opening_coordination';
+      const host = pairedHostRecordRef.current;
+      const userId = accountUserIdRef.current;
+      if (!pending.requalification && host && userId !== undefined) {
+        const here = pathnameRef.current;
+        primaryIntentRef.current = {
+          userId,
+          hostId: host.hostId,
+          deviceId: host.deviceId,
+          actorKey: pending.actorKey,
+          projectId: pending.projectId,
+          localRoot: pending.sessionId,
+          originUiSessionId: currentSessionId,
+          creationPath: here,
+          bound: here === PRIMARY_ROUTE,
+          routeEpoch: routeEpochRef.current,
+          lastClient: pending.client,
+          armed: false,
+        };
+      }
       setServerPrimaryBinding({
         actorKey: pending.actorKey,
         client: pending.client,
@@ -682,6 +885,8 @@ export function CoordinatorConversationProvider({ children }: PropsWithChildren)
       return;
     }
     if (pending.projectOpenRequested) return;
+    // A catalog row now carries this root, so ordinary catalog eligibility owns it; no inert intent remains.
+    primaryIntentRef.current = null;
     pending.projectOpenRequested = true;
     pending.phase = 'opening_root';
     setPrimaryEntry({ phase: 'opening_root', notice: 'Opening the current paired Rhythm root…' });
@@ -744,12 +949,15 @@ export function CoordinatorConversationProvider({ children }: PropsWithChildren)
   const reviewConflict = useCallback(() => binding ? controller.reviewConflict(binding) : Promise.resolve(false), [binding, controller]);
   const beginNewMessageAfterReview = useCallback(() => binding ? controller.beginNewMessageAfterReview(binding) : Promise.resolve(false), [binding, controller]);
   const returnToNormal = useCallback(() => {
+    // Revoke even when no binding is visible (e.g. during a replacement-client read).
+    const hadIntent = primaryIntentRef.current !== null;
+    revokePrimaryIntent();
     if (binding) controller.returnToNormal(binding);
-    if (binding?.source === 'server_primary') {
+    if (binding?.source === 'server_primary' || hadIntent) {
       setServerPrimaryBinding(null);
       setPrimaryEntry({ phase: 'idle', notice: 'Returned to normal chat.' });
     }
-  }, [binding, controller]);
+  }, [binding, controller, revokePrimaryIntent]);
 
   const value = useMemo<CoordinatorConversationContextValue>(() => ({
     eligibility: effectiveEligibility,
@@ -766,6 +974,7 @@ export function CoordinatorConversationProvider({ children }: PropsWithChildren)
     reviewConflict,
     beginNewMessageAfterReview,
     returnToNormal,
+    revokePrimaryIntent,
     primaryEntry,
     resolvePrimary,
     setupPrimary,
@@ -784,6 +993,7 @@ export function CoordinatorConversationProvider({ children }: PropsWithChildren)
     resolvePrimary,
     setupPrimary,
     returnToNormal,
+    revokePrimaryIntent,
     send,
     state,
     effectiveEligibility,

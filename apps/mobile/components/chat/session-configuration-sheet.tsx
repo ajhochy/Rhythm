@@ -65,6 +65,8 @@ export type SessionSettingsGate = {
   scopeNote?: string;
   /** Fast is supported and known for this target. */
   showFast?: boolean;
+  /** Canonical values are not ready: show honest placeholders instead of ordinary defaults. */
+  valuesUnavailable?: 'loading' | 'unavailable';
 };
 
 const REASONING_OPTIONS: {
@@ -133,6 +135,9 @@ export function SessionConfigurationSheet({
 }: SessionConfigurationSheetProps) {
   const settingsLocked = mode === 'edit' && Boolean(settingsGate?.unavailableReason);
   const modelOnly = mode === 'edit' && Boolean(settingsGate?.modelOnly);
+  const placeholder = mode === 'edit' && settingsGate?.valuesUnavailable
+    ? settingsGate.valuesUnavailable === 'loading' ? 'Loading…' : 'Unavailable'
+    : undefined;
   const [page, setPage] = useState<'summary' | 'profiles' | 'models' | 'projects' | 'approvals'>(
     'summary',
   );
@@ -520,10 +525,10 @@ export function SessionConfigurationSheet({
                   <>
                     <View style={[styles.summaryGroup, { backgroundColor: palette.surfaceAlt }]}>
                       <List.Item
-                        accessibilityLabel={`Profile, ${selectedProfile?.label ?? 'Unassigned'}`}
+                        accessibilityLabel={`Profile, ${placeholder ?? selectedProfile?.label ?? 'Unassigned'}`}
                         accessibilityRole="button"
                         disabled={busy || availableProfiles.length === 0 || modelOnly}
-                        description={selectedProfile?.label ?? 'Unassigned'}
+                        description={placeholder ?? selectedProfile?.label ?? 'Unassigned'}
                         descriptionNumberOfLines={1}
                         left={(props) => <List.Icon {...props} icon="account-outline" />}
                         onPress={() => {
@@ -539,10 +544,10 @@ export function SessionConfigurationSheet({
                       />
                       <Divider />
                       <List.Item
-                        accessibilityLabel={`Model, ${selectedModelLabel(availableModels, draft.modelId, draft.modelMode)}`}
+                        accessibilityLabel={`Model, ${placeholder ?? selectedModelLabel(availableModels, draft.modelId, draft.modelMode)}`}
                         accessibilityRole="button"
                         disabled={busy || modelGroups.length === 0 || settingsLocked}
-                        description={selectedModelLabel(availableModels, draft.modelId, draft.modelMode)}
+                        description={placeholder ?? selectedModelLabel(availableModels, draft.modelId, draft.modelMode)}
                         descriptionNumberOfLines={1}
                         left={(props) => <List.Icon {...props} icon="cube-outline" />}
                         onPress={() => {
@@ -581,9 +586,9 @@ export function SessionConfigurationSheet({
                       ) : null}
                       <Divider />
                       <List.Item
-                        accessibilityLabel={`Approval Policy, ${selectedApproval?.label ?? 'Choose policy'}`}
+                        accessibilityLabel={`Approval Policy, ${placeholder ?? selectedApproval?.label ?? 'Choose policy'}`}
                         accessibilityRole="button"
-                        description={selectedApproval?.label ?? 'Choose policy'}
+                        description={placeholder ?? selectedApproval?.label ?? 'Choose policy'}
                         descriptionNumberOfLines={1}
                         disabled={busy || modelOnly}
                         left={(props) => <List.Icon {...props} icon="shield-check-outline" />}
@@ -612,7 +617,7 @@ export function SessionConfigurationSheet({
                             reasoning: value as ChatPreferences['reasoning'],
                           });
                         }}
-                        value={draft.reasoning}
+                        value={placeholder ? '' : draft.reasoning}
                       />
                     </View>
                     {mode === 'edit' && settingsGate?.showFast && draft.fastMode !== undefined ? (

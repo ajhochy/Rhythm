@@ -222,6 +222,9 @@ export function ChatView() {
         ? 'Chat settings are not available for this chat on this Mac yet.'
         : 'Loading chat settings…'
       : undefined,
+    valuesUnavailable: settingsTarget?.identity === 'local-primary' && settingsEntry?.status !== 'ready'
+      ? settingsEntry?.status === 'unsupported' ? 'unavailable' as const : 'loading' as const
+      : undefined,
     scopeNote: settingsTarget?.identity === 'local-primary'
       ? 'Model, reasoning and Fast are saved to this Rhythm chat.'
       : undefined,
@@ -670,6 +673,7 @@ export function ChatView() {
     title: string | undefined,
     preferences: ChatPreferences,
   ) {
+    coordinator.revokePrimaryIntent();
     setIsCreatingSession(true);
     try {
       const session = await createSession(title, { preferences });
@@ -690,6 +694,7 @@ export function ChatView() {
   }
 
   function navigateBackToChats() {
+    coordinator.revokePrimaryIntent();
     if (router.canGoBack()) {
       router.back();
       return;
@@ -794,8 +799,9 @@ export function ChatView() {
           connectionStatus={connection.status}
           coordinatorEligible={coordinatorEligible}
           conversation={conversation}
-          contextLimit={contextModel?.contextLimit}
-          contextTokens={selectedSession?.tokens?.input}
+          displayTitle={coordinator.state.enabled && coordinator.binding ? 'Rhythm' : undefined}
+          contextLimit={coordinator.binding?.source === 'server_primary' ? undefined : contextModel?.contextLimit}
+          contextTokens={coordinator.binding?.source === 'server_primary' ? undefined : selectedSession?.tokens?.input}
           currentSessionId={currentSessionId}
           isUsageLoading={isRefreshingMessages}
           insetsTop={insets.top}
@@ -810,6 +816,7 @@ export function ChatView() {
           onConfirmStopConversation={handleConfirmStopConversation}
           onCreateSession={() => setNewSessionSheetVisible(true)}
           onOpenSession={(sessionId) => {
+            coordinator.revokePrimaryIntent();
             setSessionMenuVisible(false);
             router.replace({
               pathname: '/agents/chats/[sessionId]',

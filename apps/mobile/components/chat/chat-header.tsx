@@ -56,6 +56,8 @@ type ChatHeaderProps = {
   /** Opening the configuration is read-only; the owner may probe canonical settings. */
   onSettingsOpened?: () => void;
   settingsGate?: SessionSettingsGate;
+  /** Display-only title for the enabled primary; no Session row is forged. */
+  displayTitle?: string;
   onUpdateSessionPreferences: (
     preferences: Partial<ChatPreferences>,
   ) => Promise<ChatPreferences>;
@@ -84,6 +86,7 @@ export function ChatHeader({
   insetsTop,
   isCreatingSession,
   diffCount,
+  displayTitle,
   showingChanges,
   onBack,
   onCloseMenu,
@@ -149,7 +152,7 @@ export function ChatHeader({
               <View style={styles.headerSessionContent}>
                 <View style={styles.headerSessionTextWrap}>
                   <Text numberOfLines={1} variant="titleMedium" style={[styles.headerTitle, { color: palette.text }]}>
-                    {selectedSession?.title || 'Untitled chat'}
+                    {displayTitle ?? (selectedSession?.title || 'Untitled chat')}
                   </Text>
                   <NativeText numberOfLines={1} accessibilityLabel={`Chat status: ${subtitle}`} style={[styles.headerUsage, { color: palette.muted }]}>
                     {subtitle}
@@ -339,7 +342,7 @@ export function ChatHeader({
             latestUserText={conversation.latestHeardText}
             onStop={onConfirmStopConversation}
             phase={conversation.phase}
-            sessionTitle={selectedSession?.title || 'Untitled chat'}
+            sessionTitle={displayTitle ?? (selectedSession?.title || 'Untitled chat')}
           />
         ) : null}
         {usageVisible ? (
