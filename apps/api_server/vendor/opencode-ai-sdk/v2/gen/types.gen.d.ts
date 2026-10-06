@@ -309,7 +309,7 @@ export type ContextOverflowError = {
         responseBody?: string;
     };
 };
-export type Event = EventTuiCommandExecute | EventTuiPromptAppend | EventTuiSessionSelect | EventCommandExecuted | EventFileEdited | EventFileWatcherUpdated | EventGlobalDisposed | EventInstallationUpdateAvailable | EventInstallationUpdated | EventLspClientDiagnostics | EventLspUpdated | EventMcpBrowserOpenFailed | EventMcpToolsChanged | EventMessagePartDelta | EventMessagePartRemoved | EventMessagePartUpdated | EventMessageRemoved | EventMessageUpdated | EventPermissionAsked | EventPermissionReplied | EventProjectUpdated | EventPtyCreated | EventPtyDeleted | EventPtyExited | EventPtyUpdated | EventQuestionAsked | EventQuestionRejected | EventQuestionReplied | EventServerConnected | EventServerInstanceDisposed | EventSessionCompacted | EventSessionCreated | EventSessionDeleted | EventSessionDiff | EventSessionError | EventSessionIdle | EventSessionNextAgentSwitched | EventSessionNextCompactionDelta | EventSessionNextCompactionEnded | EventSessionNextCompactionStarted | EventSessionNextModelSwitched | EventSessionNextPrompted | EventSessionNextReasoningDelta | EventSessionNextReasoningEnded | EventSessionNextReasoningStarted | EventSessionNextRetried | EventSessionNextShellEnded | EventSessionNextShellStarted | EventSessionNextStepEnded | EventSessionNextStepFailed | EventSessionNextStepStarted | EventSessionNextSynthetic | EventSessionNextTextDelta | EventSessionNextTextEnded | EventSessionNextTextStarted | EventSessionNextToolCalled | EventSessionNextToolFailed | EventSessionNextToolInputDelta | EventSessionNextToolInputEnded | EventSessionNextToolInputStarted | EventSessionNextToolProgress | EventSessionNextToolSuccess | EventSessionStatus | EventSessionUpdated | EventTodoUpdated | EventTuiToastShow1 | EventVcsBranchUpdated | EventWorkspaceFailed | EventWorkspaceReady | EventWorkspaceStatus | EventWorktreeFailed | EventWorktreeReady;
+export type Event = EventTuiCommandExecute | EventTuiPromptAppend | EventTuiSessionSelect | EventCommandExecuted | EventFileEdited | EventFileWatcherUpdated | EventGlobalDisposed | EventInstallationUpdateAvailable | EventInstallationUpdated | EventLspClientDiagnostics | EventLspUpdated | EventMcpBrowserOpenFailed | EventMcpMetadataChanged | EventMcpToolsChanged | EventMessagePartDelta | EventMessagePartRemoved | EventMessagePartUpdated | EventMessageRemoved | EventMessageUpdated | EventPermissionAsked | EventPermissionReplied | EventProjectUpdated | EventPtyCreated | EventPtyDeleted | EventPtyExited | EventPtyUpdated | EventQuestionAsked | EventQuestionRejected | EventQuestionReplied | EventServerConnected | EventServerInstanceDisposed | EventSessionCompacted | EventSessionCreated | EventSessionDeleted | EventSessionDiff | EventSessionError | EventSessionIdle | EventSessionNextAgentSwitched | EventSessionNextCompactionDelta | EventSessionNextCompactionEnded | EventSessionNextCompactionStarted | EventSessionNextModelSwitched | EventSessionNextPrompted | EventSessionNextReasoningDelta | EventSessionNextReasoningEnded | EventSessionNextReasoningStarted | EventSessionNextRetried | EventSessionNextShellEnded | EventSessionNextShellStarted | EventSessionNextStepEnded | EventSessionNextStepFailed | EventSessionNextStepStarted | EventSessionNextSynthetic | EventSessionNextTextDelta | EventSessionNextTextEnded | EventSessionNextTextStarted | EventSessionNextToolCalled | EventSessionNextToolFailed | EventSessionNextToolInputDelta | EventSessionNextToolInputEnded | EventSessionNextToolInputStarted | EventSessionNextToolProgress | EventSessionNextToolSuccess | EventSessionStatus | EventSessionUpdated | EventTodoUpdated | EventTuiToastShow1 | EventVcsBranchUpdated | EventWorkspaceFailed | EventWorkspaceReady | EventWorkspaceStatus | EventWorktreeFailed | EventWorktreeReady;
 export type EventTuiCommandExecute = {
     id: string;
     type: "tui.command.execute";
@@ -411,6 +411,13 @@ export type EventMcpBrowserOpenFailed = {
     properties: {
         mcpName: string;
         url: string;
+    };
+};
+export type EventMcpMetadataChanged = {
+    id: string;
+    type: "mcp.metadata.changed";
+    properties: {
+        server: string;
     };
 };
 export type EventMcpToolsChanged = {
@@ -1062,7 +1069,7 @@ export type GlobalEvent = {
     directory: string;
     project?: string;
     workspace?: string;
-    payload: EventTuiCommandExecute | EventTuiPromptAppend | EventTuiSessionSelect | EventTuiToastShow | EventCommandExecuted | EventFileEdited | EventFileWatcherUpdated | EventGlobalDisposed | EventInstallationUpdateAvailable | EventInstallationUpdated | EventLspClientDiagnostics | EventLspUpdated | EventMcpBrowserOpenFailed | EventMcpToolsChanged | EventMessagePartDelta | EventMessagePartRemoved | EventMessagePartUpdated | EventMessageRemoved | EventMessageUpdated | EventPermissionAsked | EventPermissionReplied | EventProjectUpdated | EventPtyCreated | EventPtyDeleted | EventPtyExited | EventPtyUpdated | EventQuestionAsked | EventQuestionRejected | EventQuestionReplied | EventServerConnected | EventServerInstanceDisposed | EventSessionCompacted | EventSessionCreated | EventSessionDeleted | EventSessionDiff | EventSessionError | EventSessionIdle | EventSessionNextAgentSwitched | EventSessionNextCompactionDelta | EventSessionNextCompactionEnded | EventSessionNextCompactionStarted | EventSessionNextModelSwitched | EventSessionNextPrompted | EventSessionNextReasoningDelta | EventSessionNextReasoningEnded | EventSessionNextReasoningStarted | EventSessionNextRetried | EventSessionNextShellEnded | EventSessionNextShellStarted | EventSessionNextStepEnded | EventSessionNextStepFailed | EventSessionNextStepStarted | EventSessionNextSynthetic | EventSessionNextTextDelta | EventSessionNextTextEnded | EventSessionNextTextStarted | EventSessionNextToolCalled | EventSessionNextToolFailed | EventSessionNextToolInputDelta | EventSessionNextToolInputEnded | EventSessionNextToolInputStarted | EventSessionNextToolProgress | EventSessionNextToolSuccess | EventSessionStatus | EventSessionUpdated | EventTodoUpdated | EventVcsBranchUpdated | EventWorkspaceFailed | EventWorkspaceReady | EventWorkspaceStatus | EventWorktreeFailed | EventWorktreeReady | SyncEventMessagePartRemoved | SyncEventMessagePartUpdated | SyncEventMessageRemoved | SyncEventMessageUpdated | SyncEventSessionCreated | SyncEventSessionDeleted | SyncEventSessionNextAgentSwitched | SyncEventSessionNextCompactionDelta | SyncEventSessionNextCompactionEnded | SyncEventSessionNextCompactionStarted | SyncEventSessionNextModelSwitched | SyncEventSessionNextPrompted | SyncEventSessionNextReasoningDelta | SyncEventSessionNextReasoningEnded | SyncEventSessionNextReasoningStarted | SyncEventSessionNextRetried | SyncEventSessionNextShellEnded | SyncEventSessionNextShellStarted | SyncEventSessionNextStepEnded | SyncEventSessionNextStepFailed | SyncEventSessionNextStepStarted | SyncEventSessionNextSynthetic | SyncEventSessionNextTextDelta | SyncEventSessionNextTextEnded | SyncEventSessionNextTextStarted | SyncEventSessionNextToolCalled | SyncEventSessionNextToolFailed | SyncEventSessionNextToolInputDelta | SyncEventSessionNextToolInputEnded | SyncEventSessionNextToolInputStarted | SyncEventSessionNextToolProgress | SyncEventSessionNextToolSuccess | SyncEventSessionUpdated;
+    payload: EventTuiCommandExecute | EventTuiPromptAppend | EventTuiSessionSelect | EventTuiToastShow | EventCommandExecuted | EventFileEdited | EventFileWatcherUpdated | EventGlobalDisposed | EventInstallationUpdateAvailable | EventInstallationUpdated | EventLspClientDiagnostics | EventLspUpdated | EventMcpBrowserOpenFailed | EventMcpMetadataChanged | EventMcpToolsChanged | EventMessagePartDelta | EventMessagePartRemoved | EventMessagePartUpdated | EventMessageRemoved | EventMessageUpdated | EventPermissionAsked | EventPermissionReplied | EventProjectUpdated | EventPtyCreated | EventPtyDeleted | EventPtyExited | EventPtyUpdated | EventQuestionAsked | EventQuestionRejected | EventQuestionReplied | EventServerConnected | EventServerInstanceDisposed | EventSessionCompacted | EventSessionCreated | EventSessionDeleted | EventSessionDiff | EventSessionError | EventSessionIdle | EventSessionNextAgentSwitched | EventSessionNextCompactionDelta | EventSessionNextCompactionEnded | EventSessionNextCompactionStarted | EventSessionNextModelSwitched | EventSessionNextPrompted | EventSessionNextReasoningDelta | EventSessionNextReasoningEnded | EventSessionNextReasoningStarted | EventSessionNextRetried | EventSessionNextShellEnded | EventSessionNextShellStarted | EventSessionNextStepEnded | EventSessionNextStepFailed | EventSessionNextStepStarted | EventSessionNextSynthetic | EventSessionNextTextDelta | EventSessionNextTextEnded | EventSessionNextTextStarted | EventSessionNextToolCalled | EventSessionNextToolFailed | EventSessionNextToolInputDelta | EventSessionNextToolInputEnded | EventSessionNextToolInputStarted | EventSessionNextToolProgress | EventSessionNextToolSuccess | EventSessionStatus | EventSessionUpdated | EventTodoUpdated | EventVcsBranchUpdated | EventWorkspaceFailed | EventWorkspaceReady | EventWorkspaceStatus | EventWorktreeFailed | EventWorktreeReady | SyncEventMessagePartRemoved | SyncEventMessagePartUpdated | SyncEventMessageRemoved | SyncEventMessageUpdated | SyncEventSessionCreated | SyncEventSessionDeleted | SyncEventSessionNextAgentSwitched | SyncEventSessionNextCompactionDelta | SyncEventSessionNextCompactionEnded | SyncEventSessionNextCompactionStarted | SyncEventSessionNextModelSwitched | SyncEventSessionNextPrompted | SyncEventSessionNextReasoningDelta | SyncEventSessionNextReasoningEnded | SyncEventSessionNextReasoningStarted | SyncEventSessionNextRetried | SyncEventSessionNextShellEnded | SyncEventSessionNextShellStarted | SyncEventSessionNextStepEnded | SyncEventSessionNextStepFailed | SyncEventSessionNextStepStarted | SyncEventSessionNextSynthetic | SyncEventSessionNextTextDelta | SyncEventSessionNextTextEnded | SyncEventSessionNextTextStarted | SyncEventSessionNextToolCalled | SyncEventSessionNextToolFailed | SyncEventSessionNextToolInputDelta | SyncEventSessionNextToolInputEnded | SyncEventSessionNextToolInputStarted | SyncEventSessionNextToolProgress | SyncEventSessionNextToolSuccess | SyncEventSessionUpdated;
 };
 export type GlobalSession = {
     id: string;
@@ -5046,6 +5053,243 @@ export type SessionMessageResponses = {
     };
 };
 export type SessionMessageResponse = SessionMessageResponses[keyof SessionMessageResponses];
+export type SessionRhythmPromptAnchorData = {
+    body?: never;
+    path: {
+        sessionID: string;
+    };
+    query?: {
+        directory?: string;
+        workspace?: string;
+    };
+    url: "/session/{sessionID}/rhythm-prompt-anchor";
+};
+export type SessionRhythmPromptAnchorErrors = {
+    /**
+     * Bad request
+     */
+    400: BadRequestError;
+    /**
+     * NotFoundError
+     */
+    404: NotFoundError;
+};
+export type SessionRhythmPromptAnchorError = SessionRhythmPromptAnchorErrors[keyof SessionRhythmPromptAnchorErrors];
+export type SessionRhythmPromptAnchorResponses = {
+    /**
+     * Mint a managed prompt anchor
+     */
+    200: {
+        messageID: string;
+    };
+};
+export type SessionRhythmPromptAnchorResponse = SessionRhythmPromptAnchorResponses[keyof SessionRhythmPromptAnchorResponses];
+export type SessionRhythmActiveToolData = {
+    body?: never;
+    path: {
+        sessionID: string;
+        assistantID: string;
+        callID: string;
+    };
+    query?: {
+        directory?: string;
+        workspace?: string;
+    };
+    url: "/session/{sessionID}/rhythm-active-tool/{assistantID}/{callID}";
+};
+export type SessionRhythmActiveToolErrors = {
+    /**
+     * Bad request
+     */
+    400: BadRequestError;
+    /**
+     * NotFoundError
+     */
+    404: NotFoundError;
+};
+export type SessionRhythmActiveToolError = SessionRhythmActiveToolErrors[keyof SessionRhythmActiveToolErrors];
+export type SessionRhythmActiveToolResponses = {
+    /**
+     * Read one live managed tool owner
+     */
+    200: {
+        sdkSessionId: string;
+        assistantId: string;
+        userMessageId: string;
+        partId: string;
+        toolCallId: string;
+        toolKey: string;
+        agentName: string;
+        serverName: string;
+        toolName: string;
+    };
+};
+export type SessionRhythmActiveToolResponse = SessionRhythmActiveToolResponses[keyof SessionRhythmActiveToolResponses];
+export type SessionRhythmProviderFrameData = {
+    body?: never;
+    path: {
+        sessionID: string;
+        requestNonce: string;
+    };
+    query?: {
+        directory?: string;
+        workspace?: string;
+        sourceAnchorIds?: string;
+    };
+    url: "/session/{sessionID}/rhythm-provider-frame/{requestNonce}";
+};
+export type SessionRhythmProviderFrameErrors = {
+    /**
+     * Bad request
+     */
+    400: BadRequestError;
+    /**
+     * NotFoundError
+     */
+    404: NotFoundError;
+};
+export type SessionRhythmProviderFrameError = SessionRhythmProviderFrameErrors[keyof SessionRhythmProviderFrameErrors];
+export type SessionRhythmProviderFrameResponses = {
+    /**
+     * Read one pending managed provider frame
+     */
+    200: {
+        schemaVersion: 1;
+        status: "pending";
+        request: {
+            schemaVersion: 1;
+            sdkSessionId: string;
+            userMessageId: string;
+            requestNonce: string;
+            engineGeneration: string;
+            runnerGeneration: string;
+            attempt: number;
+            purpose: "answer" | "compaction" | "summary";
+            inputDigest: string;
+        };
+        agentName: string;
+        userKind: "authored" | "control";
+        initiatingUserMessageId: string;
+        inputGroupCount: number;
+        originCoverage: "complete" | "ambiguous";
+        sourceProofs: Array<{
+            sourceAnchorId: string;
+            stored: boolean;
+            visible: boolean;
+            relation: "before_current" | "current" | "after_current" | "unknown";
+            derivedSummaryIds: Array<string>;
+        }>;
+    } | {
+        schemaVersion: 1;
+        status: "cancelled" | "replaced" | "not_pending";
+    } | {
+        schemaVersion: 2;
+        kind: "coordinator_workflow_provider_frame";
+        binding: {
+            schemaVersion: 1;
+            jobId: string;
+            rootSdkSessionId: string;
+            managerSdkSessionId: string;
+            expiresAt: string;
+        };
+        scope: {
+            kind: "manager_lineage";
+        } | {
+            kind: "root_turn";
+            userMessageId: string;
+        };
+        accounting: {
+            kind: "persisted_assistant";
+            assistantMessageId: string;
+            parentMessageId: string;
+        } | {
+            kind: "unmetered_auxiliary";
+            sourceUserMessageId: string;
+        };
+        nativeLineageDigest: string;
+        frame: {
+            schemaVersion: 1;
+            status: "pending";
+            request: {
+                schemaVersion: 1;
+                sdkSessionId: string;
+                userMessageId: string;
+                requestNonce: string;
+                engineGeneration: string;
+                runnerGeneration: string;
+                attempt: number;
+                purpose: "answer" | "compaction" | "summary";
+                inputDigest: string;
+            };
+            agentName: string;
+            userKind: "authored" | "control";
+            initiatingUserMessageId: string;
+            inputGroupCount: number;
+            originCoverage: "complete" | "ambiguous";
+            sourceProofs: Array<{
+                sourceAnchorId: string;
+                stored: boolean;
+                visible: boolean;
+                relation: "before_current" | "current" | "after_current" | "unknown";
+                derivedSummaryIds: Array<string>;
+            }>;
+        };
+    };
+};
+export type SessionRhythmProviderFrameResponse = SessionRhythmProviderFrameResponses[keyof SessionRhythmProviderFrameResponses];
+export type SessionRhythmDayflowGuardData = {
+    body?: unknown;
+    path: {
+        sessionID: string;
+    };
+    query?: {
+        directory?: string;
+        workspace?: string;
+    };
+    url: "/session/{sessionID}/rhythm-dayflow-guard";
+};
+export type SessionRhythmDayflowGuardErrors = {
+    /**
+     * Bad request
+     */
+    400: BadRequestError;
+    /**
+     * NotFoundError
+     */
+    404: NotFoundError;
+};
+export type SessionRhythmDayflowGuardError = SessionRhythmDayflowGuardErrors[keyof SessionRhythmDayflowGuardErrors];
+export type SessionRhythmDayflowGuardResponses = {
+    /**
+     * Enroll a managed SDK session for Dayflow history protection
+     */
+    200: {
+        schemaVersion: 1;
+        sdkSessionId: string;
+        engineGeneration: string;
+        guarded: true;
+    } | {
+        schemaVersion: 2;
+        kind: "coordinator_workflow_enrollment";
+        sdkSessionId: string;
+        engineGeneration: string;
+        guarded: true;
+        binding: {
+            schemaVersion: 1;
+            jobId: string;
+            rootSdkSessionId: string;
+            managerSdkSessionId: string;
+            expiresAt: string;
+        };
+        scope: {
+            kind: "manager_lineage";
+        } | {
+            kind: "root_turn";
+            userMessageId: string;
+        };
+    };
+};
+export type SessionRhythmDayflowGuardResponse = SessionRhythmDayflowGuardResponses[keyof SessionRhythmDayflowGuardResponses];
 export type SessionForkData = {
     body?: {
         messageID?: string;

@@ -381,6 +381,7 @@ export type Event =
   | EventLspClientDiagnostics
   | EventLspUpdated
   | EventMcpBrowserOpenFailed
+  | EventMcpMetadataChanged
   | EventMcpToolsChanged
   | EventMessagePartDelta
   | EventMessagePartRemoved
@@ -572,6 +573,14 @@ export type EventMcpBrowserOpenFailed = {
   properties: {
     mcpName: string
     url: string
+  }
+}
+
+export type EventMcpMetadataChanged = {
+  id: string
+  type: "mcp.metadata.changed"
+  properties: {
+    server: string
   }
 }
 
@@ -1336,6 +1345,7 @@ export type GlobalEvent = {
     | EventLspClientDiagnostics
     | EventLspUpdated
     | EventMcpBrowserOpenFailed
+    | EventMcpMetadataChanged
     | EventMcpToolsChanged
     | EventMessagePartDelta
     | EventMessagePartRemoved
@@ -5997,6 +6007,277 @@ export type SessionMessageResponses = {
 }
 
 export type SessionMessageResponse = SessionMessageResponses[keyof SessionMessageResponses]
+
+export type SessionRhythmPromptAnchorData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/rhythm-prompt-anchor"
+}
+
+export type SessionRhythmPromptAnchorErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionRhythmPromptAnchorError = SessionRhythmPromptAnchorErrors[keyof SessionRhythmPromptAnchorErrors]
+
+export type SessionRhythmPromptAnchorResponses = {
+  /**
+   * Mint a managed prompt anchor
+   */
+  200: {
+    messageID: string
+  }
+}
+
+export type SessionRhythmPromptAnchorResponse =
+  SessionRhythmPromptAnchorResponses[keyof SessionRhythmPromptAnchorResponses]
+
+export type SessionRhythmActiveToolData = {
+  body?: never
+  path: {
+    sessionID: string
+    assistantID: string
+    callID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/rhythm-active-tool/{assistantID}/{callID}"
+}
+
+export type SessionRhythmActiveToolErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionRhythmActiveToolError = SessionRhythmActiveToolErrors[keyof SessionRhythmActiveToolErrors]
+
+export type SessionRhythmActiveToolResponses = {
+  /**
+   * Read one live managed tool owner
+   */
+  200: {
+    sdkSessionId: string
+    assistantId: string
+    userMessageId: string
+    partId: string
+    toolCallId: string
+    toolKey: string
+    agentName: string
+    serverName: string
+    toolName: string
+  }
+}
+
+export type SessionRhythmActiveToolResponse = SessionRhythmActiveToolResponses[keyof SessionRhythmActiveToolResponses]
+
+export type SessionRhythmProviderFrameData = {
+  body?: never
+  path: {
+    sessionID: string
+    requestNonce: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    sourceAnchorIds?: string
+  }
+  url: "/session/{sessionID}/rhythm-provider-frame/{requestNonce}"
+}
+
+export type SessionRhythmProviderFrameErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionRhythmProviderFrameError = SessionRhythmProviderFrameErrors[keyof SessionRhythmProviderFrameErrors]
+
+export type SessionRhythmProviderFrameResponses = {
+  /**
+   * Read one pending managed provider frame
+   */
+  200:
+    | {
+        schemaVersion: 1
+        status: "pending"
+        request: {
+          schemaVersion: 1
+          sdkSessionId: string
+          userMessageId: string
+          requestNonce: string
+          engineGeneration: string
+          runnerGeneration: string
+          attempt: number
+          purpose: "answer" | "compaction" | "summary"
+          inputDigest: string
+        }
+        agentName: string
+        userKind: "authored" | "control"
+        initiatingUserMessageId: string
+        inputGroupCount: number
+        originCoverage: "complete" | "ambiguous"
+        sourceProofs: Array<{
+          sourceAnchorId: string
+          stored: boolean
+          visible: boolean
+          relation: "before_current" | "current" | "after_current" | "unknown"
+          derivedSummaryIds: Array<string>
+        }>
+      }
+    | {
+        schemaVersion: 1
+        status: "cancelled" | "replaced" | "not_pending"
+      }
+    | {
+        schemaVersion: 2
+        kind: "coordinator_workflow_provider_frame"
+        binding: {
+          schemaVersion: 1
+          jobId: string
+          rootSdkSessionId: string
+          managerSdkSessionId: string
+          expiresAt: string
+        }
+        scope:
+          | {
+              kind: "manager_lineage"
+            }
+          | {
+              kind: "root_turn"
+              userMessageId: string
+            }
+        accounting:
+          | {
+              kind: "persisted_assistant"
+              assistantMessageId: string
+              parentMessageId: string
+            }
+          | {
+              kind: "unmetered_auxiliary"
+              sourceUserMessageId: string
+            }
+        nativeLineageDigest: string
+        frame: {
+          schemaVersion: 1
+          status: "pending"
+          request: {
+            schemaVersion: 1
+            sdkSessionId: string
+            userMessageId: string
+            requestNonce: string
+            engineGeneration: string
+            runnerGeneration: string
+            attempt: number
+            purpose: "answer" | "compaction" | "summary"
+            inputDigest: string
+          }
+          agentName: string
+          userKind: "authored" | "control"
+          initiatingUserMessageId: string
+          inputGroupCount: number
+          originCoverage: "complete" | "ambiguous"
+          sourceProofs: Array<{
+            sourceAnchorId: string
+            stored: boolean
+            visible: boolean
+            relation: "before_current" | "current" | "after_current" | "unknown"
+            derivedSummaryIds: Array<string>
+          }>
+        }
+      }
+}
+
+export type SessionRhythmProviderFrameResponse =
+  SessionRhythmProviderFrameResponses[keyof SessionRhythmProviderFrameResponses]
+
+export type SessionRhythmDayflowGuardData = {
+  body?: unknown
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/rhythm-dayflow-guard"
+}
+
+export type SessionRhythmDayflowGuardErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionRhythmDayflowGuardError = SessionRhythmDayflowGuardErrors[keyof SessionRhythmDayflowGuardErrors]
+
+export type SessionRhythmDayflowGuardResponses = {
+  /**
+   * Enroll a managed SDK session for Dayflow history protection
+   */
+  200:
+    | {
+        schemaVersion: 1
+        sdkSessionId: string
+        engineGeneration: string
+        guarded: true
+      }
+    | {
+        schemaVersion: 2
+        kind: "coordinator_workflow_enrollment"
+        sdkSessionId: string
+        engineGeneration: string
+        guarded: true
+        binding: {
+          schemaVersion: 1
+          jobId: string
+          rootSdkSessionId: string
+          managerSdkSessionId: string
+          expiresAt: string
+        }
+        scope:
+          | {
+              kind: "manager_lineage"
+            }
+          | {
+              kind: "root_turn"
+              userMessageId: string
+            }
+      }
+}
+
+export type SessionRhythmDayflowGuardResponse =
+  SessionRhythmDayflowGuardResponses[keyof SessionRhythmDayflowGuardResponses]
 
 export type SessionForkData = {
   body?: {
