@@ -589,6 +589,7 @@ describe("#1175 external-content role graph", () => {
           retiredNoopTools.has(tool),
           reviewerReadTools.has(tool),
           humanReviewQueueWrites.has(tool),
+          serverSignedGoalWrites.has(tool),
           tool === approvalRequestTool,
           !registered.has(tool) && unavailableLegacyTools.has(tool),
         ].filter(Boolean);
