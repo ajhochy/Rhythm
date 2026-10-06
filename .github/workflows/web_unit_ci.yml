@@ -3,10 +3,8 @@ name: Web Unit CI
 # The desktop web app's node:test unit suites (apps/web/tests/*.test.mjs) were
 # never executed by any CI job; the coordinator issuance/controller tests only
 # ran by hand. This job runs them on every PR that touches apps/web.
-# Two long-standing failures are known on the lineage this was added to
-# (notification-toasts-and-push "load-failure toasts…" and
-# transcript-reasoning-usage); they are excluded here until fixed in a
-# follow-up so the gate is green on day one. Do not add more exclusions.
+# Run every node:test unit suite, including notification errors and
+# transcript reasoning/usage rendering.
 
 on:
   pull_request:
@@ -34,6 +32,4 @@ jobs:
         working-directory: apps/mobile
         run: npm ci
       - name: Unit tests (node:test)
-        run: >
-          node --experimental-vm-modules --test --test-concurrency=1
-          $(ls tests/*.test.mjs | grep -v -e notification-toasts-and-push -e transcript-reasoning-usage)
+        run: npm run test:unit
