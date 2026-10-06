@@ -106,6 +106,17 @@ export class ModelProvenanceRepository {
     return row ? model(row) : null;
   }
 
+  /** Exact bounded join; ambiguous rows never select an arbitrary dispatch. */
+  findUniqueForSdkUserMessage(sessionId: string, sdkSessionId: string, sdkUserMessageId: string): DispatchRecord | null {
+    localOnly();
+    if (![sessionId, sdkSessionId, sdkUserMessageId].every((value) =>
+      typeof value === 'string' && safeIdentifier.test(value))) return null;
+    const rows = getDb().prepare(`SELECT * FROM agent_turn_dispatches
+      WHERE session_id=? AND sdk_session_id=? AND sdk_user_message_id=? LIMIT 2`)
+      .all(sessionId, sdkSessionId, sdkUserMessageId) as Row[];
+    return rows.length === 1 ? model(rows[0]) : null;
+  }
+
   /** SQLite rowid preserves insertion order even for same-millisecond writes. */
   list(sessionId: string, options: { limit?: number; afterId?: string } = {}): DispatchRecord[] {
     localOnly();

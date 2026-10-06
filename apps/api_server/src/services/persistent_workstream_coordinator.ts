@@ -26,6 +26,7 @@ import {
   AgentBridgeJobsRepository,
   type AgentBridgeJobRow,
   type CoordinatorBudgetState,
+  type CoordinatorWorkflowMembership,
   type CoordinatorLegacyCapacityAssessment,
   type LegacyCoordinatorCapacityRow,
 } from '../shared_agents/delegation_jobs_repository';
@@ -3079,6 +3080,8 @@ export class PersistentWorkstreamCoordinator {
         ? await this.dependencies.workflowCoverage.inspect({
           receipt: codingWorkflowReceipt(workflowRecord),
           rootTurns: codingWorkflowRootTurns(workflowRecord),
+          managerMembership: Array.isArray(workflowRecord.membership)
+            ? workflowRecord.membership as CoordinatorWorkflowMembership[] : undefined,
           current: () => this.currentCoordinatorTerminalJob(workstream, applyingJob) !== null,
         })
         : { status: 'hold' as const, reason: 'scope_unsupported' as const, coverage: null, usage: null };
@@ -3786,6 +3789,8 @@ export interface CodingWorkflowInspectionInput {
    * timestamp or an oldest/newest row.
    */
   rootTurns: unknown;
+  /** Exact durable job enrollment; absent or malformed cannot cover additional manager turns. */
+  managerMembership?: readonly CoordinatorWorkflowMembership[];
   /** Synchronous owner/epoch/permission/admission proof, run after the last await. */
   current(): boolean;
 }
@@ -3802,7 +3807,7 @@ export class CodingWorkflowCoverageInspector {
     engine: CodingWorkflowInspectionEngine;
     sessions: Pick<AgentSessionsRepository, 'findById'>;
     delegations: Pick<AgentAsyncDelegationsRepository, 'findById'>;
-    dispatches: Pick<ModelProvenanceRepository, 'get'>;
+    dispatches: Pick<ModelProvenanceRepository, 'get'> & Partial<Pick<ModelProvenanceRepository, 'findUniqueForSdkUserMessage'>>;
     probeTimeoutMs?: number;
   }) {}
 
@@ -3850,17 +3855,25 @@ export class CodingWorkflowCoverageInspector {
 
     const steps: Array<Record<string, unknown>> = [];
     const sessionsWithSteps = new Set<string>();
-    // Manager: every assistant step in its session must belong to the one
-    // exact exported anchor, and exactly one terminal step must close it.
+    // Charge the original dispatch and each exactly enrolled automatic callback
+    // as separate closed groups. An unrelated manager turn remains uncovered.
     const managerMessages = await this.readAll(managerNode.id, managerNode.directory);
     if (managerMessages.kind !== 'ok') return hold(managerMessages.reason, covered);
     const managerAssistants = managerMessages.messages.filter((message) => message.info.role === 'assistant');
-    if (managerAssistants.some((message) => message.info.parentID !== receipt.dispatch.sdkUserMessageId)) {
+    if (managerAssistants.length === 0) return hold('accounting_missing', covered);
+    const managerGroups = groupByParent(managerAssistants);
+    const assistantIds = managerAssistants.map((message) => message.info.id);
+    if (!managerGroups || assistantIds.some((id) => typeof id !== 'string' || id.length === 0) ||
+        new Set(assistantIds).size !== assistantIds.length ||
+        !managerGroups.some((group) => group[0].info.parentID === receipt.dispatch.sdkUserMessageId)) {
       return hold('uncovered_assistant_turn', covered);
     }
-    if (managerAssistants.length === 0) return hold('accounting_missing', covered);
+    const callbackGroups = managerGroups.filter((group) => group[0].info.parentID !== receipt.dispatch.sdkUserMessageId);
+    if (!callbackGroups.every((group) => this.managerCallbackBound(receipt, input.managerMembership, group))) {
+      return hold('uncovered_assistant_turn', covered);
+    }
     if (managerAssistants.some((message) => !completedStep(message.info))) return hold('turn_incomplete', covered);
-    if (turnGroupClosure(managerAssistants) !== 'closed') return hold('turn_not_terminal', covered);
+    if (managerGroups.some((group) => turnGroupClosure(group) !== 'closed')) return hold('turn_not_terminal', covered);
     steps.push(...managerAssistants.map((message) => message.info));
     sessionsWithSteps.add(managerNode.id);
 
@@ -3913,7 +3926,10 @@ export class CodingWorkflowCoverageInspector {
     let current = false;
     try { current = input.current() === true; } catch { current = false; }
     if (!current) return hold('scope_changed', coverage);
-    if (this.localBinding(receipt, rootTurns).kind !== 'ok') return hold('local_binding_changed', coverage);
+    if (this.localBinding(receipt, rootTurns).kind !== 'ok' ||
+        !callbackGroups.every((group) => this.managerCallbackBound(receipt, input.managerMembership, group))) {
+      return hold('local_binding_changed', coverage);
+    }
 
     return {
       status: 'complete',
@@ -3934,6 +3950,39 @@ export class CodingWorkflowCoverageInspector {
         cost: summed.cost as number | null,
       },
     };
+  }
+
+  /** Same-job enrollment plus a unique accepted automatic callback dispatch, re-proved after awaits. */
+  private managerCallbackBound(
+    receipt: CodingWorkflowDispatchReceipt,
+    membership: readonly CoordinatorWorkflowMembership[] | undefined,
+    assistants: Array<{ info: Record<string, unknown> }>,
+  ): boolean {
+    if (!Array.isArray(membership) || membership.length > 48 || assistants.length === 0) return false;
+    const anchor = assistants[0].info.parentID;
+    if (typeof anchor !== 'string' || anchor.length === 0) return false;
+    try {
+      const dispatch = this.dependencies.dispatches.findUniqueForSdkUserMessage?.(
+        receipt.delegation.managerSessionId, receipt.delegation.managerSdkSessionId, anchor,
+      );
+      if (!dispatch || dispatch.sessionId !== receipt.delegation.managerSessionId ||
+          dispatch.sdkSessionId !== receipt.delegation.managerSdkSessionId || dispatch.sdkUserMessageId !== anchor ||
+          dispatch.origin !== 'delegation_completion' || dispatch.requestedSource !== 'agent_config' ||
+          dispatch.outcome !== 'accepted') return false;
+      return assistants.every((assistant) => {
+        const members = membership.filter((item) => item &&
+          item.nativeSessionId === receipt.delegation.managerSdkSessionId &&
+          item.nativeUserMessageId === anchor && item.assistantMessageId === assistant.info.id);
+        if (members.length !== 1) return false;
+        const member = members[0];
+        return member.accountingKind === 'persisted_assistant' && member.parentMessageId === anchor &&
+          member.parentNativeSessionId === receipt.owner.rootSdkSessionId &&
+          [member.engineGeneration, member.runnerGeneration, member.requestIdentity].every((value) =>
+            safeIdentifier(value) !== null) &&
+          Number.isSafeInteger(member.attempt) && member.attempt >= 0 && member.attempt <= 100 &&
+          ['answer', 'compaction', 'summary'].includes(member.purpose);
+      });
+    } catch { return false; }
   }
 
   /** Exact synchronous local joins: owner/project/root/manager/delegation/dispatch/root anchors. */

@@ -11,6 +11,7 @@ import { getDb, setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { AgentAsyncDelegationsRepository } from '../repositories/agent_async_delegations_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import type { CoordinatorWorkflowMembership } from '../shared_agents/delegation_jobs_repository';
 import { ModelProvenanceRepository } from '../repositories/model_provenance_repository';
 import {
   CodingWorkflowCoverageInspector,
@@ -190,6 +191,140 @@ describe('Coding Workflow coverage inspection', () => {
       const result = await f.inspect();
       expect(f.engine.busy.has('sdk-root')).toBe(false);
       expect(result).toMatchObject({ status: 'hold', usage: null });
+    });
+  });
+
+  describe('manager completion callback accounting', () => {
+    function enrolledCallback() {
+      const provenance = new ModelProvenanceRepository();
+      const callback = provenance.insert({
+        sessionId: f.managerId, sdkSessionId: 'sdk-mgr', sdkUserMessageId: 'msg_mgr_callback',
+        origin: 'delegation_completion', requestedSource: 'agent_config', routeAuthed: null,
+      });
+      provenance.setOutcome(callback.id, 'accepted');
+      f.engine.pages.get('sdk-mgr')![0].push(user('msg_mgr_callback'), step('a_mgr_callback', 'msg_mgr_callback'));
+      const membership: CoordinatorWorkflowMembership[] = [{
+        nativeSessionId: 'sdk-mgr', parentNativeSessionId: 'sdk-root', nativeUserMessageId: 'msg_mgr_callback',
+        engineGeneration: 'engine-a', runnerGeneration: 'runner-callback', purpose: 'answer', attempt: 0,
+        requestIdentity: 'a'.repeat(64), accountingKind: 'persisted_assistant',
+        assistantMessageId: 'a_mgr_callback', parentMessageId: 'msg_mgr_callback',
+      }];
+      const inspect = (members: readonly CoordinatorWorkflowMembership[] | undefined = membership) => f.inspector.inspect({
+        receipt: f.receipt, rootTurns: f.rootTurns, managerMembership: members, current: () => f.current.value,
+      });
+      return { callback, membership, inspect };
+    }
+
+    it('charges the exact enrolled manager callback assistant in addition to its initial turn', async () => {
+      const c = enrolledCallback();
+      expect(await c.inspect()).toMatchObject({
+        status: 'complete', usage: { assistantStepCount: 9, coveredSessionCount: 5, totalTokens: 135 },
+      });
+    });
+
+    it('charges a callback tool step and its one terminal separately from the original closed turn', async () => {
+      const c = enrolledCallback();
+      f.engine.pages.get('sdk-mgr')![0].push(step('a_mgr_callback_terminal', 'msg_mgr_callback'));
+      f.engine.pages.get('sdk-mgr')![0].find((m) => m.info.id === 'a_mgr_callback')!.info.finish = 'tool-calls';
+      c.membership.push({ ...c.membership[0], assistantMessageId: 'a_mgr_callback_terminal', attempt: 1 });
+      expect(await c.inspect()).toMatchObject({ status: 'complete', usage: { assistantStepCount: 10, totalTokens: 150 } });
+    });
+
+    it.each([
+      ['native session', 'nativeSessionId', 'sdk-foreign'],
+      ['native parent', 'parentNativeSessionId', 'sdk-foreign'],
+      ['user anchor', 'nativeUserMessageId', 'msg_foreign'],
+      ['assistant identity', 'assistantMessageId', 'a_foreign'],
+      ['accounting parent', 'parentMessageId', 'msg_foreign'],
+      ['accounting kind', 'accountingKind', 'unmetered_auxiliary'],
+      ['engine generation', 'engineGeneration', ''],
+      ['runner generation', 'runnerGeneration', ''],
+      ['request identity', 'requestIdentity', ''],
+      ['engine whitespace', 'engineGeneration', 'engine a'],
+      ['engine control', 'engineGeneration', 'engine\u0001a'],
+      ['runner whitespace', 'runnerGeneration', 'runner a'],
+      ['runner control', 'runnerGeneration', 'runner\u0001a'],
+      ['request whitespace', 'requestIdentity', 'request a'],
+      ['request control', 'requestIdentity', 'request\u0001a'],
+      ['attempt', 'attempt', -1],
+      ['purpose', 'purpose', 'unknown'],
+    ])('holds an enrolled callback with changed %s', async (_name, key, value) => {
+      const c = enrolledCallback();
+      Object.assign(c.membership[0], { [key]: value });
+      expect(await c.inspect()).toMatchObject({ status: 'hold', reason: 'uncovered_assistant_turn', usage: null });
+    });
+
+    it.each([
+      ['session', 'session_id', 'foreign-session'],
+      ['SDK', 'sdk_session_id', 'sdk-foreign'],
+      ['user anchor', 'sdk_user_message_id', 'msg_foreign'],
+      ['origin', 'origin', 'prompt_api'],
+      ['requested source', 'requested_source', 'session'],
+      ['unknown outcome', 'outcome', 'unknown'],
+      ['pending outcome', 'outcome', 'pending'],
+      ['rejected outcome', 'outcome', 'rejected'],
+    ])('holds when persisted callback provenance has foreign or unaccepted %s', async (_name, column, value) => {
+      const c = enrolledCallback();
+      getDb().prepare(`UPDATE agent_turn_dispatches SET ${column}=? WHERE id=?`).run(column === 'session_id' ? f.rootId : value, c.callback.id);
+      expect(await c.inspect()).toMatchObject({ status: 'hold', reason: 'uncovered_assistant_turn', usage: null });
+    });
+
+    it('holds missing or ambiguous exact dispatch rows', async () => {
+      const c = enrolledCallback();
+      getDb().prepare('DELETE FROM agent_turn_dispatches WHERE id=?').run(c.callback.id);
+      expect(await c.inspect()).toMatchObject({ status: 'hold', reason: 'uncovered_assistant_turn' });
+      const provenance = new ModelProvenanceRepository();
+      for (let i = 0; i < 2; i += 1) {
+        const row = provenance.insert({ sessionId: f.managerId, sdkSessionId: 'sdk-mgr', sdkUserMessageId: 'msg_mgr_callback',
+          origin: 'delegation_completion', requestedSource: 'agent_config', routeAuthed: null });
+        provenance.setOutcome(row.id, 'accepted');
+      }
+      expect(await c.inspect()).toMatchObject({ status: 'hold', reason: 'uncovered_assistant_turn', usage: null });
+    });
+
+    it('holds absent, empty, ambiguous or over-bound membership for extra manager groups', async () => {
+      const c = enrolledCallback();
+      expect(await f.inspector.inspect({ receipt: f.receipt, rootTurns: f.rootTurns, current: () => true }))
+        .toMatchObject({ status: 'hold', reason: 'uncovered_assistant_turn' });
+      for (const members of [[], [c.membership[0], c.membership[0]], Array(49).fill(c.membership[0])]) {
+        expect(await c.inspect(members)).toMatchObject({ status: 'hold', reason: 'uncovered_assistant_turn', usage: null });
+      }
+    });
+
+    it('holds a callback whose second assistant step lacks exact enrollment', async () => {
+      const c = enrolledCallback();
+      f.engine.pages.get('sdk-mgr')![0].push(step('a_unenrolled', 'msg_mgr_callback'));
+      expect(await c.inspect()).toMatchObject({ status: 'hold', reason: 'uncovered_assistant_turn', usage: null });
+    });
+
+    it.each(['tool-calls', 'incomplete', 'two-terminal'])('holds callback turn closure %s', async (kind) => {
+      const c = enrolledCallback();
+      const callback = f.engine.pages.get('sdk-mgr')![0].find((m) => m.info.id === 'a_mgr_callback')!;
+      if (kind === 'tool-calls') callback.info.finish = 'tool-calls';
+      if (kind === 'incomplete') callback.info.time = {};
+      if (kind === 'two-terminal') {
+        f.engine.pages.get('sdk-mgr')![0].push(step('a_extra_terminal', 'msg_mgr_callback'));
+        c.membership.push({ ...c.membership[0], assistantMessageId: 'a_extra_terminal', attempt: 1 });
+      }
+      expect(await c.inspect()).toMatchObject({ status: 'hold', reason: kind === 'incomplete' ? 'turn_incomplete' : 'turn_not_terminal', usage: null });
+    });
+
+    it('does not double-count duplicate native assistant identities', async () => {
+      const c = enrolledCallback();
+      f.engine.pages.get('sdk-mgr')![0].push(step('a_mgr_callback', 'msg_mgr_callback'));
+      expect(await c.inspect()).toMatchObject({ status: 'hold', reason: 'uncovered_assistant_turn', usage: null });
+    });
+
+    it.each(['outcome', 'SDK', 'membership', 'durable current'])('re-proves callback %s after the last engine await', async (kind) => {
+      const c = enrolledCallback();
+      f.engine.onIdentity = (call) => {
+        if (call !== 2) return;
+        if (kind === 'outcome') getDb().prepare("UPDATE agent_turn_dispatches SET outcome='unknown' WHERE id=?").run(c.callback.id);
+        if (kind === 'SDK') getDb().prepare("UPDATE agent_turn_dispatches SET sdk_session_id='sdk-foreign' WHERE id=?").run(c.callback.id);
+        if (kind === 'membership') c.membership[0].parentMessageId = 'msg_foreign';
+        if (kind === 'durable current') f.current.value = false;
+      };
+      expect(await c.inspect()).toMatchObject({ status: 'hold', reason: kind === 'durable current' ? 'scope_changed' : 'local_binding_changed', usage: null });
     });
   });
 
