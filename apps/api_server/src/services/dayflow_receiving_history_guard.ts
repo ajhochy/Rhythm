@@ -217,6 +217,14 @@ export class DayflowProviderAdmissionService {
     enrollment: DayflowGuardEnrollment;
     /** Absent means schema-2 workflow provider calls fail closed. */
     workflow?: WorkflowProviderAdmissionGate;
+    /**
+     * Synchronous durable-membership proof for the workflow job. When wired, an
+     * allow is withheld unless this exact request's member row is already
+     * persisted, i.e. membership always precedes the provider/SDK request.
+     */
+    workflowMembership?: {
+      hasMember(jobId: string, nativeSessionId: string, nativeUserMessageId: string): boolean;
+    };
   }) {}
 
   async admit(auth: AuthContext, body: unknown): Promise<ProviderAdmissionResult> {
@@ -309,6 +317,19 @@ export class DayflowProviderAdmissionService {
       const response = unavailable('membership_unavailable', initial);
       return { ok: true, response, finalize: () => response };
     }
+    // A descendant of a known member is admitted only while that member still
+    // exists in the owned engine; a deleted known member holds (no dispatch).
+    if (
+      nativeParentSessionId !== request.binding.rootSdkSessionId &&
+      nativeParentSessionId !== request.binding.managerSdkSessionId
+    ) {
+      let parentExists = false;
+      try { parentExists = !!(await this.dependencies.engine.getSession(nativeParentSessionId)); } catch { parentExists = false; }
+      if (!parentExists) {
+        const response = unavailable('membership_unavailable', initial);
+        return { ok: true, response, finalize: () => response };
+      }
+    }
     let decision: Awaited<ReturnType<WorkflowProviderAdmissionGate['admit']>>;
     try {
       decision = await gate.admit({ auth, request, frame: initial, nativeParentSessionId });
@@ -341,7 +362,10 @@ export class DayflowProviderAdmissionService {
       });
     })();
     const finalize = (): WorkflowProviderDecision => {
-      const allowed = decision.status === 'allow' && decision.reason === 'none' && decision.current() === true;
+      const allowed = decision.status === 'allow' && decision.reason === 'none' && decision.current() === true &&
+        (this.dependencies.workflowMembership?.hasMember(
+          request.binding.jobId, request.request.sdkSessionId, request.request.userMessageId,
+        ) ?? true);
       const response = allowed ? base : this.hold(request.request, 'proof_unavailable');
       const candidate: WorkflowProviderDecision = {
         schemaVersion: 2,

@@ -470,6 +470,35 @@ export class AsyncDelegationCompletionService {
       }
     }
 
+    // The bound Coding Workflow manager's exact single callback mints a native
+    // user anchor that must be durable BEFORE exposure, with or without a
+    // Dayflow receiver. An unrelated/mixed callback never reaches this branch.
+    const workflowJob = coordinatorCallbackReason && singleCoordinatorWake
+      ? bridgeRepo.findLiveCoordinatorWorkflowJobByDelegation(singleCoordinatorWake.id)
+      : null;
+    const callbackContext = callbackFreshness || workflowJob
+      ? {
+        kind: 'coordinator_callback_v1' as const,
+        validate: async () => (callbackFreshness ? await callbackFreshness() : true) &&
+          (!workflowJob || bridgeRepo.findLiveCoordinatorWorkflowJobByDelegation(singleCoordinatorWake!.id) !== null),
+        ...(workflowJob ? {
+          onPrepared: (binding: { dispatchId: string; sdkUserMessageId: string }): boolean => {
+            try {
+              bridgeRepo.recordCoordinatorWorkflowCallbackAnchor({
+                delegationId: singleCoordinatorWake!.id,
+                dispatchId: binding.dispatchId,
+                sdkUserMessageId: binding.sdkUserMessageId,
+                now: new Date().toISOString(),
+              });
+              return true;
+            } catch {
+              return false;
+            }
+          },
+        } : {}),
+      }
+      : null;
+
     this.wakeInFlight.add(parentSessionId);
     let deliveryUnknown = false;
     const attemptedNative = activeNative.length > 0 && nativeContext
@@ -492,7 +521,7 @@ export class AsyncDelegationCompletionService {
       };
       // Ordinary completions keep the exact historical call shape; only the
       // exact prepared callback appends its final-boundary freshness hook.
-      const enqueued = callbackFreshness
+      const enqueued = callbackContext
         ? await opencodeClient.promptAsync(
           parentSdkSessionId,
           wakeText,
@@ -504,7 +533,7 @@ export class AsyncDelegationCompletionService {
           dispatchProvenance,
           undefined,
           undefined,
-          { kind: 'coordinator_callback_v1', validate: callbackFreshness },
+          callbackContext,
         )
         : await opencodeClient.promptAsync(
           parentSdkSessionId,
