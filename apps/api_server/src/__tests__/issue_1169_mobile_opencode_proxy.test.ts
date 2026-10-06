@@ -113,6 +113,15 @@ const permissiveOwnershipRepository = {
   releaseResource: () => true,
 };
 
+// The proxy fails closed (409 RECONCILIATION_REQUIRED) unless the local
+// managed-session ledger positively classifies the SDK session as never
+// managed, so every test starts with an empty migrated ledger.
+beforeEach(() => {
+  const ledger = new Database(':memory:');
+  runMigrations(ledger);
+  setDb(ledger);
+});
+
 describe('issue #1169 mobile OpenCode proxy contract', () => {
   it('issue-1169-c1: the generated manifest classifies every bundled OpenCode operation', async () => {
     const proxy = await loadProxyModule();
