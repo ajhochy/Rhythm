@@ -1012,9 +1012,13 @@ function parseCoordinatorConversationAdmission(value: unknown): CoordinatorConve
     (execute && value.acknowledgesScopedWorkspaceExecution !== true) ||
     (workflow && (
       value.acknowledgesCodingWorkflowCoverage !== true ||
-      !plain(value.workflowCheck) ||
-      !exactKeys(value.workflowCheck, ['kind', 'sourceId', 'expectedVersion']) ||
-      value.workflowCheck.kind !== 'selected_reference_summary_v1'
+      // The selected-reference check is optional at the wire (it is not a
+      // mandatory source picker); the service refuses issuance without it.
+      (value.workflowCheck !== undefined && (
+        !plain(value.workflowCheck) ||
+        !exactKeys(value.workflowCheck, ['kind', 'sourceId', 'expectedVersion']) ||
+        value.workflowCheck.kind !== 'selected_reference_summary_v1'
+      ))
     ))
   ) {
     throw AppError.badRequest('invalid coordinator conversation admission payload');
@@ -1029,7 +1033,7 @@ function parseCoordinatorConversationAdmission(value: unknown): CoordinatorConve
     purpose: value.purpose,
     ...(execute ? { acknowledgesScopedWorkspaceExecution: true as const } : {}),
     ...(workflow ? { acknowledgesCodingWorkflowCoverage: true as const } : {}),
-    ...(workflow ? { workflowCheck: {
+    ...(workflow && value.workflowCheck !== undefined ? { workflowCheck: {
       kind: 'selected_reference_summary_v1' as const,
       sourceId: opaqueId((value.workflowCheck as Record<string, unknown>).sourceId, 'admission.workflowCheck.sourceId'),
       expectedVersion: opaqueId((value.workflowCheck as Record<string, unknown>).expectedVersion, 'admission.workflowCheck.expectedVersion'),
@@ -1392,7 +1396,8 @@ function parseStoredAuthority(
     },
     purpose: value.purpose,
     executionScope,
-    workflow: workflowAuthority,
+    // Schema-5 bytes must round-trip identically: only schema 6 carries the key.
+    ...(workflow ? { workflow: workflowAuthority } : {}),
     dayflowDependency: parseStoredDayflowDependency(value.dayflowDependency),
     status: value.status,
   };

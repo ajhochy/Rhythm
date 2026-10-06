@@ -1767,7 +1767,8 @@ export class CoordinatorConversationService {
         },
       );
       const after = this.repository.get(scope(ownerUserId, request));
-      return ['queued', 'running', 'blocked', 'unknown'].includes(dispatched.workstream.state)
+      // Same truth as the legacy lanes: a blocked/unknown workstream is a hold, never 'planned'.
+      return ['queued', 'running'].includes(dispatched.workstream.state)
         ? { kind: 'planned', conversation: after.kind === 'found' ? after.conversation : reserved.conversation, workstream: dispatched }
         : { kind: 'planning_dispatch_hold', conversation: after.kind === 'found' ? after.conversation : reserved.conversation, workstreamId };
     } catch {
@@ -2019,7 +2020,10 @@ export class CoordinatorConversationService {
       authority.authorizationId !== request.authorizationId || authority.goalId !== goal.id ||
       authority.projectId !== request.projectId || goal.linkedWorkstreamId !== authority.workstreamId ||
       authority.status !== 'consumed' || authority.consumedTurns < 1 ||
-      authority.consumedTurns >= authority.maxTurns || new Date(authority.expiresAt).valueOf() <= this.now().valueOf()
+      authority.consumedTurns >= authority.maxTurns || new Date(authority.expiresAt).valueOf() <= this.now().valueOf() ||
+      // Lanes are additive: a schema-6 workflow grant never funds a legacy
+      // read-only worker. Its next ordinal belongs to the checked-result branch.
+      authority.purpose === 'workflow'
     ) {
       return { kind: 'planning_authority_conflict', conversation: initial.conversation };
     }
@@ -2156,6 +2160,9 @@ export class CoordinatorConversationService {
       candidate.status === 'consumed' && candidate.consumedTurns >= 1 && candidate.consumedTurns < candidate.maxTurns,
     );
     if (candidates.length !== 1) return;
+    // ponytail: workflow grants are held here (never advanced by the C2
+    // proposal predicate) until the separate checked-result branch exists.
+    if (candidates[0].purpose === 'workflow') return;
     const authority = candidates[0];
     const goal = initial.conversation.goals.find((candidate) => candidate.id === authority.goalId);
     const workstream = this.dependencies.workstreams!.find(input.ownerUserId, input.projectId, input.workstreamId);

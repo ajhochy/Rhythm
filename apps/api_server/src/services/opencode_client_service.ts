@@ -3335,9 +3335,8 @@ function validFiniteExecutionPermissionRules(
         return false;
       }
       // The durable prepared receipt is deliberately synchronous; marker
-      // enrollment is the one owned-client await after it.  Do not carry the
-      // pre-enrollment authority across that await: re-check it below before
-      // any SDK call and again at the final synchronous fence.
+      // enrollment is the one owned-client await after it.  Authority is not
+      // carried across that await: 'sdk_exposure' and isCurrent re-prove it.
       let enrolled = false;
       try {
         enrolled = (await codingWorkflow.enroll({
@@ -3352,19 +3351,9 @@ function validFiniteExecutionPermissionRules(
         try { codingWorkflow.onOutcome({ delivery: 'rejected', dispatchId, sdkUserMessageId: workflowMessageID! }); } catch { /* durable consumer holds */ }
         return false;
       }
-      try {
-        if ((await codingWorkflow.validate({
-          phase: 'before_sdk', dispatchId, sdkUserMessageId: workflowMessageID!,
-        })) !== true) {
-          settleDispatch(dispatchId, 'rejected');
-          try { codingWorkflow.onOutcome({ delivery: 'rejected', dispatchId, sdkUserMessageId: workflowMessageID! }); } catch { /* durable consumer holds */ }
-          return false;
-        }
-      } catch {
-        settleDispatch(dispatchId, 'rejected');
-        try { codingWorkflow.onOutcome({ delivery: 'rejected', dispatchId, sdkUserMessageId: workflowMessageID! }); } catch { /* durable consumer holds */ }
-        return false;
-      }
+      // ponytail: no extra 'before_sdk' here — the existing awaited
+      // 'sdk_exposure' validate + synchronous isCurrent below already re-prove
+      // authority after this await, keeping the accepted phase sequence.
     }
     dispatchId ??= beginDispatch(dayflowMessageID && provenance
       ? { ...provenance, sdkUserMessageId: dayflowMessageID }

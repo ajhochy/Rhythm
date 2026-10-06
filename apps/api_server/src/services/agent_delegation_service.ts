@@ -381,14 +381,6 @@ export async function delegateToAgentAsync(
   if (input.codingWorkflow && targetId !== CODING_WORKFLOW_TARGET_PROFILE) {
     throw AppError.forbidden('coding workflow is fixed to the workflow-orchestrator profile');
   }
-  if (input.codingWorkflow && (
-    !input.codingWorkflow.workflowBinding ||
-    typeof input.codingWorkflow.onPrepared !== 'function' ||
-    typeof input.codingWorkflow.enroll !== 'function' ||
-    typeof input.codingWorkflow.onOutcome !== 'function'
-  )) {
-    throw AppError.forbidden('coding workflow durable enrollment is unavailable');
-  }
 
   const target = requireExecutableProfile(configRepo, targetId, 'target');
   if (!target.isAgent) {
@@ -424,6 +416,15 @@ export async function delegateToAgentAsync(
       throw AppError.forbidden('coding workflow project scope does not match the caller session');
     }
     assertPermissionScopeCurrent();
+    // Durable hooks are required, but only AFTER the accepted project/admission
+    // refusals so their reasons stay stable; still before any worktree/child/SDK.
+    const hooks = input.codingWorkflow;
+    if (
+      !hooks.workflowBinding || typeof hooks.onPrepared !== 'function' ||
+      typeof hooks.enroll !== 'function' || typeof hooks.onOutcome !== 'function'
+    ) {
+      throw AppError.forbidden('coding workflow durable enrollment is unavailable');
+    }
   }
   let effectiveCwd = callerSession.cwd;
   let worktree: { name: string; path: string; branch: string | null } | null = null;
