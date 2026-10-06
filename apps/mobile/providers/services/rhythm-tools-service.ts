@@ -168,6 +168,8 @@ export interface ResearchRecord extends ToolRecord {
   sourcesJson?: string;
   createdAt?: string;
   updatedAt?: string;
+  /** Server-owned retry eligibility. Optional for older backends; only a strict `true` ever enables Retry. */
+  canRetry?: boolean;
 }
 
 export interface ScheduledJobRecord extends ToolRecord {
@@ -240,6 +242,7 @@ const CACHE_FIELDS: Record<ToolCacheKind, ReadonlySet<string>> = {
     'sourcesJson',
     'createdAt',
     'updatedAt',
+    'canRetry',
   ]),
   schedules: new Set([
     'id',
@@ -658,6 +661,10 @@ export function sanitizeToolCache(
         .filter(([key]) => allowed.has(key) && !SENSITIVE_KEY.test(key))
         .map(([key, child]) => [key, safeCacheValue(child)]),
     );
+    // Research retry eligibility is server-owned and strictly boolean; anything else is dropped (never enables Retry).
+    if (kind === 'research' && 'canRetry' in safe && typeof safe.canRetry !== 'boolean') {
+      delete safe.canRetry;
+    }
     const id =
       typeof safe.id === 'string'
         ? safe.id
@@ -813,6 +820,285 @@ function queryPath(
   const encoded = query.toString();
   return encoded ? `${path}?${encoded}` : path;
 }
+
+// ---- Research projects/runs (canonical contract; eleven exact paired operations) -----------------------------------------
+// Structure copied from apps/web/src/gateway/research.ts and the API repository. Project/run responses are NOT run
+// through the legacy job cache projection: opaque canonical fields are kept intact and only identity-critical shapes
+// are validated.
+
+export type ResearchModelRef = { providerId: string; modelId: string };
+export type ResearchBudget = {
+  maxPasses: number;
+  maxTokens: number;
+  maxCostUsd: number;
+  maxWallClockMs: number;
+};
+
+export interface ResearchProject {
+  id: string;
+  ownerUserId: number;
+  name: string;
+  question: string;
+  goals: unknown[];
+  domain: string | null;
+  profileId: string | null;
+  passConfig: unknown[];
+  modelPolicy: Record<string, unknown>;
+  criticConfig: Record<string, unknown>;
+  synthesisConfig: Record<string, unknown>;
+  scheduleRef: string | null;
+  budget: Record<string, unknown>;
+  magazineArtifactId?: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ResearchProjectInput {
+  name: string;
+  question: string;
+  goals: unknown[];
+  domain?: string | null;
+  profileId?: string | null;
+  passConfig?: unknown[];
+  modelPolicy?: Record<string, unknown>;
+  criticConfig?: Record<string, unknown>;
+  synthesisConfig?: Record<string, unknown>;
+  scheduleRef?: string | null;
+  budget?: Record<string, unknown>;
+}
+
+export interface ResearchProjectRun {
+  id: string;
+  projectId: string;
+  ownerUserId: number;
+  triggerType: 'manual' | 'scheduled' | 'follow-up';
+  configSnapshot: Record<string, unknown>;
+  status: string;
+  progress: Record<string, unknown>;
+  diagnostics: Record<string, unknown>;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  canonicalArtifact: Record<string, unknown> | null;
+  artifacts: Record<string, unknown>[];
+  sources: Record<string, unknown>[];
+  usage: { tokens: number; costUsd: number };
+}
+
+/** Paired-only representation of the canonical Markdown export. */
+export type ResearchMarkdownExport = { markdown: string };
+
+export const DEFAULT_RESEARCH_BUDGET: ResearchBudget = {
+  maxPasses: 3,
+  maxTokens: 5_000_000,
+  maxCostUsd: 5,
+  maxWallClockMs: 30 * 60_000,
+};
+export const RESEARCH_BUDGET_KEYS = [
+  'maxPasses',
+  'maxTokens',
+  'maxCostUsd',
+  'maxWallClockMs',
+] as const;
+/** Server-owned bounds (agentResearchController BUDGET_BOUNDS); the server remains authoritative. */
+export function validateResearchBudgetField(
+  key: keyof ResearchBudget,
+  value: unknown,
+): string | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'Enter a number.';
+  switch (key) {
+    case 'maxPasses':
+      return Number.isInteger(value) && value >= 0 && value <= 10
+        ? null
+        : 'Passes must be a whole number from 0 to 10.';
+    case 'maxTokens':
+      return Number.isInteger(value) && value >= 50_000 && value <= 100_000_000
+        ? null
+        : 'Tokens must be a whole number from 50,000 to 100,000,000.';
+    case 'maxCostUsd':
+      return value >= 0 && value <= 1_000 ? null : 'Cost must be from $0 to $1,000.';
+    case 'maxWallClockMs':
+      return Number.isInteger(value) && value >= 60_000 && value <= 21_600_000
+        ? null
+        : 'Time must be from 1 to 360 minutes.';
+  }
+}
+
+/** Safe, user-facing failure when a canonical response does not have the expected shape. */
+export class ResearchContractError extends Error {
+  readonly code = 'RESEARCH_CONTRACT';
+  constructor() {
+    super('The paired Mac returned an unexpected Research response.');
+    this.name = 'ResearchContractError';
+  }
+}
+
+/** The paired Mac does not expose the Research project/run workflow (older exact-five gateway). */
+export class ResearchWorkflowUnavailableError extends Error {
+  readonly code = 'RESEARCH_WORKFLOW_UNAVAILABLE';
+  constructor() {
+    super('Research projects are not available on this paired Mac yet.');
+    this.name = 'ResearchWorkflowUnavailableError';
+  }
+}
+
+export type ResearchOperation =
+  | 'listResearchProjects'
+  | 'createResearchProject'
+  | 'getResearchProject'
+  | 'updateResearchProject'
+  | 'listResearchProjectRuns'
+  | 'startResearchProjectRun'
+  | 'getResearchProjectRun'
+  | 'cancelResearchProjectRun'
+  | 'resumeResearchProjectRun'
+  | 'finishResearchProjectRun'
+  | 'exportResearchProjectRunMarkdown';
+
+/**
+ * Recognizes ONLY the exact older-gateway rejections: status 404 + code NOT_FOUND with the exact message
+ * `MobileToolOperation not found` (any operation), or `ResearchJob not found` for the project LIST operation alone
+ * (GET /projects falls through to the legacy /:id handler on an exact-five gateway). Genuine ResearchProject/Run 404s,
+ * Mac-scope 404s, 401/403 and network failures are never classified here, and success never proves capability.
+ */
+export function isResearchOperationUnavailable(
+  reason: unknown,
+  operation: ResearchOperation,
+): boolean {
+  if (!reason || typeof reason !== 'object') return false;
+  const { status, code, message } = reason as {
+    status?: unknown;
+    code?: unknown;
+    message?: unknown;
+  };
+  if (status !== 404 || String(code ?? '').toUpperCase() !== 'NOT_FOUND') return false;
+  if (message === 'MobileToolOperation not found') return true;
+  return operation === 'listResearchProjects' && message === 'ResearchJob not found';
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const nonEmptyString = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0;
+const nullableString = (value: unknown) => value === null || typeof value === 'string';
+
+export function parseResearchProject(value: unknown): ResearchProject {
+  if (
+    !isRecord(value) ||
+    !nonEmptyString(value.id) ||
+    typeof value.ownerUserId !== 'number' || !Number.isFinite(value.ownerUserId) ||
+    typeof value.name !== 'string' ||
+    typeof value.question !== 'string' ||
+    !Array.isArray(value.goals) ||
+    !Array.isArray(value.passConfig) ||
+    !isRecord(value.modelPolicy) ||
+    !isRecord(value.criticConfig) ||
+    !isRecord(value.synthesisConfig) ||
+    !isRecord(value.budget) ||
+    !nullableString(value.domain) ||
+    !nullableString(value.profileId) ||
+    !nullableString(value.scheduleRef) ||
+    !nullableString(value.archivedAt) ||
+    typeof value.createdAt !== 'string' ||
+    typeof value.updatedAt !== 'string'
+  ) {
+    throw new ResearchContractError();
+  }
+  return value as unknown as ResearchProject;
+}
+
+export function parseResearchProjectRun(value: unknown): ResearchProjectRun {
+  if (
+    !isRecord(value) ||
+    !nonEmptyString(value.id) ||
+    !nonEmptyString(value.projectId) ||
+    typeof value.ownerUserId !== 'number' || !Number.isFinite(value.ownerUserId) ||
+    !['manual', 'scheduled', 'follow-up'].includes(String(value.triggerType)) ||
+    typeof value.status !== 'string' ||
+    !isRecord(value.configSnapshot) ||
+    !isRecord(value.progress) ||
+    !isRecord(value.diagnostics) ||
+    !nullableString(value.startedAt) ||
+    !nullableString(value.completedAt) ||
+    typeof value.createdAt !== 'string' ||
+    !(value.canonicalArtifact === null || isRecord(value.canonicalArtifact)) ||
+    !Array.isArray(value.artifacts) ||
+    !Array.isArray(value.sources) ||
+    !isRecord(value.usage) ||
+    typeof value.usage.tokens !== 'number' || !Number.isFinite(value.usage.tokens) ||
+    typeof value.usage.costUsd !== 'number' || !Number.isFinite(value.usage.costUsd)
+  ) {
+    throw new ResearchContractError();
+  }
+  return value as unknown as ResearchProjectRun;
+}
+
+function parseResearchList<T>(value: unknown, parse: (entry: unknown) => T): T[] {
+  if (!Array.isArray(value)) throw new ResearchContractError();
+  return value.map(parse);
+}
+
+export function parseResearchMarkdownExport(value: unknown): string {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).length !== 1 ||
+    typeof value.markdown !== 'string'
+  ) {
+    throw new ResearchContractError();
+  }
+  return value.markdown;
+}
+
+function requireResearchId(value: unknown): string {
+  if (!nonEmptyString(value)) throw new Error('A Research project and run identity is required.');
+  return encodeURIComponent(value);
+}
+
+// Run-state predicates (match LiveResearchTool, not the older fixture).
+export const RESEARCH_ACTIVE_STATES = ['pending', 'running', 'resumable', 'working'];
+export const researchRunActive = (run: Pick<ResearchProjectRun, 'status'> | null | undefined) =>
+  Boolean(run) && RESEARCH_ACTIVE_STATES.includes(run!.status);
+export function researchStages(run: ResearchProjectRun): Record<string, unknown>[] {
+  return (Array.isArray(run.progress.stages) ? run.progress.stages : []).filter(
+    (stage): stage is Record<string, unknown> => isRecord(stage),
+  );
+}
+const researchStageDone = (run: ResearchProjectRun, match: (role: string) => boolean) =>
+  researchStages(run).some(
+    (stage) => stage.status === 'done' && typeof stage.role === 'string' && match(stage.role),
+  );
+export const researchHasEvidence = (run: ResearchProjectRun) =>
+  researchStageDone(run, (role) => !['plan', 'critic', 'synthesis'].includes(role));
+export const researchHasSynthesis = (run: ResearchProjectRun) =>
+  researchStageDone(run, (role) => role === 'synthesis');
+export const researchBudgetExhausted = (run: ResearchProjectRun) =>
+  run.diagnostics.budgetExhausted === true;
+export const canCancelResearchRun = (run: ResearchProjectRun) => researchRunActive(run);
+export const canResumeResearchRun = (run: ResearchProjectRun) => run.status === 'error';
+export const canFinishResearchRun = (run: ResearchProjectRun) =>
+  !researchRunActive(run) &&
+  researchHasEvidence(run) &&
+  (!researchHasSynthesis(run) || researchBudgetExhausted(run));
+/** Stricter than the desktop button: the FIRST done synthesis stage must carry a nonblank string report. */
+export function researchReportReady(run: ResearchProjectRun): boolean {
+  const synthesis = researchStages(run).find(
+    (stage) => stage.status === 'done' && stage.role === 'synthesis',
+  );
+  return Boolean(synthesis) && typeof synthesis!.report === 'string' && synthesis!.report.trim().length > 0;
+}
+
+export function researchPolicyRef(
+  policy: Record<string, unknown>,
+  side: 'lead' | 'researcher',
+): ResearchModelRef | null {
+  const value = policy[side];
+  return isRecord(value) && typeof value.providerId === 'string' && typeof value.modelId === 'string'
+    ? { providerId: value.providerId, modelId: value.modelId }
+    : null;
+}
+export const researchHasModelPolicy = (policy: Record<string, unknown>) =>
+  'lead' in policy || 'researcher' in policy;
 
 export class RhythmToolsService {
   private readonly cloud: ToolTransport;
@@ -983,6 +1269,144 @@ export class RhythmToolsService {
     return this.pairedRequest(`/mobile-gateway/tools/agent-research/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
+  }
+
+  // ---- Research projects and runs: exactly eleven operations under /mobile-gateway/tools/agent-research ----
+  // Every request goes through pairedRequest (Mac project header + abort signal). Each ID is a separately encoded path
+  // segment; an empty identity is rejected rather than substituted. Only an exact older-gateway rejection becomes
+  // ResearchWorkflowUnavailableError; every other failure keeps its real status/code.
+
+  private async researchRequest<T>(
+    operation: ResearchOperation,
+    path: string,
+    init?: ToolRequestInit,
+  ): Promise<T> {
+    try {
+      return await this.pairedRequest<T>(path, init);
+    } catch (reason) {
+      if (isResearchOperationUnavailable(reason, operation)) {
+        throw new ResearchWorkflowUnavailableError();
+      }
+      throw reason;
+    }
+  }
+
+  async listResearchProjects(): Promise<ResearchProject[]> {
+    return parseResearchList(
+      await this.researchRequest<unknown>(
+        'listResearchProjects',
+        '/mobile-gateway/tools/agent-research/projects',
+      ),
+      parseResearchProject,
+    );
+  }
+
+  async createResearchProject(input: ResearchProjectInput): Promise<ResearchProject> {
+    return parseResearchProject(
+      await this.researchRequest<unknown>(
+        'createResearchProject',
+        '/mobile-gateway/tools/agent-research/projects',
+        { method: 'POST', body: body(input) },
+      ),
+    );
+  }
+
+  async getResearchProject(projectId: string): Promise<ResearchProject> {
+    const id = requireResearchId(projectId);
+    return parseResearchProject(
+      await this.researchRequest<unknown>(
+        'getResearchProject',
+        `/mobile-gateway/tools/agent-research/projects/${id}`,
+      ),
+    );
+  }
+
+  async updateResearchProject(
+    projectId: string,
+    patch: Partial<ResearchProjectInput>,
+  ): Promise<ResearchProject> {
+    const id = requireResearchId(projectId);
+    return parseResearchProject(
+      await this.researchRequest<unknown>(
+        'updateResearchProject',
+        `/mobile-gateway/tools/agent-research/projects/${id}`,
+        { method: 'PATCH', body: body(patch) },
+      ),
+    );
+  }
+
+  async listResearchProjectRuns(projectId: string): Promise<ResearchProjectRun[]> {
+    const id = requireResearchId(projectId);
+    return parseResearchList(
+      await this.researchRequest<unknown>(
+        'listResearchProjectRuns',
+        `/mobile-gateway/tools/agent-research/projects/${id}/runs`,
+      ),
+      parseResearchProjectRun,
+    );
+  }
+
+  async startResearchProjectRun(projectId: string): Promise<ResearchProjectRun> {
+    const id = requireResearchId(projectId);
+    return parseResearchProjectRun(
+      await this.researchRequest<unknown>(
+        'startResearchProjectRun',
+        `/mobile-gateway/tools/agent-research/projects/${id}/runs`,
+        { method: 'POST', body: body({ triggerType: 'manual' }) },
+      ),
+    );
+  }
+
+  async getResearchProjectRun(projectId: string, runId: string): Promise<ResearchProjectRun> {
+    const project = requireResearchId(projectId);
+    const run = requireResearchId(runId);
+    return parseResearchProjectRun(
+      await this.researchRequest<unknown>(
+        'getResearchProjectRun',
+        `/mobile-gateway/tools/agent-research/projects/${project}/runs/${run}`,
+      ),
+    );
+  }
+
+  private async researchRunAction(
+    operation: ResearchOperation,
+    action: 'cancel' | 'resume' | 'finish',
+    projectId: string,
+    runId: string,
+  ): Promise<ResearchProjectRun> {
+    const project = requireResearchId(projectId);
+    const run = requireResearchId(runId);
+    return parseResearchProjectRun(
+      await this.researchRequest<unknown>(
+        operation,
+        `/mobile-gateway/tools/agent-research/projects/${project}/runs/${run}/${action}`,
+        { method: 'POST' },
+      ),
+    );
+  }
+
+  cancelResearchProjectRun(projectId: string, runId: string): Promise<ResearchProjectRun> {
+    return this.researchRunAction('cancelResearchProjectRun', 'cancel', projectId, runId);
+  }
+
+  resumeResearchProjectRun(projectId: string, runId: string): Promise<ResearchProjectRun> {
+    return this.researchRunAction('resumeResearchProjectRun', 'resume', projectId, runId);
+  }
+
+  finishResearchProjectRun(projectId: string, runId: string): Promise<ResearchProjectRun> {
+    return this.researchRunAction('finishResearchProjectRun', 'finish', projectId, runId);
+  }
+
+  /** Paired representation of the canonical export: a strict `{markdown}` JSON envelope on the same approved GET path. */
+  async exportResearchProjectRunMarkdown(projectId: string, runId: string): Promise<string> {
+    const project = requireResearchId(projectId);
+    const run = requireResearchId(runId);
+    return parseResearchMarkdownExport(
+      await this.researchRequest<unknown>(
+        'exportResearchProjectRunMarkdown',
+        `/mobile-gateway/tools/agent-research/projects/${project}/runs/${run}/export?format=markdown`,
+      ),
+    );
   }
 
   listSchedules(): Promise<ScheduledJobRecord[]> {

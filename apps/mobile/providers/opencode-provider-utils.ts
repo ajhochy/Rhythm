@@ -73,7 +73,115 @@ export type SessionExecutionState = {
   permissionMode: PermissionMode;
   /** 'auto' lets the server-side router pick the model; absent on older Macs. */
   modelMode?: ModelMode;
+  /** Absent on older Macs: Fast is then unknown, never false and never written back. */
+  fastMode?: boolean;
+  /** Present only on explicit-selector (settings contract v1) responses. */
+  settingsContractVersion?: 1;
+  settingsIdentity?: SessionSettingsIdentity;
+  sdkSessionId?: string | null;
 };
+
+export type SessionSettingsIdentity = 'sdk' | 'local-primary';
+
+/**
+ * Exact settings target. `local-primary` is exactly
+ * `MobileCoordinatorBinding.sessionId`; `sdk` is the ordinary catalog SDK id.
+ */
+export type SessionSettingsTarget = { identity: SessionSettingsIdentity; id: string };
+
+export type SessionSettingsEntry =
+  | { status: 'ready'; state: SessionExecutionState }
+  | { status: 'unsupported' };
+
+export function sessionSettingsKey(projectId: string, target: SessionSettingsTarget): string {
+  return [projectId, target.identity, target.id].join('\u0000');
+}
+
+/** Partial settings body of the v1 contract: only fields the user explicitly changed. */
+export type SessionSettingsPatch = {
+  modelMode?: ModelMode;
+  providerId?: string;
+  modelId?: string;
+  thinkingBudget?: number | null;
+  fastMode?: boolean;
+};
+
+const PROFILE_AVAILABILITIES = ['available', 'unassigned', 'unavailable'];
+const PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
+
+/**
+ * Accepts a v1 settings response only with version 1 and an exact echo of the
+ * requested identity; anything else means the editor stays disabled.
+ */
+export function parseSessionSettingsState(
+  value: unknown,
+  target: SessionSettingsTarget,
+): SessionExecutionState | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const state = value as Record<string, unknown>;
+  const nullableString = (field: unknown) => field === null || typeof field === 'string';
+  // v1 identity is exact: a present nonempty canonical local id for both selectors, and an SDK id that is
+  // present as string-or-null (null = inert primary). The selector's own id must additionally echo.
+  const echoed = target.identity === 'local-primary'
+    ? state.localSessionId === target.id
+    : state.sdkSessionId === target.id;
+  if (
+    state.settingsContractVersion !== 1 ||
+    state.settingsIdentity !== target.identity ||
+    typeof state.localSessionId !== 'string' || state.localSessionId.length === 0 ||
+    !('sdkSessionId' in state) || !(state.sdkSessionId === null || typeof state.sdkSessionId === 'string') ||
+    !echoed ||
+    typeof state.fastMode !== 'boolean' ||
+    !(state.thinkingBudget === null || (Number.isInteger(state.thinkingBudget) && (state.thinkingBudget as number) >= 0)) ||
+    (state.modelMode !== 'auto' && state.modelMode !== 'fixed') ||
+    !nullableString(state.providerId) || !nullableString(state.modelId) ||
+    !nullableString(state.profileId) || !nullableString(state.opencodeAgentId) ||
+    !PROFILE_AVAILABILITIES.includes(state.profileAvailability as string) ||
+    !PERMISSION_MODES.includes(state.permissionMode as string)
+  ) return undefined;
+  return state as unknown as SessionExecutionState;
+}
+
+/**
+ * Diff of an explicit user edit against the displayed preferences. Unchanged
+ * fields are omitted, so a model or Fast edit never touches the exact stored
+ * reasoning budget and opening/switching can never produce a body.
+ */
+export function diffSessionSettings(
+  current: ChatPreferences,
+  next: ChatPreferences,
+  options: { fastSupported: boolean },
+): SessionSettingsPatch {
+  const patch: SessionSettingsPatch = {};
+  const modelChanged = next.modelMode !== current.modelMode ||
+    (next.modelMode !== 'auto' && (next.modelId !== current.modelId || next.providerId !== current.providerId));
+  if (modelChanged) {
+    if (next.modelMode === 'auto') {
+      patch.modelMode = 'auto';
+    } else {
+      const parts = getSelectedModelParts(next.modelId);
+      if (!parts) throw new Error('Choose an available model.');
+      patch.modelMode = 'fixed';
+      patch.providerId = parts.providerID;
+      patch.modelId = parts.modelID;
+    }
+  }
+  if (next.reasoning !== current.reasoning) {
+    patch.thinkingBudget = thinkingBudgetForReasoning(next.reasoning);
+  }
+  if (options.fastSupported && next.fastMode !== undefined && next.fastMode !== current.fastMode) {
+    patch.fastMode = next.fastMode;
+  }
+  return patch;
+}
+
+/** Fields owned by profile/approval edits, which the settings-only contract never carries. */
+export function changesProfileOrApproval(current: ChatPreferences, next: ChatPreferences): boolean {
+  return next.profileId !== current.profileId ||
+    next.mode !== current.mode ||
+    next.permissionMode !== current.permissionMode ||
+    next.autoApprove !== current.autoApprove;
+}
 
 type SessionWithExecutionMetadata = {
   rhythm?: SessionExecutionState;
@@ -125,6 +233,8 @@ export type ChatPreferences = {
   modelId?: string;
   /** Auto (router) is the default; `modelId` is then only the fallback baseline. */
   modelMode?: ModelMode;
+  /** Session Fast tier; `undefined` means unknown (older Mac), never false. */
+  fastMode?: boolean;
   enabledModelIds: string[];
   providerModelSelections: Record<string, string>;
   reasoning: ReasoningLevel;
@@ -453,6 +563,8 @@ export function hydratePreferencesFromSession(
     modelId,
     // Sessions with an explicit stored model keep it unless the server says auto.
     modelMode: session.modelMode ?? (modelId ? 'fixed' : current.modelMode),
+    // Never inherit another chat's Fast: absent stays unknown.
+    fastMode: session.fastMode,
     reasoning: reasoningForThinkingBudget(session.thinkingBudget),
     permissionMode: session.permissionMode,
     autoApprove: session.permissionMode === 'bypassPermissions',

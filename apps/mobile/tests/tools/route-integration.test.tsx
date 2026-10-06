@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { PaperProvider } from 'react-native-paper';
 
 import ToolsScreen from '@/app/(tabs)/tools';
@@ -13,12 +13,31 @@ const mockGetGalleryArtifactSource = jest.fn().mockResolvedValue(null);
 const mockStartMcpOAuth = jest.fn();
 let mockTool: ToolScreenId = 'brain';
 let mockItems: ToolRecord[] = [];
+let mockResearch: Record<string, unknown> | undefined;
+let mockFocused = true;
+const mockFocusListeners = new Set<() => void>();
+const setFocus = async (focused: boolean) => {
+  mockFocused = focused;
+  await act(async () => { mockFocusListeners.forEach((listener) => listener()); });
+};
 
 jest.mock('expo-av', () => ({ ResizeMode: { CONTAIN: 'contain' }, Video: () => null }));
 jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn() }));
 jest.mock('expo-image', () => ({ Image: () => null }));
 jest.mock('expo-web-browser', () => ({ openBrowserAsync: jest.fn() }));
 jest.mock('expo-router', () => ({
+  // Real useFocusEffect semantics: run while focused, clean up on blur and unmount. Focus is a real subscription: changing
+  // mockFocused and calling every registered listener re-renders the subscribed route (no identical-element rerender needed).
+  useFocusEffect: (effect: () => void | (() => void)) => {
+    const { useEffect, useState } = jest.requireActual('react');
+    const [focused, setFocused] = useState(mockFocused);
+    useEffect(() => {
+      const listener = () => setFocused(mockFocused);
+      mockFocusListeners.add(listener);
+      return () => { mockFocusListeners.delete(listener); };
+    }, []);
+    useEffect(() => (focused ? effect() : undefined), [effect, focused]);
+  },
   Stack: { Screen: () => null },
   useLocalSearchParams: () => ({ tool: mockTool }),
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
@@ -40,6 +59,7 @@ jest.mock('@/providers/rhythm-tools-provider', () => ({
     }),
     perform: mockPerform,
     refresh: mockRefresh,
+    research: mockResearch,
   }),
 }));
 jest.mock('@/providers/opencode-provider', () => ({
@@ -91,6 +111,8 @@ beforeEach(() => {
   mockStartMcpOAuth.mockResolvedValue('https://auth.example.test/mcp');
   mockTool = 'brain';
   mockItems = [];
+  mockResearch = undefined;
+  mockFocused = true;
 });
 
 test('slice-a-c1: Tools route renders the exact manifest as grouped catalog rows and preserves destinations', () => {
@@ -367,6 +389,83 @@ test('research reports use the safe markdown display and retain an immediate Clo
   expect(screen.getByText('Findings')).toBeTruthy();
   expect(screen.getByText(/MCP SDK \(https:\/\/example\.test\/releases\)/)).toBeTruthy();
   expect(screen.queryByText('| Finding | Assessment |')).toBeNull();
+});
+
+test('research Retry is offered only for a server-owned strict canRetry===true error row', () => {
+  // Missing, false and non-boolean eligibility (and non-error rows) never enable Retry; the exact row id is retried.
+  const screen = renderDetail('research', [
+    { id: 'job-true', query: 'eligible job', status: 'error', canRetry: true },
+    { id: 'job-false', query: 'ineligible false job', status: 'error', canRetry: false },
+    { id: 'job-missing', query: 'older backend job', status: 'error' },
+    { id: 'job-string', query: 'non boolean job', status: 'error', canRetry: 'true' },
+    { id: 'job-done', query: 'completed job', status: 'completed', canRetry: true },
+  ]);
+
+  expect(screen.getAllByText('Retry')).toHaveLength(1);
+  fireEvent.press(screen.getByText('Retry'));
+  expect(mockPerform).toHaveBeenCalledWith('research', 'research:retry', { id: 'job-true' });
+});
+
+test('Research route mounts the provider-owned project workspace above the legacy history and reports its visibility', () => {
+  const setVisible = jest.fn();
+  const refreshWorkspace = jest.fn().mockResolvedValue(undefined);
+  mockResearch = {
+    initialised: true, loading: false, offline: false, unavailable: false, error: null, actionError: null,
+    projects: [{
+      id: 'p1', ownerUserId: 7, name: 'Garden study', question: 'What grows best?', goals: [], domain: null, profileId: 'research',
+      passConfig: [], modelPolicy: {}, criticConfig: {}, synthesisConfig: {}, scheduleRef: null, budget: {}, archivedAt: null,
+      createdAt: 't', updatedAt: 't',
+    }],
+    selectedProjectId: 'p1', runs: [], selectedRunId: null, runDetail: null, missing: null, report: null, reportError: null,
+    pending: {}, scope: 'scope', canMutate: true, refresh: refreshWorkspace, selectProject: jest.fn(), selectRun: jest.fn(),
+    closeReport: jest.fn(), createProject: jest.fn(), saveSettings: jest.fn(), startRun: jest.fn(), runAction: jest.fn(),
+    loadReport: jest.fn(), setVisible,
+  };
+  const screen = renderDetail('research', [{ id: 'legacy-1', query: 'Legacy job question', status: 'completed' }]);
+
+  expect(setVisible).toHaveBeenLastCalledWith(true);
+  expect(screen.getByTestId('research-project-workspace')).toBeTruthy();
+  expect(screen.getByTestId('research-project-card-p1')).toBeTruthy();
+  // The legacy history and its New research action are retained.
+  expect(screen.getByText('Research history')).toBeTruthy();
+  expect(screen.getByText('Legacy job question')).toBeTruthy();
+  expect(screen.getByLabelText('New research')).toBeTruthy();
+  // Explicit refresh refreshes both the legacy list and the workspace.
+  fireEvent.press(screen.getByLabelText('Refresh Research'));
+  expect(mockRefresh).toHaveBeenCalledWith('research');
+  expect(refreshWorkspace).toHaveBeenCalled();
+  screen.unmount();
+  expect(setVisible).toHaveBeenLastCalledWith(false);
+});
+
+test('Research visibility follows route focus and blur, not only mount: a retained unfocused route is hidden', async () => {
+  const setVisible = jest.fn();
+  mockResearch = {
+    initialised: true, loading: false, offline: false, unavailable: false, error: null, actionError: null,
+    projects: [], selectedProjectId: null, runs: [], selectedRunId: null, runDetail: null, missing: null, report: null,
+    reportError: null, pending: {}, scope: 'scope', canMutate: true, refresh: jest.fn().mockResolvedValue(undefined),
+    selectProject: jest.fn(), selectRun: jest.fn(), closeReport: jest.fn(), createProject: jest.fn(), saveSettings: jest.fn(),
+    startRun: jest.fn(), runAction: jest.fn(), loadReport: jest.fn(), setVisible,
+  };
+  const element = (
+    <PaperProvider>
+      <RhythmToolScreen />
+    </PaperProvider>
+  );
+  mockTool = 'research';
+  mockItems = [];
+  const screen = render(element);
+  expect(setVisible.mock.calls.map(([visible]) => visible)).toEqual([true]);
+
+  // Blur: the stack keeps the screen mounted but the Research workspace must stop polling/accepting reads.
+  await setFocus(false);
+  expect(setVisible.mock.calls.map(([visible]) => visible)).toEqual([true, false]);
+
+  // Focus again (back navigation): visible once more; unmount clears it too.
+  await setFocus(true);
+  expect(setVisible.mock.calls.map(([visible]) => visible)).toEqual([true, false, true]);
+  screen.unmount();
+  expect(setVisible.mock.calls.map(([visible]) => visible)).toEqual([true, false, true, false]);
 });
 
 test('Brain editor uses a stable heading while leaving the selected title in its scrollable context', () => {

@@ -112,6 +112,7 @@ import {
   mergePermissionConfig,
   permissionModeForAutoApprove,
   replaceSessionExecutionState,
+  sessionSettingsKey,
   sameGatewayProjectList,
   thinkingBudgetForReasoning,
 } from '@/providers/opencode-provider-utils';
@@ -157,6 +158,9 @@ import {
   type ProviderAuthMethod,
   type ProviderOption,
   type SessionExecutionState,
+  type SessionSettingsEntry,
+  type SessionSettingsPatch,
+  type SessionSettingsTarget,
   type WorkspaceCatalog,
 } from '@/providers/opencode-provider-types';
 import { useConversationKeepAwake } from '@/providers/use-conversation-keep-awake';
@@ -166,7 +170,9 @@ import { useRhythmAccount } from '@/providers/rhythm-account-provider';
 import { useOpencodePersistence } from '@/providers/use-opencode-persistence';
 import {
   createMobileGatewaySession,
+  getMobileSessionSettings,
   listMobileGatewayProfiles,
+  patchMobileSessionSettings,
   listMobileGatewayProjects,
   updateMobileSessionProfileState,
 } from '@/providers/services/mobile-gateway-service';
@@ -499,6 +505,19 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
   const settingsRef = useRef(settings);
   const activeProjectPathRef = useRef(activeProjectPath);
+  const pairedHostClientRef = useRef(pairedHostClient);
+  pairedHostClientRef.current = pairedHostClient;
+  const [sessionSettings, setSessionSettings] = useState<Record<string, SessionSettingsEntry>>({});
+  const sessionSettingsRef = useRef(sessionSettings);
+  sessionSettingsRef.current = sessionSettings;
+  // Per settings key request ordering: a save invalidates outstanding probes, so an older GET can
+  // never overwrite a newer canonical readback. Local bookkeeping only (no timer or server revision).
+  const settingsOrderRef = useRef(new Map<string, number>());
+  // Saves in flight per key (a counter, since saves may overlap): GET results are never published while
+  // any save is pending, so a probe cannot replace the verified entry in the middle of a valid save.
+  const settingsPendingRef = useRef(new Map<string, number>());
+  // Verified settings belong to one paired client and project; drop them on change.
+  useEffect(() => { setSessionSettings({}); }, [activeProjectPath, pairedHostClient]);
   // Session records for chats opened this launch, surviving project-scope
   // switches (which clear `sessions`). Backs cross-project cache-first opens.
   const openedSessionRecordCacheRef = useRef(
@@ -2028,6 +2047,91 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       currentSessionId,
       persistSessionPreferences,
     ],
+  );
+
+  const loadSessionSettings = useCallback(
+    async (target: SessionSettingsTarget, isCurrent: () => boolean = () => true): Promise<void> => {
+      const client = pairedHostClientRef.current;
+      const projectId = activeProjectPathRef.current;
+      if (!client || !projectId) return;
+      const stillCurrent = () =>
+        pairedHostClientRef.current === client &&
+        activeProjectPathRef.current === projectId &&
+        isCurrent();
+      const key = sessionSettingsKey(projectId, target);
+      const order = (settingsOrderRef.current.get(key) ?? 0) + 1;
+      settingsOrderRef.current.set(key, order);
+      const publishable = () =>
+        stillCurrent() &&
+        settingsOrderRef.current.get(key) === order &&
+        (settingsPendingRef.current.get(key) ?? 0) === 0;
+      try {
+        // Read-only capability probe; an old Mac or malformed echo disables editing.
+        const state = await getMobileSessionSettings(client, projectId, target);
+        if (!publishable()) return;
+        // Currency and ordering are re-proved when React applies the update, not just before queueing it.
+        setSessionSettings((current) => (publishable() ? { ...current, [key]: { status: 'ready', state } } : current));
+      } catch {
+        if (!publishable()) return;
+        setSessionSettings((current) => (publishable() ? { ...current, [key]: { status: 'unsupported' } } : current));
+      }
+    },
+    [],
+  );
+
+  const updateSessionSettings = useCallback(
+    async (
+      target: SessionSettingsTarget,
+      patch: SessionSettingsPatch,
+      isCurrent: () => boolean = () => true,
+    ): Promise<SessionExecutionState> => {
+      const client = pairedHostClientRef.current;
+      const projectId = activeProjectPathRef.current;
+      if (!client || !projectId) throw new Error('Connect to your Mac before changing chat settings.');
+      const key = sessionSettingsKey(projectId, target);
+      // No v1 proof means no v1 write, and never a retarget or legacy fallback.
+      if (sessionSettingsRef.current[key]?.status !== 'ready') {
+        throw new Error('Chat settings are not available for this chat on this Mac yet.');
+      }
+      if (Object.keys(patch).length === 0) throw new Error('Nothing to change.');
+      const stillCurrent = () =>
+        pairedHostClientRef.current === client &&
+        activeProjectPathRef.current === projectId &&
+        isCurrent();
+      const stale = () => new Error('This chat changed while saving. Reopen settings to review it.');
+      // A stale invocation issues no request at all: check before queueing and again when the
+      // deferred transport wrapper actually starts.
+      if (!stillCurrent()) throw stale();
+      // Starting a save marks this key pending (suppressing GET publication until it settles) and
+      // invalidates outstanding probes.
+      settingsPendingRef.current.set(key, (settingsPendingRef.current.get(key) ?? 0) + 1);
+      settingsOrderRef.current.set(key, (settingsOrderRef.current.get(key) ?? 0) + 1);
+      try {
+        const next = await trackMacOffline(() => {
+          if (!stillCurrent()) throw stale();
+          return patchMobileSessionSettings(client, projectId, target, patch);
+        });
+        if (!stillCurrent()) throw stale();
+        // The canonical readback also invalidates any probe that started while this save was in flight.
+        settingsOrderRef.current.set(key, (settingsOrderRef.current.get(key) ?? 0) + 1);
+        setSessionSettings((current) => (stillCurrent() ? { ...current, [key]: { status: 'ready', state: next } } : current));
+        if (target.identity === 'sdk') {
+          setSessions((current) => replaceSessionExecutionState(current, target.id, next));
+          if (target.id === currentSessionIdRef.current) {
+            setChatPreferences((current) => hydratePreferencesFromSession(next, current));
+          }
+        }
+        return next;
+      } finally {
+        // Every settle (success, rejection or stale) releases this save and invalidates older probes, so a
+        // queued probe cannot regain publication; a fresh probe after the last settle publishes normally.
+        const remaining = (settingsPendingRef.current.get(key) ?? 1) - 1;
+        if (remaining > 0) settingsPendingRef.current.set(key, remaining);
+        else settingsPendingRef.current.delete(key);
+        settingsOrderRef.current.set(key, (settingsOrderRef.current.get(key) ?? 0) + 1);
+      }
+    },
+    [trackMacOffline],
   );
 
   const initializeSession = useCallback(async (sessionId: string) => {
@@ -4482,6 +4586,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       chatPreferences,
       updateChatPreferences,
       updateSessionPreferences,
+      sessionSettings,
+      loadSessionSettings,
+      updateSessionSettings,
       conversation: {
         active: conversationActive,
         feedback: conversationFeedback,
@@ -4680,6 +4787,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       toggleConversationMode,
       updateChatPreferences,
       updateSessionPreferences,
+      sessionSettings,
+      loadSessionSettings,
+      updateSessionSettings,
       updateSettings,
       commands,
       executeCommand,

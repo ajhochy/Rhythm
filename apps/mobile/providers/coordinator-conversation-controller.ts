@@ -1311,4 +1311,22 @@ export class MobileCoordinatorConversationController {
     });
     this.persistLater(binding, key);
   }
+
+  /**
+   * Drop the previous client's canonical rows so they are not shown as current under a
+   * replacement client. Refuses (returns false, nothing changed) while a command is
+   * pending: a sent/unknown command is never carried into new authority.
+   */
+  discardCanonicalView(binding: MobileCoordinatorBinding): boolean {
+    const record = this.records.get(mobileCoordinatorScopeKey(binding));
+    if (!record) return true;
+    if (record.pendingCommand || record.planAttempt) return false;
+    record.conversation = undefined;
+    record.context = undefined;
+    record.canonicalHistory = undefined;
+    record.canonicalHistoryLoading = false;
+    record.plannedWorkstream = undefined;
+    this.emit();
+    return true;
+  }
 }

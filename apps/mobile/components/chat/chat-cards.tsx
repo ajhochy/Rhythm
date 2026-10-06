@@ -281,14 +281,64 @@ export function TranscriptMessage({
             copied ? styles.messageBubbleCopied : null,
           ]}
           elevation={0}>
-          {entry.text ? (
-            <MarkdownText
-              text={entry.text}
-              color={contentColor}
-              mutedColor={palette.muted}
-            />
-          ) : null}
-          {entry.error ? <Text variant="bodyMedium" style={{ color: palette.danger }}>{entry.error}</Text> : null}
+          {/* The overflow anchor is a compact trailing slot of this row, not its
+              own row; the body keeps the remaining width so text/code never
+              sit under it. */}
+          <View testID="message-content-row" style={styles.messageContentRow}>
+            <View style={[styles.messageContent, !isUser && styles.messageContentAssistant]}>
+              {entry.text ? (
+                <MarkdownText
+                  text={entry.text}
+                  color={contentColor}
+                  mutedColor={palette.muted}
+                />
+              ) : null}
+              {entry.error ? <Text variant="bodyMedium" style={{ color: palette.danger }}>{entry.error}</Text> : null}
+            </View>
+            <View testID="message-actions" style={styles.messageActions}>
+              <Menu
+                visible={actionsVisible}
+                onDismiss={() => setActionsVisible(false)}
+                anchor={(
+                  <IconButton
+                    accessibilityHint={copied ? 'Message copied' : undefined}
+                    accessibilityLabel="Message actions"
+                    icon={copied ? 'check' : 'dots-horizontal'}
+                    size={18}
+                    style={styles.messageActionButton}
+                    iconColor={copied ? palette.tint : palette.muted}
+                    onPress={() => setActionsVisible(true)}
+                  />
+                )}>
+                <Menu.Item
+                  accessibilityLabel="Copy message"
+                  leadingIcon="content-copy"
+                  title="Copy message"
+                  onPress={() => {
+                    setActionsVisible(false);
+                    onCopy();
+                  }}
+                />
+                {!isUser && canSpeak ? (
+                  <Menu.Item
+                    accessibilityLabel={speaking ? 'Stop speaking assistant message' : 'Speak assistant message'}
+                    leadingIcon={speaking ? 'stop' : 'volume-high'}
+                    title={speaking ? 'Stop speaking assistant message' : 'Speak assistant message'}
+                    onPress={() => {
+                      setActionsVisible(false);
+                      onToggleSpeak();
+                    }}
+                  />
+                ) : null}
+                {isUser && onFork ? (
+                  <Menu.Item accessibilityLabel="Fork chat from this message" leadingIcon="source-fork" title="Fork chat from this message" onPress={() => { setActionsVisible(false); onFork(); }} />
+                ) : null}
+                {isUser && onRevert ? (
+                  <Menu.Item accessibilityLabel="Revert chat to this message" leadingIcon="undo-variant" title="Revert chat to this message" onPress={() => { setActionsVisible(false); onRevert(); }} />
+                ) : null}
+              </Menu>
+            </View>
+          </View>
           {!isUser && detailSummary.length > 0 ? (
             <View style={styles.activityBlock}>
               <Divider />
@@ -317,54 +367,6 @@ export function TranscriptMessage({
               ) : null}
             </View>
           ) : null}
-          <View testID="message-actions" style={styles.messageActions}>
-            {copied ? (
-              <View style={[styles.copiedPill, { backgroundColor: `${palette.tint}18` }]}>
-                <MaterialCommunityIcons name="check" size={12} color={palette.tint} />
-                <Text variant="labelSmall" style={{ color: palette.tint }}>Copied</Text>
-              </View>
-            ) : null}
-            <Menu
-              visible={actionsVisible}
-              onDismiss={() => setActionsVisible(false)}
-              anchor={(
-                <IconButton
-                  accessibilityLabel="Message actions"
-                  icon="dots-horizontal"
-                  size={18}
-                  style={styles.messageActionButton}
-                  iconColor={palette.muted}
-                  onPress={() => setActionsVisible(true)}
-                />
-              )}>
-              <Menu.Item
-                accessibilityLabel="Copy message"
-                leadingIcon="content-copy"
-                title="Copy message"
-                onPress={() => {
-                  setActionsVisible(false);
-                  onCopy();
-                }}
-              />
-              {!isUser && canSpeak ? (
-                <Menu.Item
-                  accessibilityLabel={speaking ? 'Stop speaking assistant message' : 'Speak assistant message'}
-                  leadingIcon={speaking ? 'stop' : 'volume-high'}
-                  title={speaking ? 'Stop speaking assistant message' : 'Speak assistant message'}
-                  onPress={() => {
-                    setActionsVisible(false);
-                    onToggleSpeak();
-                  }}
-                />
-              ) : null}
-              {isUser && onFork ? (
-                <Menu.Item accessibilityLabel="Fork chat from this message" leadingIcon="source-fork" title="Fork chat from this message" onPress={() => { setActionsVisible(false); onFork(); }} />
-              ) : null}
-              {isUser && onRevert ? (
-                <Menu.Item accessibilityLabel="Revert chat to this message" leadingIcon="undo-variant" title="Revert chat to this message" onPress={() => { setActionsVisible(false); onRevert(); }} />
-              ) : null}
-            </Menu>
-          </View>
         </Surface>
       </TouchableRipple>
     </View>
@@ -435,9 +437,11 @@ const styles = StyleSheet.create({
   messageBubbleUser: { alignSelf: 'flex-end', borderRadius: 16, borderWidth: 1, maxWidth: '80%', paddingHorizontal: 12, paddingVertical: 10 },
   messageBubbleAssistant: { alignSelf: 'stretch', backgroundColor: 'transparent', borderRadius: 0, borderWidth: 0, maxWidth: '100%', overflow: 'visible', paddingHorizontal: 0, paddingVertical: 0 },
   messageBubbleCopied: { shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
-  messageActions: { alignItems: 'center', alignSelf: 'flex-end', flexDirection: 'row', minHeight: MinimumTouchTarget },
+  messageContentRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 4 },
+  messageContent: { flexShrink: 1, gap: 8, minWidth: 0 },
+  messageContentAssistant: { flexGrow: 1 },
+  messageActions: { alignSelf: 'flex-start', height: MinimumTouchTarget, justifyContent: 'center', width: MinimumTouchTarget },
   messageActionButton: { height: MinimumTouchTarget, margin: 0, width: MinimumTouchTarget },
-  copiedPill: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
   activityBlock: { width: '100%' },
   summaryRow: { gap: 4, paddingHorizontal: 4, paddingBottom: 4 },
   detailsDisclosure: { height: 32, width: '100%' },
