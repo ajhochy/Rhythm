@@ -43,9 +43,10 @@ test('issue-1173-c1: tool transports stay origin and credential isolated', async
 
   assert.deepEqual(cloud.calls.map((call) => call.path), [
     '/integrations/gmail-signals?limit=20',
-    '/agent-designs',
   ]);
+  // Gallery designs moved to the paired gateway; this expectation was stale before CI ran it.
   assert.deepEqual(paired.calls.map((call) => call.path), [
+    '/mobile-gateway/tools/agent-designs',
     '/mobile-gateway/tools/agent-memory',
     '/mobile-gateway/tools/agent-research',
   ]);

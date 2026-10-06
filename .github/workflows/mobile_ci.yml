@@ -74,6 +74,13 @@ jobs:
       - name: Verify mobile foundation
         run: npm run verify:foundation
 
+      # TEMPORARY exclusion list: these 5 suites already fail on main (AsyncStorage mock null in
+      # agents-overflow, camera-attachment, issue-1387-workspace-preview, workspace-search;
+      # missing CoordinatorConversationProvider in issue-1387-offline-sessions-state).
+      # Fix each and delete its pattern from `test:jest:ci` in package.json.
+      - name: Run jest and tools-service tests
+        run: npm run test:jest:ci && npm run test:tools-service:1173
+
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4
