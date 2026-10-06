@@ -3523,6 +3523,69 @@ export class CoordinatorConversationService {
     };
   }
 
+  /**
+   * Honest chat-visible state of one G2 workflow grant, derived only from the
+   * durable workstream/job rows. Manager prose never maps to "done".
+   */
+  workflowStatus(
+    conversation: CoordinatorConversation,
+    authority: CoordinatorConversationContinuationAuthority,
+  ): { state: string; text: string } {
+    const status = (state: string, text: string) => ({ state, text });
+    let workstream: ReturnType<AgentWorkstreamsRepository['find']> = null;
+    let job: AgentBridgeJobRow | null = null;
+    try {
+      workstream = this.dependencies.workstreams?.find(conversation.ownerUserId, conversation.projectId, authority.workstreamId) ?? null;
+      job = workstream?.lastJobId
+        ? this.dependencies.jobs?.getNativeForWorkstream({
+          localUserId: conversation.ownerUserId, workstreamId: workstream.id, jobId: workstream.lastJobId,
+        }) ?? null
+        : null;
+    } catch {
+      return status('unavailable', 'Workflow state could not be read; nothing is assumed done.');
+    }
+    const ordinal = `ordinal ${authority.consumedTurns} of ${authority.maxTurns}`;
+    if (authority.status === 'authorized') return status('authorized', 'Acknowledged; no manager has started yet.');
+    if (workstream?.state === 'completed') {
+      return status('completed', 'Completed: the source is server-verified current and the cited brief passed server citation checks plus independent verification-gate review.');
+    }
+    if (workstream?.state === 'paused') return status('paused', `Paused at ${ordinal}; nothing runs or advances while paused.`);
+    if (workstream?.state === 'cancelled') return status('cancelled', `Cancelled at ${ordinal}; no further ordinal will run.`);
+    const result = (() => { try { return job?.native_result_json ? JSON.parse(job.native_result_json) as Record<string, unknown> : null; } catch { return null; } })();
+    if (job?.state === 'failed') {
+      return result?.reason === 'workflow_delivery_rejected'
+        ? status('refused', `Refused before the manager was exposed (${ordinal}); nothing ran and the ordinal is not retried.`)
+        : status('failed', `The manager run failed (${ordinal}); nothing is verified and nothing advances.`);
+    }
+    if (typeof result?.workflowCoverageHold === 'string') {
+      return status('membership_unavailable', `Held (${ordinal}): the workflow's sessions and usage could not be fully proven, so nothing advances.`);
+    }
+    if (job?.state === 'unknown' && !(() => { try { return JSON.parse(job.native_metadata_json ?? '{}').workflow?.prepared; } catch { return null; } })()) {
+      // Never prepared = never exposed: the claim was fenced before any SDK request.
+      return status('planning_dispatch_hold', `Held before the manager ran (${ordinal}); it is not retried automatically.`);
+    }
+    if (job?.state === 'unknown') {
+      return status('unknown', `Delivery or usage is unknown (${ordinal}); it is never retried or treated as done.`);
+    }
+    if (new Date(authority.expiresAt).valueOf() <= this.now().valueOf()) {
+      return status('expired', `Authorization expired at ${ordinal}; no further ordinal will run.`);
+    }
+    if (!job || job.idempotency_key !== this.conversationCommandKey(conversation.id, authority.goalId, authority.authorizationId, authority.consumedTurns)) {
+      return status('planning_dispatch_hold', `Held before dispatch (${ordinal}): no manager is running for this ordinal and it is not retried automatically.`);
+    }
+    if (job.state !== 'succeeded' && workstream?.state === 'blocked') {
+      return status('planning_dispatch_hold', `Held before the manager ran (${ordinal}); it is not retried automatically.`);
+    }
+    if (['queued', 'claimed', 'running'].includes(job.state)) {
+      return status('running', `Running ${ordinal}; manager output is unverified until the server checks it.`);
+    }
+    const sourceVerified = workstream?.checkpoint.criteria.some((c) => c.id === 'selected_reference_current' && c.status === 'verified');
+    if (sourceVerified && authority.consumedTurns >= authority.maxTurns) {
+      return status('cap_reached', 'Source verified, but the acknowledged ordinal cap is reached; the brief will not be produced.');
+    }
+    return status('awaiting_check', `Manager finished ${ordinal}; no criterion is resolved until the server check passes (a model "done" completes nothing).`);
+  }
+
   private modelStatusText(
     conversation: CoordinatorConversation,
     context: CoordinatorConversationContextProjection,
@@ -3559,6 +3622,7 @@ export class CoordinatorConversationService {
       finite: conversation.continuations.slice(0, 12).map((authority) => ({
         goalId: authority.goalId, status: authority.status, consumedTurns: authority.consumedTurns,
         maxTurns: authority.maxTurns, expiresAt: authority.expiresAt,
+        ...(authority.purpose === 'workflow' ? { workflow: this.workflowStatus(conversation, authority) } : {}),
       })),
       codingWorkflow: conversation.commandDedupe
         .filter((command) => command.kind === 'delegate_goal')
