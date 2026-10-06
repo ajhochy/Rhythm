@@ -75,19 +75,15 @@ describe('signed coordinator conversation MCP status', () => {
     }
   });
 
-  it('uses the existing signed async-delegation authorization before posting one exact captured goal', async () => {
+  // Changed expectation (approval-resume repair): the tool no longer runs a
+  // generic /agent-approvals/consume preflight that could burn the token before
+  // the API proved the native binding. It posts ONLY the signed envelope to the
+  // goal action endpoint, which couples consumption with the goal reservation.
+  it('posts only the signed envelope to the goal action endpoint, with no consume preflight', async () => {
     const handler = fixture().get('rhythm_start_coordinator_goal')!;
     const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body));
-      if (url.endsWith('/agent-approvals/consume')) {
-        expect(body).toEqual(expect.objectContaining({
-          context: expect.objectContaining({ sdkSessionId: 'sdk-1', toolCallId: 'call-1' }),
-          action: 'delegation.start-async', payload: { goalId: 'goal-1' },
-        }));
-        return new Response(JSON.stringify({ allowed: true }), { status: 200 });
-      }
       expect(url).toBe('http://127.0.0.1:4001/coordinator-agent/start-goal');
-      expect(body).toEqual({
+      expect(JSON.parse(String(init?.body))).toEqual({
         trustedCall: expect.objectContaining({
           context: expect.objectContaining({ sdkSessionId: 'sdk-1', turnId: 'turn-1', toolCallId: 'call-1' }),
           arguments: { goalId: 'goal-1' },
@@ -101,17 +97,41 @@ describe('signed coordinator conversation MCP status', () => {
     await expect(handler({ goalId: 'goal-1' }, extra('rhythm_start_coordinator_goal'))).resolves.toEqual({
       content: [{ type: 'text', text: 'Coding Workflow was dispatched for the exact tracked goal.' }],
     });
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it('fails closed at the existing authorization gate without posting a coordinator action', async () => {
+  it('passes the signed approval id through unchanged and never consumes it itself', async () => {
     const handler = fixture().get('rhythm_start_coordinator_goal')!;
-    const fetcher = vi.fn(async () => new Response(JSON.stringify({ allowed: false }), { status: 403 }));
-    vi.stubGlobal('fetch', fetcher);
-    await expect(handler({ goalId: 'goal-1' }, extra('rhythm_start_coordinator_goal'))).resolves.toMatchObject({
-      isError: true,
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).not.toContain('/agent-approvals/consume');
+      expect(JSON.parse(String(init?.body)).trustedCall.arguments).toEqual({ goalId: 'goal-1', approval_id: 'approval-1' });
+      return new Response(JSON.stringify({ schemaVersion: 1, status: 'started', text: 'ok' }), { status: 200 });
     });
+    vi.stubGlobal('fetch', fetcher);
+    await handler({ goalId: 'goal-1', approval_id: 'approval-1' }, extra('rhythm_start_coordinator_goal'));
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(fetcher.mock.calls[0]?.[0]).toBe('http://127.0.0.1:4001/agent-approvals/consume');
+  });
+
+  it('surfaces the missing-approval held response with its exact fixed approval mapping', async () => {
+    const handler = fixture().get('rhythm_start_coordinator_goal')!;
+    const text = 'Coordinator goal action needs a human approval first. Call rhythm_request_approval with security_action ' +
+      '"delegation.start-async" and security_payload {"goalId":"goal-1"} exactly, wait for the human decision, ' +
+      'then retry this tool once with its approval_id.';
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ schemaVersion: 1, status: 'held', text }), { status: 200 })));
+    await expect(handler({ goalId: 'goal-1' }, extra('rhythm_start_coordinator_goal'))).resolves.toEqual({
+      content: [{ type: 'text', text }], isError: true,
+    });
+  });
+
+  it('fails closed without a signed call and on an unavailable/malformed goal response', async () => {
+    const handler = fixture().get('rhythm_start_coordinator_goal')!;
+    const none = vi.fn();
+    vi.stubGlobal('fetch', none);
+    await expect(handler({ goalId: 'goal-1' }, {})).resolves.toMatchObject({ isError: true });
+    expect(none).not.toHaveBeenCalled();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ schemaVersion: 1, status: 'unavailable', text: 'no' }), { status: 200 })));
+    await expect(handler({ goalId: 'goal-1' }, extra('rhythm_start_coordinator_goal'))).resolves.toMatchObject({ isError: true });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
+    await expect(handler({ goalId: 'goal-1' }, extra('rhythm_start_coordinator_goal'))).resolves.toMatchObject({ isError: true });
   });
 });

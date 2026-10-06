@@ -3,6 +3,7 @@ import {
   CoordinatorConversationsRepository,
   type CoordinatorDelegationCallbackMcpDispatchBinding,
   type CoordinatorForegroundMcpDispatchBinding,
+  type CoordinatorGoalApprovalResumeMcpDispatchBinding,
   type CoordinatorMcpDispatchBinding,
 } from '../repositories/coordinator_conversations_repository';
 import type { VerifiedTrustedMcpCall } from '../security/trusted_mcp_call';
@@ -16,6 +17,9 @@ function sameBinding(
   if (left.kind === 'delegation_callback' && right.kind === 'delegation_callback' && (
     left.goalId !== right.goalId || left.delegationId !== right.delegationId ||
     left.childSessionId !== right.childSessionId || left.callbackReasonCode !== right.callbackReasonCode
+  )) return false;
+  if (left.kind === 'goal_approval_resume' && right.kind === 'goal_approval_resume' && (
+    left.goalId !== right.goalId || left.approvalId !== right.approvalId || left.reasonCode !== right.reasonCode
   )) return false;
   return left.ownerUserId === right.ownerUserId &&
     left.sessionId === right.sessionId && left.projectId === right.projectId &&
@@ -106,11 +110,68 @@ export class CoordinatorForegroundMcpAuthority {
     return reread && sameBinding(bound, reread) ? reread : null;
   }
 
+  /**
+   * The exact approved-goal retry turn: the active signed native tool's user
+   * message must be the one accepted approval-continuation dispatch whose
+   * strict reason code names THIS (signed) approval id and goal id, and the
+   * approval decision/action/digest/taint/expiry, the goal and the current
+   * primary root are all re-proved by the repository. Distinct from foreground
+   * (never route-authenticated) and from the status-only child callback.
+   * `receiptCommandKey` is supplied only after the coupled transaction
+   * consumed the token, and then admits that one consumption only.
+   */
+  async resolveGoalApprovalResume(
+    auth: AuthContext,
+    verified: VerifiedTrustedMcpCall,
+    expectedToolName: string,
+    approval: { approvalId: string; goalId: string },
+    /**
+     * A key, or a function deriving it from the resolved native user message
+     * (the key cannot exist before the active message is known). Only the
+     * coupled transaction's own command key admits an already-consumed token,
+     * which makes a same-call replay find its own receipt.
+     */
+    receipt?: string | ((scope: {
+      sessionId: string; projectId: string; sdkSessionId: string; sdkUserMessageId: string;
+    }) => string),
+  ): Promise<CoordinatorGoalApprovalResumeMcpDispatchBinding | null> {
+    const initial = this.dependencies.records.findForegroundMcpSessionScope({
+      ownerUserId: auth.user.id,
+      sdkSessionId: verified.context.sdkSessionId,
+    });
+    if (!initial) return null;
+    const active = await this.dependencies.engine.getCurrentTrustedMcpToolCall(
+      verified.context.sdkSessionId,
+      verified.context.turnId,
+      verified.context.toolCallId,
+      initial.cwd,
+    );
+    if (!active || !activeMatches(active, verified, expectedToolName)) return null;
+    const receiptCommandKey = typeof receipt === 'function'
+      ? receipt({ ...initial, sdkUserMessageId: active.userMessageId })
+      : receipt;
+    const lookup = {
+      ...initial,
+      sdkUserMessageId: active.userMessageId,
+      approvalId: approval.approvalId,
+      goalId: approval.goalId,
+      agentName: verified.context.agentName,
+      receiptCommandKey,
+    };
+    const bound = this.dependencies.records.findGoalApprovalResumeMcpDispatch(lookup);
+    if (!bound) return null;
+    // The engine inspection and the repository proof are both boundaries.
+    const reread = this.dependencies.records.findGoalApprovalResumeMcpDispatch({ ...lookup, ...bound });
+    return reread && sameBinding(bound, reread) ? reread as CoordinatorGoalApprovalResumeMcpDispatchBinding : null;
+  }
+
   async resolve(
     auth: AuthContext,
     verified: VerifiedTrustedMcpCall,
     expectedToolName: string,
   ): Promise<CoordinatorMcpDispatchBinding | null> {
+    // Status stays foreground or child-callback only; the goal-resume kind is
+    // action-bound and reachable solely through resolveGoalApprovalResume.
     return (await this.resolveForeground(auth, verified, expectedToolName)) ??
       this.resolveDelegationCallback(auth, verified, expectedToolName);
   }
@@ -120,10 +181,16 @@ export class CoordinatorForegroundMcpAuthority {
     auth: AuthContext,
     verified: VerifiedTrustedMcpCall,
     expectedToolName: string,
+    options: { receiptCommandKey?: string } = {},
   ): Promise<boolean> {
     const next = binding.kind === 'foreground'
       ? await this.resolveForeground(auth, verified, expectedToolName)
-      : await this.resolveDelegationCallback(auth, verified, expectedToolName);
+      : binding.kind === 'goal_approval_resume'
+        ? await this.resolveGoalApprovalResume(
+          auth, verified, expectedToolName,
+          { approvalId: binding.approvalId, goalId: binding.goalId }, options.receiptCommandKey,
+        )
+        : await this.resolveDelegationCallback(auth, verified, expectedToolName);
     return !!next && sameBinding(binding, next);
   }
 }

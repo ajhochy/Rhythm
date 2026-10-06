@@ -858,6 +858,54 @@ function isCoordinatorForegroundPromptContext(
   );
 }
 
+/**
+ * Internal-only context for the ONE approved coordinator-goal retry wake. It is
+ * a distinct kind, never a promoted foreground/callback/managed context and
+ * never authority by itself: the client mints the request's native user-message
+ * id, persists the exact dispatch row with it before SDK exposure and puts the
+ * SAME id in the SDK body, so a later signed tool call can be joined to this
+ * request by identity instead of by heuristic late linkage. `validate` is the
+ * producer's SYNCHRONOUS current-fingerprint check (decision, action/digest,
+ * goal revision, root/profile/owner/project/SDK, taint, controls); it must not
+ * await and is invoked again immediately before the SDK call.
+ */
+export interface CoordinatorApprovalResumePromptDispatchContext {
+  readonly kind: 'coordinator_goal_approval_resume_v1';
+  validate(): boolean;
+}
+
+/** Same literal shape the repository's consumer recomputes (53 chars, legal reason code). */
+const APPROVAL_RESUME_REASON_CODE = /^goal_approval_resume_[0-9a-f]{32}$/;
+
+function isCoordinatorApprovalResumePromptContext(
+  value: CoordinatorApprovalResumePromptDispatchContext | undefined,
+  sessionId: string,
+  provenance: DispatchInput | undefined,
+): value is CoordinatorApprovalResumePromptDispatchContext {
+  return Boolean(
+    value &&
+    value.kind === 'coordinator_goal_approval_resume_v1' &&
+    typeof value.validate === 'function' &&
+    typeof sessionId === 'string' && sessionId.length > 0 &&
+    provenance &&
+    provenance.sdkSessionId === sessionId &&
+    provenance.origin === 'approval_continuation' &&
+    provenance.requestedSource === 'agent_config' &&
+    provenance.routeAuthed == null &&
+    typeof provenance.reasonCode === 'string' &&
+    APPROVAL_RESUME_REASON_CODE.test(provenance.reasonCode),
+  );
+}
+
+/** A throwing validator is a refusal, never an exposure. */
+function approvalResumeIsCurrent(context: CoordinatorApprovalResumePromptDispatchContext): boolean {
+  try {
+    return context.validate() === true;
+  } catch {
+    return false;
+  }
+}
+
 async function coordinatorForegroundAuthorityIsCurrent(
   context: CoordinatorForegroundPromptDispatchContext,
   phase: 'prepare' | 'before_sdk' | 'sdk_exposure',
@@ -2803,9 +2851,18 @@ function validFiniteExecutionPermissionRules(
     managed?: ManagedPromptDispatchContext,
     foreground?: CoordinatorForegroundPromptDispatchContext,
     callback?: CoordinatorCallbackPromptDispatchContext,
+    approvalResume?: CoordinatorApprovalResumePromptDispatchContext,
   ): Promise<boolean> {
     if (!this.client) return false;
     if (foreground && (managed || !isCoordinatorForegroundPromptContext(foreground, sessionId, provenance))) {
+      return false;
+    }
+    // Exclusive and strictly qualified: never combined with, or promoted from,
+    // the managed/foreground/callback contexts; any mismatch refuses this path.
+    if (approvalResume && (
+      managed || foreground || callback ||
+      !isCoordinatorApprovalResumePromptContext(approvalResume, sessionId, provenance)
+    )) {
       return false;
     }
     if (callback && (
@@ -2896,7 +2953,18 @@ function validFiniteExecutionPermissionRules(
         return false;
       }
     }
-    if (!managed) {
+    let approvalMessageID: string | undefined;
+    if (approvalResume) {
+      try {
+        // Re-checked after the producer's preparation awaits, then after the mint await.
+        if (!approvalResumeIsCurrent(approvalResume)) return false;
+        approvalMessageID = await this.mintPromptAnchor(sessionId, directory) ?? undefined;
+        if (!approvalMessageID || !approvalResumeIsCurrent(approvalResume)) return false;
+      } catch {
+        return false;
+      }
+    }
+    if (!managed && !approvalResume) {
       dayflowMessageID = await this.maybeMintDayflowPromptAnchor(
         sessionId,
         directory,
@@ -2915,7 +2983,7 @@ function validFiniteExecutionPermissionRules(
         model,
         parts: sdkParts,
         ...(opts ?? {}),
-        ...(managedMessageID ? { messageID: managedMessageID } : foregroundMessageID ? { messageID: foregroundMessageID } : dayflowMessageID ? { messageID: dayflowMessageID } : {}),
+        ...(managedMessageID ? { messageID: managedMessageID } : foregroundMessageID ? { messageID: foregroundMessageID } : approvalMessageID ? { messageID: approvalMessageID } : dayflowMessageID ? { messageID: dayflowMessageID } : {}),
       },
       ...(directory ? { query: { directory } } : {}),
     };
@@ -2960,6 +3028,20 @@ function validFiniteExecutionPermissionRules(
         sdkUserMessageId: foregroundMessageID!,
       }))) {
         settleDispatch(dispatchId, 'rejected');
+        return false;
+      }
+    }
+    if (!dispatchId && approvalResume) {
+      try {
+        // The exact row, with the SAME native user-message id the SDK body
+        // carries, is durable BEFORE exposure. Unlike optional provenance, a
+        // write failure here is a closed hold (the resume authority is joined
+        // to this row by identity, never by late linkage).
+        dispatchId = modelProvenanceRepo.insert({
+          ...provenance!,
+          sdkUserMessageId: approvalMessageID!,
+        }).id;
+      } catch {
         return false;
       }
     }
@@ -3020,6 +3102,14 @@ function validFiniteExecutionPermissionRules(
         settleDispatch(dispatchId, 'rejected');
         return false;
       }
+    }
+    // Approval resume: the producer's synchronous fingerprint check, run AFTER
+    // the last awaited history/authority guard above. There is deliberately NO
+    // await between this check and the SDK invocation below (the call
+    // expression is evaluated before its result is awaited).
+    if (approvalResume && !approvalResumeIsCurrent(approvalResume)) {
+      settleDispatch(dispatchId, 'rejected');
+      return false;
     }
     try {
       const raw = await this.client.session.promptAsync(requestArgs);

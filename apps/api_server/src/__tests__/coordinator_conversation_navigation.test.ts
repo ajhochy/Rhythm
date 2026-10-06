@@ -856,7 +856,11 @@ it('SOL core: actual signed goal boundary dispatches exact durable objective onc
   db.prepare(`INSERT INTO agent_turn_dispatches (id,session_id,sdk_session_id,sdk_user_message_id,origin,requested_source,route_authed,reason_code,outcome) VALUES ('sol-foreground','chat-a','sdk-a','sol-native-user','prompt_api','session',1,'c2_foreground','accepted')`).run();
   const identity={sdkSessionId:'sdk-a',turnId:'sol-assistant',toolCallId:'sol-tool',agentName:'Secretary'};
   let nativeUser='sol-native-user';
-  const model=new CoordinatorConversationModelStatusService({conversations:coordinator,records:repository,engine:{getCurrentTrustedMcpToolCall:async()=>({...identity,assistantId:identity.turnId,userMessageId:nativeUser,partId:'sol-part',toolKey:'rhythm_start_coordinator_goal',serverName:'rhythm',toolName:'rhythm_start_coordinator_goal'})}});
+  // Changed expectation (approval-resume repair): startGoal now runs the approval/taint admission itself,
+  // in the goal reservation's transaction. This fixture's isolated hand-built schema has no security
+  // tables (and is not the global DB), so it supplies the CLEAN-session outcome; the real gate is
+  // covered by coordinator_goal_approval_resume.test.ts.
+  const model=new CoordinatorConversationModelStatusService({conversations:coordinator,records:repository,approvals:{consumeCoordinatorGoalApproval:()=>({allowed:true as const,consumed:false})},engine:{getCurrentTrustedMcpToolCall:async()=>({...identity,assistantId:identity.turnId,userMessageId:nativeUser,partId:'sol-part',toolKey:'rhythm_start_coordinator_goal',serverName:'rhythm',toolName:'rhythm_start_coordinator_goal'})}});
   const signer=createTrustedMcpTestSigner();
   pinTrustedMcpPublicKey(signer.publicDocument);
   try{

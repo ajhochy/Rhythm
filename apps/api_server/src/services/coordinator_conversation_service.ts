@@ -25,6 +25,7 @@ import {
   type CoordinatorConversationPlannerPort,
   type CoordinatorConversationPreparePlanRequest,
 } from '../contracts/coordinator_conversation_contract';
+import { AppError } from '../errors/app_error';
 import type { AuthContext } from '../middleware/auth_middleware';
 import type { Project } from '../models/project';
 import { agentConfigExecutionBlockReason, AgentConfigsRepository } from '../repositories/agent_configs_repository';
@@ -48,6 +49,7 @@ import {
   type CoordinatorConversationScope,
   type CoordinatorConversationStatusControlWrite,
 } from '../repositories/coordinator_conversations_repository';
+import { HUMAN_APPROVAL_REQUIRED_MESSAGE } from './external_content_security_service';
 import { CoordinatorConversationContextAssembler } from './coordinator_conversation_context';
 import type { ResolvedFiniteExecutionScope } from './coordinator_finite_execution_scope';
 import { selectCoordinatorSetupProfile } from './coordinator_setup_profile_selection';
@@ -129,6 +131,8 @@ export type CoordinatorConversationModelStatus =
 export type CoordinatorConversationGoalActionResult =
   | { kind: 'delegation_started'; conversation: CoordinatorConversation; goalId: string }
   | { kind: 'delegation_held'; conversation: CoordinatorConversation }
+  /** Tainted session with no usable approval; nothing was reserved or consumed. */
+  | { kind: 'approval_required'; conversation: CoordinatorConversation }
   | ReadFailure;
 
 export interface CoordinatorConversationServiceDependencies {
@@ -605,6 +609,13 @@ export class CoordinatorConversationService {
       goalId: string;
       commandKey: string;
       bindingCurrent(): Promise<boolean>;
+      /**
+       * Synchronous approval admission, run in the SAME SQLite transaction as
+       * the goal reservation (no await). A refusal rolls both back. It runs
+       * only after `bindingCurrent` and the root/profile proof below, so an
+       * invalid binding can never consume a token.
+       */
+      authorize?: () => void;
     },
   ): Promise<CoordinatorConversationGoalActionResult> {
     const request = { sessionId: input.sessionId, projectId: input.projectId };
@@ -620,13 +631,21 @@ export class CoordinatorConversationService {
       !selected || !initial.conversation.primaryOwnerRoot ||
       selected.session.sdkSessionId !== input.sdkSessionId || selected.session.id !== input.sessionId
     ) return { kind: 'delegation_held', conversation: initial.conversation };
-    const reservation = this.repository.reserveGoalDelegation({
+    const reserveInput = {
       ...requestScope,
       expectedControlRevision: initial.conversation.controlRevision,
       commandKey: input.commandKey,
       goalId: input.goalId,
       parentSdkSessionId: input.sdkSessionId,
-    });
+    };
+    const reservation = input.authorize
+      ? this.repository.reserveGoalDelegationAuthorized({ ...reserveInput, authorize: input.authorize })
+      : this.repository.reserveGoalDelegation(reserveInput);
+    if (reservation.kind === 'authorization_refused') {
+      return reservation.refusal instanceof AppError && reservation.refusal.message === HUMAN_APPROVAL_REQUIRED_MESSAGE
+        ? { kind: 'approval_required', conversation: reservation.conversation }
+        : { kind: 'delegation_held', conversation: reservation.conversation };
+    }
     if (reservation.kind === 'dispatched_replay') {
       return { kind: 'delegation_started', conversation: reservation.conversation, goalId: reservation.goal.id };
     }

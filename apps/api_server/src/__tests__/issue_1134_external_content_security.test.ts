@@ -574,7 +574,7 @@ describe("#1134 external-content security boundary", () => {
     }
   });
 
-  describe("coordinator goal signed admission (delegation.start-async + rhythm_start_coordinator_goal)", () => {
+  describe("obsolete goal-only consume route (delegation.start-async + rhythm_start_coordinator_goal) fails closed", () => {
     const GOAL_TOOL = "rhythm_start_coordinator_goal";
     const ACTION: SecurityAction = "delegation.start-async";
     const cleanContext: TrustedContext = {
@@ -633,10 +633,14 @@ describe("#1134 external-content security boundary", () => {
       return approval.id;
     }
 
-    it("a clean session admits the exact signed goal pair", async () => {
+    // Changed expectation (approval-resume repair): the separate goal-only consume
+    // route is OBSOLETE and fails closed. The goal token is consumed only by the
+    // goal action endpoint, coupled with the goal reservation and the native
+    // dispatch binding (see coordinator_goal_approval_resume.test.ts).
+    it("the obsolete route refuses the exact signed goal pair even for a clean session", async () => {
       const res = await goalConsume();
-      expect(res.status).toBe(200);
-      expect(await res.json()).toMatchObject({ allowed: true, consumed: false });
+      expect(res.status).toBe(403);
+      expect(await res.text()).toContain("goal action endpoint");
     });
 
     it("a tainted session without an approved token stays blocked", async () => {
@@ -645,23 +649,16 @@ describe("#1134 external-content security boundary", () => {
       expect(consumedApprovals()).toBe(0);
     });
 
-    it("an exact approved token is consumed once only, bound to the signed approval_id", async () => {
+    it("an exact approved token is never consumed by the obsolete route, and its nonce is not burned", async () => {
       expect((await taint()).status).toBe(201);
       const id = await approvedGoalToken();
-      const exact = await goalConsume({
-        context: actionContext,
-        signedArgs: { goalId: "goal-1", approval_id: id },
-        approvalId: id,
-      });
-      expect(exact.status).toBe(200);
-      expect(await exact.json()).toMatchObject({ allowed: true, consumed: true });
-      const replay = await goalConsume({
-        context: actionContext,
-        signedArgs: { goalId: "goal-1", approval_id: id },
-        approvalId: id,
-      });
-      expect(replay.status).toBe(409);
-      expect(consumedApprovals()).toBe(1);
+      const envelope = trustedSigner.signCall(actionContext, GOAL_TOOL, { goalId: "goal-1", approval_id: id });
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const refused = await goalConsume({ context: actionContext, envelope, approvalId: id });
+        expect(refused.status).toBe(403);
+        expect(await refused.text()).toContain("goal action endpoint");
+      }
+      expect(consumedApprovals()).toBe(0);
     });
 
     it("another signed tool cannot use the goal action's exception, and the goal tool cannot use another action", async () => {
@@ -697,7 +694,7 @@ describe("#1134 external-content security boundary", () => {
     it("an expired proof and a replayed nonce are rejected", async () => {
       expect((await goalConsume({ issuedAt: Date.now() - 60 * 60 * 1000 })).status).toBe(403);
       const envelope = trustedSigner.signCall(cleanContext, GOAL_TOOL, { goalId: "goal-1" });
-      expect((await goalConsume({ envelope })).status).toBe(200);
+      expect((await goalConsume({ envelope })).status).toBe(403);
       expect((await goalConsume({ envelope })).status).toBe(403);
     });
 
@@ -739,10 +736,11 @@ describe("#1134 external-content security boundary", () => {
         (await goalConsume({ context: actionContext, signedArgs: { goalId: "goal-1", approval_id: big }, approvalId: big })).status,
       ).toBe(403);
       expect(consumedApprovals()).toBe(0);
-      // the exact approval is still usable afterwards
+      // the exact approval is still unconsumed afterwards (the obsolete route never consumes it)
       expect(
         (await goalConsume({ context: actionContext, signedArgs: { goalId: "goal-1", approval_id: id }, approvalId: id })).status,
-      ).toBe(200);
+      ).toBe(403);
+      expect(consumedApprovals()).toBe(0);
     });
 
     it("generic rhythm_delegate_async keeps its mapping: clean passes, tainted without token is held, wrong goal tool mapping unchanged", async () => {

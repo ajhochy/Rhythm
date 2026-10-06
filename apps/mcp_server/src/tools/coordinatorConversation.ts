@@ -3,8 +3,7 @@ import { Buffer } from 'node:buffer';
 import { z } from 'zod';
 
 import { apiPost } from '../api_client.js';
-import { authorizeOutboundAction } from '../security/external_content_boundary.js';
-import { currentTrustedSecurityCall, trustedSecurityContext } from '../security/security_context.js';
+import { currentTrustedSecurityCall } from '../security/security_context.js';
 import { registerTool } from './_tool.js';
 
 type CoordinatorStatusResponse =
@@ -85,26 +84,17 @@ export function registerCoordinatorConversationTools(server: McpServer, apiUrl: 
     'Start exactly one previously captured Rhythm Secretary goal through the existing allowed Coding Workflow. Read rhythm_get_coordinator_status first to obtain the goal id. The server derives the target/profile/workspace and returns only a bounded dispatch acknowledgement; a child result is reviewed later in this same chat.',
     {
       goalId: z.string().describe('An existing captured goal id from rhythm_get_coordinator_status.'),
-      approval_id: z.string().optional().describe('Approval id returned by rhythm_request_approval when untrusted content requires approval.'),
+      approval_id: z.string().optional().describe('Approval id returned by rhythm_request_approval when untrusted content requires approval. If approval is needed, the held response states the exact security_action and security_payload to request it with.'),
     },
-    async ({ goalId, approval_id }, extra) => {
+    async () => {
       try {
+        // The signed envelope carries the exact `{goalId, approval_id?}` the
+        // engine signed. The API's goal action endpoint proves the native
+        // binding first and then consumes the approval token in the same
+        // transaction as the goal reservation; there is deliberately no
+        // separate consume preflight here that could burn the token early.
         const trustedCall = currentTrustedSecurityCall();
-        const gate = await authorizeOutboundAction({
-          agentUrl: apiUrl,
-          context: trustedSecurityContext(extra),
-          approvalId: typeof approval_id === 'string' ? approval_id : undefined,
-          // This is an existing async delegation action; unlike the generic
-          // tool, the server derives its target and exact user goal.
-          action: 'delegation.start-async',
-          payload: { goalId },
-        });
-        if (!trustedCall || !gate.allowed) {
-          return {
-            content: [{ type: 'text' as const, text: gate.refusalMessage ?? 'Coordinator goal action is unavailable.' }],
-            isError: true as const,
-          };
-        }
+        if (!trustedCall) return unavailable();
         const result = goalResponse(await apiPost(
           apiUrl,
           apiToken,

@@ -19,6 +19,7 @@ import { canonicalize } from '../utils/path_containment';
 import { encodeCoordinatorCallbackMarker, parseCoordinatorCallbackMarker } from '../contracts/coordinator_callback_marker';
 import { appendRelayUpsert } from './relay_outbox_repository';
 import { publishCoordinatorChanged, type CoordinatorChangedScope } from '../services/opencode_event_hub';
+import { securityPayloadDigest } from '../services/external_content_security_service';
 
 export interface CoordinatorConversationScope {
   ownerUserId: number;
@@ -129,9 +130,58 @@ export interface CoordinatorDelegationCallbackMcpDispatchBinding extends Coordin
   callbackReasonCode: string;
 }
 
+/**
+ * The one approved-goal retry wake: an accepted approval-continuation dispatch
+ * whose strict reason code names exactly this approval and goal. It is action
+ * bound (one `delegation.start-async` goal action), never foreground authority
+ * and never the status-only child callback.
+ */
+export interface CoordinatorGoalApprovalResumeMcpDispatchBinding extends CoordinatorForegroundMcpSessionScope {
+  kind: 'goal_approval_resume';
+  sdkUserMessageId: string;
+  goalId: string;
+  approvalId: string;
+  reasonCode: string;
+}
+
 export type CoordinatorMcpDispatchBinding =
   | CoordinatorForegroundMcpDispatchBinding
-  | CoordinatorDelegationCallbackMcpDispatchBinding;
+  | CoordinatorDelegationCallbackMcpDispatchBinding
+  | CoordinatorGoalApprovalResumeMcpDispatchBinding;
+
+/** Exactly-qualified approval wake input for the producer (identities only; no objective body). */
+export interface CoordinatorGoalApprovalResumeCandidate extends CoordinatorForegroundMcpSessionScope {
+  approvalId: string;
+  goalId: string;
+  reasonCode: string;
+  /** Opaque, bounded; recomputed from current rows to prove nothing changed. */
+  fingerprint: string;
+}
+
+/** Row fields of an approval the qualification needs (a plain snapshot, never trusted alone). */
+export interface CoordinatorGoalApprovalSnapshot {
+  id: string;
+  sessionId: string | null;
+}
+
+/**
+ * Strict, legal-shape reason code for the approval wake of one goal approval.
+ * It matches the provenance repository's existing `^[a-z][a-z0-9_]{0,63}$`
+ * allowlist (53 chars), so no marker parser or schema change is needed; the
+ * hash binds the approval id, goal id and the goal's CURRENT revision without
+ * embedding any of them, so a goal that changed after the wake no longer
+ * matches the accepted dispatch.
+ */
+export function goalApprovalResumeReasonCode(approvalId: string, goalId: string, goalRevision: number): string {
+  return `goal_approval_resume_${createHash('sha256')
+    .update(`${approvalId}\n${goalId}\n${goalRevision}`).digest('hex').slice(0, 32)}`;
+}
+
+class GoalAuthorizationRefused extends Error {
+  constructor(readonly refusal: unknown) {
+    super('coordinator goal authorization refused');
+  }
+}
 
 /** A durable conversation goal may bind exactly one server-created workstream. */
 export type CoordinatorConversationGoalLinkWrite =
@@ -446,6 +496,155 @@ export class CoordinatorConversationsRepository {
         childSessionId: command.childSessionId,
         callbackReasonCode: reason,
       };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Shared read-only proof for the approved-goal retry. Before the token is
+   * consumed (`receiptCommandKey` absent) it requires an unconsumed, unexpired
+   * approval and a goal with no delegation command. After the coupled
+   * transaction consumed it, the token is accepted ONLY together with that same
+   * transaction's own delegate command (`receiptCommandKey`), so another
+   * consumer's consumption can never stand in for this action's receipt.
+   */
+  private goalApprovalResumeState(input: {
+    approvalId: string;
+    sessionId: string;
+    goalId?: string;
+    agentName?: string;
+    receiptCommandKey?: string;
+  }): {
+    ownerUserId: number; projectId: string; sdkSessionId: string; cwd: string; profileId: string | null;
+    goal: CoordinatorConversationGoal; taintId: string; taintedTurnId: string; consumed: boolean;
+  } | null {
+    try {
+      const row = this.db.prepare(`SELECT id, owner_user_id, project_id, ${COORDINATOR_CONVERSATION_COLUMN},
+          sdk_session_id, cwd, parent_session_id, is_system, category, archived_at, agent_kind, profile_id
+        FROM agent_sessions
+        WHERE id=? AND parent_session_id IS NULL AND is_system=0 AND category='chat'
+          AND archived_at IS NULL AND sdk_session_id IS NOT NULL
+        LIMIT 1`).get(input.sessionId) as (ForegroundSessionScopeRow & { agent_kind: string; profile_id: string | null }) | undefined;
+      if (!row) return null;
+      const parsed = parseRow(row);
+      if (
+        parsed.kind !== 'found' || !parsed.conversation.primaryOwnerRoot || parsed.conversation.sessionId !== row.id ||
+        typeof row.sdk_session_id !== 'string' || typeof row.cwd !== 'string' || row.cwd.length === 0 || row.cwd.length > 4_096
+      ) return null;
+      const approval = this.db.prepare('SELECT * FROM agent_approvals WHERE id=?').get(input.approvalId) as
+        Record<string, unknown> | undefined;
+      if (
+        !approval || approval.session_id !== row.id || approval.status !== 'approved' ||
+        approval.actor !== `user:${row.owner_user_id}` || approval.security_action !== 'delegation.start-async' ||
+        approval.agent_config_id !== row.agent_kind || typeof approval.payload_digest !== 'string' ||
+        typeof approval.taint_id !== 'string' || typeof approval.tainted_turn_id !== 'string' ||
+        (input.agentName !== undefined && approval.bound_agent !== input.agentName)
+      ) return null;
+      const taint = this.db.prepare('SELECT taint_id, tainted_turn_id FROM agent_external_taint_state WHERE session_id=?')
+        .get(row.id) as { taint_id: string; tainted_turn_id: string } | undefined;
+      if (!taint || taint.taint_id !== approval.taint_id || taint.tainted_turn_id !== approval.tainted_turn_id) return null;
+      const consumed = approval.consumed_at !== null && approval.consumed_at !== undefined;
+      if (!consumed && (typeof approval.expires_at !== 'string' || Date.parse(approval.expires_at) <= Date.now())) return null;
+      const matches = parsed.conversation.goals.filter((candidate) =>
+        securityPayloadDigest('delegation.start-async', { goalId: candidate.id }) === approval.payload_digest);
+      if (matches.length !== 1 || (input.goalId !== undefined && matches[0].id !== input.goalId)) return null;
+      const goal = matches[0];
+      const goalCommands = parsed.conversation.commandDedupe.filter((command) =>
+        command.kind === 'delegate_goal' && command.goalId === goal.id);
+      if (consumed) {
+        const receipt = input.receiptCommandKey === undefined ? undefined : goalCommands.find((command) =>
+          command.key === input.receiptCommandKey && command.kind === 'delegate_goal' &&
+          command.parentSdkSessionId === row.sdk_session_id);
+        if (!receipt || goalCommands.length !== 1) return null;
+      } else if (goal.state !== 'captured' || goal.linkedWorkstreamId !== null || goalCommands.length !== 0) {
+        return null;
+      }
+      return {
+        ownerUserId: row.owner_user_id, projectId: row.project_id, sdkSessionId: row.sdk_session_id, cwd: row.cwd,
+        profileId: row.profile_id, goal, taintId: taint.taint_id, taintedTurnId: taint.tainted_turn_id, consumed,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Producer qualification: the approved, unexpired, unconsumed
+   * `delegation.start-async` approval of this current primary root whose stored
+   * payload digest uniquely selects one captured, unlinked, uncommanded goal.
+   * Null for generic/ambiguous/stale approvals — those keep the ordinary wake.
+   */
+  findGoalApprovalResumeCandidate(approval: CoordinatorGoalApprovalSnapshot): CoordinatorGoalApprovalResumeCandidate | null {
+    if (!approval.sessionId || !MCP_IDENTIFIER.test(approval.id) || !MCP_IDENTIFIER.test(approval.sessionId)) return null;
+    const state = this.goalApprovalResumeState({ approvalId: approval.id, sessionId: approval.sessionId });
+    if (!state || state.consumed || !MCP_IDENTIFIER.test(state.goal.id)) return null;
+    return {
+      ownerUserId: state.ownerUserId,
+      sessionId: approval.sessionId,
+      projectId: state.projectId,
+      sdkSessionId: state.sdkSessionId,
+      cwd: state.cwd,
+      approvalId: approval.id,
+      goalId: state.goal.id,
+      reasonCode: goalApprovalResumeReasonCode(approval.id, state.goal.id, state.goal.revision),
+      fingerprint: createHash('sha256').update(JSON.stringify([
+        approval.id, state.goal.id, state.goal.revision,
+        createHash('sha256').update(state.goal.objective).digest('hex'),
+        state.ownerUserId, approval.sessionId, state.projectId, state.profileId, state.sdkSessionId,
+        state.taintId, state.taintedTurnId,
+      ])).digest('hex'),
+    };
+  }
+
+  /**
+   * Join the live active native user message to the exactly-one accepted
+   * approval-continuation dispatch whose strict reason code names this
+   * approval + goal, then independently re-prove the approval, taint, goal and
+   * current primary root. Foreground, generic approval, callback and unknown
+   * dispatches never qualify.
+   */
+  findGoalApprovalResumeMcpDispatch(input: CoordinatorForegroundMcpSessionScope & {
+    sdkUserMessageId: string;
+    approvalId: string;
+    goalId: string;
+    agentName: string;
+    receiptCommandKey?: string;
+  }): CoordinatorGoalApprovalResumeMcpDispatchBinding | null {
+    if (
+      !MCP_IDENTIFIER.test(input.sdkUserMessageId) || !MCP_IDENTIFIER.test(input.approvalId) ||
+      !MCP_IDENTIFIER.test(input.goalId) || input.agentName.length === 0
+    ) return null;
+    const current = this.findForegroundMcpSessionScope(input);
+    if (
+      !current || current.sessionId !== input.sessionId || current.projectId !== input.projectId ||
+      current.cwd !== input.cwd
+    ) return null;
+    const state = this.goalApprovalResumeState({
+      approvalId: input.approvalId,
+      sessionId: current.sessionId,
+      goalId: input.goalId,
+      agentName: input.agentName,
+      receiptCommandKey: input.receiptCommandKey,
+    });
+    if (
+      !state || state.ownerUserId !== current.ownerUserId || state.projectId !== current.projectId ||
+      state.sdkSessionId !== current.sdkSessionId
+    ) return null;
+    const reasonCode = goalApprovalResumeReasonCode(input.approvalId, input.goalId, state.goal.revision);
+    try {
+      const rows = this.db.prepare(`SELECT d.id
+        FROM agent_turn_dispatches d
+        WHERE d.session_id=? AND d.sdk_session_id=? AND d.sdk_user_message_id=?
+          AND d.origin='approval_continuation' AND d.requested_source='agent_config'
+          AND d.route_authed IS NULL AND d.reason_code=? AND d.outcome='accepted'
+        LIMIT 2`).all(current.sessionId, current.sdkSessionId, input.sdkUserMessageId, reasonCode) as Array<{ id: string }>;
+      return rows.length === 1
+        ? {
+          ...current, kind: 'goal_approval_resume', sdkUserMessageId: input.sdkUserMessageId,
+          goalId: input.goalId, approvalId: input.approvalId, reasonCode,
+        }
+        : null;
     } catch {
       return null;
     }
@@ -1220,6 +1419,45 @@ export class CoordinatorConversationsRepository {
     return raced
       ? { kind: 'command_conflict', conversation: reread.conversation }
       : { kind: 'revision_conflict', conversation: reread.conversation };
+  }
+
+  /**
+   * `reserveGoalDelegation` + a SYNCHRONOUS authorization (the approval token
+   * consumption) in ONE SQLite transaction. The authorization runs only for a
+   * fresh reservation; a replayed/uncertain/dispatched command never consumes
+   * again. A refusal rolls the reservation and any partial consumption back
+   * together (the goal is not poisoned) and is reported with its cause. The
+   * callback must not await.
+   */
+  reserveGoalDelegationAuthorized(input: CoordinatorConversationScope & {
+    expectedControlRevision: number;
+    commandKey: string;
+    goalId: string;
+    parentSdkSessionId: string;
+    authorize: () => void;
+  }): CoordinatorConversationGoalDelegationReservation | {
+    kind: 'authorization_refused'; conversation: CoordinatorConversation; refusal: unknown;
+  } {
+    const { authorize, ...reserveInput } = input;
+    try {
+      return this.outer(() => {
+        const reservation = this.reserveGoalDelegation(reserveInput);
+        if (reservation.kind === 'reserved') {
+          try {
+            authorize();
+          } catch (refusal) {
+            throw new GoalAuthorizationRefused(refusal);
+          }
+        }
+        return reservation;
+      });
+    } catch (error) {
+      if (!(error instanceof GoalAuthorizationRefused)) throw error;
+      const reread = this.read(reserveInput);
+      return reread.kind === 'found'
+        ? { kind: 'authorization_refused', conversation: reread.conversation, refusal: error.refusal }
+        : reread;
+    }
   }
 
   /**
