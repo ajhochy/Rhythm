@@ -12,6 +12,7 @@ import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from '../src/hermes-desktop-confi
 import { refreshHermesDesktopArtifactIntegrity, resolveHermesDesktopArtifact } from '../src/hermes-desktop-artifact.mjs';
 import { EXPECTED_COLONY_ELECTRON_MAJOR, PINNED_COLONY_SOURCE_COMMIT } from '../src/colony-desktop-config.mjs';
 import { refreshColonyArtifactIntegrity, resolveColonyArtifact } from '../src/colony-desktop-artifact.mjs';
+import { stageNativeDayflow } from './stage-native-dayflow.mjs';
 import { stageDayflowDesktopArtifact } from '../src/dayflow-desktop-artifact.mjs';
 
 const run = promisify(execFile);
@@ -244,6 +245,18 @@ await run('npm', ['--prefix', '../web', 'run', 'build'], {
 await run('npm', ['--prefix', '../api_server', 'run', 'build'], { cwd: electronRoot });
 await run('npm', ['--prefix', '../mcp_server', 'run', 'build'], { cwd: electronRoot });
 await cp(sourceApp, stagingArtifact, { recursive: true, verbatimSymlinks: true });
+if (process.env.RHYTHM_NATIVE_DAYFLOW_LAYOUT) {
+  stageNativeDayflow({
+    layoutDir: process.env.RHYTHM_NATIVE_DAYFLOW_LAYOUT,
+    signingInputsPath: process.env.RHYTHM_NATIVE_DAYFLOW_SIGNING_INPUTS
+      || '/Users/ajhochhalter/Documents/Codex/2026-10-04/task-4/native-dayflow-full-host-signing-inputs.json',
+    stagingAppDir: stagingArtifact,
+    inventoryPath: resolve(distRoot, 'native-dayflow-staging-inventory.json'),
+    log: (line) => process.stdout.write(`${line}\n`),
+  });
+} else {
+  process.stdout.write('RHYTHM_NATIVE_DAYFLOW_LAYOUT not set; packaging without native Dayflow.\n');
+}
 await stageHermesDesktopArtifact({ resources });
 await stageColonyArtifact({ resources });
 await stageDayflowDesktopArtifact({ resources, execute: run });
