@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 const calls = (page: Page) => page.evaluate(() => (window as typeof window & { __dayflowView: string[] }).__dayflowView);
 
-test('native Dayflow fills the available height, tracks resized bounds, and keeps Settings reachable when short', async ({ page }) => {
+test('native Dayflow has no outer header or footer and fills the available height on resize', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 560 });
   await page.goto('/tests/dayflow-view-harness.html');
   const host = page.getByTestId('dayflow-native-host');
@@ -31,15 +31,30 @@ test('native Dayflow fills the available height, tracks resized bounds, and keep
   const tallGeometry = await readGeometry();
   console.info(`Dayflow view geometry at 1280px wide: ${JSON.stringify({ viewportHeight: 560, ...shortGeometry })} -> ${JSON.stringify({ viewportHeight: 900, ...tallGeometry })}`);
 
-  await page.setViewportSize({ width: 1280, height: 480 });
-  const settings = page.getByRole('button', { name: 'Dayflow Settings' });
-  await settings.scrollIntoViewIfNeeded();
-  await expect(settings).toBeInViewport();
+  const workspace = page.getByTestId('tool-page-dayflow');
+  await expect(workspace.locator('header, .dayflow-workspace-footer')).toHaveCount(0);
+  await expect(workspace.getByRole('heading', { name: 'Dayflow', exact: true })).toHaveCount(0);
+  await expect(workspace.getByRole('button', { name: 'Dayflow Settings', exact: true })).toHaveCount(0);
+  await expect(workspace.getByText('The original Dayflow screens appear below.')).toHaveCount(0);
+  await expect(workspace.getByText(/Bridge import state is managed separately/)).toHaveCount(0);
 
-  await page.setViewportSize({ width: 1280, height: 300 });
-  await settings.scrollIntoViewIfNeeded();
-  await expect(settings).toBeInViewport();
-  expect(await page.locator('.tool-workspace-body').evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+  for (const height of [300, 480, 560, 900]) {
+    await page.setViewportSize({ width: 1280, height });
+    await expect.poll(boundsMatchHost).toBe(true);
+    await expect.poll(() => workspace.evaluate((node) => {
+      const body = node.querySelector<HTMLElement>('.dayflow-workspace-body')!;
+      const host = node.querySelector<HTMLElement>('[data-testid="dayflow-native-host"]')!;
+      const workspaceRect = node.getBoundingClientRect();
+      const bodyRect = body.getBoundingClientRect();
+      const hostRect = host.getBoundingClientRect();
+      const style = getComputedStyle(body);
+      const contentHeight = body.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      return Math.abs(bodyRect.height - workspaceRect.height) < 0.5 &&
+        Math.abs(hostRect.height - contentHeight) < 0.5 && hostRect.height > 0 &&
+        hostRect.top >= workspaceRect.top && hostRect.bottom <= workspaceRect.bottom &&
+        body.scrollHeight === body.clientHeight;
+    })).toBe(true);
+  }
 });
 
 test('attaches hidden, sends positive bounds, then unblocks; never uses the external opener', async ({ page }) => {

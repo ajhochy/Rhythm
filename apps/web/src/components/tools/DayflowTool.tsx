@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { navigate } from '../Shell';
 import { getDayflowView } from '../../gateway/dayflow-desktop';
 
 type Phase = 'checking' | 'attached' | 'unavailable';
@@ -98,14 +97,9 @@ export function DayflowTool() {
     };
   }, []);
   return <section className="tool-workspace dayflow-workspace" data-testid="tool-page-dayflow">
-    <header className="tool-workspace-header"><div className="tool-heading-copy"><span className="eyebrow">Companion app</span><h1>Dayflow</h1><p>The original Dayflow screens appear below.</p></div></header>
     <div className="tool-workspace-body dayflow-workspace-body">
       <div ref={host} className="dayflow-native-host" role="region" aria-label="Dayflow workspace" aria-busy={phase === 'checking' || undefined} tabIndex={0} data-testid="dayflow-native-host" data-phase={phase}>
         {phase === 'attached' ? null : <p role="status">{phase === 'checking' ? 'Opening Dayflow…' : 'Dayflow is unavailable here right now.'}</p>}
-      </div>
-      <div className="dayflow-workspace-footer">
-        <div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => navigate('/settings?settingsSection=dayflow')}>Dayflow Settings</button></div>
-        <p>Bridge import state is managed separately in Rhythm Settings. Capture, provider, setup, and privacy controls are managed in Dayflow native settings.</p>
       </div>
     </div>
   </section>;
