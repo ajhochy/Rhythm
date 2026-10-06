@@ -1199,6 +1199,15 @@ function parseStoredPermissionAuthority(
   };
 }
 
+/** Canonical resolver keys are bounded relative vault paths, not workflow IDs. */
+function workflowCanonicalMemoryId(value: unknown): value is string {
+  // Preserve previously valid saved authorities, including synthetic identifiers.
+  if (workflowId(value)) return true;
+  if (typeof value !== 'string' || value.length > 1024 || !value.endsWith('.md') ||
+      /[\\\x00-\x1f\x7f-\x9f]/.test(value) || /^[A-Za-z]:/.test(value)) return false;
+  return value.split('/').every((segment) => segment.length > 0 && segment !== '.' && segment !== '..');
+}
+
 function parseStoredWorkflowAuthority(value: unknown): CoordinatorConversationWorkflowAuthority | null {
   if (value === null) return null;
   assertStored(plain(value) && exactKeys(value, ['schemaVersion', 'kind', 'targetAgentConfigId', 'check']), 'workflow authority keys');
@@ -1212,7 +1221,7 @@ function parseStoredWorkflowAuthority(value: unknown): CoordinatorConversationWo
   assertStored(
     value.check.kind === 'selected_reference_summary_v1' &&
     workflowId(value.check.sourceId) && workflowId(value.check.expectedVersion) &&
-    workflowId(value.check.canonicalId) && workflowId(value.check.observedVersion) &&
+    workflowCanonicalMemoryId(value.check.canonicalId) && workflowId(value.check.observedVersion) &&
     typeof value.check.observedHash === 'string' && /^[a-f0-9]{64}$/.test(value.check.observedHash) &&
     value.check.sourceNamespace === 'memory-vault' &&
     typeof value.check.sourceInstance === 'string' && /^[a-f0-9]{64}$/.test(value.check.sourceInstance),
