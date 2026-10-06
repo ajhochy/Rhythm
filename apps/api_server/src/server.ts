@@ -75,7 +75,7 @@ async function main() {
     { AgentBridgeJobsRepository },
     { AgentAsyncDelegationsRepository },
     { CoordinatorConversationsRepository },
-    { delegateToAgentAsync },
+    { delegateToAgentAsync, CodingWorkflowDeliveryUnknownError },
     { resolveProfileScope },
     { perServerToolGrants },
     { prepareAutomaticMemoryPreface },
@@ -497,7 +497,7 @@ async function main() {
         }),
       },
       codingWorkflow: {
-        dispatch: async ({ actor, parentSessionId, parentSdkSessionId, parentProfileId, objective }) => {
+        dispatch: async ({ actor, parentSessionId, parentSdkSessionId, parentProfileId, objective, workflow }) => {
           // This is a narrow server-derived adapter over the existing async
           // delegation route. The model supplies no target/profile/cwd/model
           // or child prompt; the durable captured objective is the only text.
@@ -521,6 +521,14 @@ async function main() {
             beforeProfile.isAgent !== true || beforeProfile.locked === true ||
             agentConfigExecutionBlockReason(beforeProfile) !== null
           ) return null;
+          // This private input originates only from the finite coordinator
+          // after it reserved an ordinal.  A missing callback/binding is not
+          // a legacy delegation: refuse before creating a child or prompt.
+          if (workflow && (
+            !workflow.workflowBinding || typeof workflow.onPrepared !== 'function' ||
+            typeof workflow.onOutcome !== 'function' || typeof workflow.isCurrent !== 'function' ||
+            typeof workflow.validate !== 'function'
+          )) return null;
           let dispatched: Awaited<ReturnType<typeof delegateToAgentAsync>>;
           try {
             dispatched = await delegateToAgentAsync({
@@ -531,8 +539,56 @@ async function main() {
               callerSessionId: parentSessionId,
               context: null,
               isolateWorktree: false,
+              ...(workflow ? {
+                codingWorkflow: {
+                  ...workflow,
+                  enroll: async (binding) => {
+                    // Enrollment is a strict owned-engine mutation, not a
+                    // Dayflow/source grant. Prove the exact manager/root/job
+                    // join immediately before it, then let the client do its
+                    // mandated post-await authority re-read before SDK exposure.
+                    if (
+                      binding.authorization.authorizationId !== workflow.authorization.authorizationId ||
+                      binding.authorization.ordinal !== workflow.authorization.ordinal ||
+                      binding.authorization.workstreamId !== workflow.authorization.workstreamId ||
+                      binding.authorization.goalId !== workflow.authorization.goalId ||
+                      binding.workflowBinding.jobId !== workflow.workflowBinding!.jobId ||
+                      binding.workflowBinding.expiresAt !== workflow.workflowBinding!.expiresAt ||
+                      binding.owner.rootSessionId !== parentSessionId ||
+                      binding.owner.rootSdkSessionId !== parentSdkSessionId ||
+                      binding.delegation.nativeParentSdkSessionId !== parentSdkSessionId ||
+                      binding.workflowBinding.managerSdkSessionId !== binding.delegation.managerSdkSessionId ||
+                      !(await workflow.validate('before_sdk')) || workflow.isCurrent() !== true
+                    ) return false;
+                    const localManager = conversationSessions.findById(binding.delegation.managerSessionId);
+                    const beforeEngine = await opencodeClient.getEngineIdentity();
+                    if (
+                      !localManager || localManager.ownerUserId !== actor.user.id ||
+                      localManager.projectId !== parentProjectId ||
+                      localManager.sdkSessionId !== binding.delegation.managerSdkSessionId ||
+                      !beforeEngine || beforeEngine.bootId !== binding.engine.bootId || beforeEngine.pid !== binding.engine.pid ||
+                      !(await workflow.validate('before_sdk')) || workflow.isCurrent() !== true
+                    ) return false;
+                    const enrolled = await opencodeClient.enrollWorkflowProviderGuard(
+                      binding.delegation.managerSdkSessionId,
+                      localManager.cwd || undefined,
+                      {
+                        schemaVersion: 2,
+                        kind: 'coordinator_workflow_enrollment',
+                        binding: binding.workflowBinding,
+                        scope: { kind: 'manager_lineage' },
+                      },
+                    );
+                    const afterEngine = await opencodeClient.getEngineIdentity();
+                    return enrolled !== null && !!afterEngine &&
+                      afterEngine.bootId === binding.engine.bootId && afterEngine.pid === binding.engine.pid &&
+                      (await workflow.validate('before_sdk')) === true && workflow.isCurrent() === true;
+                  },
+                },
+              } : {}),
             });
-          } catch {
+          } catch (error) {
+            if (error instanceof CodingWorkflowDeliveryUnknownError) throw error;
             return null;
           }
           const afterParent = conversationSessions.findById(parentSessionId);
@@ -1099,6 +1155,19 @@ async function main() {
       evidence: dayflowQualifiedEvidence,
       authority: dayflowQualificationAuthority,
       enrollment: dayflowEnrollment,
+      // The private schema-2 frame is admitted only through the same current
+      // coordinator/root/finite-job authority that prepared it. This does not
+      // make a workflow marker a Dayflow consent or source grant.
+      workflow: {
+        admit: async (input) => coordinatorConversationService
+          ? coordinatorConversationService.admitWorkflowProvider({ ...input, actor: input.auth })
+          : {
+            status: 'hold' as const,
+            reason: 'authority_unavailable' as const,
+            authorityDigest: '0'.repeat(64),
+            current: () => false,
+          },
+      },
     });
   }
   const app = createApp({

@@ -66,7 +66,7 @@ export interface WorkstreamRunPolicy {
    * authority has been durably consumed. Undefined preserves ordinary
    * managed-worker behavior byte-for-byte.
    */
-  outputContract?: 'structured_read_only_proposal_v1';
+  outputContract?: 'structured_read_only_proposal_v1' | 'coding_workflow_durable_consumer_v1';
 }
 
 /**

@@ -91,6 +91,73 @@ export interface ProviderEnrollmentResponse {
   guarded: true;
 }
 
+// ── G2 Coding Workflow envelopes ───────────────────────────────────────────
+//
+// These are deliberately an outer, strict schema rather than a change to the
+// Dayflow v1 request.  Workflow enrollment/accounting is correlated with the
+// existing admission exchange, but is not a Dayflow consent or source grant.
+
+export interface WorkflowBinding {
+  schemaVersion: 1;
+  jobId: string;
+  rootSdkSessionId: string;
+  managerSdkSessionId: string;
+  expiresAt: string;
+}
+
+export type WorkflowScope =
+  | { kind: 'manager_lineage' }
+  | { kind: 'root_turn'; userMessageId: string };
+
+export interface WorkflowEnrollmentRequest {
+  schemaVersion: 2;
+  kind: 'coordinator_workflow_enrollment';
+  binding: WorkflowBinding;
+  scope: WorkflowScope;
+}
+
+export interface WorkflowEnrollmentResponse extends WorkflowEnrollmentRequest {
+  sdkSessionId: string;
+  engineGeneration: string;
+  guarded: true;
+}
+
+export interface WorkflowProviderRequest {
+  schemaVersion: 2;
+  kind: 'coordinator_workflow_provider';
+  binding: WorkflowBinding;
+  scope: WorkflowScope;
+  request: ProviderAdmissionRequest;
+}
+
+export type WorkflowAccounting =
+  | { kind: 'persisted_assistant'; assistantMessageId: string; parentMessageId: string }
+  | { kind: 'unmetered_auxiliary'; sourceUserMessageId: string };
+
+export interface WorkflowProviderPendingExport {
+  schemaVersion: 2;
+  kind: 'coordinator_workflow_provider_frame';
+  binding: WorkflowBinding;
+  scope: WorkflowScope;
+  accounting: WorkflowAccounting;
+  nativeLineageDigest: string;
+  frame: ProviderPendingExport;
+}
+
+export interface WorkflowProviderDecision {
+  schemaVersion: 2;
+  kind: 'coordinator_workflow_provider_decision';
+  binding: WorkflowBinding;
+  scope: WorkflowScope;
+  response: ProviderAdmissionResponse;
+  workflow: {
+    status: 'allow' | 'hold';
+    reason: 'none' | 'binding_changed' | 'authority_unavailable' | 'membership_unavailable' | 'accounting_unavailable' | 'bounds_exceeded';
+    authorityDigest: string;
+    nativeLineageDigest: string;
+  };
+}
+
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
 const PURPOSES: readonly string[] = ['answer', 'compaction', 'summary'];
@@ -165,6 +232,154 @@ export function sameProviderRequest(left: ProviderAdmissionRequest, right: Provi
     left.requestNonce === right.requestNonce && left.engineGeneration === right.engineGeneration &&
     left.runnerGeneration === right.runnerGeneration && left.attempt === right.attempt &&
     left.purpose === right.purpose && left.inputDigest === right.inputDigest;
+}
+
+function isIso(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value;
+}
+
+export function parseWorkflowBinding(raw: unknown): Parsed<WorkflowBinding> {
+  if (!isObject(raw) || !exactKeys(raw, ['schemaVersion', 'jobId', 'rootSdkSessionId', 'managerSdkSessionId', 'expiresAt'])) {
+    return fail('workflow binding keys');
+  }
+  if (raw.schemaVersion !== 1 || !isId(raw.jobId) || !isId(raw.rootSdkSessionId) ||
+      !isId(raw.managerSdkSessionId) || raw.rootSdkSessionId === raw.managerSdkSessionId || !isIso(raw.expiresAt)) {
+    return fail('workflow binding values');
+  }
+  return ok({
+    schemaVersion: 1,
+    jobId: raw.jobId,
+    rootSdkSessionId: raw.rootSdkSessionId,
+    managerSdkSessionId: raw.managerSdkSessionId,
+    expiresAt: raw.expiresAt,
+  });
+}
+
+export function sameWorkflowBinding(left: WorkflowBinding, right: WorkflowBinding): boolean {
+  return left.jobId === right.jobId && left.rootSdkSessionId === right.rootSdkSessionId &&
+    left.managerSdkSessionId === right.managerSdkSessionId && left.expiresAt === right.expiresAt;
+}
+
+export function parseWorkflowScope(raw: unknown): Parsed<WorkflowScope> {
+  if (!isObject(raw) || typeof raw.kind !== 'string') return fail('workflow scope');
+  if (raw.kind === 'manager_lineage' && exactKeys(raw, ['kind'])) return ok({ kind: 'manager_lineage' });
+  if (raw.kind === 'root_turn' && exactKeys(raw, ['kind', 'userMessageId']) && isId(raw.userMessageId)) {
+    return ok({ kind: 'root_turn', userMessageId: raw.userMessageId });
+  }
+  return fail('workflow scope');
+}
+
+export function sameWorkflowScope(left: WorkflowScope, right: WorkflowScope): boolean {
+  return left.kind === right.kind && (left.kind !== 'root_turn' || (right.kind === 'root_turn' && left.userMessageId === right.userMessageId));
+}
+
+export function parseWorkflowEnrollmentRequest(raw: unknown): Parsed<WorkflowEnrollmentRequest> {
+  if (!isObject(raw) || !exactKeys(raw, ['schemaVersion', 'kind', 'binding', 'scope'])) return fail('workflow enrollment keys');
+  if (raw.schemaVersion !== 2 || raw.kind !== 'coordinator_workflow_enrollment') return fail('workflow enrollment values');
+  const binding = parseWorkflowBinding(raw.binding);
+  const scope = parseWorkflowScope(raw.scope);
+  if (!binding.ok || !scope.ok) return fail('workflow enrollment binding');
+  const value: WorkflowEnrollmentRequest = { schemaVersion: 2, kind: 'coordinator_workflow_enrollment', binding: binding.value, scope: scope.value };
+  return utf8(JSON.stringify(value)) <= PROVIDER_ADMISSION_BOUNDS.requestBytes ? ok(value) : fail('workflow enrollment too large');
+}
+
+export function parseWorkflowEnrollmentResponse(raw: unknown, expectedSdkSessionId: string, expected: WorkflowEnrollmentRequest): Parsed<WorkflowEnrollmentResponse> {
+  if (!isObject(raw) || !exactKeys(raw, ['schemaVersion', 'kind', 'sdkSessionId', 'engineGeneration', 'guarded', 'binding', 'scope'])) {
+    return fail('workflow enrollment response keys');
+  }
+  if (raw.schemaVersion !== 2 || raw.kind !== 'coordinator_workflow_enrollment' || raw.guarded !== true ||
+      raw.sdkSessionId !== expectedSdkSessionId || !isId(raw.sdkSessionId) || !isGeneration(raw.engineGeneration)) {
+    return fail('workflow enrollment response values');
+  }
+  const binding = parseWorkflowBinding(raw.binding);
+  const scope = parseWorkflowScope(raw.scope);
+  if (!binding.ok || !scope.ok || !sameWorkflowBinding(binding.value, expected.binding) || !sameWorkflowScope(scope.value, expected.scope)) {
+    return fail('workflow enrollment response echo');
+  }
+  const value: WorkflowEnrollmentResponse = {
+    schemaVersion: 2, kind: 'coordinator_workflow_enrollment', sdkSessionId: raw.sdkSessionId,
+    engineGeneration: raw.engineGeneration, guarded: true, binding: binding.value, scope: scope.value,
+  };
+  return utf8(JSON.stringify(value)) <= PROVIDER_ADMISSION_BOUNDS.responseBytes ? ok(value) : fail('workflow enrollment response too large');
+}
+
+export function parseWorkflowProviderRequest(raw: unknown): Parsed<WorkflowProviderRequest> {
+  if (!isObject(raw) || !exactKeys(raw, ['schemaVersion', 'kind', 'binding', 'scope', 'request'])) return fail('workflow provider keys');
+  if (raw.schemaVersion !== 2 || raw.kind !== 'coordinator_workflow_provider') return fail('workflow provider values');
+  const binding = parseWorkflowBinding(raw.binding);
+  const scope = parseWorkflowScope(raw.scope);
+  const request = parseProviderAdmissionRequest(raw.request);
+  if (!binding.ok || !scope.ok || !request.ok) return fail('workflow provider fields');
+  const value: WorkflowProviderRequest = { schemaVersion: 2, kind: 'coordinator_workflow_provider', binding: binding.value, scope: scope.value, request: request.value };
+  return utf8(JSON.stringify(value)) <= PROVIDER_ADMISSION_BOUNDS.requestBytes ? ok(value) : fail('workflow provider too large');
+}
+
+function parseWorkflowAccounting(raw: unknown): Parsed<WorkflowAccounting> {
+  if (!isObject(raw) || typeof raw.kind !== 'string') return fail('workflow accounting');
+  if (raw.kind === 'persisted_assistant' && exactKeys(raw, ['kind', 'assistantMessageId', 'parentMessageId']) &&
+      isId(raw.assistantMessageId) && isId(raw.parentMessageId)) {
+    return ok({ kind: 'persisted_assistant', assistantMessageId: raw.assistantMessageId, parentMessageId: raw.parentMessageId });
+  }
+  if (raw.kind === 'unmetered_auxiliary' && exactKeys(raw, ['kind', 'sourceUserMessageId']) && isId(raw.sourceUserMessageId)) {
+    return ok({ kind: 'unmetered_auxiliary', sourceUserMessageId: raw.sourceUserMessageId });
+  }
+  return fail('workflow accounting');
+}
+
+export function parseWorkflowProviderFrameExport(raw: unknown): Parsed<WorkflowProviderPendingExport | ProviderPendingExport | ProviderUnavailableExport> {
+  if (!isObject(raw)) return fail('workflow frame');
+  if (raw.schemaVersion === 1) return parseProviderFrameExport(raw);
+  if (!exactKeys(raw, ['schemaVersion', 'kind', 'binding', 'scope', 'accounting', 'nativeLineageDigest', 'frame']) ||
+      raw.schemaVersion !== 2 || raw.kind !== 'coordinator_workflow_provider_frame' ||
+      typeof raw.nativeLineageDigest !== 'string' || !SHA256.test(raw.nativeLineageDigest)) return fail('workflow frame keys');
+  const binding = parseWorkflowBinding(raw.binding);
+  const scope = parseWorkflowScope(raw.scope);
+  const accounting = parseWorkflowAccounting(raw.accounting);
+  const frame = parseProviderFrameExport(raw.frame);
+  if (!binding.ok || !scope.ok || !accounting.ok || !frame.ok || frame.value.status !== 'pending') return fail('workflow frame fields');
+  const value: WorkflowProviderPendingExport = {
+    schemaVersion: 2, kind: 'coordinator_workflow_provider_frame', binding: binding.value, scope: scope.value,
+    accounting: accounting.value, nativeLineageDigest: raw.nativeLineageDigest, frame: frame.value,
+  };
+  return utf8(JSON.stringify(value)) <= PROVIDER_ADMISSION_BOUNDS.exportBytes ? ok(value) : fail('workflow frame too large');
+}
+
+/** Apply the export byte bound before parsing either the V1 or G2 frame. */
+export function parseWorkflowProviderFrameExportText(text: string): Parsed<WorkflowProviderPendingExport | ProviderPendingExport | ProviderUnavailableExport> {
+  if (utf8(text) > PROVIDER_ADMISSION_BOUNDS.exportBytes) return fail('workflow frame too large');
+  let raw: unknown;
+  try { raw = JSON.parse(text); } catch { return fail('workflow frame is not JSON'); }
+  return parseWorkflowProviderFrameExport(raw);
+}
+
+export function parseWorkflowProviderDecision(raw: unknown, expected: WorkflowProviderRequest): Parsed<WorkflowProviderDecision> {
+  if (!isObject(raw) || !exactKeys(raw, ['schemaVersion', 'kind', 'binding', 'scope', 'response', 'workflow']) ||
+      raw.schemaVersion !== 2 || raw.kind !== 'coordinator_workflow_provider_decision') return fail('workflow decision keys');
+  const binding = parseWorkflowBinding(raw.binding);
+  const scope = parseWorkflowScope(raw.scope);
+  const response = validateProviderAdmissionResponse(raw.response, expected.request);
+  if (!binding.ok || !scope.ok || !response.ok || !sameWorkflowBinding(binding.value, expected.binding) || !sameWorkflowScope(scope.value, expected.scope)) {
+    return fail('workflow decision echo');
+  }
+  if (!isObject(raw.workflow) || !exactKeys(raw.workflow, ['status', 'reason', 'authorityDigest', 'nativeLineageDigest']) ||
+      (raw.workflow.status !== 'allow' && raw.workflow.status !== 'hold') ||
+      !['none', 'binding_changed', 'authority_unavailable', 'membership_unavailable', 'accounting_unavailable', 'bounds_exceeded'].includes(String(raw.workflow.reason)) ||
+      typeof raw.workflow.authorityDigest !== 'string' || !SHA256.test(raw.workflow.authorityDigest) ||
+      typeof raw.workflow.nativeLineageDigest !== 'string' || !SHA256.test(raw.workflow.nativeLineageDigest)) {
+    return fail('workflow decision workflow');
+  }
+  if ((raw.workflow.status === 'allow') !== (raw.workflow.reason === 'none')) return fail('workflow decision state');
+  const value: WorkflowProviderDecision = {
+    schemaVersion: 2, kind: 'coordinator_workflow_provider_decision', binding: binding.value, scope: scope.value,
+    response: response.value,
+    workflow: {
+      status: raw.workflow.status, reason: raw.workflow.reason as WorkflowProviderDecision['workflow']['reason'],
+      authorityDigest: raw.workflow.authorityDigest, nativeLineageDigest: raw.workflow.nativeLineageDigest,
+    },
+  };
+  return utf8(JSON.stringify(value)) <= PROVIDER_ADMISSION_BOUNDS.responseBytes ? ok(value) : fail('workflow decision too large');
 }
 
 /** Optional `sourceAnchorIds` query: JSON array of at most 64 unique non-empty ids. */

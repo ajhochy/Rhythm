@@ -5,7 +5,9 @@ import {
   parseCodingWorkflowDispatchReceipt,
   type CodingWorkflowAuthorization,
   type CodingWorkflowDispatchReceipt,
+  type CodingWorkflowEngineIdentity,
 } from '../contracts/coordinator_conversation_contract';
+import type { WorkflowBinding } from '../contracts/dayflow_provider_admission_contract';
 import {
   AgentConfigsRepository,
   agentConfigExecutionBlockReason,
@@ -25,12 +27,37 @@ import { listAgentModelCatalog } from '../routes/agents_models_routes';
  */
 export interface CodingWorkflowDispatchInput {
   authorization: CodingWorkflowAuthorization;
+  /** Server-owned outer job/expiry; absent is never eligible for native enrollment. */
+  workflowBinding?: Pick<WorkflowBinding, 'jobId' | 'expiresAt'>;
   /** Exact project the caller session must still belong to. */
   expectedProjectId: string;
   /** Current admission/owner/epoch/permission proof at each awaited phase. */
   validate(phase: 'prepare' | 'before_sdk' | 'sdk_exposure'): boolean | Promise<boolean>;
   /** Synchronous proof, run after the last await and immediately before the SDK request. */
   isCurrent(): boolean;
+  /**
+   * Persist the full durable manager/delegation/native-anchor join before the
+   * SDK request. This hook is intentionally synchronous: any storage refusal
+   * prevents exposure rather than becoming a best-effort receipt.
+   */
+  onPrepared?(binding: CodingWorkflowPreparedBinding): boolean;
+  /**
+   * Install the native schema-2 marker after `onPrepared` succeeded. The
+   * client revalidates all authority after this await before SDK exposure.
+   */
+  enroll?(binding: CodingWorkflowPreparedBinding): Promise<boolean>;
+  /** Persist the real delivery outcome; unknown is never retryable. */
+  onOutcome?(binding: CodingWorkflowPreparedBinding & { delivery: 'accepted' | 'unknown' | 'rejected' }): void;
+}
+
+/** Private pre-SDK binding; this is a receipt shape without a delivery claim. */
+export interface CodingWorkflowPreparedBinding {
+  authorization: CodingWorkflowAuthorization;
+  workflowBinding: WorkflowBinding;
+  owner: CodingWorkflowDispatchReceipt['owner'];
+  delegation: CodingWorkflowDispatchReceipt['delegation'];
+  dispatch: { dispatchId: string; sdkUserMessageId: string };
+  engine: CodingWorkflowEngineIdentity;
 }
 
 /**
@@ -354,6 +381,14 @@ export async function delegateToAgentAsync(
   if (input.codingWorkflow && targetId !== CODING_WORKFLOW_TARGET_PROFILE) {
     throw AppError.forbidden('coding workflow is fixed to the workflow-orchestrator profile');
   }
+  if (input.codingWorkflow && (
+    !input.codingWorkflow.workflowBinding ||
+    typeof input.codingWorkflow.onPrepared !== 'function' ||
+    typeof input.codingWorkflow.enroll !== 'function' ||
+    typeof input.codingWorkflow.onOutcome !== 'function'
+  )) {
+    throw AppError.forbidden('coding workflow durable enrollment is unavailable');
+  }
 
   const target = requireExecutableProfile(configRepo, targetId, 'target');
   if (!target.isAgent) {
@@ -460,6 +495,7 @@ export async function delegateToAgentAsync(
   let delegationPersisted = false;
   let delegationId: string | null = null;
   let preparedBinding: { dispatchId: string; sdkUserMessageId: string } | null = null;
+  let preparedWorkflowBinding: CodingWorkflowPreparedBinding | null = null;
   let deliveryOutcome: 'accepted' | 'unknown' | 'rejected' | null = null;
   try {
     assertPermissionScopeCurrent();
@@ -557,36 +593,69 @@ export async function delegateToAgentAsync(
             }
           },
           onPrepared: (binding) => {
+            if (!delegationId || !engineIdentity || callerSession.ownerUserId === null || !callerSession.projectId) {
+              return false;
+            }
+            const prepared: CodingWorkflowPreparedBinding = {
+              authorization: workflow.authorization,
+              workflowBinding: {
+                schemaVersion: 1,
+                jobId: workflow.workflowBinding!.jobId,
+                rootSdkSessionId: parentSdkSessionId,
+                managerSdkSessionId: childSession.id,
+                expiresAt: workflow.workflowBinding!.expiresAt,
+              },
+              owner: {
+                ownerUserId: callerSession.ownerUserId,
+                projectId: callerSession.projectId,
+                rootSessionId: callerSession.id,
+                rootSdkSessionId: parentSdkSessionId,
+              },
+              delegation: {
+                delegationId,
+                managerSessionId: childRow.id,
+                managerSdkSessionId: childSession.id,
+                nativeParentSdkSessionId: parentSdkSessionId,
+              },
+              dispatch: binding,
+              engine: engineIdentity,
+            };
+            // A durable join is the source of truth.  Do not retain it locally
+            // until the consumer confirmed its same-job CAS.
+            if (workflow.onPrepared!(prepared) !== true) return false;
+            preparedWorkflowBinding = prepared;
             preparedBinding = binding;
             return true;
           },
-          onOutcome: (outcome) => { deliveryOutcome = outcome.delivery; },
+          enroll: async (binding) => {
+            const prepared = preparedWorkflowBinding;
+            if (!prepared || prepared.dispatch.dispatchId !== binding.dispatchId ||
+                prepared.dispatch.sdkUserMessageId !== binding.sdkUserMessageId) return false;
+            return (await workflow.enroll!(prepared)) === true;
+          },
+          onOutcome: (outcome) => {
+            deliveryOutcome = outcome.delivery;
+            const prepared = preparedWorkflowBinding;
+            if (!prepared || prepared.dispatch.dispatchId !== outcome.dispatchId ||
+                prepared.dispatch.sdkUserMessageId !== outcome.sdkUserMessageId) return;
+            workflow.onOutcome!({ ...prepared, delivery: outcome.delivery });
+          },
         },
       )
       : await opencodeClient.promptAsync(...promptHead);
     if (workflow) {
       const prepared = preparedBinding as { dispatchId: string; sdkUserMessageId: string } | null;
       const delivery = deliveryOutcome as 'accepted' | 'unknown' | 'rejected' | null;
-      const receipt = prepared && delegationId && engineIdentity && callerSession.ownerUserId !== null &&
-        callerSession.projectId && (delivery === 'accepted' || delivery === 'unknown')
+      const workflowReceiptBinding = preparedWorkflowBinding as CodingWorkflowPreparedBinding | null;
+      const receipt = workflowReceiptBinding && prepared && (delivery === 'accepted' || delivery === 'unknown')
         ? parseCodingWorkflowDispatchReceipt({
           schemaVersion: 1,
           adapter: CODING_WORKFLOW_ADAPTER,
-          authorization: workflow.authorization,
-          owner: {
-            ownerUserId: callerSession.ownerUserId,
-            projectId: callerSession.projectId,
-            rootSessionId: callerSession.id,
-            rootSdkSessionId: parentSdkSessionId,
-          },
-          delegation: {
-            delegationId,
-            managerSessionId: childRow.id,
-            managerSdkSessionId: childSession.id,
-            nativeParentSdkSessionId: parentSdkSessionId,
-          },
+          authorization: workflowReceiptBinding.authorization,
+          owner: workflowReceiptBinding.owner,
+          delegation: workflowReceiptBinding.delegation,
           dispatch: { ...prepared, delivery },
-          engine: engineIdentity,
+          engine: workflowReceiptBinding.engine,
         })
         : null;
       if (delivery === 'unknown' || (enqueued && !receipt)) {

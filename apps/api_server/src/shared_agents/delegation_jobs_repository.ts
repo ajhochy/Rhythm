@@ -17,6 +17,8 @@ import {
   isNativeWorkstreamDeliveryScope,
   type NativeWorkstreamDeliveryScope,
 } from './native_workstream_wake_contract';
+import type { CodingWorkflowAuthorization, CodingWorkflowEngineIdentity } from '../contracts/coordinator_conversation_contract';
+import type { WorkflowBinding } from '../contracts/dayflow_provider_admission_contract';
 
 export type LegacyAgentBridgeJobDirection = 'rhythm_to_hermes' | 'hermes_to_rhythm';
 export type AgentBridgeJobDirection = LegacyAgentBridgeJobDirection | 'rhythm_to_native';
@@ -206,6 +208,45 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const SAFE_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const COORDINATOR_BACKGROUND_CAPACITY = 2;
 const LEGACY_CAPACITY_SNAPSHOT_LIMIT = 100;
+const WORKFLOW_MEMBERSHIP_LIMIT = 48;
+
+/**
+ * Server-private, pre-exposure binding for the fixed Coding Workflow manager.
+ * It deliberately contains identities only; the delegated prompt/result never
+ * enters the coordinator ledger.
+ */
+export interface CoordinatorWorkflowPreparedBinding {
+  authorization: CodingWorkflowAuthorization;
+  workflowBinding: WorkflowBinding;
+  owner: {
+    ownerUserId: number;
+    projectId: string;
+    rootSessionId: string;
+    rootSdkSessionId: string;
+  };
+  delegation: {
+    delegationId: string;
+    managerSessionId: string;
+    managerSdkSessionId: string;
+    nativeParentSdkSessionId: string;
+  };
+  dispatch: { dispatchId: string; sdkUserMessageId: string };
+  engine: CodingWorkflowEngineIdentity;
+}
+
+export interface CoordinatorWorkflowMembership {
+  nativeSessionId: string;
+  parentNativeSessionId: string;
+  nativeUserMessageId: string;
+  engineGeneration: string;
+  runnerGeneration: string;
+  purpose: 'answer' | 'compaction' | 'summary';
+  attempt: number;
+  requestIdentity: string;
+  accountingKind: 'persisted_assistant' | 'unmetered_auxiliary';
+  assistantMessageId: string | null;
+  parentMessageId: string | null;
+}
 
 interface LegacyCoordinatorCapacitySqlRow {
   delegation_id: string;
@@ -290,6 +331,22 @@ function parseRecord(value: string | null): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function workflowId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(value);
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function serializedMetadata(value: Record<string, unknown>): string {
+  const text = JSON.stringify(value);
+  if (Buffer.byteLength(text, 'utf8') > 65_536) {
+    throw new BridgeJobError('native_metadata_too_large', 400);
+  }
+  return text;
 }
 
 function finiteNonNegative(value: unknown): number | null {
@@ -556,6 +613,19 @@ export class AgentBridgeJobsRepository {
     `).get(input.jobId, input.localUserId, input.workstreamId) as AgentBridgeJobRow | undefined ?? null;
   }
 
+  /**
+   * Server-private G2 lookup used only by the strict native provider gate.
+   * The job id comes from the owned engine's schema-2 frame and is still
+   * rejoined to owner/project/root metadata before it can admit anything.
+   */
+  findCoordinatorWorkflowJob(jobId: string): AgentBridgeJobRow | null {
+    if (!workflowId(jobId)) return null;
+    return this.db.prepare(`
+      SELECT * FROM agent_bridge_jobs
+       WHERE id=? AND direction='rhythm_to_native' AND native_execution_kind='coordinator'
+    `).get(jobId) as AgentBridgeJobRow | undefined ?? null;
+  }
+
   listNativeForWorkstream(input: {
     localUserId: number;
     workstreamId: string;
@@ -817,6 +887,238 @@ export class AgentBridgeJobsRepository {
     ) as AgentBridgeJobRow | undefined;
     if (!row) throw new BridgeJobError('native_dispatch_already_bound');
     return row;
+  }
+
+  /**
+   * The G2 manager's local child, durable delegation, engine identity and
+   * minted native anchor are one atomic coordinator-job receipt.  This runs
+   * from the private synchronous prompt hook; if it cannot commit, the SDK
+   * call is refused.  It is not a delivery claim.
+   */
+  bindCoordinatorWorkflowPrepared(input: {
+    localUserId: number;
+    workstreamId: string;
+    jobId: string;
+    binding: CoordinatorWorkflowPreparedBinding;
+    now: string;
+  }): AgentBridgeJobRow {
+    const { binding } = input;
+    if (
+      !workflowId(input.workstreamId) || !workflowId(input.jobId) ||
+      !Number.isSafeInteger(input.localUserId) || input.localUserId < 1 ||
+      !workflowId(binding.authorization.authorizationId) || !workflowId(binding.authorization.goalId) ||
+      !workflowId(binding.authorization.workstreamId) || !workflowId(binding.owner.projectId) ||
+      binding.workflowBinding.schemaVersion !== 1 || !workflowId(binding.workflowBinding.jobId) ||
+      !workflowId(binding.workflowBinding.rootSdkSessionId) || !workflowId(binding.workflowBinding.managerSdkSessionId) ||
+      typeof binding.workflowBinding.expiresAt !== 'string' || Number.isNaN(new Date(binding.workflowBinding.expiresAt).valueOf()) ||
+      !workflowId(binding.owner.rootSessionId) || !workflowId(binding.owner.rootSdkSessionId) ||
+      !workflowId(binding.delegation.delegationId) || !workflowId(binding.delegation.managerSessionId) ||
+      !workflowId(binding.delegation.managerSdkSessionId) || !workflowId(binding.delegation.nativeParentSdkSessionId) ||
+      !workflowId(binding.dispatch.dispatchId) || !workflowId(binding.dispatch.sdkUserMessageId) ||
+      !workflowId(binding.engine.bootId) || !Number.isSafeInteger(binding.engine.pid)
+    ) throw new BridgeJobError('workflow_prepared_binding_invalid', 400);
+    if (
+      binding.authorization.workstreamId !== input.workstreamId ||
+      binding.workflowBinding.jobId !== input.jobId ||
+      binding.workflowBinding.rootSdkSessionId !== binding.owner.rootSdkSessionId ||
+      binding.workflowBinding.managerSdkSessionId !== binding.delegation.managerSdkSessionId ||
+      binding.owner.ownerUserId !== input.localUserId ||
+      binding.delegation.nativeParentSdkSessionId !== binding.owner.rootSdkSessionId ||
+      binding.delegation.managerSdkSessionId === binding.owner.rootSdkSessionId
+    ) throw new BridgeJobError('workflow_prepared_binding_mismatch');
+    return this.db.transaction(() => {
+      const current = this.getNativeForWorkstream(input);
+      if (!current || current.native_execution_kind !== 'coordinator' || current.host_epoch === null) {
+        throw new BridgeJobError('native_job_not_admissible');
+      }
+      if (current.parent_runtime_instance !== binding.engine.bootId ||
+          current.parent_session_id !== binding.owner.rootSessionId ||
+          current.workstream_project_id !== binding.owner.projectId) {
+        throw new BridgeJobError('workflow_prepared_binding_mismatch');
+      }
+      const metadata = parseRecord(current.native_metadata_json);
+      const workflow = metadata?.workflow;
+      const workflowRecord = workflow && typeof workflow === 'object' && !Array.isArray(workflow)
+        ? workflow as Record<string, unknown>
+        : null;
+      if (
+        !metadata || !workflowRecord || workflowRecord.schemaVersion !== 1 ||
+        workflowRecord.kind !== 'coding_workflow' || !sameJson(workflowRecord.authorization, binding.authorization) ||
+        !Array.isArray(workflowRecord.membership)
+      ) throw new BridgeJobError('workflow_metadata_unavailable');
+      const prepared = {
+        workflowBinding: binding.workflowBinding,
+        owner: binding.owner,
+        delegation: binding.delegation,
+        dispatch: binding.dispatch,
+        engine: binding.engine,
+      };
+      if (workflowRecord.prepared !== null && workflowRecord.prepared !== undefined) {
+        if (
+          !sameJson(workflowRecord.prepared, prepared) ||
+          current.native_child_session_id !== binding.delegation.managerSessionId ||
+          current.native_child_sdk_session_id !== binding.delegation.managerSdkSessionId ||
+          current.native_dispatch_id !== binding.dispatch.dispatchId ||
+          current.native_sdk_user_message_id !== binding.dispatch.sdkUserMessageId
+        ) throw new BridgeJobError('workflow_prepared_binding_conflict');
+        return current;
+      }
+      if (
+        current.state !== 'claimed' || current.native_child_session_id !== null ||
+        current.native_child_sdk_session_id !== null || current.native_dispatch_id !== null ||
+        current.native_sdk_user_message_id !== null
+      ) throw new BridgeJobError('workflow_prepared_binding_conflict');
+      const nextWorkflow = {
+        ...workflowRecord,
+        prepared,
+        delivery: 'prepared',
+        membership: workflowRecord.membership,
+      };
+      const next = { ...metadata, workflow: nextWorkflow };
+      const row = this.db.prepare(`UPDATE agent_bridge_jobs
+        SET native_child_session_id=?, native_child_sdk_session_id=?, native_dispatch_id=?, native_sdk_user_message_id=?,
+            state='running', native_started_at=COALESCE(native_started_at,?), native_progress_at=?,
+            native_metadata_json=?, updated_at=?
+        WHERE id=? AND direction='rhythm_to_native' AND native_execution_kind='coordinator'
+          AND local_user_id=? AND workstream_id=? AND state='claimed'
+          AND native_child_session_id IS NULL AND native_dispatch_id IS NULL
+        RETURNING *`).get(
+        binding.delegation.managerSessionId,
+        binding.delegation.managerSdkSessionId,
+        binding.dispatch.dispatchId,
+        binding.dispatch.sdkUserMessageId,
+        input.now,
+        input.now,
+        serializedMetadata(next),
+        input.now,
+        input.jobId,
+        input.localUserId,
+        input.workstreamId,
+      ) as AgentBridgeJobRow | undefined;
+      if (!row) throw new BridgeJobError('workflow_prepared_binding_conflict');
+      return row;
+    }).immediate();
+  }
+
+  /** Record the SDK delivery boundary without treating a prepared anchor as success. */
+  recordCoordinatorWorkflowDelivery(input: {
+    localUserId: number;
+    workstreamId: string;
+    jobId: string;
+    dispatchId: string;
+    sdkUserMessageId: string;
+    delivery: 'accepted' | 'unknown' | 'rejected';
+    now: string;
+  }): AgentBridgeJobRow {
+    return this.db.transaction(() => {
+      const current = this.getNativeForWorkstream(input);
+      if (!current || current.native_execution_kind !== 'coordinator') throw new BridgeJobError('native_job_not_found', 404);
+      const metadata = parseRecord(current.native_metadata_json);
+      const workflow = metadata?.workflow;
+      const record = workflow && typeof workflow === 'object' && !Array.isArray(workflow)
+        ? workflow as Record<string, unknown>
+        : null;
+      const prepared = record?.prepared;
+      if (!record || record.schemaVersion !== 1 || record.kind !== 'coding_workflow' ||
+          !prepared || typeof prepared !== 'object' || Array.isArray(prepared) ||
+          !(prepared as Record<string, unknown>).workflowBinding ||
+          !sameJson((prepared as Record<string, unknown>).dispatch, {
+            dispatchId: input.dispatchId, sdkUserMessageId: input.sdkUserMessageId,
+          }) || current.native_dispatch_id !== input.dispatchId ||
+          current.native_sdk_user_message_id !== input.sdkUserMessageId) {
+        throw new BridgeJobError('workflow_delivery_binding_mismatch');
+      }
+      const existing = record.delivery;
+      if (existing === input.delivery) return current;
+      if (existing !== 'prepared') throw new BridgeJobError('workflow_delivery_conflict');
+      const next = { ...metadata!, workflow: { ...record, delivery: input.delivery } };
+      const terminal = input.delivery === 'rejected';
+      const uncertain = input.delivery === 'unknown';
+      const row = this.db.prepare(`UPDATE agent_bridge_jobs
+        SET native_metadata_json=?, state=?, state_reason=?,
+            native_result_json=CASE WHEN ? THEN ? ELSE native_result_json END,
+            terminal_at=CASE WHEN ? THEN ? ELSE terminal_at END,
+            native_progress_at=?, updated_at=?
+        WHERE id=? AND direction='rhythm_to_native' AND native_execution_kind='coordinator'
+          AND local_user_id=? AND workstream_id=? AND state IN ('running','unknown','failed')
+        RETURNING *`).get(
+        serializedMetadata(next),
+        terminal ? 'failed' : uncertain ? 'unknown' : 'running',
+        terminal ? 'workflow_delivery_rejected' : uncertain ? 'native_status_unknown' : null,
+        uncertain,
+        uncertain ? JSON.stringify({ schemaVersion: 1, status: 'unknown', reason: 'workflow_delivery_unknown' }) : null,
+        terminal,
+        terminal ? input.now : null,
+        input.now,
+        input.now,
+        input.jobId,
+        input.localUserId,
+        input.workstreamId,
+      ) as AgentBridgeJobRow | undefined;
+      if (!row) throw new BridgeJobError('workflow_delivery_conflict');
+      return row;
+    }).immediate();
+  }
+
+  /**
+   * Append an exact native provider/accounting member. Duplicate retry is a
+   * replay; a conflicting attempt for the same native user anchor holds. No
+   * member is evicted when the bounded job metadata would overflow.
+   */
+  appendCoordinatorWorkflowMembership(input: {
+    localUserId: number;
+    workstreamId: string;
+    jobId: string;
+    member: CoordinatorWorkflowMembership;
+    now: string;
+  }): AgentBridgeJobRow {
+    const member = input.member;
+    if (
+      !workflowId(member.nativeSessionId) || !workflowId(member.parentNativeSessionId) ||
+      !workflowId(member.nativeUserMessageId) || !workflowId(member.engineGeneration) ||
+      !workflowId(member.runnerGeneration) || !workflowId(member.requestIdentity) ||
+      !Number.isSafeInteger(member.attempt) || member.attempt < 0 || member.attempt > 100 ||
+      !['answer', 'compaction', 'summary'].includes(member.purpose) ||
+      !['persisted_assistant', 'unmetered_auxiliary'].includes(member.accountingKind) ||
+      (member.accountingKind === 'persisted_assistant' &&
+        (!workflowId(member.assistantMessageId) || !workflowId(member.parentMessageId))) ||
+      (member.accountingKind === 'unmetered_auxiliary' &&
+        (member.assistantMessageId !== null || member.parentMessageId !== null))
+    ) throw new BridgeJobError('workflow_membership_invalid', 400);
+    return this.db.transaction(() => {
+      const current = this.getNativeForWorkstream(input);
+      if (!current || current.native_execution_kind !== 'coordinator') throw new BridgeJobError('native_job_not_found', 404);
+      const metadata = parseRecord(current.native_metadata_json);
+      const workflow = metadata?.workflow;
+      const record = workflow && typeof workflow === 'object' && !Array.isArray(workflow)
+        ? workflow as Record<string, unknown>
+        : null;
+      if (!record || record.schemaVersion !== 1 || record.kind !== 'coding_workflow' ||
+          record.delivery !== 'accepted' || !Array.isArray(record.membership)) {
+        throw new BridgeJobError('workflow_membership_unavailable');
+      }
+      const membership = record.membership as unknown[];
+      const existing = membership.find((item) => {
+        const value = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : null;
+        return value?.nativeUserMessageId === member.nativeUserMessageId;
+      });
+      if (existing) {
+        if (!sameJson(existing, member)) throw new BridgeJobError('workflow_membership_conflict');
+        return current;
+      }
+      if (membership.length >= WORKFLOW_MEMBERSHIP_LIMIT) throw new BridgeJobError('workflow_membership_bounds');
+      const next = { ...metadata!, workflow: { ...record, membership: [...membership, member] } };
+      const row = this.db.prepare(`UPDATE agent_bridge_jobs
+        SET native_metadata_json=?, native_progress_at=?, updated_at=?
+        WHERE id=? AND direction='rhythm_to_native' AND native_execution_kind='coordinator'
+          AND local_user_id=? AND workstream_id=? AND state='running'
+        RETURNING *`).get(
+        serializedMetadata(next), input.now, input.now,
+        input.jobId, input.localUserId, input.workstreamId,
+      ) as AgentBridgeJobRow | undefined;
+      if (!row) throw new BridgeJobError('workflow_membership_conflict');
+      return row;
+    }).immediate();
   }
 
   markCoordinatorUnknown(input: {

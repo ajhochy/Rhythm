@@ -132,6 +132,12 @@ export interface CoordinatorConversationAdmissionRequest {
    * It grants no tool, permission, callback action authority or extra child.
    */
   acknowledgesCodingWorkflowCoverage?: true;
+  /**
+   * Present only for the first deliberately selected-reference workflow case.
+   * The browser can name an indexed selector/version, never bytes, a path,
+   * a hash receipt, a profile, tool, command or source grant.
+   */
+  workflowCheck?: CoordinatorConversationWorkflowCheckRequest;
 }
 
 /**
@@ -141,6 +147,12 @@ export interface CoordinatorConversationAdmissionRequest {
  * stored authority parser deliberately does not accept it.
  */
 export type CoordinatorConversationAdmissionPurpose = 'decompose' | 'continue' | 'execute' | 'workflow';
+
+export interface CoordinatorConversationWorkflowCheckRequest {
+  kind: 'selected_reference_summary_v1';
+  sourceId: string;
+  expectedVersion: string;
+}
 
 /**
  * A durable, opaque snapshot of one server-derived execution target. It has
@@ -164,7 +176,12 @@ export interface CoordinatorConversationExecutionScope {
  * and actual usage.
  */
 export interface CoordinatorConversationContinuationAuthority {
-  schemaVersion: 5;
+  /**
+   * Schema 6 is deliberately workflow-only.  It is not a reinterpretation of
+   * a schema-5 read-only/execute admission: old records remain readable but
+   * cannot become Coding Workflow funding by deserializing them differently.
+   */
+  schemaVersion: 5 | 6;
   authorizationId: string;
   authorizationCommandKey: string;
   goalId: string;
@@ -199,9 +216,15 @@ export interface CoordinatorConversationContinuationAuthority {
     includes: ['input', 'output', 'reasoning', 'cache'];
     outputCapEnforced: false;
   };
-  purpose: 'decompose' | 'continue' | 'execute';
+  purpose: 'decompose' | 'continue' | 'execute' | 'workflow';
   /** Null for every legacy/read-only authority; execute requires this exact snapshot. */
   executionScope: CoordinatorConversationExecutionScope | null;
+  /**
+   * Present only on schema-6 workflow admissions.  This binds the fixed
+   * existing manager adapter; it carries no path, rule, tool or model grant.
+   */
+  /** Omitted only by in-memory legacy test fixtures; persisted records always normalize to null or a value. */
+  workflow?: CoordinatorConversationWorkflowAuthority | null;
   /** Reference-only Dayflow state, never observed content or a model grant. */
   dayflowDependency: CoordinatorDayflowDependencyManifest | null;
   status: 'authorized' | 'consumed' | 'blocked';
@@ -213,8 +236,30 @@ export interface CoordinatorConversationContinuationAuthority {
  * and model pin have not moved.  The worker fields bind the only supported
  * finite-worker shape; no browser can choose or loosen them.
  */
-export interface CoordinatorConversationPermissionAuthority {
+export interface CoordinatorConversationWorkflowAuthority {
   schemaVersion: 1;
+  kind: 'coding_workflow';
+  targetAgentConfigId: 'workflow-orchestrator';
+  check: {
+    kind: 'selected_reference_summary_v1';
+    sourceId: string;
+    expectedVersion: string;
+    canonicalId: string;
+    observedVersion: string;
+    observedHash: string;
+    sourceNamespace: 'memory-vault';
+    sourceInstance: string;
+  };
+}
+
+/**
+ * Schema 1 is the existing read-only worker proof.  Schema 2 adds a captured
+ * parent permission/approval snapshot for the fixed Coding Workflow manager.
+ * The unchanged `worker` shape remains deliberately read-only; a workflow
+ * marker never upgrades it or any older stored admission.
+ */
+export interface CoordinatorConversationPermissionAuthority {
+  schemaVersion: 1 | 2;
   parent: {
     sessionId: string;
     permissionMode: PermissionMode;
@@ -223,7 +268,14 @@ export interface CoordinatorConversationPermissionAuthority {
   worker: {
     parentSessionId: string;
     permissionMode: 'default';
-    managedReadOnly: true;
+    /** Schema-1 managed worker is read-only; schema-2 workflow manager is not this lane. */
+    managedReadOnly: boolean;
+  };
+  workflow?: {
+    parentSessionId: string;
+    permissionMode: PermissionMode;
+    approvalBypassExplicit: boolean;
+    targetAgentConfigId: 'workflow-orchestrator';
   };
 }
 
@@ -939,7 +991,7 @@ function parseCoordinatorConversationAdmission(value: unknown): CoordinatorConve
     : workflow
     ? [
       'commandKey', 'totalTokenAuthorization', 'maxTurns', 'maxWallTimeSeconds', 'expiresInSeconds',
-      'acknowledgesSoftTotalTokenAuthorization', 'purpose', 'acknowledgesCodingWorkflowCoverage',
+      'acknowledgesSoftTotalTokenAuthorization', 'purpose', 'acknowledgesCodingWorkflowCoverage', 'workflowCheck',
     ]
     : [
       'commandKey', 'totalTokenAuthorization', 'maxTurns', 'maxWallTimeSeconds', 'expiresInSeconds',
@@ -958,7 +1010,12 @@ function parseCoordinatorConversationAdmission(value: unknown): CoordinatorConve
     (value.expiresInSeconds as number) > 60 * 60 ||
     (value.purpose !== 'decompose' && value.purpose !== 'continue' && value.purpose !== 'execute' && value.purpose !== 'workflow') ||
     (execute && value.acknowledgesScopedWorkspaceExecution !== true) ||
-    (workflow && value.acknowledgesCodingWorkflowCoverage !== true)
+    (workflow && (
+      value.acknowledgesCodingWorkflowCoverage !== true ||
+      !plain(value.workflowCheck) ||
+      !exactKeys(value.workflowCheck, ['kind', 'sourceId', 'expectedVersion']) ||
+      value.workflowCheck.kind !== 'selected_reference_summary_v1'
+    ))
   ) {
     throw AppError.badRequest('invalid coordinator conversation admission payload');
   }
@@ -972,6 +1029,11 @@ function parseCoordinatorConversationAdmission(value: unknown): CoordinatorConve
     purpose: value.purpose,
     ...(execute ? { acknowledgesScopedWorkspaceExecution: true as const } : {}),
     ...(workflow ? { acknowledgesCodingWorkflowCoverage: true as const } : {}),
+    ...(workflow ? { workflowCheck: {
+      kind: 'selected_reference_summary_v1' as const,
+      sourceId: opaqueId((value.workflowCheck as Record<string, unknown>).sourceId, 'admission.workflowCheck.sourceId'),
+      expectedVersion: opaqueId((value.workflowCheck as Record<string, unknown>).expectedVersion, 'admission.workflowCheck.expectedVersion'),
+    } } : {}),
   };
 }
 
@@ -1062,8 +1124,12 @@ function parseStoredPermissionAuthority(
   value: unknown,
   parentSessionId: string,
 ): CoordinatorConversationPermissionAuthority {
-  assertStored(plain(value) && exactKeys(value, ['schemaVersion', 'parent', 'worker']), 'permission authority keys');
-  assertStored(value.schemaVersion === 1, 'permission authority schema');
+  assertStored(plain(value), 'permission authority');
+  const workflow = value.schemaVersion === 2;
+  assertStored(exactKeys(value, workflow
+    ? ['schemaVersion', 'parent', 'worker', 'workflow']
+    : ['schemaVersion', 'parent', 'worker']), 'permission authority keys');
+  assertStored(value.schemaVersion === 1 || workflow, 'permission authority schema');
   assertStored(plain(value.parent) && exactKeys(value.parent, [
     'sessionId', 'permissionMode', 'approvalBypassExplicit',
   ]), 'permission authority parent keys');
@@ -1079,11 +1145,20 @@ function parseStoredPermissionAuthority(
   assertStored(typeof value.parent.approvalBypassExplicit === 'boolean', 'permission authority parent approval');
   assertStored(
     value.worker.parentSessionId === parentSessionId && value.worker.permissionMode === 'default' &&
-    value.worker.managedReadOnly === true,
+    value.worker.managedReadOnly === (workflow ? false : true),
     'permission authority worker binding',
   );
+  if (workflow) {
+    assertStored(plain(value.workflow) && exactKeys(value.workflow, [
+      'parentSessionId', 'permissionMode', 'approvalBypassExplicit', 'targetAgentConfigId',
+    ]), 'workflow permission authority keys');
+    assertStored(value.workflow.parentSessionId === parentSessionId, 'workflow permission parent binding');
+    assertStored(value.workflow.permissionMode === parentMode, 'workflow permission mode');
+    assertStored(value.workflow.approvalBypassExplicit === value.parent.approvalBypassExplicit, 'workflow approval binding');
+    assertStored(value.workflow.targetAgentConfigId === 'workflow-orchestrator', 'workflow target profile');
+  }
   return {
-    schemaVersion: 1,
+    schemaVersion: workflow ? 2 : 1,
     parent: {
       sessionId: parentSessionId,
       permissionMode: parentMode,
@@ -1092,7 +1167,51 @@ function parseStoredPermissionAuthority(
     worker: {
       parentSessionId,
       permissionMode: 'default',
-      managedReadOnly: true,
+      managedReadOnly: workflow ? false : true,
+    },
+    ...(workflow ? {
+      workflow: {
+        parentSessionId,
+        permissionMode: parentMode,
+        approvalBypassExplicit: value.parent.approvalBypassExplicit,
+        targetAgentConfigId: 'workflow-orchestrator' as const,
+      },
+    } : {}),
+  };
+}
+
+function parseStoredWorkflowAuthority(value: unknown): CoordinatorConversationWorkflowAuthority | null {
+  if (value === null) return null;
+  assertStored(plain(value) && exactKeys(value, ['schemaVersion', 'kind', 'targetAgentConfigId', 'check']), 'workflow authority keys');
+  assertStored(
+    value.schemaVersion === 1 && value.kind === 'coding_workflow' && value.targetAgentConfigId === 'workflow-orchestrator',
+    'workflow authority',
+  );
+  assertStored(plain(value.check) && exactKeys(value.check, [
+    'kind', 'sourceId', 'expectedVersion', 'canonicalId', 'observedVersion', 'observedHash', 'sourceNamespace', 'sourceInstance',
+  ]), 'workflow check keys');
+  assertStored(
+    value.check.kind === 'selected_reference_summary_v1' &&
+    workflowId(value.check.sourceId) && workflowId(value.check.expectedVersion) &&
+    workflowId(value.check.canonicalId) && workflowId(value.check.observedVersion) &&
+    typeof value.check.observedHash === 'string' && /^[a-f0-9]{64}$/.test(value.check.observedHash) &&
+    value.check.sourceNamespace === 'memory-vault' &&
+    typeof value.check.sourceInstance === 'string' && /^[a-f0-9]{64}$/.test(value.check.sourceInstance),
+    'workflow check',
+  );
+  return {
+    schemaVersion: 1,
+    kind: 'coding_workflow',
+    targetAgentConfigId: 'workflow-orchestrator',
+    check: {
+      kind: 'selected_reference_summary_v1',
+      sourceId: value.check.sourceId as string,
+      expectedVersion: value.check.expectedVersion as string,
+      canonicalId: value.check.canonicalId as string,
+      observedVersion: value.check.observedVersion as string,
+      observedHash: value.check.observedHash as string,
+      sourceNamespace: 'memory-vault',
+      sourceInstance: value.check.sourceInstance as string,
     },
   };
 }
@@ -1137,7 +1256,8 @@ function parseStoredAuthority(
   const schema3 = value.schemaVersion === 3;
   const schema4 = value.schemaVersion === 4;
   const current = value.schemaVersion === 5;
-  assertStored(legacy || schema3 || schema4 || current, 'continuation schema');
+  const workflow = value.schemaVersion === 6;
+  assertStored(legacy || schema3 || schema4 || current || workflow, 'continuation schema');
   assertStored(exactKeys(value, legacy
     ? [
       'schemaVersion', 'authorizationId', 'authorizationCommandKey', 'goalId', 'projectId', 'workstreamId',
@@ -1160,7 +1280,15 @@ function parseStoredAuthority(
         'maxTurns', 'consumedTurns', 'totalTokenAuthorization', 'maxWallTimeSeconds', 'acknowledgement',
         'purpose', 'dayflowDependency', 'status',
         ]
-        : [
+        : workflow
+          ? [
+            'schemaVersion', 'authorizationId', 'authorizationCommandKey', 'goalId', 'projectId', 'workstreamId',
+            'goalRevision', 'parentSessionId', 'profileId', 'profileRevision', 'workstreamRevision',
+            'issuedFromControlRevision', 'issuedAt', 'expiresAt', 'requestedModel', 'permissionAuthority',
+            'maxTurns', 'consumedTurns', 'totalTokenAuthorization', 'maxWallTimeSeconds', 'acknowledgement',
+            'purpose', 'executionScope', 'workflow', 'dayflowDependency', 'status',
+          ]
+          : [
           'schemaVersion', 'authorizationId', 'authorizationCommandKey', 'goalId', 'projectId', 'workstreamId',
           'goalRevision', 'parentSessionId', 'profileId', 'profileRevision', 'workstreamRevision',
           'issuedFromControlRevision', 'issuedAt', 'expiresAt', 'requestedModel', 'permissionAuthority',
@@ -1210,7 +1338,8 @@ function parseStoredAuthority(
     'authorization acknowledgement coverage',
   );
   assertStored(
-    value.purpose === 'decompose' || value.purpose === 'continue' || (current && value.purpose === 'execute'),
+    value.purpose === 'decompose' || value.purpose === 'continue' ||
+      (current && value.purpose === 'execute') || (workflow && value.purpose === 'workflow'),
     'authorization purpose',
   );
   assertStored(value.status === 'authorized' || value.status === 'consumed' || value.status === 'blocked', 'authorization status');
@@ -1219,16 +1348,21 @@ function parseStoredAuthority(
   const requestedModel = parseStoredModel(value.requestedModel);
   const maxWallTimeSeconds = legacy ? 300 : value.maxWallTimeSeconds;
   assertStored(Number.isSafeInteger(maxWallTimeSeconds) && (maxWallTimeSeconds as number) >= 30 && (maxWallTimeSeconds as number) <= 300, 'authorization wall time');
-  const permissionAuthority = (schema4 || current)
+  const permissionAuthority = (schema4 || current || workflow)
     ? parseStoredPermissionAuthority(value.permissionAuthority, parentSessionId)
     : null;
   const executionScope = current
     ? parseStoredExecutionScope(value.executionScope, projectId, profileId, value.profileRevision as number)
     : null;
+  const workflowAuthority = workflow ? parseStoredWorkflowAuthority(value.workflow) : null;
   assertStored(value.purpose !== 'execute' || executionScope !== null, 'execution scope required');
   assertStored(value.purpose === 'execute' || executionScope === null, 'execution scope unexpected');
+  assertStored(value.purpose !== 'workflow' || (
+    workflowAuthority !== null && permissionAuthority?.schemaVersion === 2 && permissionAuthority.workflow !== undefined
+  ), 'workflow authority required');
+  assertStored(value.purpose === 'workflow' || workflowAuthority === null, 'workflow authority unexpected');
   return {
-    schemaVersion: 5,
+    schemaVersion: workflow ? 6 : 5,
     authorizationId,
     authorizationCommandKey,
     goalId,
@@ -1258,6 +1392,7 @@ function parseStoredAuthority(
     },
     purpose: value.purpose,
     executionScope,
+    workflow: workflowAuthority,
     dayflowDependency: parseStoredDayflowDependency(value.dayflowDependency),
     status: value.status,
   };
