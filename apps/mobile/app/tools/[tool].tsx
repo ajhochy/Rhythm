@@ -719,9 +719,10 @@ export default function RhythmToolScreen() {
       case 'research':
         return (
           <View style={styles.actions}>
-            {item.status === 'error' ? (
+            {/* Retry only for a server-owned strict `canRetry === true` (missing/false/non-boolean never enables it). */}
+            {item.status === 'error' && item.canRetry === true ? (
               <Button
-                disabled={state.offline}
+                disabled={state.offline || submitting}
                 onPress={() => void run('research:retry', { id: item.id }, 'Research restarted.')}>
                 Retry
               </Button>

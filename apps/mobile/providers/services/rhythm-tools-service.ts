@@ -168,6 +168,8 @@ export interface ResearchRecord extends ToolRecord {
   sourcesJson?: string;
   createdAt?: string;
   updatedAt?: string;
+  /** Server-owned retry eligibility. Optional for older backends; only a strict `true` ever enables Retry. */
+  canRetry?: boolean;
 }
 
 export interface ScheduledJobRecord extends ToolRecord {
@@ -240,6 +242,7 @@ const CACHE_FIELDS: Record<ToolCacheKind, ReadonlySet<string>> = {
     'sourcesJson',
     'createdAt',
     'updatedAt',
+    'canRetry',
   ]),
   schedules: new Set([
     'id',
@@ -658,6 +661,10 @@ export function sanitizeToolCache(
         .filter(([key]) => allowed.has(key) && !SENSITIVE_KEY.test(key))
         .map(([key, child]) => [key, safeCacheValue(child)]),
     );
+    // Research retry eligibility is server-owned and strictly boolean; anything else is dropped (never enables Retry).
+    if (kind === 'research' && 'canRetry' in safe && typeof safe.canRetry !== 'boolean') {
+      delete safe.canRetry;
+    }
     const id =
       typeof safe.id === 'string'
         ? safe.id

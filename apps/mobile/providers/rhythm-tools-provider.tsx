@@ -398,6 +398,41 @@ export function RhythmToolsProvider({
     ],
   );
 
+  // After a REJECTED explicit research:retry only: re-read that exact submitted job once and update only its row. No
+  // redispatch, no broad refresh, no replacement job or latest-row guess. Every failure here is swallowed so the caller
+  // rethrows the original action error. The service/cache scope/generation snapshot is the ORIGINAL request's, taken in
+  // `perform` before the action was awaited; it is never recaptured here. It must be current before the read, after the
+  // read, and again when the functional state update actually executes.
+  const rereadRejectedResearchRetry = useCallback(
+    async (
+      tool: ToolScreenId,
+      snapshot: { service: RhythmToolsService; cacheScope: string; generation: number },
+      id: string,
+    ): Promise<void> => {
+      if (tool !== 'research' || !id) return;
+      const current = () =>
+        serviceRef.current === snapshot.service &&
+        cacheScopeRef.current === snapshot.cacheScope &&
+        (generation.current[tool] ?? 0) === snapshot.generation;
+      if (!current()) return;
+      try {
+        const record = await snapshot.service.getResearch(id);
+        if (!current()) return;
+        // Cache sanitization stays authoritative (strict-boolean canRetry, no sensitive keys).
+        const [safe] = sanitizeToolCache('research', [record]);
+        if (!safe || safe.id !== id) return;
+        setToolState(tool, (state) => (
+          current()
+            ? { items: state.items.map((item) => (item.id === id ? safe : item)) }
+            : {}
+        ));
+      } catch {
+        // Reread failure never replaces the original error.
+      }
+    },
+    [setToolState],
+  );
+
   const perform = useCallback(
     async (
       tool: ToolScreenId,
@@ -407,11 +442,26 @@ export function RhythmToolsProvider({
       if (!service || availabilityFor(tool) !== 'connected') {
         throw new Error('This tool is read-only while its service is offline.');
       }
-      const result = await runAction(service, action, input);
+      // Original-request snapshot, captured before the action is awaited and never rebased after a rejection.
+      const snapshot = {
+        service,
+        cacheScope: cacheScopeRef.current,
+        generation: generation.current[tool] ?? 0,
+      };
+      let result: unknown;
+      try {
+        result = await runAction(service, action, input);
+      } catch (error) {
+        if (action === 'research:retry') {
+          await rereadRejectedResearchRetry(tool, snapshot, String(input.id ?? ''));
+        }
+        // The ORIGINAL action error is always surfaced, whether or not the reread succeeded.
+        throw error;
+      }
       await refresh(tool);
       return result;
     },
-    [availabilityFor, refresh, service],
+    [availabilityFor, refresh, rereadRejectedResearchRetry, service],
   );
 
   const getState = useCallback(

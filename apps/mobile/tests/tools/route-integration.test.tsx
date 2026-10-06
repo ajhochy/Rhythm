@@ -369,6 +369,21 @@ test('research reports use the safe markdown display and retain an immediate Clo
   expect(screen.queryByText('| Finding | Assessment |')).toBeNull();
 });
 
+test('research Retry is offered only for a server-owned strict canRetry===true error row', () => {
+  // Missing, false and non-boolean eligibility (and non-error rows) never enable Retry; the exact row id is retried.
+  const screen = renderDetail('research', [
+    { id: 'job-true', query: 'eligible job', status: 'error', canRetry: true },
+    { id: 'job-false', query: 'ineligible false job', status: 'error', canRetry: false },
+    { id: 'job-missing', query: 'older backend job', status: 'error' },
+    { id: 'job-string', query: 'non boolean job', status: 'error', canRetry: 'true' },
+    { id: 'job-done', query: 'completed job', status: 'completed', canRetry: true },
+  ]);
+
+  expect(screen.getAllByText('Retry')).toHaveLength(1);
+  fireEvent.press(screen.getByText('Retry'));
+  expect(mockPerform).toHaveBeenCalledWith('research', 'research:retry', { id: 'job-true' });
+});
+
 test('Brain editor uses a stable heading while leaving the selected title in its scrollable context', () => {
   const title = 'A very long memory title that would otherwise consume the dialog heading at large Dynamic Type';
   const screen = renderDetail('brain', [{

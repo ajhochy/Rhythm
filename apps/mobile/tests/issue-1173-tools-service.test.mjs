@@ -61,6 +61,26 @@ test('issue-1173-c5: webhook secrets remain one-time and uncached', () => {
   assert.doesNotMatch(JSON.stringify(cached), /show-once|secret|token/i);
 });
 
+test('research cache keeps server-owned canRetry only as a strict boolean', () => {
+  const cached = sanitizeToolCache('research', [
+    { id: 'r-true', query: 'a', status: 'error', canRetry: true, token: 'never-cache' },
+    { id: 'r-false', query: 'b', status: 'error', canRetry: false },
+    { id: 'r-missing', query: 'c', status: 'error' },
+    { id: 'r-string', query: 'd', status: 'error', canRetry: 'true' },
+    { id: 'r-number', query: 'e', status: 'error', canRetry: 1 },
+    { id: 'r-null', query: 'f', status: 'error', canRetry: null },
+  ]);
+  const byId = Object.fromEntries(cached.map((record) => [record.id, record]));
+  assert.equal(byId['r-true'].canRetry, true);
+  assert.equal(byId['r-false'].canRetry, false);
+  for (const id of ['r-missing', 'r-string', 'r-number', 'r-null']) {
+    assert.equal('canRetry' in byId[id], false, `${id} drops non-strict eligibility`);
+  }
+  assert.equal('token' in byId['r-true'], false);
+  // Other tools never gain the field.
+  assert.equal('canRetry' in sanitizeToolCache('brain', [{ id: 'b', canRetry: true }])[0], false);
+});
+
 test('issue-1173-c6: Profile edits preserve scope and projection ordering', () => {
   assert.deepEqual(serializeProfileScope(undefined), { permissionScope: null });
   assert.deepEqual(serializeProfileScope([]), { permissionScope: [] });
