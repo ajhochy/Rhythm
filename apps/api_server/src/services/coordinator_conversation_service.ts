@@ -1859,9 +1859,9 @@ export class CoordinatorConversationService {
       return hold('accounting_unavailable');
     }
     const jobs = this.dependencies.jobs;
-    const findWorkflowJob = jobs.findCoordinatorWorkflowJob;
-    const appendWorkflowMembership = jobs.appendCoordinatorWorkflowMembership;
-    const recordWorkflowDelivery = jobs.recordCoordinatorWorkflowDelivery;
+    const findWorkflowJob = jobs.findCoordinatorWorkflowJob?.bind(jobs);
+    const appendWorkflowMembership = jobs.appendCoordinatorWorkflowMembership?.bind(jobs);
+    const recordWorkflowDelivery = jobs.recordCoordinatorWorkflowDelivery?.bind(jobs);
     if (!findWorkflowJob || !appendWorkflowMembership || !recordWorkflowDelivery) return hold('authority_unavailable');
     const initialJob = findWorkflowJob(input.request.binding.jobId);
     const parseWorkflow = (job: AgentBridgeJobRow | null): {
