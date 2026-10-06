@@ -1,13 +1,36 @@
-# Rhythm current state
+# Project state
 
-Focus: connect the persistent Secretary coordinator to the existing qualified Dayflow reader and repair its empty-root presentation in the normal signed desktop app.
+## Current focus
 
-Branch: codex/rhythm-coordinator-context-delivery-20261005, based on installed16eeeb89. Local composition only; no push or PR. Existing Terra owners authored application logic. Root composed exact bytes and authored documentation, operational drivers and an extension of the existing synthetic runtime scenario.
+Resume of the 2026-10-06 pause on one integration branch: `integration/2026-10-06-resume` → draft PR https://github.com/ajhochy/Rhythm/pull/1604 (orchestrator run log: `docs/ai/runs/2026-10-06-resume-orchestration.md`, ownership map `2026-10-06-resume-ownership-map.md`). Supersedes the mega #1598 section below for day-to-day state; #1598 remains the parent lineage.
 
-Source: lazy existing qualified producer/authority binding; full bounded qualified scan with at most25 opaque context references and truthful coverage; canonical-backed expiry renewal in the existing automatic cadence; R6 current empty-root Ready presentation and stale pending-decision fences. Same-owner explicit current-consent requalification is source-frozen and composed. Original signed Dayflow2.6.0/build133, native host, engine, profiles, permissions and notification semantics remain preserved. The rejected partial Dayflow UI is excluded; full native UI work is independently parent-owned.
+## Active branch / PR
 
-Checks: R6 browser behavior, web production build and distribution smoke pass. Reader owner passed adapter/context/server composition and selected real-producer checks. Expiry owner passed29 qualified-reader checks and typecheck. A pre-existing isolated generic memory-index rebuild fixture remains red and is recorded separately. Exact GitNexus checkout is unregistered; direct caller review is UNKNOWN/moderate. Composed backend checks and build pass (45 focused cases plus2 producer-adapter cases). Actual stock runtime, package/sign and normal activation remain pending.
+`integration/2026-10-06-resume` (draft PR #1604 against `main`). Carries the Oct 1–6 local lineage (6e339972 → 5b81e7b9 → 65fe0338) plus: native Dayflow packaging/signing/verifier, accepted calendar + chat-settings-wire + Research-gateway packets, router calibration instrument fix, fork guard repair, mobile packets U/R/Rt/S/A/B + proxy thinking/Fast forwarding + transition test + jest in mobile CI, desktop workflow issuance + web unit CI, G2 S2/S4/S7 (admission repair, callback anchor/membership/capacity/usage, capability item), regenerated fork SDK + mobile contract pins, Postgres `agent_sessions` parity.
 
-Live: installed source16eeeb89, appPID51856/engine51905. Secretary is saved on the same owner1 primary root, with plan permissions and no bypass or SDK dispatch. Actual HTTP status21:03:34 returns no Dayflow observations. The prior authenticated Dayflow consent was revoked20:01:46 after a configuration generation change; source metadata verifies the durable fence. Root asked whether sharing should be restored for the same Secretary recipient. No regrant ran. Actual ledger21:05 contains17 prior completed expired observations and16 pending creates; metadata is diagnostic, never qualification authority.
+## Installed / running
 
-Next: finish the existing producer's current-consent source seam, qualify the composed API through the existing invented-data stock sandbox, pin/build/sign, then activate only with safe desktop/idle ownership. Any actual sharing restoration waits for the user's current choice. Full product acceptance remains false. TestFlight1.0.9/build20 is VALID and available in the existing internal Testing group; no physical device installation is claimed.
+AJ's normal profile was relaunched 2026-10-06 14:22Z on the integrated candidate built from f29523d0 (`~/Documents/Rhythm-pr-worktrees/integration-20261006/apps/electron/dist/Rhythm.app`, sign-only, not notarized; receipts under `~/Documents/Codex/2026-10-06/fable-integrated-desktop-build/`). Native Dayflow attached and rendering (onboarding first; needs AJ to complete it for the Timeline and the 16-screen matrix). Launch env adds `RHYTHM_NATIVE_DAYFLOW_DATA_ROOT=~/Library/Application Support/Rhythm Electron/native-dayflow` (profile path too long for the socket).
+
+## In progress
+
+- G2 S5 (checked result, next ordinal, reconciliation, status text, S4/S7 wiring) on `slice/g2-s5-checked-result`.
+- TestFlight 1.0.9 (21) EAS production build with auto-submit (receipts under `~/Documents/Codex/2026-10-06/fable-testflight-build/`).
+- CI on PR #1604 (Server CI / Mobile CI / Desktop CI for f29523d0 pending at time of writing).
+
+## Risks / known issues
+
+- G2 live loop (goal → real worker → result → next step in the normal app) is source-ready with tests, not live-proven; S8 bounded live check not run.
+- Research B screen captures: fixture pairing bootstrap fails (artifact issue), no PNGs.
+- Phone build without the Mac update degrades chat settings to "older API unavailable"; the Mac is updated, keep it that way.
+- Routing: Kev vs Qwen3-4B comparison done (`docs/ai/runs/2026-10-06-routing-comparison-kev-vs-qwen3-4b.md`), not an On-qualification; router stays Shadow.
+- Pre-existing test reds excluded by name in CI workflows (web: 2; mobile: 5 suites); electron `npm test` 105 env failures in symlinked setups.
+
+## Test status
+
+api_server tsc clean at every merge; affected coordinator/workflow set 614/614 (S4) then 25/25 (S7); mobile jest CI script 525/525; web unit 69/69; fork 149/149; Dayflow bounded sequence 5/5 (run 5); live-Postgres bootstrap 11/11 locally after the parity fix.
+
+## Next step
+
+Merge S5 when green, push, let CI settle, AJ smoke-tests PR #1604 (desktop already running the candidate), complete Dayflow onboarding, install TestFlight 1.0.9 (21) when it is available.
+
