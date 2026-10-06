@@ -166,8 +166,13 @@ function validPlanConsent(consent: CoordinatorPlanConsent): boolean {
     Number.isSafeInteger(consent.maxWallTimeSeconds) && consent.maxWallTimeSeconds >= 30 && consent.maxWallTimeSeconds <= 300 &&
     Number.isSafeInteger(consent.expiresInSeconds) && consent.expiresInSeconds >= 30 && consent.expiresInSeconds <= 3_600 &&
     consent.acknowledgesSoftTotalTokenAuthorization === true &&
-    (consent.purpose === 'decompose' || consent.purpose === 'continue' || executesScopedWorkspace) &&
-    (!executesScopedWorkspace || consent.acknowledgesScopedWorkspaceExecution === true);
+    (consent.purpose === 'decompose' || consent.purpose === 'continue' || executesScopedWorkspace || consent.purpose === 'workflow') &&
+    (!executesScopedWorkspace || consent.acknowledgesScopedWorkspaceExecution === true) &&
+    (consent.purpose !== 'workflow' || (
+      consent.acknowledgesCodingWorkflowCoverage === true &&
+      consent.workflowCheck?.kind === 'selected_reference_summary_v1' &&
+      Boolean(consent.workflowCheck.sourceId.trim()) && Boolean(consent.workflowCheck.expectedVersion.trim())
+    ));
 }
 
 function errorNotice(error: unknown): CoordinatorNotice {

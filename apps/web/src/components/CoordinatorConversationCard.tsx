@@ -135,7 +135,11 @@ export function CoordinatorConversationCard({
   const [acknowledgesSoftBudget, setAcknowledgesSoftBudget] = useState(false);
   const [planningPurpose, setPlanningPurpose] = useState<CoordinatorPlanAdmission['purpose']>('decompose');
   const [acknowledgesScopedWorkspaceExecution, setAcknowledgesScopedWorkspaceExecution] = useState(false);
+  const [acknowledgesCodingWorkflow, setAcknowledgesCodingWorkflow] = useState(false);
+  const [workflowSourceId, setWorkflowSourceId] = useState('');
+  const [workflowVersion, setWorkflowVersion] = useState('');
   if (!state.enabled) return null;
+  const workflowReady = acknowledgesCodingWorkflow && Boolean(workflowSourceId.trim()) && Boolean(workflowVersion.trim());
   const lines = contextLines(state);
   const holds = state.context ? dedupedHolds([...state.context.usageHolds, ...state.context.receipts]) : [];
   const busy = state.phase === 'opening' || state.phase === 'refreshing' || state.phase === 'sending';
@@ -149,7 +153,7 @@ export function CoordinatorConversationCard({
   );
   const activePlanGoal = state.conversation?.goals.find((goal) => goal.id === planningGoalId);
   const submitPlan = () => {
-    if (!activePlanGoal || !onPreparePlan) return;
+    if (!activePlanGoal || !onPreparePlan || (planningPurpose === 'workflow' && !workflowReady)) return;
     onPreparePlan(activePlanGoal.id, {
       totalTokenAuthorization: Number(totalTokenAuthorization),
       maxTurns: Number(maxTurns) as CoordinatorPlanAdmission['maxTurns'],
@@ -159,6 +163,16 @@ export function CoordinatorConversationCard({
       purpose: planningPurpose,
       ...(planningPurpose === 'execute' && acknowledgesScopedWorkspaceExecution
         ? { acknowledgesScopedWorkspaceExecution: true as const }
+        : {}),
+      ...(planningPurpose === 'workflow' && workflowReady
+        ? {
+          acknowledgesCodingWorkflowCoverage: true as const,
+          workflowCheck: {
+            kind: 'selected_reference_summary_v1' as const,
+            sourceId: workflowSourceId.trim(),
+            expectedVersion: workflowVersion.trim(),
+          },
+        }
         : {}),
     });
   };
@@ -213,6 +227,7 @@ export function CoordinatorConversationCard({
               <option value="decompose">Decompose this goal</option>
               <option value="continue">Continue managed work</option>
               <option value="execute">Execute in the scoped workspace</option>
+              <option value="workflow">Run a coding workflow</option>
             </select></label>
             <label>Total token authorization<input min="1" max="2000000" inputMode="numeric" type="number" value={totalTokenAuthorization} onChange={(event) => setTotalTokenAuthorization(event.target.value)} /></label>
             <label>Maximum outer turns<input min="1" max="8" type="number" value={maxTurns} onChange={(event) => setMaxTurns(event.target.value)} /></label>
@@ -221,8 +236,17 @@ export function CoordinatorConversationCard({
           </div>
           <label className="coordinator-plan-ack"><input checked={acknowledgesSoftBudget} type="checkbox" onChange={(event) => setAcknowledgesSoftBudget(event.target.checked)} /> I understand this is an explicit, finite soft total-token authorization and does not verify the goal.</label>
           {planningPurpose === 'execute' ? <label className="coordinator-plan-ack"><input checked={acknowledgesScopedWorkspaceExecution} type="checkbox" onChange={(event) => setAcknowledgesScopedWorkspaceExecution(event.target.checked)} /> I explicitly authorize this one server-derived scoped-workspace execution. This does not create a recurring grant.</label> : null}
+          {planningPurpose === 'workflow' ? (
+            <>
+              <div className="coordinator-plan-grid">
+                <label>Selected reference ID<input aria-label="Selected reference ID" type="text" value={workflowSourceId} onChange={(event) => setWorkflowSourceId(event.target.value)} /></label>
+                <label>Selected reference version<input aria-label="Selected reference version" type="text" value={workflowVersion} onChange={(event) => setWorkflowVersion(event.target.value)} /></label>
+              </div>
+              <label className="coordinator-plan-ack"><input aria-label="Acknowledge coding workflow" checked={acknowledgesCodingWorkflow} type="checkbox" onChange={(event) => setAcknowledgesCodingWorkflow(event.target.checked)} /> I understand the coordinator will dispatch a coding workflow worker under this project's current authorization, checked against the selected reference above.</label>
+            </>
+          ) : null}
           <div className="coordinator-conversation-actions">
-            <button className="secondary-button" disabled={busy || !acknowledgesSoftBudget || planningPurpose === 'execute' && !acknowledgesScopedWorkspaceExecution} type="submit" data-testid="coordinator-prepare-plan">Start managed work</button>
+            <button className="secondary-button" disabled={busy || !acknowledgesSoftBudget || planningPurpose === 'execute' && !acknowledgesScopedWorkspaceExecution || planningPurpose === 'workflow' && !workflowReady} type="submit" data-testid="coordinator-prepare-plan">Start managed work</button>
             <button className="secondary-button" type="button" onClick={() => setPlanningGoalId(undefined)}>Cancel</button>
           </div>
         </form>
