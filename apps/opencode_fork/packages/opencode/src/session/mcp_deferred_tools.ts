@@ -69,6 +69,18 @@ export interface DeferredMcpToolEntry {
   description: string
   /** Omitted = mcp. */
   family?: DeferredToolFamily
+  /**
+   * The tool's registered (raw) name from authoritative MCP metadata, when it differs from the
+   * composed `name`. Discovery metadata only: execution always uses the canonical `name`.
+   */
+  rawName?: string
+}
+
+/** Authoritative origin of one composed MCP key: actual server + registered raw tool name. */
+export interface DeferredMcpOrigin {
+  key: string
+  serverName: string
+  toolName: string
 }
 
 export type DeferredMcpDispatchRequest =
@@ -117,6 +129,7 @@ export function buildDeferredToolCatalog(
   allowedKeys: Iterable<string>,
   keyToServer: Record<string, string>,
   descriptions: Record<string, string>,
+  rawNames: Record<string, string> = {},
 ): DeferredMcpToolEntry[] {
   const entries: DeferredMcpToolEntry[] = []
   for (const key of allowedKeys) {
@@ -124,9 +137,59 @@ export function buildDeferredToolCatalog(
       name: key,
       server: keyToServer[key] ?? "unknown",
       description: descriptions[key] ?? "",
+      ...(rawNames[key] !== undefined && rawNames[key] !== key ? { rawName: rawNames[key] } : {}),
     })
   }
   return entries.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/**
+ * Registered raw tool name per eligible key, only where the origin is unambiguous: a key that two
+ * different (server, tool) origins would both compose to carries no raw name (collision holds).
+ */
+export function uniqueRawNames(eligibleKeys: Iterable<string>, origins: readonly DeferredMcpOrigin[]): Record<string, string> {
+  const eligible = new Set(eligibleKeys)
+  const seen = new Map<string, Set<string>>()
+  for (const origin of origins) {
+    if (!eligible.has(origin.key)) continue
+    const set = seen.get(origin.key) ?? new Set<string>()
+    set.add(`${origin.serverName}\u0000${origin.toolName}`)
+    seen.set(origin.key, set)
+  }
+  const result: Record<string, string> = {}
+  for (const origin of origins) {
+    if (seen.get(origin.key)?.size === 1) result[origin.key] = origin.toolName
+  }
+  return result
+}
+
+export type DeferredDescribeResolution =
+  | { ok: true; key: string }
+  | { ok: false; reason: "unknown" | "ambiguous"; candidates: string[] }
+
+/**
+ * Resolve the name given to `describe` against the fresh, permitted, eligible inventory only.
+ * 1. An exact canonical key always wins.
+ * 2. Otherwise an exact registered raw tool name resolves iff it selects exactly one eligible key
+ *    whose origin is itself unambiguous. Unknown or multiple candidates hold; there is no
+ *    substring, fuzzy, suffix-splitting, server-preference or inventory-order guess. Denied or
+ *    absent keys are never candidates, so they can neither resolve nor be named in an error.
+ * Execute never uses this: it stays canonical-only.
+ */
+export function resolveDeferredMcpDescribeName(
+  name: string,
+  eligibleKeys: Iterable<string>,
+  origins: readonly DeferredMcpOrigin[],
+): DeferredDescribeResolution {
+  const eligible = new Set(eligibleKeys)
+  if (eligible.has(name)) return { ok: true, key: name }
+  const raw = uniqueRawNames(eligible, origins)
+  const candidates = [...new Set(Object.entries(raw).filter(([, toolName]) => toolName === name).map(([key]) => key))].toSorted()
+  // A colliding key (two origins) has no raw name entry; an exact-raw match on it must hold, not vanish.
+  const collided = origins.some((origin) => eligible.has(origin.key) && origin.toolName === name && raw[origin.key] === undefined)
+  if (collided) return { ok: false, reason: "ambiguous", candidates }
+  if (candidates.length === 1) return { ok: true, key: candidates[0]! }
+  return { ok: false, reason: candidates.length === 0 ? "unknown" : "ambiguous", candidates }
 }
 
 /**
@@ -179,15 +242,41 @@ export function searchDeferredToolCatalog(
   limit = DEFERRED_MCP_SEARCH_LIMIT,
   family?: DeferredToolFamily,
 ): DeferredMcpToolEntry[] {
-  const normalized = query?.trim().toLocaleLowerCase() ?? ""
-  return entries
+  if (query !== undefined && utf8Bytes(query) > DEFERRED_MCP_QUERY_MAX_BYTES) {
+    throw new Error(`mcp_dispatch search query is too long (limit ${DEFERRED_MCP_QUERY_MAX_BYTES} bytes).`)
+  }
+  const queryWords = [...new Set(searchWords(query ?? ""))]
+  if (queryWords.length > DEFERRED_MCP_QUERY_MAX_WORDS) {
+    throw new Error(`mcp_dispatch search query has too many words (limit ${DEFERRED_MCP_QUERY_MAX_WORDS}).`)
+  }
+  const phrase = queryWords.length > 0 ? searchWords(query ?? "").join(" ") : ""
+  // Match against the COMPLETE eligible catalog (full names, registered names, servers and full
+  // descriptions) before any result/description truncation. Every query word must appear
+  // somewhere, in any order; words match as partial text so useful partial names still work.
+  const ranked = entries
     .filter((entry) => !family || (entry.family ?? "mcp") === family)
-    .filter((entry) => {
-      if (!normalized) return true
-      return `${entry.name} ${entry.server} ${entry.description}`.toLocaleLowerCase().includes(normalized)
+    .flatMap((entry) => {
+      if (queryWords.length === 0) return [{ entry, rank: 2 }]
+      const names = [entry.name, entry.rawName].filter((value): value is string => value !== undefined)
+      const fields = [...names, entry.server, entry.description].map(searchWords)
+      const text = fields.map((words) => words.join(" ")).join(" ")
+      if (!queryWords.every((word) => text.includes(word))) return []
+      if (names.some((name) => searchWords(name).join(" ") === phrase)) return [{ entry, rank: 0 }]
+      const tokens = new Set(fields.flat())
+      return [{ entry, rank: queryWords.every((word) => tokens.has(word)) ? 1 : 2 }]
     })
+    .toSorted((a, b) => a.rank - b.rank || a.entry.name.localeCompare(b.entry.name))
+  return ranked
     .slice(0, Math.max(1, Math.min(limit, DEFERRED_MCP_SEARCH_LIMIT)))
-    .map((entry) => ({ ...entry, description: compactDescription(entry.description) }))
+    .map(({ entry }) => ({ ...entry, description: compactDescription(entry.description) }))
+}
+
+export const DEFERRED_MCP_QUERY_MAX_BYTES = 512
+export const DEFERRED_MCP_QUERY_MAX_WORDS = 32
+
+/** Lowercase words with whitespace, punctuation and `_`/`-` separators removed. */
+function searchWords(text: string): string[] {
+  return text.toLocaleLowerCase().split(/[^\p{L}\p{N}]+/u).filter((word) => word.length > 0)
 }
 
 /** Validate the stable dispatcher protocol before resolving a raw MCP tool. */

@@ -53,7 +53,7 @@ import { Truncate } from "@/tool/truncate"
 import { Reference } from "../../src/reference/reference"
 import { TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
-import { TestLLMServer } from "../lib/llm-server"
+import { reply, TestLLMServer } from "../lib/llm-server"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Ripgrep } from "../../src/file/ripgrep"
@@ -135,6 +135,26 @@ function freshMockMcpTools(): Record<string, ReturnType<typeof dynamicTool>> {
     required: ["a"],
     additionalProperties: false,
   })
+  // Same registered tool name ("status_probe") on two servers: ambiguous only if both are permitted.
+  const probeSchema = { type: "object", properties: {}, additionalProperties: false }
+  out.rhythm_status_probe = makeCountedTool("rhythm_status_probe", probeSchema)
+  // Optional seam (unset in every other case): same key, origin and description; only the schema is replaced.
+  const schemaOnly = (globalThis as { __discoverySchemaOnly?: { replaced: boolean; calls: number } }).__discoverySchemaOnly
+  if (schemaOnly) {
+    out.rhythm_status_probe = dynamicTool({
+      description: "rhythm_status_probe",
+      inputSchema: jsonSchema(
+        (schemaOnly.replaced
+          ? { type: "object", properties: { needed: { type: "boolean" } }, required: ["needed"], additionalProperties: false }
+          : probeSchema) as never,
+      ),
+      execute: async () => {
+        schemaOnly.calls++
+        return { content: [{ type: "text" as const, text: "SCHEMA_ONLY_OLD_EFFECT" }], isError: false }
+      },
+    })
+  }
+  out.obsidian_status_probe = makeCountedTool("obsidian_status_probe", probeSchema)
   out.rhythm_id_b = makeCountedTool("rhythm_id_b", {
     $id: "https://example.test/shared.json",
     type: "object",
@@ -197,16 +217,62 @@ const MOCK_KEY_TO_SERVER: Record<string, string> = {
   rhythm_dialect: "rhythm",
   rhythm_id_a: "rhythm",
   rhythm_id_b: "rhythm",
+  rhythm_status_probe: "rhythm",
+  obsidian_status_probe: "obsidian",
 }
+/** Authoritative origins (actual server + registered raw tool name), as MCP.toolOrigins reports. */
+const MOCK_ORIGINS = Object.entries(MOCK_KEY_TO_SERVER).map(([key, serverName]) => ({
+  key,
+  serverName,
+  toolName: key.slice(serverName.length + 1),
+}))
+
+// Sol-only diagnostic seams: unset in every original fixture/test.
+let solInventoryGate: { calls: number; entered: boolean; release: () => void; wait: Promise<void> } | undefined
+const solReplacementState = () => (globalThis as typeof globalThis & {
+  __solDiscoveryReplacement?: { replaced: boolean; oldCalls: number; newCalls: number }
+}).__solDiscoveryReplacement
+const solTools = Effect.fn("test.solTools")(function* () {
+  if (solInventoryGate && ++solInventoryGate.calls === 2) {
+    solInventoryGate.entered = true
+    yield* Effect.promise(() => solInventoryGate!.wait)
+  }
+  const out = freshMockMcpTools()
+  const state = solReplacementState()
+  if (state) {
+    out.rhythm_status_probe = dynamicTool({
+      description: state.replaced ? "replacement probe" : "original probe",
+      inputSchema: jsonSchema(state.replaced
+        ? { type: "object", properties: { replacement: { type: "boolean" } }, required: ["replacement"], additionalProperties: false }
+        : { type: "object", properties: {}, additionalProperties: false }),
+      execute: async () => {
+        if (state.replaced) state.newCalls++
+        else state.oldCalls++
+        return { content: [{ type: "text" as const, text: "SOL_CAPTURED_OLD_TOOL_EFFECT" }], isError: false }
+      },
+    })
+    // Capture the definition's own generation, as real convertMcpTool does.
+    const replacementAtCapture = state.replaced
+    out.rhythm_status_probe.execute = async () => {
+      if (replacementAtCapture) state.newCalls++
+      else state.oldCalls++
+      return { content: [{ type: "text" as const, text: "SOL_CAPTURED_OLD_TOOL_EFFECT" }], isError: false }
+    }
+  }
+  return out
+})
 
 const mcpWithAllTools = Layer.succeed(
   MCP.Service,
   MCP.Service.of({
     status: () => Effect.succeed({}),
     clients: () => Effect.succeed({}),
-    tools: () => Effect.succeed(freshMockMcpTools()),
+    tools: () => solTools(),
     appTools: () => Effect.succeed({}),
     toolClientNames: () => Effect.succeed(MOCK_KEY_TO_SERVER),
+    toolOrigins: () => Effect.sync(() => MOCK_ORIGINS.map(origin =>
+      solReplacementState()?.replaced && origin.key === "rhythm_status_probe"
+        ? { ...origin, toolName: "status.probe" } : origin)),
     prompts: () => Effect.succeed({}),
     resources: () => Effect.succeed({}),
     add: () => Effect.succeed({ status: { status: "disabled" as const } }),
@@ -1138,4 +1204,275 @@ it.instance(
     }),
   { git: true, config: cfg },
   10_000,
+)
+
+// ---------------------------------------------------------------------------
+// Normal-app discovery compatibility (actual dispatcher, wrapped MCP execute):
+// describe accepts an unambiguous registered name; execute is canonical-only;
+// every exposure re-reads the CURRENT permitted inventory.
+// ---------------------------------------------------------------------------
+const dispatchParts = Effect.fn("test.dispatchParts")(function* (sessionID: SessionID) {
+  return (yield* MessageV2.filterCompactedEffect(sessionID))
+    .flatMap((msg) => msg.parts)
+    .filter((part): part is MessageV2.ToolPart => part.type === "tool" && part.tool === "mcp_dispatch")
+})
+const outputOf = (part: MessageV2.ToolPart) =>
+  part.state.status === "completed" ? String(part.state.output) : part.state.status === "error" ? String(part.state.error) : ""
+const discoverySession = Effect.fn("test.discoverySession")(function* (title: string, servers: string[]) {
+  const sessions = yield* Session.Service
+  const prompt = yield* SessionPrompt.Service
+  const session = yield* sessions.create({
+    title,
+    permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    mcpAllowlist: { servers, tools: [], deferred: true },
+  })
+  yield* prompt.prompt({ sessionID: session.id, agent: "build", noReply: true, parts: [{ type: "text", text: title }] })
+  return session
+})
+const mcpCall = (llm: TestLLMServer["Service"], args: Record<string, unknown>) =>
+  llm.tool("mcp_dispatch", { action: "execute", ...args })
+
+it.instance(
+  "Case M (discovery) — natural search, describe by registered name, canonical execute once; alias execute and denied/builtin names have zero effect",
+  () =>
+    Effect.gen(function* () {
+      counted.rhythm_status_probe = 0
+      counted.obsidian_status_probe = 0
+      const { llm } = yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const session = yield* discoverySession("Case M", ["rhythm"])
+      yield* mcpCall(llm, { action: "search", query: "probe status" })
+      yield* mcpCall(llm, { action: "describe", name: "status_probe" })
+      yield* mcpCall(llm, { name: "status_probe", arguments: {} }) // alias execute: rejected
+      yield* mcpCall(llm, { name: "rhythm_status_probe", arguments: {} }) // canonical: runs once
+      yield* mcpCall(llm, { action: "describe", name: "get_file" }) // denied obsidian tool's raw name
+      yield* mcpCall(llm, { action: "describe", family: "builtin", name: "rhythm_status_probe" })
+      yield* mcpCall(llm, { action: "describe", name: "read" }) // builtin id is not an MCP name
+      yield* llm.text("done")
+      yield* prompt.loop({ sessionID: session.id })
+
+      const parts = yield* dispatchParts(session.id)
+      expect(parts.map((part) => part.state.status)).toEqual(["completed", "completed", "error", "completed", "error", "error", "error"])
+      const search = outputOf(parts[0])
+      expect(search).toContain('"name":"rhythm_status_probe"')
+      expect(search).toContain('"rawName":"status_probe"')
+      expect(search).not.toContain("obsidian_status_probe")
+      const described = outputOf(parts[1])
+      expect(described).toContain('"name":"rhythm_status_probe"')
+      expect(described).toContain('"registeredName":"status_probe"')
+      expect(described).toContain('"inputSchema"')
+      expect(counted.rhythm_status_probe).toBe(1) // exactly the canonical call
+      expect(counted.obsidian_status_probe).toBe(0)
+      expect(outputOf(parts[2])).toContain("not permitted")
+      // The denied tool is neither described nor named in its refusal.
+      expect(outputOf(parts[4])).not.toContain("obsidian")
+      expect(outputOf(parts[4])).not.toContain("obsidian_get_file") // only the model's own input is echoed
+      expect(outputOf(parts[4])).not.toContain("inputSchema")
+      // The successful canonical call kept the real wrapped result and the dispatcher's native input.
+      const executed = parts[3].state as MessageV2.ToolStateCompleted
+      expect(executed.output).toContain("rhythm_status_probe-ok")
+      expect(executed.input).toMatchObject({ name: "rhythm_status_probe" })
+    }),
+  { git: true, config: cfg },
+  30_000,
+)
+
+it.instance(
+  "Case N (discovery) — a registered name permitted on two servers holds with zero effects; the canonical id still works",
+  () =>
+    Effect.gen(function* () {
+      counted.rhythm_status_probe = 0
+      counted.obsidian_status_probe = 0
+      const { llm } = yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const session = yield* discoverySession("Case N", ["rhythm", "obsidian"])
+      yield* mcpCall(llm, { action: "describe", name: "status_probe" })
+      yield* mcpCall(llm, { name: "status_probe", arguments: {} })
+      yield* mcpCall(llm, { action: "describe", name: "obsidian_status_probe" })
+      yield* llm.text("done")
+      yield* prompt.loop({ sessionID: session.id })
+      const parts = yield* dispatchParts(session.id)
+      expect(parts.map((part) => part.state.status)).toEqual(["error", "error", "completed"])
+      const ambiguity = outputOf(parts[0])
+      expect(ambiguity).toContain("matches more than one permitted tool")
+      expect(ambiguity).toContain("obsidian_status_probe")
+      expect(ambiguity).toContain("rhythm_status_probe")
+      expect(counted.rhythm_status_probe + counted.obsidian_status_probe).toBe(0)
+      expect(outputOf(parts[2])).toContain('"name":"obsidian_status_probe"')
+    }),
+  { git: true, config: cfg },
+  30_000,
+)
+
+it.instance(
+  "Case O (discovery) — allowlist revoked while the model request is held: describe, search and execute expose nothing and run nothing",
+  () =>
+    Effect.gen(function* () {
+      counted.rhythm_status_probe = 0
+      const { llm } = yield* useServerConfig(providerCfg)
+      const sessions = yield* Session.Service
+      const prompt = yield* SessionPrompt.Service
+      const session = yield* discoverySession("Case O", ["rhythm"])
+      let release!: () => void
+      const held = new Promise<void>((done) => (release = done))
+      yield* llm.push(reply().wait(held).tool("mcp_dispatch", { action: "describe", name: "status_probe" }))
+      yield* mcpCall(llm, { action: "search", query: "status probe" })
+      yield* mcpCall(llm, { name: "rhythm_status_probe", arguments: {} })
+      yield* llm.text("done")
+      const fiber = yield* prompt.loop({ sessionID: session.id }).pipe(Effect.forkChild)
+      yield* llm.wait(1)
+      // Revoke between the request's initial catalog and the model's describe/search/execute.
+      yield* sessions.setMcpAllowlist({ sessionID: session.id, mcpAllowlist: { servers: [], tools: [], deferred: true } })
+      release()
+      yield* Fiber.join(fiber)
+      const parts = yield* dispatchParts(session.id)
+      expect(parts.map((part) => part.state.status)).toEqual(["error", "completed", "error"])
+      expect(outputOf(parts[0])).not.toContain("inputSchema")
+      expect(outputOf(parts[1])).not.toContain("status_probe")
+      expect(counted.rhythm_status_probe).toBe(0)
+    }),
+  { git: true, config: cfg },
+  30_000,
+)
+
+it.instance(
+  "Case P (discovery) — allowlist revoked during the awaited hook window of a canonical execute: zero MCP effect",
+  () =>
+    Effect.gen(function* () {
+      counted.rhythm_status_probe = 0
+      const g = globalThis as unknown as { __discoveryBefore?: { entered: boolean; gate: Promise<void> } }
+      let release!: () => void
+      g.__discoveryBefore = { entered: false, gate: new Promise<void>((done) => (release = done)) }
+      const { llm } = yield* useServerConfig(providerCfg)
+      const directory = (yield* TestInstance).directory
+      const fs = yield* AppFileSystem.Service
+      yield* fs.writeWithDirs(
+        `${directory}/.opencode/plugin/discovery-gate.ts`,
+        [
+          "export default {",
+          '  id: "demo.discovery-gate",',
+          "  server: async () => ({",
+          '    "tool.execute.before": async () => {',
+          "      const state = (globalThis as any).__discoveryBefore",
+          "      state.entered = true",
+          "      await state.gate",
+          "    },",
+          "  }),",
+          "}",
+        ].join("\n"),
+      )
+      const sessions = yield* Session.Service
+      const prompt = yield* SessionPrompt.Service
+      const session = yield* discoverySession("Case P", ["rhythm"])
+      yield* mcpCall(llm, { name: "rhythm_status_probe", arguments: {} })
+      yield* llm.text("done")
+      const fiber = yield* prompt.loop({ sessionID: session.id }).pipe(Effect.forkChild)
+      for (let attempt = 0; attempt < 300 && !g.__discoveryBefore.entered; attempt++) yield* Effect.sleep("10 millis")
+      expect(g.__discoveryBefore.entered).toBe(true)
+      yield* sessions.setMcpAllowlist({ sessionID: session.id, mcpAllowlist: { servers: [], tools: [], deferred: true } })
+      release()
+      yield* Fiber.join(fiber)
+      const parts = yield* dispatchParts(session.id)
+      expect(parts.map((part) => part.state.status)).toEqual(["error"])
+      expect(counted.rhythm_status_probe).toBe(0)
+    }),
+  { git: true, config: cfg },
+  30_000,
+)
+
+
+// Preserved bounded Sol counterexamples. Only these named cases are run.
+it.instance(
+  "Sol discovery await — revocation while mcp.tools is pending cannot expose search inventory",
+  () => Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const sessions = yield* Session.Service
+    const prompt = yield* SessionPrompt.Service
+    const session = yield* discoverySession("Sol inventory await", ["rhythm"])
+    let release!: () => void
+    solInventoryGate = { calls: 0, entered: false, release: () => release(), wait: new Promise<void>(resolve => { release = resolve }) }
+    yield* mcpCall(llm, { action: "search", query: "probe status", family: "mcp" })
+    yield* llm.text("done")
+    const fiber = yield* prompt.loop({ sessionID: session.id }).pipe(Effect.forkChild)
+    for (let n = 0; n < 300 && !solInventoryGate.entered; n++) yield* Effect.sleep("10 millis")
+    expect(solInventoryGate.entered).toBe(true)
+    yield* sessions.setMcpAllowlist({ sessionID: session.id, mcpAllowlist: { servers: [], tools: [], deferred: true } })
+    solInventoryGate.release()
+    yield* Fiber.join(fiber)
+    const parts = yield* dispatchParts(session.id)
+    expect(parts).toHaveLength(1)
+    expect(parts[0].state.status).toBe("completed")
+    expect(JSON.parse(outputOf(parts[0])).tools).toEqual([])
+    expect((yield* sessions.get(session.id)).mcpAllowlist?.servers).toEqual([])
+  }).pipe(Effect.ensuring(Effect.sync(() => { solInventoryGate?.release(); solInventoryGate = undefined }))),
+  { git: true, config: cfg },
+  15_000,
+)
+
+it.instance(
+  "Sol discovery replacement — same canonical key with changed origin/schema cannot execute captured definition",
+  () => Effect.gen(function* () {
+    const state = { replaced: false, oldCalls: 0, newCalls: 0 }
+    const global = globalThis as typeof globalThis & { __solDiscoveryReplacement?: typeof state }
+    global.__solDiscoveryReplacement = state
+    const { llm } = yield* useServerConfig(providerCfg)
+    const directory = (yield* TestInstance).directory
+    const fs = yield* AppFileSystem.Service
+    yield* fs.writeWithDirs(`${directory}/.opencode/plugin/sol-replacement.ts`, [
+      "export default { id: 'sol.replacement', server: async () => ({",
+      "'tool.execute.before': async (input: any) => {",
+      "if (input.tool === 'rhythm_status_probe') (globalThis as any).__solDiscoveryReplacement.replaced = true",
+      "} }) }",
+    ].join("\n"))
+    const prompt = yield* SessionPrompt.Service
+    const session = yield* discoverySession("Sol same key replacement", ["rhythm"])
+    yield* mcpCall(llm, { name: "rhythm_status_probe", arguments: {} })
+    yield* llm.text("done")
+    yield* prompt.loop({ sessionID: session.id })
+    expect(state.replaced).toBe(true)
+    const parts = yield* dispatchParts(session.id)
+    expect(parts).toHaveLength(1)
+    expect(state.oldCalls).toBe(0)
+    expect(state.newCalls).toBe(0)
+    expect(parts[0].state.status).toBe("error")
+    expect(outputOf(parts[0])).not.toContain("SOL_CAPTURED_OLD_TOOL_EFFECT")
+  }).pipe(Effect.ensuring(Effect.sync(() => { delete (globalThis as { __solDiscoveryReplacement?: unknown }).__solDiscoveryReplacement }))),
+  { git: true, config: cfg },
+  15_000,
+)
+
+// Owner guard (schema-only boundary): same canonical key, origin and description; the schema alone is replaced
+// during the awaited hook window. The captured executor must not run.
+it.instance(
+  "Case Q (discovery) — schema-only replacement of the selected definition during the hook window holds with zero effect",
+  () =>
+    Effect.gen(function* () {
+      const state = { replaced: false, calls: 0 }
+      const g = globalThis as typeof globalThis & { __discoverySchemaOnly?: typeof state }
+      g.__discoverySchemaOnly = state
+      const { llm } = yield* useServerConfig(providerCfg)
+      const directory = (yield* TestInstance).directory
+      const fs = yield* AppFileSystem.Service
+      yield* fs.writeWithDirs(
+        `${directory}/.opencode/plugin/schema-only.ts`,
+        [
+          "export default { id: 'owner.schema-only', server: async () => ({",
+          "'tool.execute.before': async (input: any) => {",
+          "if (input.tool === 'rhythm_status_probe') (globalThis as any).__discoverySchemaOnly.replaced = true",
+          "} }) }",
+        ].join("\n"),
+      )
+      const prompt = yield* SessionPrompt.Service
+      const session = yield* discoverySession("Case Q", ["rhythm"])
+      yield* mcpCall(llm, { name: "rhythm_status_probe", arguments: {} })
+      yield* llm.text("done")
+      yield* prompt.loop({ sessionID: session.id })
+      expect(state.replaced).toBe(true)
+      const parts = yield* dispatchParts(session.id)
+      expect(parts.map((part) => part.state.status)).toEqual(["error"])
+      expect(state.calls).toBe(0)
+      expect(outputOf(parts[0])).not.toContain("SCHEMA_ONLY_OLD_EFFECT")
+    }).pipe(Effect.ensuring(Effect.sync(() => { delete (globalThis as { __discoverySchemaOnly?: unknown }).__discoverySchemaOnly }))),
+  { git: true, config: cfg },
+  15_000,
 )

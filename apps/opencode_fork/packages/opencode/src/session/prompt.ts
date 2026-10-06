@@ -35,8 +35,10 @@ import {
   measureSerializedMcpToolSurface,
   MCP_DISPATCH_TOOL_ID,
   parseDeferredMcpDispatchRequest,
+  resolveDeferredMcpDescribeName,
   searchDeferredToolCatalog,
   shouldAutoDeferMcpTools,
+  uniqueRawNames,
   validateDeferredMcpArguments,
 } from "./mcp_deferred_tools"
 import { LSP } from "@/lsp/lsp"
@@ -106,6 +108,7 @@ const elog = EffectLogger.create({ service: "session.prompt" })
 // the skill-scope dispatcher pattern in tool/skill.ts, #775).
 const MCP_DISPATCH_DESCRIPTION =
   "Discover and call MCP tools and hosted builtin tools by name. Use action=search to find a tool, action=describe to obtain its complete required input schema, and action=execute to call it. " +
+  'Search matches every word in any order. Always execute the canonical name that search/describe returns. ' +
   'For backward compatibility, { "name": "<tool_name>", "arguments": { ... } } defaults to action=execute.'
 
 /** composedKey -> description, read from the AI SDK Tool objects mcp.tools() returns. */
@@ -733,7 +736,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       // (mcp_dispatch, only built when input.session.mcpAllowlist?.deferred is
       // true) share exactly one wrapping implementation — the dispatcher must
       // never grow a second, divergent execution path for MCP tool calls.
-      const wrapMcpTool = Effect.fn("SessionPrompt.wrapMcpTool")(function* (key: string, item: AITool) {
+      // `stillEligible` (deferred calls only) is re-read at the LAST await before the underlying call,
+      // so an allowlist revocation made while hooks/approval were pending cannot produce an effect.
+      const wrapMcpTool = Effect.fn("SessionPrompt.wrapMcpTool")(function* (
+        key: string,
+        item: AITool,
+        stillEligible?: Effect.Effect<boolean>,
+      ) {
         const execute = item.execute
         if (!execute) return undefined
 
@@ -753,6 +762,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               )
               const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.gen(function* () {
                 yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
+                if (stillEligible && !(yield* stillEligible)) {
+                  return yield* Effect.die(new Error(`MCP tool "${key}" is no longer permitted for this session's allowlist.`))
+                }
                 const trustedOptions = MCP.withRhythmSecurityContext(opts, {
                   sdkSessionId: ctx.sessionID,
                   turnId: ctx.messageID,
@@ -885,6 +897,45 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         ),
       )
       const eagerKeys = new Set([...allowedKeys].filter((key) => !deferredKeys.has(key)))
+      // One fresh read of the exact session, the real MCP inventory (with authoritative origins) and
+      // the current allowlist/deferred eligibility. Captured request-time state is never authority.
+      const readCurrentMcp = Effect.fn("SessionPrompt.readCurrentMcp")(function* () {
+        // The selection passed to mcp.tools() needs a session, but that read is NOT authority: the
+        // allowlist/deferred/native gates are applied from a session read made AFTER every inventory,
+        // server and origin await below, so a revocation during those awaits can only remove keys.
+        const selectionSession = yield* sessions.get(input.session.id).pipe(Effect.orDie)
+        const currentMcpTools = yield* mcp.tools(selectionSession.mcpAllowlist)
+        const currentKeyToServer = yield* mcp.toolClientNames()
+        const origins = mcp.toolOrigins ? yield* mcp.toolOrigins() : []
+        const currentSession = yield* sessions.get(input.session.id).pipe(Effect.orDie)
+        const keys = new Set(
+          [...deferredKeys].filter(
+            (key) =>
+              !!currentMcpTools[key] &&
+              isMcpToolDeferred(key, currentKeyToServer, currentSession.mcpAllowlist) &&
+              isDeferredMcpToolAllowed(key, currentKeyToServer, currentSession.mcpAllowlist),
+          ),
+        )
+        return { currentSession, currentMcpTools, currentKeyToServer, origins, keys }
+      })
+      // Identity of the SELECTED definition: its actual origin (server + registered tool name) plus the
+      // current model-facing description and schema, taken from the cached definition. Key membership
+      // alone is not identity (one canonical key can be re-pointed or re-schemed), and wrapper object
+      // identity is not usable (tools() builds fresh wrappers on every read). Undefined = unprovable.
+      const descriptorOf = (
+        cur: { currentMcpTools: Record<string, AITool>; origins: ReadonlyArray<{ key: string; serverName: string; toolName: string }> },
+        key: string,
+      ): string | undefined => {
+        const item = cur.currentMcpTools[key]
+        if (!item) return undefined
+        const schema = asSchema(item.inputSchema).jsonSchema
+        if (typeof (schema as PromiseLike<unknown>)?.then === "function") return undefined
+        const origins = cur.origins
+          .filter((origin) => origin.key === key)
+          .map((origin) => [origin.serverName, origin.toolName])
+          .toSorted((a, b) => `${a[0]}\u0000${a[1]}`.localeCompare(`${b[0]}\u0000${b[1]}`))
+        return JSON.stringify({ key, origins, description: item.description ?? "", schema })
+      }
       const catalog = [
         ...hostedEntries(
           new Map(
@@ -912,7 +963,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           },
           name: {
             type: "string",
-            description: "The exact catalog tool name for describe or execute.",
+            description:
+              "describe: the exact catalog name or an unambiguous registered tool name. execute: the exact canonical name returned by search/describe.",
           },
           arguments: {
             type: "object",
@@ -940,33 +992,39 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             run.promise(
               Effect.gen(function* () {
                 const request = parseDeferredMcpDispatchRequest(rawArgs)
-                const currentSession = yield* sessions.get(input.session.id).pipe(Effect.orDie)
-                const currentMcpTools = yield* mcp.tools(currentSession.mcpAllowlist)
-                const currentKeyToServer = yield* mcp.toolClientNames()
-                const currentDeferredKeys = new Set(
-                  [...deferredKeys].filter(
-                    (key) =>
-                      !!currentMcpTools[key] &&
-                      isMcpToolDeferred(key, currentKeyToServer, currentSession.mcpAllowlist) &&
-                      isDeferredMcpToolAllowed(key, currentKeyToServer, currentSession.mcpAllowlist),
-                  ),
-                )
-                const currentCatalog = buildDeferredToolCatalog(
-                  currentDeferredKeys,
-                  currentKeyToServer,
-                  deferredDescriptions(currentMcpTools),
-                )
                 // Hosted builtins are re-resolved from the CURRENT session (skill
                 // scope, permission) and the same user-tool/Permission.disabled gate
                 // used for eager keys, at discovery and again at execution.
-                const currentHosted = yield* currentHostedTools(currentSession)
+                const session0 = yield* sessions.get(input.session.id).pipe(Effect.orDie)
+                const hostedAtStart = request.family === "mcp" ? new Map<string, RegistryTool>() : yield* currentHostedTools(session0)
+                // The freshest eligibility read is always the LAST await before anything is exposed
+                // or run, so a revocation/replacement during earlier awaits cannot leak a schema,
+                // result or effect from captured state.
+                const stillHosted = (session: Pick<Session.Info, "permission">) =>
+                  new Map(
+                    [...hostedAtStart].filter(([id]) => hostedEligibleIds([id], session.permission).length > 0),
+                  )
                 if (request.action === "search") {
+                  let hostedNow = new Map<string, RegistryTool>()
+                  let currentCatalog: DeferredMcpToolEntry[] = []
+                  if (request.family === "builtin") {
+                    hostedNow = stillHosted(yield* sessions.get(input.session.id).pipe(Effect.orDie))
+                  } else {
+                    const cur = yield* readCurrentMcp()
+                    hostedNow = stillHosted(cur.currentSession)
+                    currentCatalog = buildDeferredToolCatalog(
+                      cur.keys,
+                      cur.currentKeyToServer,
+                      deferredDescriptions(cur.currentMcpTools),
+                      uniqueRawNames(cur.keys, cur.origins),
+                    )
+                  }
                   const entries =
                     request.family === "builtin"
-                      ? hostedEntries(currentHosted)
+                      ? hostedEntries(hostedNow)
                       : request.family === "mcp"
                         ? currentCatalog
-                        : [...hostedEntries(currentHosted), ...currentCatalog]
+                        : [...hostedEntries(hostedNow), ...currentCatalog]
                   return {
                     title: "mcp_dispatch search",
                     metadata: {},
@@ -979,7 +1037,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   }
                 }
                 if (request.family === "builtin") {
-                  const item = currentHosted.get(request.name)
+                  const latest = yield* sessions.get(input.session.id).pipe(Effect.orDie)
+                  const item = stillHosted(latest).get(request.name)
                   if (!item) {
                     throw new Error(`Builtin tool "${request.name}" is not permitted or not available for this session.`)
                   }
@@ -999,25 +1058,48 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   // metadata, attachments — with the real outer call's options.
                   return yield* runBuiltin(item, request.arguments, options, rawArgs)
                 }
-                if (!currentDeferredKeys.has(request.name)) {
+                const cur = yield* readCurrentMcp()
+                const currentMcpTools = cur.currentMcpTools
+                // describe accepts the canonical key or an unambiguous registered tool name, resolved
+                // only inside the fresh permitted inventory. execute is canonical-only.
+                let selected = request.name
+                if (request.action === "describe") {
+                  const resolved = resolveDeferredMcpDescribeName(request.name, cur.keys, cur.origins)
+                  if (!resolved.ok && resolved.reason === "ambiguous") {
+                    throw new Error(
+                      `MCP tool name "${request.name}" matches more than one permitted tool; describe one of these exact names: ${resolved.candidates.join(", ")}.`,
+                    )
+                  }
+                  if (resolved.ok) selected = resolved.key
+                }
+                if (!cur.keys.has(selected)) {
                   throw new Error(`MCP tool "${request.name}" is not permitted for this session's allowlist.`)
                 }
-                const rawItem = currentMcpTools[request.name]
+                const rawItem = currentMcpTools[selected]
                 if (!rawItem) {
                   throw new Error(`MCP tool "${request.name}" is not available in the current inventory.`)
                 }
-                const inputSchema = yield* Effect.promise(() => Promise.resolve(asSchema(rawItem.inputSchema).jsonSchema))
+                // The selected definition's identity (origin + current description/schema). Describe
+                // exposes it synchronously from this same read; execute re-proves it at the last await.
+                const proof = descriptorOf(cur, selected)
+                if (proof === undefined) {
+                  throw new Error(`MCP tool "${request.name}" could not be verified against its current definition.`)
+                }
                 if (request.action === "describe") {
+                  const described = asSchema(rawItem.inputSchema).jsonSchema as JSONSchema7
+                  const registered = uniqueRawNames([selected], cur.origins)[selected]
                   return {
-                    title: `mcp_dispatch describe ${request.name}`,
+                    title: `mcp_dispatch describe ${selected}`,
                     metadata: {},
                     output: JSON.stringify({
-                      name: request.name,
+                      name: selected,
+                      ...(registered !== undefined && registered !== selected ? { registeredName: registered } : {}),
                       description: rawItem.description ?? "",
-                      inputSchema,
+                      inputSchema: described,
                     }),
                   }
                 }
+                const inputSchema = yield* Effect.promise(() => Promise.resolve(asSchema(rawItem.inputSchema).jsonSchema))
                 const validation = yield* Effect.promise(() =>
                   Promise.resolve(asSchema(rawItem.inputSchema).validate?.(request.arguments)),
                 )
@@ -1030,7 +1112,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 if (schemaError) {
                   throw new Error(`MCP tool "${request.name}" arguments are invalid: ${schemaError}`)
                 }
-                const wrapped = yield* wrapMcpTool(request.name, rawItem)
+                const wrapped = yield* wrapMcpTool(
+                  request.name,
+                  rawItem,
+                  // Last await before the underlying call: still permitted AND still the same selected
+                  // definition. A replaced origin/schema/description holds; the old executor is never run.
+                  readCurrentMcp().pipe(
+                    Effect.map((latest) => latest.keys.has(request.name) && descriptorOf(latest, request.name) === proof),
+                  ),
+                )
                 if (!wrapped?.execute) {
                   throw new Error(`MCP tool "${request.name}" has no executable implementation.`)
                 }

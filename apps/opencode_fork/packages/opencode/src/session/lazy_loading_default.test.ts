@@ -173,3 +173,78 @@ describe("task-lazy-default acceptance", () => {
     expect(validateDeferredMcpArguments(v2, { must: 1 })).toBeUndefined()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Normal-app discovery: natural multiword search over the COMPLETE eligible catalog
+// ---------------------------------------------------------------------------
+describe("natural tool discovery (token conjunction over the full eligible catalog)", () => {
+  // Actual registered names/descriptions from apps/mcp_server (composed with server "rhythm").
+  const STATUS = "rhythm_rhythm_get_coordinator_status"
+  const MEMORY = "rhythm_rhythm_search_memory"
+  const real = {
+    [STATUS]: "Read current authoritative Rhythm Secretary attention, finite-work, and receipt status for this signed coordinator chat turn. Read-only.",
+    [MEMORY]:
+      "Search persistent agent memory for bounded native-ranked references. Results are uncertain evidence (confidence is not calibrated); request a full permitted note separately when needed.",
+    rhythm_rhythm_list_tasks: "List the user's tasks.",
+  }
+  const keys = Object.keys(real)
+  const catalog = buildDeferredToolCatalog(
+    keys,
+    Object.fromEntries(keys.map((k) => [k, "rhythm"])),
+    real,
+    { [STATUS]: "rhythm_get_coordinator_status", [MEMORY]: "rhythm_search_memory" },
+  )
+  const names = (query?: string) => searchDeferredToolCatalog(catalog, query).map((e) => e.name)
+
+  test("the two observed natural queries find their canonical ids", () => {
+    expect(names("coordinator status")).toEqual([STATUS])
+    expect(names("memory search")).toEqual([MEMORY])
+  })
+
+  test("word order, case, repeated whitespace and _/- separators do not matter; every word is required", () => {
+    for (const query of ["status coordinator", "  COORDINATOR    Status ", "coordinator-status", "get_coordinator_status", "Status,\tcoordinator!"]) {
+      expect(names(query)).toEqual([STATUS])
+    }
+    expect(names("search memory")).toEqual([MEMORY])
+    expect(names("coordinator memory")).toEqual([]) // no tool has both words
+    expect(names("coordinator status zebra")).toEqual([])
+  })
+
+  test("useful partial-name and single-word lookups are preserved; the registered name ranks first", () => {
+    expect(names("coordinator")).toEqual([STATUS])
+    expect(names("rhythm_search_mem")).toEqual([MEMORY])
+    expect(names("rhythm_search_memory")[0]).toBe(MEMORY)
+    expect(names("receipt")).toEqual([STATUS]) // description-only word
+  })
+
+  test("a tail tool far beyond the bootstrap budget, matched only by its untruncated description, is found", () => {
+    const keys500 = Array.from({ length: 500 }, (_, i) => `fixture_tool_${i}`)
+    const long = Object.fromEntries(
+      keys500.map((k) => [k, `${"Filler text for ".repeat(30)}${k === "fixture_tool_499" ? " ZEBRATAILMARKER" : ""}`]),
+    )
+    const big = buildDeferredToolCatalog(keys500, Object.fromEntries(keys500.map((k) => [k, "fixture"])), long)
+    expect(Buffer.byteLength(formatDeferredToolCatalog(big), "utf8")).toBeLessThanOrEqual(DEFERRED_MCP_BOOTSTRAP_MAX_BYTES)
+    expect(formatDeferredToolCatalog(big)).not.toContain("fixture_tool_499") // not in the displayed prefix
+    const found = searchDeferredToolCatalog(big, "zebratailmarker")
+    expect(found.map((e) => e.name)).toEqual(["fixture_tool_499"])
+    expect(found[0]!.description.length).toBeLessThanOrEqual(180) // compact result even though matched deep
+  })
+
+  test("results stay bounded at 12 with compact descriptions; empty query still lists", () => {
+    const keys50 = Array.from({ length: 50 }, (_, i) => `srv_tool_${i}`)
+    const catalog50 = buildDeferredToolCatalog(keys50, Object.fromEntries(keys50.map((k) => [k, "srv"])), Object.fromEntries(keys50.map((k) => [k, "common ".repeat(100)])))
+    expect(searchDeferredToolCatalog(catalog50, "common")).toHaveLength(12)
+    expect(searchDeferredToolCatalog(catalog50, "common", 100)).toHaveLength(12)
+    expect(searchDeferredToolCatalog(catalog50, undefined)).toHaveLength(12)
+    expect(searchDeferredToolCatalog(catalog50, "")).toHaveLength(12)
+    for (const entry of searchDeferredToolCatalog(catalog50, "common")) expect(entry.description.length).toBeLessThanOrEqual(180)
+  })
+
+  test("oversized queries are rejected, not silently truncated", () => {
+    expect(() => searchDeferredToolCatalog(catalog, "x".repeat(513))).toThrow("too long")
+    expect(() => searchDeferredToolCatalog(catalog, "é".repeat(257))).toThrow("too long") // 514 UTF-8 bytes
+    expect(() => searchDeferredToolCatalog(catalog, Array.from({ length: 33 }, (_, i) => `w${i}`).join(" "))).toThrow("too many words")
+    // repeated words are deduplicated and do not count twice
+    expect(names(Array.from({ length: 40 }, () => "coordinator").join(" "))).toEqual([STATUS])
+  })
+})

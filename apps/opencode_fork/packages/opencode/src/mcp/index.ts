@@ -576,6 +576,13 @@ export interface Interface {
   readonly releaseProvisionalAppOrigin?: (sessionID: string, callID: string) => Effect.Effect<void>
   /** Rhythm carried patch (mcp-scope): returns composedKey → raw clientName for every connected tool. */
   readonly toolClientNames: () => Effect.Effect<Record<string, string>>
+  /**
+   * Read-only discovery metadata: for every model-visible cached definition, its composed key, the
+   * ACTUAL server name and the registered raw tool name (never derived by splitting the key). Same
+   * cached definitions, sanitizer and visibility rules as `tools()`; a key composed by two different
+   * origins appears once per origin so callers can hold on the collision. Not a tool or permission API.
+   */
+  readonly toolOrigins?: () => Effect.Effect<Array<{ key: string; serverName: string; toolName: string }>>
   /** Resolve one already-cached model-visible composed key without acquiring or warming a server. */
   readonly toolIdentity?: (toolKey: string) => Effect.Effect<{ serverName: string; toolName: string } | undefined>
   readonly prompts: () => Effect.Effect<Record<string, PromptInfo & { client: string }>>
@@ -1707,6 +1714,21 @@ export const layer = Layer.effect(
       return result
     })
 
+    const toolOrigins = Effect.fn("MCP.toolOrigins")(function* () {
+      const result: Array<{ key: string; serverName: string; toolName: string }> = []
+      const s = yield* InstanceState.get(state)
+      for (const [clientName, listed] of Object.entries(s.defs)) {
+        if (!listed) continue
+        for (const mcpTool of listed) {
+          const descriptor = s.mcpAppsSupported[clientName] ? uiDescriptor(mcpTool) : { kind: "none" as const }
+          if (descriptor.kind === "invalid") continue
+          if (descriptor.kind === "valid" && !descriptor.visibility.includes("model")) continue
+          result.push({ key: sanitize(clientName) + "_" + sanitize(mcpTool.name), serverName: clientName, toolName: mcpTool.name })
+        }
+      }
+      return result
+    })
+
     const toolIdentity = Effect.fn("MCP.toolIdentity")(function* (toolKey: string) {
       const s = yield* InstanceState.get(state)
       return resolvePassiveMcpToolIdentity(s, toolKey)
@@ -2128,6 +2150,7 @@ export const layer = Layer.effect(
       releaseAppOrigin,
       releaseProvisionalAppOrigin,
       toolClientNames,
+      toolOrigins,
       toolIdentity,
       prompts,
       resources,
