@@ -342,12 +342,24 @@ export class DayflowProviderAdmissionService {
       const response = unavailable('binding_changed', initial);
       return { ok: true, response, finalize: () => response };
     }
-    const base = (() => {
+    const base = () => {
       // A workflow marker is not a substitute for a Dayflow receiver. If the
       // SDK already carries retained Dayflow evidence, do not expose it via an
       // ordinary workflow response; the established receiver path must decide.
       const lookup = this.dependencies.records.lookupProviderSession(request.request.sdkSessionId);
-      if (lookup.kind !== 'none' || this.dependencies.records.hasSdkHistory(request.request.sdkSessionId)) {
+      const root = lookup.kind === 'found'
+        ? this.dependencies.records.lookupProviderSession(request.binding.rootSdkSessionId)
+        : null;
+      // A known manager/descendant row is not itself retained Dayflow evidence.
+      // Its current owned root/project join must still be exact; ambiguous,
+      // foreground and unsafe receivers cannot use this ordinary path.
+      if (lookup.kind === 'ambiguous' || (lookup.kind === 'found' && (
+        lookup.scope.ownerUserId !== auth.user.id || lookup.scope.rootChat || lookup.scope.unsafeCode !== null ||
+        lookup.scope.sdkSessionId !== request.request.sdkSessionId || root?.kind !== 'found' ||
+        root.scope.ownerUserId !== auth.user.id || !root.scope.rootChat || root.scope.unsafeCode !== null ||
+        root.scope.sdkSessionId !== request.binding.rootSdkSessionId ||
+        root.scope.projectId !== lookup.scope.projectId
+      )) || this.dependencies.records.hasSdkHistory(request.request.sdkSessionId)) {
         return this.hold(request.request, 'receiver_changed');
       }
       return this.build(request.request, {
@@ -360,13 +372,13 @@ export class DayflowProviderAdmissionService {
         },
         witnesses: [], decision: 'ordinary', reason: 'none', rawHistoryReusable: true, projection: null, overlaySha256: null,
       });
-    })();
+    };
     const finalize = (): WorkflowProviderDecision => {
       const allowed = decision.status === 'allow' && decision.reason === 'none' && decision.current() === true &&
         (this.dependencies.workflowMembership?.hasMember(
           request.binding.jobId, request.request.sdkSessionId, request.request.userMessageId,
         ) ?? true);
-      const response = allowed ? base : this.hold(request.request, 'proof_unavailable');
+      const response = allowed ? base() : this.hold(request.request, 'proof_unavailable');
       const candidate: WorkflowProviderDecision = {
         schemaVersion: 2,
         kind: 'coordinator_workflow_provider_decision',
