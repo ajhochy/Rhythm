@@ -76,6 +76,7 @@ import { createDayflowAuthenticatedManagementRouter, type DayflowAuthenticatedCo
 import { createDayflowReferencesRouter } from './routes/dayflow_references_routes';
 import type { DayflowManagementService } from './integrations/dayflow/public_contract';
 import type { DayflowQualifiedEvidenceService } from './services/dayflow_qualified_evidence_service';
+import type { DayflowProviderAdmissionService } from './services/dayflow_receiving_history_guard';
 import { agentActivityRouter } from './routes/agent_activity_routes';
 import { creativePlatformRouter } from './routes/creative_platform_routes';
 import { setupReadinessRouter } from './routes/setup_readiness_routes';
@@ -107,6 +108,7 @@ export function createApp(options: {
   dayflowService?: DayflowManagementService;
   dayflowAuthenticatedConsent?: DayflowAuthenticatedConsentService;
   dayflowQualifiedEvidence?: DayflowQualifiedEvidenceService;
+  dayflowProviderAdmission?: DayflowProviderAdmissionService;
   managedMemorySearch?: ManagedMemorySearchService;
   workstreamCoordinator?: PersistentWorkstreamCoordinator;
   coordinatorConversationService?: CoordinatorConversationService;
@@ -194,9 +196,10 @@ export function createApp(options: {
   app.use(express.json({ limit: '1mb' }));
   // Signed evidence tools are default-off until both current receiving and
   // persisted source qualification authorities are composed in server.ts.
-  if (env.agentExecutionEnabled && options.dayflowQualifiedEvidence) {
+  if (env.agentExecutionEnabled && (options.dayflowQualifiedEvidence || options.dayflowProviderAdmission)) {
     app.use('/dayflow-agent', createDayflowReferencesRouter({
       evidence: options.dayflowQualifiedEvidence,
+      providerAdmission: options.dayflowProviderAdmission,
     }));
   }
 

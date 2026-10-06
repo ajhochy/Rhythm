@@ -19,6 +19,16 @@ import { createMcpAppExecutionGate } from "@/session/mcp-app-execution"
 import { filterMcpToolsByAllowlist } from "@/session/mcp_allowlist"
 import { Plugin } from "@/plugin"
 import { MessageID, PartID, SessionID } from "@/session/schema"
+import {
+  buildGuardExport,
+  enrollGuard,
+  lookupGuardFrame,
+  parseEnrollmentRequest,
+  parseGuardExport,
+  parseSourceAnchorQuery,
+  resolveSourceProofs,
+} from "@/session/rhythm_provider_guard"
+import { Storage } from "@/storage/storage"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { Cause, Effect, Option, Schema, Scope } from "effect"
 import { createHash } from "node:crypto"
@@ -75,6 +85,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const summary = yield* SessionSummary.Service
     const bus = yield* Bus.Service
     const scope = yield* Scope.Scope
+    const storage = yield* Storage.Service
 
     const mapBusy = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | HttpApiError.BadRequest, R> =>
       effect.pipe(
@@ -207,6 +218,48 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         serverName: identity.serverName,
         toolName: identity.toolName,
       }
+    })
+
+    // Read-only export of one attempt-scoped pending provider frame (identities and
+    // digests only; no message/source text). Same disabled-by-default boundary as the
+    // other managed exports. Unavailable frames are explicit statuses, never synthetic.
+    const rhythmProviderFrame = Effect.fn("SessionHttpApi.rhythmProviderFrame")(function* (ctx: {
+      params: { sessionID: SessionID; requestNonce: string }
+      query: { sourceAnchorIds?: string }
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== "1") {
+        return yield* notFound("Managed context exports are disabled")
+      }
+      const anchors = parseSourceAnchorQuery(ctx.query.sourceAnchorIds)
+      if (!anchors.ok) return yield* new HttpApiError.BadRequest({})
+      const messages =
+        anchors.value.length > 0 && lookupGuardFrame(ctx.params.sessionID, ctx.params.requestNonce)
+          ? yield* SessionError.mapStorageNotFound(session.messages({ sessionID: ctx.params.sessionID }))
+          : []
+      const exported = buildGuardExport(ctx.params.sessionID, ctx.params.requestNonce, anchors.value, (frame, ids) =>
+        resolveSourceProofs(messages, frame, ids),
+      )
+      // Never return an over-bound or malformed export as a successful proof.
+      const checked = parseGuardExport(exported)
+      if (!checked.ok) return yield* new HttpApiError.BadRequest({})
+      return checked.value
+    })
+
+    // Durable, idempotent, monotonic enrollment. No disable operation; grants nothing.
+    const rhythmDayflowGuard = Effect.fn("SessionHttpApi.rhythmDayflowGuard")(function* (ctx: {
+      params: { sessionID: SessionID }
+      payload: unknown
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== "1") {
+        return yield* notFound("Managed context exports are disabled")
+      }
+      if (!parseEnrollmentRequest(ctx.payload).ok) return yield* new HttpApiError.BadRequest({})
+      return yield* enrollGuard(ctx.params.sessionID).pipe(
+        Effect.provideService(Storage.Service, storage),
+        Effect.catchCause(() => Effect.fail(new HttpApiError.BadRequest({}))),
+      )
     })
 
     const mcpAppResource = Effect.fn("SessionHttpApi.mcpAppResource")(function* (ctx: {
@@ -694,6 +747,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("message", message)
       .handle("rhythmPromptAnchor", rhythmPromptAnchor)
       .handle("rhythmActiveTool", rhythmActiveTool)
+      .handle("rhythmProviderFrame", rhythmProviderFrame)
+      .handle("rhythmDayflowGuard", rhythmDayflowGuard)
       .handle("mcpAppResource", mcpAppResource)
       .handle("mcpAppExecutionProof", mcpAppExecutionProof)
       .handle("mcpAppExecution", mcpAppExecution)

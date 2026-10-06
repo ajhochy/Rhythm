@@ -84,9 +84,9 @@ async function main() {
     { DayflowPersistedQualificationAuthority },
     { AuthenticatedDayflowMemoryClient },
     { DayflowQualifiedEvidenceService },
-    { DayflowReceivingContextAuthorityService },
+    { DayflowReceivingContextAuthorityService, DayflowGuardEnrollmentService },
     { DayflowReceivingContextRepository },
-    { DayflowReceivingHistoryGuard },
+    { DayflowReceivingHistoryGuard, DayflowProviderAdmissionService },
   ] = await Promise.all([
     import('./app'),
     import('./database/db'),
@@ -1172,6 +1172,7 @@ async function main() {
   // activity. Missing setup is a normal, visible "unconfigured" state.
   let dayflowManagementService: import('./integrations/dayflow/public_contract').DayflowManagementService | undefined;
   let dayflowQualifiedEvidence: import('./services/dayflow_qualified_evidence_service').DayflowQualifiedEvidenceService | undefined;
+  let dayflowProviderAdmission: import('./services/dayflow_receiving_history_guard').DayflowProviderAdmissionService | undefined;
   if (env.agentExecutionEnabled && env.agentLocal && env.agentOriginGuardEnabled) {
     const { resolveDayflowIntegrationStateDir } = await import('./config/env');
     const resolvedStateRoot = resolveDayflowIntegrationStateDir();
@@ -1206,21 +1207,35 @@ async function main() {
       engine: opencodeClient,
       records: dayflowRecords,
     });
+    // One shared enrollment seam: native must durably record the SDK as guarded
+    // BEFORE any V1 signed-tool body or V2 automatic overlay is released.
+    const dayflowEnrollment = new DayflowGuardEnrollmentService({ engine: opencodeClient, records: dayflowRecords });
     dayflowQualifiedEvidence = new DayflowQualifiedEvidenceService({
       reader: dayflowService,
       receiver: dayflowReceiver,
+      enrollment: dayflowEnrollment,
     });
     opencodeClient.setDayflowSdkHistoryGuard(new DayflowReceivingHistoryGuard({
       records: dayflowRecords,
       reader: dayflowService,
       authority: dayflowQualificationAuthority,
+      enrollment: dayflowEnrollment,
     }));
+    dayflowProviderAdmission = new DayflowProviderAdmissionService({
+      records: dayflowRecords,
+      engine: opencodeClient,
+      reader: dayflowService,
+      evidence: dayflowQualifiedEvidence,
+      authority: dayflowQualificationAuthority,
+      enrollment: dayflowEnrollment,
+    });
   }
   const app = createApp({
     mobileGatewayRouter,
     dayflowService: dayflowManagementService,
     dayflowAuthenticatedConsent: dayflowService,
     dayflowQualifiedEvidence,
+    dayflowProviderAdmission,
     managedMemorySearch,
     workstreamCoordinator,
     coordinatorConversationService,

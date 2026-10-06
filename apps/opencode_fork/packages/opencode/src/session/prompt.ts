@@ -41,6 +41,7 @@ import {
   uniqueRawNames,
   validateDeferredMcpArguments,
 } from "./mcp_deferred_tools"
+import { buildProviderOrigins, sealCleanGroup } from "./rhythm_provider_projection"
 import { LSP } from "@/lsp/lsp"
 import { ulid } from "ulid"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
@@ -411,6 +412,22 @@ export const layer = Layer.effect(
           sessionID: input.session.id,
           retries: 2,
           messages: [{ role: "user", content: "Generate a title for this conversation:\n" }, ...msgs],
+          // The title call carries the first user's stored input: same guard, real identities.
+          // The title is a derived, history-only summary on every branch (never an answer).
+          guardPurpose: "summary" as const,
+          ...(onlySubtasks
+            ? {}
+            : {
+                origins: () =>
+                  buildProviderOrigins({
+                    purpose: "summary",
+                    userMessageId: firstInfo.id,
+                    messages: context,
+                    convertedCount: async (m) =>
+                      (await MessageV2.toModelMessages([m as MessageV2.WithParts], mdl)).length,
+                    leadingStatic: 1,
+                  }),
+              }),
         })
         .pipe(
           Stream.filter((e): e is Extract<LLM.Event, { type: "text-delta" }> => e.type === "text-delta"),
@@ -2578,7 +2595,27 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               tools,
               model,
               toolChoice: format.type === "json_schema" ? "required" : undefined,
+              // Real stored identities of the converted messages (Dayflow provider guard), and the
+              // real processor assistant this call's output is stored into.
+              outputAssistantId: handle.message.id,
+              origins: () =>
+                buildProviderOrigins({
+                  purpose: "answer",
+                  userMessageId: lastUser.id,
+                  messages: msgs,
+                  convertedCount: async (m) =>
+                    (await MessageV2.toModelMessages([m as MessageV2.WithParts], model)).length,
+                  trailingStatic: isLastStep ? 1 : 0,
+                }),
             })
+
+            // Dayflow provider guard: the step completed canonically (processor cleanup ran), so finish the
+            // provisional clean-group certificate ONCE from the exact stored group, or drop it when the group
+            // is not a terminal clean success. Edits after this point can only fail the later comparison.
+            yield* MessageV2.get({ sessionID, messageID: handle.message.id }).pipe(
+              Effect.map((group) => sealCleanGroup(sessionID, handle.message.id, group)),
+              Effect.catchCause(() => Effect.sync(() => sealCleanGroup(sessionID, handle.message.id, undefined))),
+            )
 
             if (structured !== undefined) {
               handle.message.structured = structured

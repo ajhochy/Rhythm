@@ -121,10 +121,26 @@ export interface CoordinatorConversationAdmissionRequest {
   expiresInSeconds: number;
   acknowledgesSoftTotalTokenAuthorization: true;
   /** A new purpose is required before a read-only grant can ever expose edit/write. */
-  purpose: 'decompose' | 'continue' | 'execute';
+  purpose: CoordinatorConversationAdmissionPurpose;
   /** Present and true only for the fresh scoped-workspace execution purpose. */
   acknowledgesScopedWorkspaceExecution?: true;
+  /**
+   * Present and true only for the fixed Coding Workflow adapter purpose. It is
+   * the explicit user acknowledgement that the soft total-token authorization
+   * is charged for the manager child, EVERY recursive native descendant, and the
+   * exact root/review turns later bound by their persisted dispatch anchors.
+   * It grants no tool, permission, callback action authority or extra child.
+   */
+  acknowledgesCodingWorkflowCoverage?: true;
 }
+
+/**
+ * `workflow` is the fixed Coding Workflow adapter purpose. This checkpoint only
+ * defines and validates it: the conversation service has no issuance path for
+ * it (its existing purpose gates answer planning_authority_conflict), and the
+ * stored authority parser deliberately does not accept it.
+ */
+export type CoordinatorConversationAdmissionPurpose = 'decompose' | 'continue' | 'execute' | 'workflow';
 
 /**
  * A durable, opaque snapshot of one server-derived execution target. It has
@@ -786,10 +802,16 @@ function parseCoordinatorConversationAdmission(value: unknown): CoordinatorConve
     throw AppError.badRequest('invalid coordinator conversation admission payload');
   }
   const execute = value.purpose === 'execute';
+  const workflow = value.purpose === 'workflow';
   if (!exactKeys(value, execute
     ? [
       'commandKey', 'totalTokenAuthorization', 'maxTurns', 'maxWallTimeSeconds', 'expiresInSeconds',
       'acknowledgesSoftTotalTokenAuthorization', 'purpose', 'acknowledgesScopedWorkspaceExecution',
+    ]
+    : workflow
+    ? [
+      'commandKey', 'totalTokenAuthorization', 'maxTurns', 'maxWallTimeSeconds', 'expiresInSeconds',
+      'acknowledgesSoftTotalTokenAuthorization', 'purpose', 'acknowledgesCodingWorkflowCoverage',
     ]
     : [
       'commandKey', 'totalTokenAuthorization', 'maxTurns', 'maxWallTimeSeconds', 'expiresInSeconds',
@@ -806,8 +828,9 @@ function parseCoordinatorConversationAdmission(value: unknown): CoordinatorConve
     (value.maxWallTimeSeconds as number) > 300 ||
     !Number.isSafeInteger(value.expiresInSeconds) || (value.expiresInSeconds as number) < 30 ||
     (value.expiresInSeconds as number) > 60 * 60 ||
-    (value.purpose !== 'decompose' && value.purpose !== 'continue' && value.purpose !== 'execute') ||
-    (execute && value.acknowledgesScopedWorkspaceExecution !== true)
+    (value.purpose !== 'decompose' && value.purpose !== 'continue' && value.purpose !== 'execute' && value.purpose !== 'workflow') ||
+    (execute && value.acknowledgesScopedWorkspaceExecution !== true) ||
+    (workflow && value.acknowledgesCodingWorkflowCoverage !== true)
   ) {
     throw AppError.badRequest('invalid coordinator conversation admission payload');
   }
@@ -820,6 +843,7 @@ function parseCoordinatorConversationAdmission(value: unknown): CoordinatorConve
     acknowledgesSoftTotalTokenAuthorization: true,
     purpose: value.purpose,
     ...(execute ? { acknowledgesScopedWorkspaceExecution: true as const } : {}),
+    ...(workflow ? { acknowledgesCodingWorkflowCoverage: true as const } : {}),
   };
 }
 
@@ -1312,4 +1336,177 @@ export function continuationIsLive(
     authority.status === 'authorized' &&
     authority.consumedTurns === 0 &&
     new Date(authority.expiresAt).valueOf() > now.valueOf();
+}
+
+// ── Fixed Coding Workflow adapter (G2 first source checkpoint) ─────────────────
+//
+// A server-only, typed receipt for ONE existing Coding Workflow async child and
+// the truthful coverage of what it cost. It stores identifiers, never a prompt,
+// transcript or model output, and it is neither a grant nor callback authority.
+
+export const CODING_WORKFLOW_ADAPTER = 'coding_workflow_v1' as const;
+/** Fixed provenance reason code of the one pre-SDK dispatch row this adapter writes. */
+export const CODING_WORKFLOW_DISPATCH_REASON = 'g2_coding_workflow' as const;
+export const CODING_WORKFLOW_BOUNDS = {
+  /** Recursive native descendants beneath the manager child, excluding the manager. */
+  maxDescendants: 32,
+  maxDepth: 4,
+  /** Exact charged root/review turns (persisted dispatch anchors) per inspection. */
+  maxRootTurns: 8,
+  maxMessagePagesPerSession: 50,
+  maxDirectories: 8,
+} as const;
+
+export interface CodingWorkflowAuthorization {
+  authorizationId: string;
+  /** 1-based ordinal funded by the finite admission. */
+  ordinal: CoordinatorFiniteTurnCount;
+  workstreamId: string;
+  goalId: string;
+}
+
+export interface CodingWorkflowEngineIdentity {
+  version: string;
+  pid: number;
+  bootId: string;
+}
+
+/**
+ * Exported by the actual delegation->prompt boundary. `delivery: 'accepted'`
+ * means the engine acknowledged the exact request; `'unknown'` means the SDK
+ * call may or may not have been enqueued (never inferred as failed or done).
+ */
+export interface CodingWorkflowDispatchReceipt {
+  schemaVersion: 1;
+  adapter: typeof CODING_WORKFLOW_ADAPTER;
+  authorization: CodingWorkflowAuthorization;
+  owner: {
+    ownerUserId: number;
+    projectId: string;
+    rootSessionId: string;
+    rootSdkSessionId: string;
+  };
+  delegation: {
+    delegationId: string;
+    managerSessionId: string;
+    managerSdkSessionId: string;
+    nativeParentSdkSessionId: string;
+  };
+  dispatch: {
+    dispatchId: string;
+    /** The real native-minted user-message id; never derived from a newest/oldest row. */
+    sdkUserMessageId: string;
+    delivery: 'accepted' | 'unknown';
+  };
+  engine: CodingWorkflowEngineIdentity;
+}
+
+/** One charged root/review turn, identified by its exact persisted dispatch row. */
+export interface CodingWorkflowRootTurn {
+  dispatchId: string;
+  sdkUserMessageId: string;
+}
+
+export type CodingWorkflowHoldReason =
+  | 'receipt_invalid' | 'delivery_unknown' | 'local_binding_changed' | 'engine_identity_unavailable'
+  | 'engine_identity_changed' | 'native_metadata_unavailable' | 'native_tree_unavailable'
+  | 'native_tree_bounds_exceeded' | 'native_tree_cycle' | 'native_tree_changed' | 'descendant_identity_missing'
+  | 'lifecycle_unavailable' | 'lifecycle_changed' | 'pending_interaction' | 'session_busy'
+  | 'messages_unavailable' | 'message_pages_incomplete' | 'uncovered_assistant_turn'
+  | 'turn_not_terminal' | 'turn_incomplete' | 'accounting_missing' | 'usage_incomplete'
+  | 'root_turn_unbound' | 'root_turns_missing' | 'scope_unsupported' | 'scope_changed';
+
+export interface CodingWorkflowCoverageIds {
+  managerSessionId: string;
+  managerSdkSessionId: string;
+  /** Native session ids of every recursive descendant actually enumerated. */
+  descendantSdkSessionIds: string[];
+  /** Exact root/review dispatch anchors that were covered. */
+  rootTurns: CodingWorkflowRootTurn[];
+}
+
+export interface CodingWorkflowUsage {
+  schemaVersion: 1;
+  status: 'actual';
+  basis: 'engine_assistant_turn_steps';
+  assistantStepCount: number;
+  coveredSessionCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  /** Null when any step omitted its cost; never a fabricated zero. */
+  cost: number | null;
+}
+
+/**
+ * Coverage IDs and completeness are reported separately from the sum. A hold
+ * carries whatever IDs were positively established but NEVER a usage figure.
+ */
+export type CodingWorkflowCoverageResult =
+  | { status: 'complete'; coverage: CodingWorkflowCoverageIds; usage: CodingWorkflowUsage; engineBootId: string }
+  | { status: 'hold'; reason: CodingWorkflowHoldReason; coverage: CodingWorkflowCoverageIds | null; usage: null };
+
+const WORKFLOW_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
+
+function workflowId(value: unknown): value is string {
+  return typeof value === 'string' && WORKFLOW_ID.test(value);
+}
+
+/** Strict, closed parse; null on any extra key, wrong type or unbound value. */
+export function parseCodingWorkflowDispatchReceipt(value: unknown): CodingWorkflowDispatchReceipt | null {
+  const exact = (record: Record<string, unknown>, keys: readonly string[]): boolean =>
+    Object.keys(record).length === keys.length && keys.every((key) => Object.prototype.hasOwnProperty.call(record, key));
+  if (!plain(value) || !exact(value, ['schemaVersion', 'adapter', 'authorization', 'owner', 'delegation', 'dispatch', 'engine'])) return null;
+  const { authorization, owner, delegation, dispatch, engine } = value;
+  if (
+    value.schemaVersion !== 1 || value.adapter !== CODING_WORKFLOW_ADAPTER ||
+    !plain(authorization) || !exact(authorization, ['authorizationId', 'ordinal', 'workstreamId', 'goalId']) ||
+    !workflowId(authorization.authorizationId) || !isFiniteTurnCount(authorization.ordinal) ||
+    !workflowId(authorization.workstreamId) || !workflowId(authorization.goalId) ||
+    !plain(owner) || !exact(owner, ['ownerUserId', 'projectId', 'rootSessionId', 'rootSdkSessionId']) ||
+    !Number.isSafeInteger(owner.ownerUserId) || (owner.ownerUserId as number) <= 0 ||
+    !workflowId(owner.projectId) || !workflowId(owner.rootSessionId) || !workflowId(owner.rootSdkSessionId) ||
+    !plain(delegation) || !exact(delegation, ['delegationId', 'managerSessionId', 'managerSdkSessionId', 'nativeParentSdkSessionId']) ||
+    !workflowId(delegation.delegationId) || !workflowId(delegation.managerSessionId) ||
+    !workflowId(delegation.managerSdkSessionId) || !workflowId(delegation.nativeParentSdkSessionId) ||
+    delegation.nativeParentSdkSessionId !== owner.rootSdkSessionId ||
+    delegation.managerSdkSessionId === delegation.nativeParentSdkSessionId ||
+    !plain(dispatch) || !exact(dispatch, ['dispatchId', 'sdkUserMessageId', 'delivery']) ||
+    !workflowId(dispatch.dispatchId) || !workflowId(dispatch.sdkUserMessageId) ||
+    (dispatch.delivery !== 'accepted' && dispatch.delivery !== 'unknown') ||
+    !plain(engine) || !exact(engine, ['version', 'pid', 'bootId']) ||
+    typeof engine.version !== 'string' || engine.version.length === 0 || engine.version.length > 200 ||
+    !Number.isSafeInteger(engine.pid) || typeof engine.bootId !== 'string' || engine.bootId.length === 0 || engine.bootId.length > 200
+  ) return null;
+  return {
+    schemaVersion: 1,
+    adapter: CODING_WORKFLOW_ADAPTER,
+    authorization: {
+      authorizationId: authorization.authorizationId as string,
+      ordinal: authorization.ordinal as CoordinatorFiniteTurnCount,
+      workstreamId: authorization.workstreamId as string,
+      goalId: authorization.goalId as string,
+    },
+    owner: {
+      ownerUserId: owner.ownerUserId as number,
+      projectId: owner.projectId as string,
+      rootSessionId: owner.rootSessionId as string,
+      rootSdkSessionId: owner.rootSdkSessionId as string,
+    },
+    delegation: {
+      delegationId: delegation.delegationId as string,
+      managerSessionId: delegation.managerSessionId as string,
+      managerSdkSessionId: delegation.managerSdkSessionId as string,
+      nativeParentSdkSessionId: delegation.nativeParentSdkSessionId as string,
+    },
+    dispatch: {
+      dispatchId: dispatch.dispatchId as string,
+      sdkUserMessageId: dispatch.sdkUserMessageId as string,
+      delivery: dispatch.delivery as 'accepted' | 'unknown',
+    },
+    engine: { version: engine.version as string, pid: engine.pid as number, bootId: engine.bootId as string },
+  };
 }

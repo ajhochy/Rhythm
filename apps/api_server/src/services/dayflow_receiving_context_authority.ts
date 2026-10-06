@@ -7,6 +7,7 @@ import {
 } from '../repositories/dayflow_receiving_context_repository';
 import type { VerifiedTrustedMcpCall } from '../security/trusted_mcp_call';
 import type {
+  DayflowGuardEnrollment,
   DayflowReceivingContext,
   DayflowReceivingContextAuthority,
 } from './dayflow_qualified_evidence_service';
@@ -34,6 +35,30 @@ function bindingFor(context: DayflowReceivingContext): DayflowReceivingBinding |
     sdkTurnId: context.turnId,
     sdkUserMessageId: context.sdkUserMessageId,
   };
+}
+
+/**
+ * The one shared enrollment seam. It enrolls an SDK in the owned engine's
+ * monotonic guard record through the frozen `rhythm-dayflow-guard` route, using
+ * the session's own server-owned directory. It authorizes no source read and no
+ * provider exposure by itself; it only makes native refuse to forget the SDK.
+ */
+export class DayflowGuardEnrollmentService implements DayflowGuardEnrollment {
+  constructor(private readonly dependencies: {
+    engine: Pick<OpencodeClientService, 'enrollDayflowGuard'>;
+    records: Pick<DayflowReceivingContextRepository, 'providerSessionScope'>;
+  }) {}
+
+  async ensure(input: { sdkSessionId: string }): Promise<boolean> {
+    try {
+      const scope = this.dependencies.records.providerSessionScope(input.sdkSessionId);
+      if (!scope) return false;
+      const enrolled = await this.dependencies.engine.enrollDayflowGuard(input.sdkSessionId, scope.directory);
+      return enrolled !== null;
+    } catch {
+      return false;
+    }
+  }
 }
 
 /** Requires a live signed engine tool plus a server-authenticated dispatch. */

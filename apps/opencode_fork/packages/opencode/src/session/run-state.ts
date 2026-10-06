@@ -6,6 +6,9 @@ import { MessageV2 } from "./message-v2"
 import { MessageID, PartID, SessionID } from "./schema"
 import { SessionStatus } from "./status"
 import { MCP_DISPATCH_TOOL_ID } from "./mcp_deferred_tools"
+import { runnerGenerations } from "./rhythm_provider_guard"
+import { clearRunnerCertificates } from "./rhythm_provider_projection"
+import { randomBytes } from "node:crypto"
 
 // Bounded wait (~2s) for the processor to persist the native call as running.
 const DEFERRED_IDENTITY_POLL_MS = 10
@@ -129,9 +132,11 @@ export const layer = Layer.effect(
         >()
         yield* Effect.addFinalizer(
           Effect.fnUntraced(function* () {
-            for (const record of runners.values()) {
+            for (const [id, record] of runners) {
               record.activeProcessor = undefined
               record.deferredMcpTools.clear()
+              runnerGenerations.delete(id)
+              clearRunnerCertificates(id)
             }
             yield* Effect.forEach(runners.values(), (record) => record.runner.cancel, {
               concurrency: "unbounded",
@@ -151,6 +156,11 @@ export const layer = Layer.effect(
       const data = yield* InstanceState.get(state)
       const existing = data.runners.get(sessionID)
       if (existing) return existing.runner
+      // Opaque identity of this runner for the Dayflow provider frame (rhythm_provider_guard):
+      // a frame installed under an older runner reads as replaced.
+      const generation = `run_${randomBytes(12).toString("base64url")}`
+      runnerGenerations.set(sessionID, generation)
+      clearRunnerCertificates(sessionID)
       const next = Runner.make<MessageV2.WithParts>(data.scope, {
         onIdle: Effect.gen(function* () {
           const current = data.runners.get(sessionID)
@@ -158,6 +168,8 @@ export const layer = Layer.effect(
             current.activeProcessor = undefined
             current.deferredMcpTools.clear()
             data.runners.delete(sessionID)
+            if (runnerGenerations.get(sessionID) === generation) runnerGenerations.delete(sessionID)
+            clearRunnerCertificates(sessionID)
           }
           yield* status.set(sessionID, { type: "idle" })
         }),

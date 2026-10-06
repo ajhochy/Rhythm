@@ -21,6 +21,7 @@ import { serviceUse } from "@/effect/service-use"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { SyncEvent } from "@/sync"
 import { SessionEvent } from "@/v2/session-event"
+import { buildProviderOrigins } from "./rhythm_provider_projection"
 
 const log = Log.create({ service: "session.compaction" })
 
@@ -489,6 +490,28 @@ export const layer: Layer.Layer<
           },
         ],
         model,
+        // Real selected-head identities plus the synthetic control prompt (Dayflow provider guard).
+        // Previous-summary / plugin-context spans are derived; a plugin-replaced prompt is
+        // unknowable, so it carries no static-only text (a projection then holds).
+        origins: () =>
+          buildProviderOrigins({
+            purpose: "compaction",
+            userMessageId: userMessage.id,
+            context: input.messages,
+            messages: msgs,
+            convertedCount: async (m) =>
+              (
+                await MessageV2.toModelMessages([m as MessageV2.WithParts], model, {
+                  stripMedia: true,
+                  toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
+                })
+              ).length,
+            trailingControl: {
+              id: userMessage.id,
+              derived: previousSummary !== undefined || compacting.context.length > 0 || compacting.prompt !== undefined,
+              staticText: compacting.prompt === undefined ? buildPrompt({ context: [] }) : undefined,
+            },
+          }),
       })
 
       if (result === "compact") {

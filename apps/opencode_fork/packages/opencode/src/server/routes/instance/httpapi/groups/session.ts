@@ -94,6 +94,57 @@ export const RhythmActiveTool = Schema.Struct({
   toolName: ManagedContextIdentifier,
 })
 
+// Rhythm Dayflow provider-admission contract (schema version 1). Exact shapes are
+// enforced again by the strict parsers in session/rhythm_provider_guard.ts.
+const GuardId = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200))
+const GuardGeneration = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128))
+const GuardRequest = Schema.Struct({
+  schemaVersion: Schema.Literal(1),
+  sdkSessionId: GuardId,
+  userMessageId: GuardId,
+  requestNonce: Schema.String.check(Schema.isMinLength(24), Schema.isMaxLength(64)),
+  engineGeneration: GuardGeneration,
+  runnerGeneration: GuardGeneration,
+  attempt: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(100)),
+  purpose: Schema.Literals(["answer", "compaction", "summary"]),
+  inputDigest: Schema.String.check(Schema.isMinLength(64), Schema.isMaxLength(64)),
+})
+export const RhythmProviderFrame = Schema.Union([
+  Schema.Struct({
+    schemaVersion: Schema.Literal(1),
+    status: Schema.Literal("pending"),
+    request: GuardRequest,
+    agentName: GuardId,
+    userKind: Schema.Literals(["authored", "control"]),
+    initiatingUserMessageId: Schema.NullOr(GuardId),
+    inputGroupCount: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+    originCoverage: Schema.Literals(["complete", "ambiguous"]),
+    sourceProofs: Schema.Array(
+      Schema.Struct({
+        sourceAnchorId: GuardId,
+        stored: Schema.Boolean,
+        visible: Schema.Boolean,
+        relation: Schema.Literals(["before_current", "current", "after_current", "unknown"]),
+        derivedSummaryIds: Schema.Array(GuardId),
+      }),
+    ),
+  }),
+  Schema.Struct({
+    schemaVersion: Schema.Literal(1),
+    status: Schema.Literals(["cancelled", "replaced", "not_pending"]),
+  }),
+])
+export const RhythmProviderFrameQuery = Schema.Struct({
+  ...WorkspaceRoutingQueryFields,
+  sourceAnchorIds: Schema.optional(Schema.String),
+})
+export const RhythmDayflowGuardResponse = Schema.Struct({
+  schemaVersion: Schema.Literal(1),
+  sdkSessionId: GuardId,
+  engineGeneration: GuardGeneration,
+  guarded: Schema.Literal(true),
+})
+
 export const SessionPaths = {
   list: root,
   status: `${root}/status`,
@@ -105,6 +156,8 @@ export const SessionPaths = {
   message: `${root}/:sessionID/message/:messageID`,
   rhythmPromptAnchor: `${root}/:sessionID/rhythm-prompt-anchor`,
   rhythmActiveTool: `${root}/:sessionID/rhythm-active-tool/:assistantID/:callID`,
+  rhythmProviderFrame: `${root}/:sessionID/rhythm-provider-frame/:requestNonce`,
+  rhythmDayflowGuard: `${root}/:sessionID/rhythm-dayflow-guard`,
   mcpAppResource: `${root}/:sessionID/mcp-app-resource/:callID`,
   mcpAppExecutionProof: `${root}/:sessionID/mcp-app-execution/:callID/proof`,
   mcpAppExecution: `${root}/:sessionID/mcp-app-execution/:callID`,
@@ -244,6 +297,29 @@ export const SessionApi = HttpApi.make("session")
           OpenApi.annotations({
             identifier: "session.rhythmActiveTool",
             summary: "Read one live managed tool owner",
+          }),
+        ),
+        HttpApiEndpoint.get("rhythmProviderFrame", SessionPaths.rhythmProviderFrame, {
+          params: { sessionID: SessionID, requestNonce: Schema.String },
+          query: RhythmProviderFrameQuery,
+          success: described(RhythmProviderFrame, "Read one pending managed provider frame"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.rhythmProviderFrame",
+            summary: "Read one pending managed provider frame",
+          }),
+        ),
+        HttpApiEndpoint.post("rhythmDayflowGuard", SessionPaths.rhythmDayflowGuard, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          payload: Schema.Unknown,
+          success: described(RhythmDayflowGuardResponse, "Enroll a managed SDK session for Dayflow history protection"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.rhythmDayflowGuard",
+            summary: "Enroll a managed SDK session for Dayflow history protection",
           }),
         ),
         HttpApiEndpoint.post("create", SessionPaths.create, {

@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { promises as fs, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 
-import { resolveMemoryDirPath } from '../config/env';
+import { env, resolveMemoryDirPath } from '../config/env';
+import { getDb } from '../database/db';
 import type {
   DayflowActivityToolResponse,
   DayflowQualifiedEvidenceCandidate,
@@ -89,6 +90,109 @@ export interface DayflowCanonicalEvidence {
     projectId: string;
     candidate: DayflowQualifiedEvidenceCandidate;
   }): Promise<{ content: string } | null>;
+  /**
+   * Optional synchronous re-proof that the exact canonical note/index row behind
+   * a candidate is still current (no write, no repair). Absent = unknown
+   * authority for retained history; the real resolver always provides it.
+   */
+  currentForCandidate?(input: { ownerUserId: number; projectId: string; candidate: DayflowQualifiedEvidenceCandidate }): boolean;
+}
+
+/**
+ * Server-only canonical admission prepared by the real resolver for one resolved
+ * result: the exact owner/source key/candidate, the matched owner index row and
+ * the memory root. It never leaves the process and is not part of any DTO.
+ */
+interface CanonicalProof {
+  ownerUserId: number;
+  projectId: string;
+  candidate: DayflowQualifiedEvidenceCandidate;
+  indexId: string;
+  memoryRoot: () => string;
+}
+const canonicalProofs = new WeakMap<object, CanonicalProof>();
+/** Server-only V1 finalizers keyed by the exact response object; never serialized. */
+const v1Finalizers = new WeakMap<object, () => DayflowActivityToolResponse>();
+
+/**
+ * 'unregistered' = the result did not come from the real resolver (legacy/injected
+ * shape). With `strict` (the real resolver is composed) an unregistered result is stale.
+ */
+function canonicalProofState(result: object, strict = false): 'current' | 'stale' | 'unregistered' {
+  const proof = canonicalProofs.get(result);
+  if (!proof) return strict ? 'stale' : 'unregistered';
+  return canonicalCurrentSync(proof.ownerUserId, proof.projectId, proof.candidate, proof.memoryRoot, proof.indexId) ? 'current' : 'stale';
+}
+
+/**
+ * Synchronous, bounded, read-only canonical proof: the confined regular file is
+ * still readable with the exact byte hash and passes every note rule, and the
+ * owner index has exactly one current active row with that source key (and, when
+ * given, that row id) whose content matches. Unknown backend/authority = false.
+ */
+function canonicalCurrentSync(
+  ownerUserId: number,
+  projectId: string,
+  candidate: DayflowQualifiedEvidenceCandidate,
+  memoryRoot: () => string,
+  indexId?: string,
+): boolean {
+  try {
+    if (env.dbClient !== 'sqlite') return false;
+    const { reference, canonicalSourceKey } = candidate;
+    if (
+      reference.ownerUserId !== ownerUserId || reference.projectId !== projectId ||
+      reference.eligibility !== 'active' || Date.parse(reference.expiresAt) <= Date.now() ||
+      reference.canonicalVersion !== dayflowCanonicalVersion(candidate.canonicalContentHash)
+    ) return false;
+    const raw = readCanonicalMemoryBytesSync(memoryRoot, canonicalSourceKey);
+    const accepted = raw ? acceptCanonicalNote(raw, candidate) : null;
+    if (!accepted) return false;
+    const rows = getDb().prepare(
+      `SELECT id, content, source, source_id, status, stale_after, owner_user_id
+       FROM agent_memory WHERE source = ? AND source_id = ? AND owner_user_id = ?`,
+    ).all('obsidian-memory', canonicalSourceKey, ownerUserId) as Array<{
+      id: string; content: string; source: string; source_id: string; status: string | null;
+      stale_after: string | null; owner_user_id: number | null;
+    }>;
+    const today = new Date().toISOString().slice(0, 10);
+    const owned = rows.filter((row) => row.status !== 'deprecated' && (row.stale_after === null || row.stale_after >= today));
+    return owned.length === 1 && (indexId === undefined || owned[0].id === indexId) &&
+      sameNormalizedContent(accepted.content, owned[0].content);
+  } catch { return false; }
+}
+
+/** The immutable note rules shared by the async resolver and the sync final proof. */
+function acceptCanonicalNote(raw: Buffer, candidate: DayflowQualifiedEvidenceCandidate): { content: string } | null {
+  const { reference } = candidate;
+  if (createHash('sha256').update(raw).digest('hex') !== candidate.canonicalContentHash) return null;
+  let parsed;
+  let document;
+  try {
+    document = parseMemoryNote(raw.toString('utf8'));
+    parsed = parseNote(raw.toString('utf8'));
+  } catch { return null; }
+  if (
+    document.frontmatter.id !== reference.canonicalId ||
+    parsed.kind !== 'context' ||
+    parsed.status === 'deprecated' ||
+    (parsed.staleAfter !== undefined && parsed.staleAfter < new Date().toISOString().slice(0, 10)) ||
+    createHash('sha256').update(parsed.content).digest('hex') !== candidate.contentHash ||
+    !parsed.tags.includes('dayflow') ||
+    !parsed.tags.includes('activity-observation') ||
+    !hasMatchingDayflowSource(parsed.sources ?? [], reference)
+  ) return null;
+  return { content: parsed.content };
+}
+
+/**
+ * Mandatory native enrollment, shared by EVERY Dayflow body producer (V1 signed
+ * search/recent and the V2 automatic overlay). `ensure` resolves true only
+ * after the owned engine durably recorded the SDK as guarded; any other
+ * outcome means no dependent body may be released.
+ */
+export interface DayflowGuardEnrollment {
+  ensure(input: { sdkSessionId: string }): Promise<boolean>;
 }
 
 interface DayflowQualifiedEvidenceDependencies {
@@ -96,7 +200,37 @@ interface DayflowQualifiedEvidenceDependencies {
   receiver: DayflowReceivingContextAuthority;
   canonical?: DayflowCanonicalEvidence;
   verify?: typeof verifyTrustedMcpCall;
+  /** Production composition always supplies it; absence is only a legacy/test shape that withholds registration coverage. */
+  enrollment?: DayflowGuardEnrollment;
 }
+
+/** What the provider-admission caller supplies around one automatic overlay read. */
+export interface DayflowAutomaticOverlayInput {
+  ownerUserId: number;
+  projectId: string;
+  /** Awaited once, before anything is persisted or released (the native enrollment). */
+  beforeBody(): Promise<boolean>;
+  /** Durable V2 exposure write. Must succeed before text can return. */
+  persist(candidates: DayflowQualifiedEvidenceCandidate[]): boolean;
+  /** Awaited live proof of the exact pending frame and receiver. */
+  liveCurrent(candidates: DayflowQualifiedEvidenceCandidate[]): Promise<boolean>;
+  /** Synchronous durable proof, run after the last await. */
+  finalCurrent(candidates: DayflowQualifiedEvidenceCandidate[]): boolean;
+}
+
+export type DayflowAutomaticOverlayResult =
+  | {
+    state: 'overlay'; text: string; candidates: DayflowQualifiedEvidenceCandidate[];
+    /**
+     * Server-only synchronous finalizer: re-proves the prepared source admission
+     * and each selected note's canonical file/index, keeps only candidates that
+     * `stillQualified` accepts, and rebuilds the fenced/scanned bounded body.
+     * Null = nothing may be exposed. Call it after the last await before responding.
+     */
+    finalize(stillQualified: (candidate: DayflowQualifiedEvidenceCandidate) => boolean): { text: string; candidates: DayflowQualifiedEvidenceCandidate[] } | null;
+  }
+  | { state: 'none' }
+  | { state: 'hold'; reason: 'proof_unavailable' | 'source_changed' | 'bounds_exceeded' };
 
 /**
  * Dayflow-specific canonical reader.  It intentionally bypasses neither the
@@ -146,24 +280,8 @@ export class DayflowCanonicalEvidenceResolver implements DayflowCanonicalEvidenc
     if (owned.length !== 1 && !canRepairOwner) return null;
 
     const raw = await readCanonicalMemoryBytes(this.memoryRoot, canonicalSourceKey);
-    if (!raw || createHash('sha256').update(raw).digest('hex') !== input.candidate.canonicalContentHash) return null;
-    let parsed;
-    let document;
-    try {
-      document = parseMemoryNote(raw.toString('utf8'));
-      parsed = parseNote(raw.toString('utf8'));
-    }
-    catch { return null; }
-    if (
-      document.frontmatter.id !== reference.canonicalId ||
-      parsed.kind !== 'context' ||
-      parsed.status === 'deprecated' ||
-      (parsed.staleAfter !== undefined && parsed.staleAfter < new Date().toISOString().slice(0, 10)) ||
-      createHash('sha256').update(parsed.content).digest('hex') !== input.candidate.contentHash ||
-      !parsed.tags.includes('dayflow') ||
-      !parsed.tags.includes('activity-observation') ||
-      !hasMatchingDayflowSource(parsed.sources ?? [], reference)
-    ) return null;
+    const parsed = raw ? acceptCanonicalNote(raw, input.candidate) : null;
+    if (!parsed) return null;
     if (canRepairOwner) {
       // A null owner is not authority. It may only be repaired after every
       // immutable receipt/content check above has bound this exact note to the
@@ -175,7 +293,16 @@ export class DayflowCanonicalEvidenceResolver implements DayflowCanonicalEvidenc
       owned = sameSource.filter((memory) => canonicalMemoryMatches(memory, input.ownerUserId, canonicalSourceKey));
     }
     if (owned.length !== 1 || !sameNormalizedContent(parsed.content, owned[0].content)) return null;
-    return { content: parsed.content };
+    const result = { content: parsed.content };
+    canonicalProofs.set(result, {
+      ownerUserId: input.ownerUserId, projectId: input.projectId, candidate: input.candidate,
+      indexId: owned[0].id, memoryRoot: this.memoryRoot,
+    });
+    return result;
+  }
+
+  currentForCandidate(input: { ownerUserId: number; projectId: string; candidate: DayflowQualifiedEvidenceCandidate }): boolean {
+    return canonicalCurrentSync(input.ownerUserId, input.projectId, input.candidate, this.memoryRoot);
   }
 }
 
@@ -188,8 +315,94 @@ export class DayflowQualifiedEvidenceService {
     this.verify = dependencies.verify ?? verifyTrustedMcpCall;
   }
 
+  /** True only when native enrollment precedes every V1 body this service can release. */
+  get enrollmentBeforeBody(): boolean {
+    return this.dependencies.enrollment !== undefined;
+  }
+
   search(auth: AuthContext, body: unknown): Promise<DayflowActivityToolResponse> {
     return this.read(auth, body, 'search');
+  }
+
+  /**
+   * The V2 automatic recent-context overlay for one actual native user
+   * message. It is the same qualified reader, canonical resolver, scanner and
+   * fence as the V1 bodies (≤5 references, ≤3,800 bytes). Order is fixed:
+   * enrollment → durable exposure persistence → source re-read → live receiver
+   * proof → final synchronous source + receiver proofs → text construction.
+   * An unresolvable (deleted/revoked) canonical note is excluded and the valid
+   * remainder is kept; nothing is persisted unless something can be released.
+   */
+  /** Synchronous canonical re-proof of a retained candidate; true when the resolver cannot say (legacy shape). */
+  canonicalCandidateCurrent(input: { ownerUserId: number; projectId: string; candidate: DayflowQualifiedEvidenceCandidate }): boolean {
+    return this.canonical.currentForCandidate ? this.canonical.currentForCandidate(input) : true;
+  }
+
+  async readAutomaticOverlay(input: DayflowAutomaticOverlayInput): Promise<DayflowAutomaticOverlayResult> {
+    const scope = { ownerUserId: input.ownerUserId, projectId: input.projectId } as DayflowReceivingContext;
+    const initial = await this.prepareAdmission(scope, []);
+    if (initial.state !== 'prepared') return { state: 'none' };
+    let current = false;
+    try { current = this.dependencies.reader.isQualifiedEvidenceAdmissionCurrent(initial.input, initial.page, initial.admission); }
+    catch { /* none below */ }
+    if (!current || initial.page.status !== 'available') return { state: 'none' };
+
+    const selected: Array<DayflowQualifiedEvidenceCandidate & { content: string }> = [];
+    const resolved: object[] = []; // the resolver results (carry the server-only canonical proof), index-aligned
+    for (const candidate of initial.page.candidates) {
+      if (!this.dependencies.reader.isReferenceWithinAutomaticWindow(candidate.reference)) continue;
+      const evidence = await this.canonical.resolve({ ownerUserId: input.ownerUserId, projectId: input.projectId, candidate });
+      if (!(await this.candidateStillQualified(scope, candidate))) return { state: 'none' };
+      if (!evidence) continue; // deleted/revoked canonical evidence is excluded, not fatal
+      selected.push({ ...candidate, content: evidence.content });
+      resolved.push(evidence);
+      if (selected.length === 5) break;
+    }
+    if (selected.length === 0) return { state: 'none' };
+
+    const dependencies = selected.map(({ content: _content, ...candidate }) => candidate);
+    // Enrollment is awaited BEFORE the exposure is written or any text exists.
+    if (!(await input.beforeBody())) return { state: 'hold', reason: 'proof_unavailable' };
+    if (!(await this.readerStillAvailable(scope, dependencies))) return { state: 'hold', reason: 'source_changed' };
+    if (!input.persist(dependencies)) return { state: 'hold', reason: 'proof_unavailable' };
+
+    const final = await this.prepareAdmission(scope, dependencies);
+    if (final.state !== 'prepared') return { state: 'hold', reason: 'source_changed' };
+    let preflight = false;
+    try { preflight = this.dependencies.reader.isQualifiedEvidenceAdmissionCurrent(final.input, final.page, final.admission); }
+    catch { /* hold below */ }
+    if (!preflight) return { state: 'hold', reason: 'source_changed' };
+    const live = await input.liveCurrent(dependencies);
+    // No await from here to the text: source and durable receiver are re-proved synchronously.
+    let sourceCurrent = false;
+    try { sourceCurrent = this.dependencies.reader.isQualifiedEvidenceAdmissionCurrent(final.input, final.page, final.admission); }
+    catch { /* hold below */ }
+    let receiverCurrent = false;
+    try { receiverCurrent = input.finalCurrent(dependencies); } catch { /* hold below */ }
+    if (!live || !sourceCurrent) return { state: 'hold', reason: live ? 'source_changed' : 'proof_unavailable' };
+    if (!receiverCurrent) return { state: 'hold', reason: 'proof_unavailable' };
+    const raw = formatEvidence(selected);
+    if (scanContextContent(raw, SOURCE_LABEL).blocked) return { state: 'none' };
+    const text = untrustedContext(raw, SOURCE_LABEL);
+    if (Buffer.byteLength(text, 'utf8') > MAX_FINAL_TEXT_BYTES) return { state: 'hold', reason: 'bounds_exceeded' };
+    const reader = this.dependencies.reader;
+    const strictProof = this.canonical instanceof DayflowCanonicalEvidenceResolver;
+    return {
+      state: 'overlay', text, candidates: dependencies,
+      finalize: (stillQualified) => {
+        let sourceCurrent = false;
+        try { sourceCurrent = reader.isQualifiedEvidenceAdmissionCurrent(final.input, final.page, final.admission); } catch { /* closed */ }
+        if (!sourceCurrent) return null;
+        const live = selected.filter((item, index) =>
+          canonicalProofState(resolved[index], strictProof) !== 'stale' && stillQualified(dependencies[index]));
+        if (live.length === 0) return null;
+        const rebuilt = formatEvidence(live);
+        if (scanContextContent(rebuilt, SOURCE_LABEL).blocked) return null;
+        const body = untrustedContext(rebuilt, SOURCE_LABEL);
+        if (Buffer.byteLength(body, 'utf8') > MAX_FINAL_TEXT_BYTES) return null;
+        return { text: body, candidates: live.map((item) => dependencies[selected.indexOf(item)]) };
+      },
+    };
   }
 
   recentSummaries(auth: AuthContext, body: unknown): Promise<DayflowActivityToolResponse> {
@@ -239,6 +452,7 @@ export class DayflowQualifiedEvidenceService {
     if (page.status !== 'available') return unavailable();
 
     const selected: Array<DayflowQualifiedEvidenceCandidate & { content: string }> = [];
+    const resolved: object[] = [];
     for (const candidate of page.candidates) {
       if (mode === 'recent' && !this.dependencies.reader.isReferenceWithinAutomaticWindow(candidate.reference)) continue;
       const evidence = await this.canonical.resolve({ ownerUserId: context.ownerUserId, projectId: context.projectId, candidate });
@@ -248,6 +462,7 @@ export class DayflowQualifiedEvidenceService {
       if (!evidence) return unavailable();
       if (mode === 'search' && !matchesQuery(evidence.content, request.query!)) continue;
       selected.push({ ...candidate, content: evidence.content });
+      resolved.push(evidence);
       if (selected.length === request.limit) break;
     }
     if (selected.length === 0) {
@@ -284,6 +499,11 @@ export class DayflowQualifiedEvidenceService {
     // Even a scanner-blocked warning is a dependent tool exposure about this
     // exact selected evidence. Persist its complete private dependency set
     // first so a retained receiving context cannot later reuse it unchecked.
+    // The owned engine must durably record this SDK as guarded BEFORE any
+    // dependency is written or any body text is built; a failure releases
+    // nothing. The rechecks below re-prove the receiver after this await.
+    if (this.dependencies.enrollment &&
+        !(await this.dependencies.enrollment.ensure({ sdkSessionId: context.sdkSessionId }))) return unavailable();
     if (!(await this.readerStillAvailable(context, dependencies))) return unavailable();
     if (!(await this.current(context, auth, request.verified, expectedToolName))) return this.markChanged(context);
     if (!(await this.readerStillAvailable(context, dependencies))) return unavailable();
@@ -315,14 +535,53 @@ export class DayflowQualifiedEvidenceService {
       finalReceiverCurrent = this.dependencies.receiver.finalAdmissionCurrent(context, dependencies);
     } catch { /* closed below */ }
     if (!finalLiveReceiverCurrent || !finalSourceCurrent || !finalReceiverCurrent) return this.markChanged(context);
-    const raw = formatEvidence(selected, mode === 'search' ? request.query : undefined);
-    const scan = scanContextContent(raw, SOURCE_LABEL);
-    if (scan.blocked) {
-      return { schemaVersion: 1, status: 'available', text: 'Qualified activity was withheld by the content safety scanner.', blocked: true };
-    }
-    const text = untrustedContext(raw, SOURCE_LABEL);
-    if (Buffer.byteLength(text, 'utf8') > MAX_FINAL_TEXT_BYTES) return unavailable();
-    return { schemaVersion: 1, status: 'available', text, blocked: false };
+    // Server-only synchronous finalizer for this result. It runs now (no await
+    // since the final proofs) and AGAIN from the route after its own await,
+    // immediately before serialization. It re-proves the prepared source
+    // admission, the durable receiver/dependencies and each selected note's real
+    // canonical file + owner-index row, then rebuilds the fenced/scanned bounded
+    // body from the still-current partials. Stale/unknown proof = no body. The
+    // actual asynchronous engine current-tool check stays above, paired with
+    // these durable checks; nothing here widens any permission.
+    const strict = this.canonical instanceof DayflowCanonicalEvidenceResolver;
+    const reader = this.dependencies.reader;
+    const receiver = this.dependencies.receiver;
+    const query = mode === 'search' ? request.query : undefined;
+    const build = (): DayflowActivityToolResponse => {
+      const exposed = selected.filter((_item, index) => canonicalProofState(resolved[index], strict) !== 'stale');
+      if (exposed.length === 0) return unavailable();
+      const raw = formatEvidence(exposed, query);
+      if (scanContextContent(raw, SOURCE_LABEL).blocked) {
+        return { schemaVersion: 1, status: 'available', text: 'Qualified activity was withheld by the content safety scanner.', blocked: true };
+      }
+      const text = untrustedContext(raw, SOURCE_LABEL);
+      if (Buffer.byteLength(text, 'utf8') > MAX_FINAL_TEXT_BYTES) return unavailable();
+      return { schemaVersion: 1, status: 'available', text, blocked: false };
+    };
+    const finalize = (): DayflowActivityToolResponse => {
+      let sourceCurrent = false;
+      try { sourceCurrent = reader.isQualifiedEvidenceAdmissionCurrent(final.input, final.page, final.admission); } catch { /* closed */ }
+      let receiverCurrent = false;
+      try { receiverCurrent = receiver.finalAdmissionCurrent(context, dependencies); } catch { /* closed */ }
+      // Known limit: source-page partials are all-or-nothing (the admission fingerprint has no per-candidate subset proof).
+      return sourceCurrent && receiverCurrent ? build() : unavailable();
+    };
+    // The immediate response rests on the source/receiver proofs computed just
+    // above (no await since); only the canonical proofs are recomputed by build().
+    const response = build();
+    v1Finalizers.set(response, finalize);
+    return response;
+  }
+
+  /**
+   * Server-only: re-run a V1 result's synchronous finalizer after the caller's
+   * own await. A response that was not produced with a body carries no
+   * finalizer and is returned unchanged; it is never caller-supplied authority.
+   */
+  finalizeResponse(response: DayflowActivityToolResponse): DayflowActivityToolResponse {
+    const finalize = v1Finalizers.get(response);
+    if (!finalize) return response;
+    try { return finalize(); } catch { return unavailable(); }
   }
 
   private async authenticate(
@@ -581,6 +840,25 @@ async function readCanonicalMemoryBytes(memoryRoot: () => string, sourceId: stri
     if (!containedBy(root, canonicalPath)) return null;
     const raw = await fs.readFile(canonicalPath);
     const after = await fs.lstat(candidate);
+    if (!after.isFile() || before.dev !== after.dev || before.ino !== after.ino) return null;
+    return raw;
+  } catch { return null; }
+}
+
+/** Same confinement as the async reader, synchronously; identity is re-checked after the read. */
+function readCanonicalMemoryBytesSync(memoryRoot: () => string, sourceId: string): Buffer | null {
+  const rootPath = path.resolve(memoryRoot());
+  try {
+    const root = realpathSync(rootPath);
+    if (!lstatSync(root).isDirectory()) return null;
+    const relative = vaultKeyToMemoryDirRelative(rootPath, sourceId);
+    const candidate = resolveWithinMemoryDir(rootPath, relative);
+    const before = lstatSync(candidate);
+    if (!before.isFile() || (before.mode & 0o444) === 0) return null;
+    const canonicalPath = realpathSync(candidate);
+    if (!containedBy(root, canonicalPath)) return null;
+    const raw = readFileSync(canonicalPath);
+    const after = lstatSync(candidate);
     if (!after.isFile() || before.dev !== after.dev || before.ino !== after.ino) return null;
     return raw;
   } catch { return null; }

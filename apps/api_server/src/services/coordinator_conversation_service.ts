@@ -1005,6 +1005,12 @@ export class CoordinatorConversationService {
     )) return { kind: 'planning_already_linked', conversation: initial.conversation };
     if (!this.c2Enabled()) return { kind: 'planning_authority_unavailable', conversation: initial.conversation };
     if (!request.admission) return { kind: 'planning_authority_required', conversation: initial.conversation };
+    // The fixed Coding Workflow purpose is defined by the admission contract but
+    // has no issuance path at the first adapter checkpoint: fail closed here so
+    // it can never fund the finite managed read-only worker path below.
+    if (request.admission.purpose === 'workflow') {
+      return { kind: 'planning_authority_conflict', conversation: initial.conversation };
+    }
 
     const selected = this.currentRootSelection(actor, request);
     if (!selected) return { kind: 'planning_authority_unavailable', conversation: initial.conversation };

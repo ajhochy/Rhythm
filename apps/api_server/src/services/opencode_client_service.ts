@@ -42,6 +42,15 @@ import type {
 import { hasManagedSdkSessionHistory } from '../repositories/managed_workstream_context_repository';
 import { hasDayflowSdkSessionHistory } from '../repositories/dayflow_receiving_context_repository';
 import type { DayflowSdkHistoryGuard } from './dayflow_receiving_history_guard';
+import { CODING_WORKFLOW_DISPATCH_REASON } from '../contracts/coordinator_conversation_contract';
+import {
+  ENROLLMENT_REQUEST_BODY,
+  PROVIDER_ADMISSION_BOUNDS,
+  parseEnrollmentResponse,
+  parseProviderFrameExportText,
+  type ProviderPendingExport,
+  type ProviderUnavailableExport,
+} from '../contracts/dayflow_provider_admission_contract';
 
 const modelProvenanceRepo = new ModelProvenanceRepository();
 
@@ -55,7 +64,7 @@ function beginDispatch(input?: DispatchInput): string | undefined {
   }
 }
 
-function settleDispatch(id: string | undefined, outcome: 'accepted' | 'rejected'): void {
+function settleDispatch(id: string | undefined, outcome: 'accepted' | 'rejected' | 'unknown'): void {
   if (!id) return;
   try {
     modelProvenanceRepo.setOutcome(id, outcome);
@@ -897,6 +906,50 @@ function isCoordinatorApprovalResumePromptContext(
   );
 }
 
+/**
+ * Internal-only typed context for ONE Coding Workflow async child (G2 first
+ * adapter). It is a distinct kind, never promoted from a foreground, callback,
+ * managed or approval-resume context and never authority by itself: the client
+ * mints the real native user-message id, persists the exact dispatch row with it
+ * BEFORE the SDK request, hands that identity to `onPrepared` synchronously, and
+ * exports the delivery outcome. A thrown transport error is delivery `unknown`
+ * (the engine may have enqueued it), not `rejected`.
+ */
+export interface CodingWorkflowPromptDispatchContext {
+  readonly kind: 'coding_workflow_dispatch_v1';
+  validate(input: {
+    phase: 'prepare' | 'before_sdk' | 'sdk_exposure';
+    dispatchId?: string;
+    sdkUserMessageId?: string;
+  }): boolean | Promise<boolean>;
+  /** Synchronous freshness proof, run after the last await and immediately before the SDK call. */
+  isCurrent(): boolean;
+  /** Durable pre-SDK receipt. Returning anything but true holds the request. */
+  onPrepared(binding: { dispatchId: string; sdkUserMessageId: string }): boolean;
+  /** Exactly once, only after the SDK request was attempted. */
+  onOutcome(outcome: { delivery: 'accepted' | 'unknown' | 'rejected'; dispatchId: string; sdkUserMessageId: string }): void;
+}
+
+function isCodingWorkflowPromptContext(
+  value: CodingWorkflowPromptDispatchContext | undefined,
+  sessionId: string,
+  provenance: DispatchInput | undefined,
+): value is CodingWorkflowPromptDispatchContext {
+  return Boolean(
+    value &&
+    value.kind === 'coding_workflow_dispatch_v1' &&
+    typeof value.validate === 'function' && typeof value.isCurrent === 'function' &&
+    typeof value.onPrepared === 'function' && typeof value.onOutcome === 'function' &&
+    provenance &&
+    provenance.sdkSessionId === sessionId &&
+    provenance.sessionId !== undefined && provenance.sessionId !== sessionId &&
+    provenance.origin === 'delegation' &&
+    provenance.requestedSource === 'agent_config' &&
+    provenance.routeAuthed == null &&
+    provenance.reasonCode === CODING_WORKFLOW_DISPATCH_REASON,
+  );
+}
+
 /** A throwing validator is a refusal, never an exposure. */
 function approvalResumeIsCurrent(context: CoordinatorApprovalResumePromptDispatchContext): boolean {
   try {
@@ -1210,7 +1263,97 @@ export class OpencodeClientService {
     }
   }
 
-  private async assertDayflowSdkHistoryMayBeReused(sdkSessionId: string): Promise<void> {
+  /**
+   * Callback-only Dayflow anchor. `null` = no Dayflow receiver applies (no
+   * guard composed, or it declines this root): unchanged ordinary behavior.
+   * `'missing'` = a receiver applies but the engine could not mint the real
+   * native user-message id (or the check threw): the caller must refuse.
+   */
+  private async mintCallbackDayflowAnchor(
+    sdkSessionId: string,
+    directory: string | undefined,
+  ): Promise<string | null | 'missing'> {
+    if (!this.dayflowSdkHistoryGuard) return null;
+    try {
+      if (!(await this.dayflowSdkHistoryGuard.shouldBindPrompt(sdkSessionId))) return null;
+      return (await this.mintPromptAnchor(sdkSessionId, directory)) ?? 'missing';
+    } catch {
+      return 'missing';
+    }
+  }
+
+  /**
+   * One bounded read of the owned engine's pending provider frame (frozen C1
+   * export). Disabled exports, any HTTP/parse failure, an oversized body or a
+   * deadline overrun return null — never a synthetic frame. The caller proves
+   * the echo against its own request.
+   */
+  async getDayflowProviderFrame(
+    sdkSessionId: string,
+    requestNonce: string,
+    directory: string | undefined,
+    sourceAnchorIds: readonly string[] = [],
+  ): Promise<ProviderPendingExport | ProviderUnavailableExport | null> {
+    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' || !ownedUrl || !sdkSessionId || !requestNonce) return null;
+    if (sourceAnchorIds.length > PROVIDER_ADMISSION_BOUNDS.sourceAnchors) return null;
+    const params: string[] = [];
+    if (directory) params.push(`directory=${encodeURIComponent(directory)}`);
+    if (sourceAnchorIds.length > 0) params.push(`sourceAnchorIds=${encodeURIComponent(JSON.stringify(sourceAnchorIds))}`);
+    const query = params.length > 0 ? `?${params.join('&')}` : '';
+    try {
+      const response = await fetch(
+        `${ownedUrl}/session/${encodeURIComponent(sdkSessionId)}/rhythm-provider-frame/${encodeURIComponent(requestNonce)}${query}`,
+        {
+          headers: { Accept: 'application/json' },
+          redirect: 'error',
+          signal: AbortSignal.timeout(PROVIDER_ADMISSION_BOUNDS.exchangeDeadlineMs),
+        },
+      );
+      if (!response.ok) return null;
+      const parsed = parseProviderFrameExportText(await response.text());
+      return parsed.ok ? parsed.value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Durable, idempotent, monotonic enrollment of an SDK in the owned engine's
+   * guard record (frozen C1 route). Returns the engine generation only after
+   * the exact echoed success; any other outcome is null (no body may follow).
+   */
+  async enrollDayflowGuard(
+    sdkSessionId: string,
+    directory: string | undefined,
+  ): Promise<{ engineGeneration: string } | null> {
+    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' || !ownedUrl || !sdkSessionId) return null;
+    const query = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const response = await fetch(
+        `${ownedUrl}/session/${encodeURIComponent(sdkSessionId)}/rhythm-dayflow-guard${query}`,
+        {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify(ENROLLMENT_REQUEST_BODY),
+          redirect: 'error',
+          signal: AbortSignal.timeout(PROVIDER_ADMISSION_BOUNDS.exchangeDeadlineMs),
+        },
+      );
+      if (!response.ok) return null;
+      const parsed = parseEnrollmentResponse(JSON.parse(await response.text()), sdkSessionId);
+      return parsed.ok ? { engineGeneration: parsed.value.engineGeneration } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async assertDayflowSdkHistoryMayBeReused(
+    sdkSessionId: string,
+    /** Only a typed current-root foreground/callback may load for a projected provider request. */
+    projectedLoad = false,
+  ): Promise<void> {
     if (env.dbClient !== 'sqlite') return;
     let hasHistory = false;
     try {
@@ -1225,12 +1368,18 @@ export class OpencodeClientService {
       );
     }
     if (!hasHistory) return;
-    if (!this.dayflowSdkHistoryGuard ||
-        !(await this.dayflowSdkHistoryGuard.revalidateBeforeSdk(sdkSessionId))) {
-      throw AppError.reconciliationRequired(
-        'SDK history is withheld because retained Dayflow evidence is unavailable or changed',
-      );
-    }
+    const guard = this.dayflowSdkHistoryGuard;
+    if (guard && (await guard.revalidateBeforeSdk(sdkSessionId))) return;
+    // Raw history is NOT reusable here. A typed current-root foreground/callback
+    // may still enqueue into the owned engine so the native per-attempt provider
+    // guard can project it, but only when the guard itself proves a readable
+    // ledger and a durable native enrollment. This neither clears the sticky
+    // marker nor changes any stored history; raw-history operations keep the
+    // hold above.
+    if (projectedLoad && guard?.revalidateForProjectedLoad && (await guard.revalidateForProjectedLoad(sdkSessionId))) return;
+    throw AppError.reconciliationRequired(
+      'SDK history is withheld because retained Dayflow evidence is unavailable or changed',
+    );
   }
 
   /**
@@ -2852,6 +3001,7 @@ function validFiniteExecutionPermissionRules(
     foreground?: CoordinatorForegroundPromptDispatchContext,
     callback?: CoordinatorCallbackPromptDispatchContext,
     approvalResume?: CoordinatorApprovalResumePromptDispatchContext,
+    codingWorkflow?: CodingWorkflowPromptDispatchContext,
   ): Promise<boolean> {
     if (!this.client) return false;
     if (foreground && (managed || !isCoordinatorForegroundPromptContext(foreground, sessionId, provenance))) {
@@ -2860,8 +3010,16 @@ function validFiniteExecutionPermissionRules(
     // Exclusive and strictly qualified: never combined with, or promoted from,
     // the managed/foreground/callback contexts; any mismatch refuses this path.
     if (approvalResume && (
-      managed || foreground || callback ||
+      managed || foreground || callback || codingWorkflow ||
       !isCoordinatorApprovalResumePromptContext(approvalResume, sessionId, provenance)
+    )) {
+      return false;
+    }
+    // Same exclusivity for the Coding Workflow adapter: its own distinct kind,
+    // fixed provenance shape, and no other typed context alongside it.
+    if (codingWorkflow && (
+      managed || foreground || callback || approvalResume ||
+      !isCodingWorkflowPromptContext(codingWorkflow, sessionId, provenance)
     )) {
       return false;
     }
@@ -2964,7 +3122,28 @@ function validFiniteExecutionPermissionRules(
         return false;
       }
     }
-    if (!managed && !approvalResume) {
+    let workflowMessageID: string | undefined;
+    if (codingWorkflow) {
+      try {
+        if ((await codingWorkflow.validate({ phase: 'prepare' })) !== true) return false;
+        // The engine generates this id; it becomes the exact persisted native
+        // user-message identity. No mint = no request (never a late heuristic link).
+        workflowMessageID = await this.mintPromptAnchor(sessionId, directory) ?? undefined;
+        if (!workflowMessageID) return false;
+      } catch {
+        return false;
+      }
+    }
+    if (callback && !managed && !foreground && !approvalResume) {
+      // The exact durable child callback has routeAuthed null, so the optional
+      // Dayflow anchor below never applies to it. When a Dayflow receiver is
+      // active for this root, its real native user-message id must exist
+      // before the SDK request: a missing anchor holds (the provider guard may
+      // not guess a binding from a later oldest-unlinked heuristic).
+      const anchor = await this.mintCallbackDayflowAnchor(sessionId, directory);
+      if (anchor === 'missing') return false;
+      dayflowMessageID = anchor ?? undefined;
+    } else if (!managed && !approvalResume && !codingWorkflow) {
       dayflowMessageID = await this.maybeMintDayflowPromptAnchor(
         sessionId,
         directory,
@@ -2983,7 +3162,7 @@ function validFiniteExecutionPermissionRules(
         model,
         parts: sdkParts,
         ...(opts ?? {}),
-        ...(managedMessageID ? { messageID: managedMessageID } : foregroundMessageID ? { messageID: foregroundMessageID } : approvalMessageID ? { messageID: approvalMessageID } : dayflowMessageID ? { messageID: dayflowMessageID } : {}),
+        ...(managedMessageID ? { messageID: managedMessageID } : foregroundMessageID ? { messageID: foregroundMessageID } : approvalMessageID ? { messageID: approvalMessageID } : workflowMessageID ? { messageID: workflowMessageID } : dayflowMessageID ? { messageID: dayflowMessageID } : {}),
       },
       ...(directory ? { query: { directory } } : {}),
     };
@@ -3045,6 +3224,30 @@ function validFiniteExecutionPermissionRules(
         return false;
       }
     }
+    if (!dispatchId && codingWorkflow) {
+      try {
+        // The exact row, carrying the SAME native user-message id the SDK body
+        // carries, is durable BEFORE exposure; a write failure is a closed hold.
+        dispatchId = modelProvenanceRepo.insert({
+          ...provenance!,
+          sdkUserMessageId: workflowMessageID!,
+        }).id;
+      } catch {
+        return false;
+      }
+      let prepared = false;
+      try {
+        prepared = (await codingWorkflow.validate({
+          phase: 'before_sdk', dispatchId, sdkUserMessageId: workflowMessageID!,
+        })) === true && codingWorkflow.onPrepared({ dispatchId, sdkUserMessageId: workflowMessageID! }) === true;
+      } catch {
+        prepared = false;
+      }
+      if (!prepared) {
+        settleDispatch(dispatchId, 'rejected');
+        return false;
+      }
+    }
     dispatchId ??= beginDispatch(dayflowMessageID && provenance
       ? { ...provenance, sdkUserMessageId: dayflowMessageID }
       : provenance);
@@ -3073,7 +3276,10 @@ function validFiniteExecutionPermissionRules(
     // See prompt(): retained Dayflow history is independent from managed
     // enrollment and must close both SDK dispatch paths on a failed recheck.
     try {
-      await this.assertDayflowSdkHistoryMayBeReused(sessionId);
+      // Only the already-qualified typed foreground / exact callback contexts
+      // may enqueue for a projected provider request; managed, approval-resume
+      // and untyped calls keep the raw-history hold.
+      await this.assertDayflowSdkHistoryMayBeReused(sessionId, Boolean(foreground || callback));
     } catch {
       settleDispatch(dispatchId, 'rejected');
       return false;
@@ -3111,10 +3317,38 @@ function validFiniteExecutionPermissionRules(
       settleDispatch(dispatchId, 'rejected');
       return false;
     }
+    // Coding Workflow: the async authority re-check at SDK exposure, then the
+    // synchronous freshness proof with NO await between it and the SDK call.
+    if (codingWorkflow) {
+      let current = false;
+      try {
+        current = (await codingWorkflow.validate({
+          phase: 'sdk_exposure', dispatchId: dispatchId!, sdkUserMessageId: workflowMessageID!,
+        })) === true;
+      } catch {
+        current = false;
+      }
+      if (current) {
+        try { current = codingWorkflow.isCurrent() === true; } catch { current = false; }
+      }
+      if (!current) {
+        settleDispatch(dispatchId, 'rejected');
+        return false;
+      }
+    }
+    const exportWorkflowOutcome = (delivery: 'accepted' | 'unknown' | 'rejected'): void => {
+      if (!codingWorkflow) return;
+      try {
+        codingWorkflow.onOutcome({ delivery, dispatchId: dispatchId!, sdkUserMessageId: workflowMessageID! });
+      } catch (err) {
+        logger.warn('[OpencodeClientService] coding workflow outcome export failed:', err);
+      }
+    };
     try {
       const raw = await this.client.session.promptAsync(requestArgs);
       if (raw.error) {
         settleDispatch(dispatchId, 'rejected');
+        exportWorkflowOutcome('rejected');
         logger.error(`[OpencodeClientService] promptAsync error for ${sessionId}:`, raw.error);
         return false;
       }
@@ -3134,20 +3368,27 @@ function validFiniteExecutionPermissionRules(
         // Back-compat for older/fake SDK transports that returned a body on
         // success. The generated fork client uses the 204 branch below.
         settleDispatch(dispatchId, 'accepted');
+        exportWorkflowOutcome('accepted');
         return true;
       }
       const httpStatus = raw.response?.status;
       if (httpStatus === 204) {
         settleDispatch(dispatchId, 'accepted');
+        exportWorkflowOutcome('accepted');
         return true;
       }
       settleDispatch(dispatchId, 'rejected');
+      exportWorkflowOutcome('rejected');
       logger.warn(
         `[OpencodeClientService] promptAsync silent no-op for ${sessionId}: SDK returned neither data nor error (model may not be supported; HTTP status=${httpStatus ?? 'unknown'})`,
       );
       return false;
     } catch (err) {
-      settleDispatch(dispatchId, 'rejected');
+      // A thrown transport error after the request left is NOT proof it was
+      // refused: the Coding Workflow adapter keeps it `unknown`. Every other
+      // caller keeps its existing rejected settlement.
+      settleDispatch(dispatchId, codingWorkflow ? 'unknown' : 'rejected');
+      exportWorkflowOutcome('unknown');
       logger.error(`[OpencodeClientService] promptAsync failed for session ${sessionId}:`, err);
       return false;
     }
@@ -4585,6 +4826,78 @@ function validFiniteExecutionPermissionRules(
       );
     }
     return raw.data ?? [];
+  }
+
+  /**
+   * Strict direct-child read for exact accounting. Unlike {@link listChildren}, an
+   * absent/malformed body or any element without a usable id, parent and
+   * directory is `null` (never an authoritative empty list), and a transport
+   * or SDK error is also `null`.
+   */
+  async listChildrenStrict(
+    sdkId: string,
+    directory: string,
+  ): Promise<Array<{ id: string; parentID: string; directory: string }> | null> {
+    try {
+      const client = this.requireClient();
+      const raw = await client.session.children({
+        path: { id: sdkId },
+        query: { directory },
+      });
+      if (raw.error || !Array.isArray(raw.data)) return null;
+      const nodes: Array<{ id: string; parentID: string; directory: string }> = [];
+      for (const item of raw.data as unknown[]) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+        const record = item as Record<string, unknown>;
+        if (
+          typeof record.id !== 'string' || record.id.length === 0 ||
+          typeof record.parentID !== 'string' || record.parentID.length === 0 ||
+          typeof record.directory !== 'string' || record.directory.length === 0
+        ) return null;
+        nodes.push({ id: record.id, parentID: record.parentID, directory: record.directory });
+      }
+      return nodes;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Strict message page for exact accounting: a response error, an absent or
+   * non-array body, or any element without an `info` object carrying string
+   * id/role is `null` — never silently an empty page. Cursor semantics match
+   * {@link listMessagesPage}.
+   */
+  async listMessagesPageStrict(
+    sdkId: string,
+    directory: string,
+    options: { limit?: number; before?: string } = {},
+  ): Promise<{ messages: Array<{ info: Record<string, unknown>; parts?: unknown }>; nextCursor: string | null } | null> {
+    try {
+      const client = this.requireClient();
+      const raw = await client.session.messages({
+        path: { id: sdkId },
+        query: {
+          directory,
+          ...(options.limit !== undefined ? { limit: options.limit } : {}),
+          ...(options.before !== undefined ? { before: options.before } : {}),
+        },
+      } as never);
+      if (raw.error || !Array.isArray(raw.data)) return null;
+      const messages: Array<{ info: Record<string, unknown>; parts?: unknown }> = [];
+      for (const item of raw.data as unknown[]) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+        const info = (item as Record<string, unknown>).info;
+        if (!info || typeof info !== 'object' || Array.isArray(info)) return null;
+        const record = info as Record<string, unknown>;
+        if (typeof record.id !== 'string' || record.id.length === 0 || typeof record.role !== 'string') return null;
+        messages.push({ info: record, parts: (item as Record<string, unknown>).parts });
+      }
+      const nextCursor = raw.response?.headers?.get('x-next-cursor') ?? null;
+      return { messages, nextCursor: nextCursor || null };
+    } catch {
+      return null;
+    }
   }
 
   /**

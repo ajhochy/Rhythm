@@ -29,6 +29,14 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import * as Option from "effect/Option"
 import * as OtelTracer from "@effect/opentelemetry/Tracer"
 import { modelStreamScheduler, providerBackpressureDelay } from "./model-stream-scheduler"
+import { Storage } from "@/storage/storage"
+import { markGuardManagedSeen, readGuardRecord, type GuardPurpose, type GuardRecord } from "./rhythm_provider_guard"
+import {
+  markModelMessages,
+  providerGuardMiddleware,
+  trustedRhythmIntegration,
+  type OriginSource,
+} from "./rhythm_provider_projection"
 
 const log = Log.create({ service: "llm" })
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
@@ -204,6 +212,15 @@ export type StreamInput = {
   tools: Record<string, Tool>
   retries?: number
   toolChoice?: "auto" | "required" | "none"
+  /**
+   * Rhythm Dayflow guard: lazily describes which real stored messages produced `messages`
+   * (only evaluated for Rhythm-managed SDK sessions; absent = origin coverage ambiguous).
+   */
+  origins?: OriginSource
+  /** Purpose of this call for the guard when origins are absent (title = "summary"); never defaults silently for title. */
+  guardPurpose?: GuardPurpose
+  /** The real processor assistant message this call's output is stored into (clean-group certificate). */
+  outputAssistantId?: string
 }
 
 export type StreamRequest = StreamInput & {
@@ -222,10 +239,11 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/LL
 const live: Layer.Layer<
   Service,
   never,
-  Auth.Service | Config.Service | Provider.Service | Plugin.Service | Permission.Service | RuntimeFlags.Service
+  Auth.Service | Config.Service | Provider.Service | Plugin.Service | Permission.Service | RuntimeFlags.Service | Storage.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
+    const storage = yield* Storage.Service
     const auth = yield* Auth.Service
     const config = yield* Config.Service
     const provider = yield* Provider.Service
@@ -256,6 +274,33 @@ const live: Layer.Layer<
         ],
         { concurrency: "unbounded" },
       )
+
+      // Rhythm Dayflow provider guard. Applies only to a Rhythm-managed SDK session: a durable
+      // managed/enrolled record, or the trusted local Rhythm integration observed now. A
+      // standalone session (neither) is untouched. A managed session stays guarded even if the
+      // integration config later disappears; an unreadable record is guarded-unknown, not absent.
+      const integration = trustedRhythmIntegration(cfg)
+      const recordState = yield* readGuardRecord(input.sessionID).pipe(Effect.provideService(Storage.Service, storage))
+      let guardRecord: GuardRecord | undefined
+      let guarded = false
+      if (recordState.state === "record") {
+        guarded = true
+        guardRecord = recordState.record
+      } else if (recordState.state === "error") {
+        guarded = true
+      } else if (integration) {
+        guarded = true
+        guardRecord = yield* markGuardManagedSeen(input.sessionID).pipe(
+          Effect.provideService(Storage.Service, storage),
+          // A failed durable write leaves the record unknown: attempts then hold.
+          Effect.catchCause(() => Effect.succeed(undefined)),
+        )
+      }
+      const guardOrigins =
+        guarded && input.origins
+          ? yield* Effect.promise(() => input.origins!()).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
+          : undefined
+      const sourceMessages = guardOrigins ? markModelMessages(input.messages, guardOrigins) : input.messages
 
       // TODO: move this to a proper hook
       const isOpenaiOauth = item.id === "openai" && info?.type === "oauth"
@@ -305,7 +350,7 @@ const live: Layer.Layer<
 
       const isWorkflow = language instanceof GitLabWorkflowLanguageModel
       const messages = isOpenaiOauth
-        ? input.messages
+        ? sourceMessages
         : isWorkflow
           ? input.messages
           : [
@@ -315,7 +360,7 @@ const live: Layer.Layer<
                   content: x,
                 }),
               ),
-              ...input.messages,
+              ...sourceMessages,
             ]
 
       const params = yield* plugin.trigger(
@@ -563,6 +608,27 @@ const live: Layer.Layer<
                 return args.params
               },
             },
+            // Last = closest to the model: guards the final prepared prompt of EVERY actual
+            // doStream/doGenerate attempt (tool-loop step, retry, compaction, OAuth instructions).
+            ...(guarded
+              ? [
+                  providerGuardMiddleware({
+                    sdkSessionId: input.sessionID,
+                    userMessageId: guardOrigins?.userMessageId ?? input.user.id,
+                    agentName: input.agent.name,
+                    purpose: guardOrigins?.purpose ?? input.guardPurpose ?? "answer",
+                    outputAssistantId: input.outputAssistantId,
+                    userKind: guardOrigins?.userKind ?? "authored",
+                    initiatingUserMessageId: guardOrigins?.initiatingUserMessageId ?? null,
+                    origins: guardOrigins,
+                    userSystem: input.user.system || undefined,
+                    record: guardRecord,
+                    integration,
+                    signal: input.abort,
+                    isWorkflow,
+                  }),
+                ]
+              : []),
           ],
         }),
         experimental_telemetry: {
@@ -628,7 +694,7 @@ const live: Layer.Layer<
   }),
 )
 
-export const layer = live.pipe(Layer.provide(Permission.defaultLayer))
+export const layer = live.pipe(Layer.provide(Permission.defaultLayer), Layer.provide(Storage.defaultLayer))
 
 export const defaultLayer = Layer.suspend(() =>
   layer.pipe(

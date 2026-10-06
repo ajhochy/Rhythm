@@ -1,5 +1,12 @@
 import { AppError } from '../errors/app_error';
 import {
+  CODING_WORKFLOW_ADAPTER,
+  CODING_WORKFLOW_DISPATCH_REASON,
+  parseCodingWorkflowDispatchReceipt,
+  type CodingWorkflowAuthorization,
+  type CodingWorkflowDispatchReceipt,
+} from '../contracts/coordinator_conversation_contract';
+import {
   AgentConfigsRepository,
   agentConfigExecutionBlockReason,
 } from '../repositories/agent_configs_repository';
@@ -11,8 +18,40 @@ import { isInteractiveChatSession } from './opencode_client_service';
 import { resolveProfileScope } from './agent_profile_scope';
 import { listAgentModelCatalog } from '../routes/agents_models_routes';
 
+/**
+ * Server-only input for ONE fixed Coding Workflow child (G2 first adapter). It
+ * carries no tool, permission or model authority; it only asks the existing
+ * delegation->prompt boundary to export its exact pre-SDK identity.
+ */
+export interface CodingWorkflowDispatchInput {
+  authorization: CodingWorkflowAuthorization;
+  /** Exact project the caller session must still belong to. */
+  expectedProjectId: string;
+  /** Current admission/owner/epoch/permission proof at each awaited phase. */
+  validate(phase: 'prepare' | 'before_sdk' | 'sdk_exposure'): boolean | Promise<boolean>;
+  /** Synchronous proof, run after the last await and immediately before the SDK request. */
+  isCurrent(): boolean;
+}
+
+/**
+ * Thrown only for the Coding Workflow path when the SDK request was attempted
+ * but its delivery cannot be confirmed. The delegation row and child are left
+ * as dispatched (never marked failed); the caller must hold the job unknown.
+ */
+export class CodingWorkflowDeliveryUnknownError extends AppError {
+  constructor(public readonly receipt: CodingWorkflowDispatchReceipt | null) {
+    super(502, 'DELIVERY_UNKNOWN', 'coding workflow delivery is unknown');
+    this.name = 'CodingWorkflowDeliveryUnknownError';
+  }
+}
+
+/** The one canonical profile the typed Coding Workflow adapter may dispatch to. */
+const CODING_WORKFLOW_TARGET_PROFILE = 'workflow-orchestrator';
+
 export interface AgentDelegationInput {
   authenticatedUserId: number;
+  /** Optional typed Coding Workflow receipt export; absent = the unchanged path. */
+  codingWorkflow?: CodingWorkflowDispatchInput;
   callerAgentConfigId?: string | null;
   targetAgentConfigId: string;
   prompt: string;
@@ -36,6 +75,8 @@ export interface AsyncAgentDelegationResult {
   status: 'dispatched';
   message: string;
   targetAgentConfigId: string;
+  /** Present only when the caller supplied `codingWorkflow` and delivery was accepted. */
+  workflowReceipt?: CodingWorkflowDispatchReceipt;
 }
 
 /**
@@ -263,6 +304,8 @@ export async function delegateToAgentAsync(
   if (!['default', 'plan', 'acceptEdits', 'bypassPermissions'].includes(permissionMode)) {
     throw AppError.forbidden('caller permission mode is invalid');
   }
+  /** The canonical root row's CURRENT project, re-read each call (never the initial snapshot). */
+  const currentRootProject = (): string | null => sessionRepo.findById(callerSessionId)?.projectId ?? null;
   const assertPermissionScopeCurrent = (): void => {
     const current = sessionRepo.findById(callerSessionId);
     if (!current || current.ownerUserId !== input.authenticatedUserId ||
@@ -304,6 +347,13 @@ export async function delegateToAgentAsync(
   if (!parseAllowedDelegates(caller.allowedDelegatesJson).has(targetId)) {
     throw AppError.forbidden('target profile is not an allowed delegate');
   }
+  // The typed Coding Workflow adapter is fixed to the one canonical profile. This
+  // narrows eligibility only (never widens allowedDelegates) and runs before any
+  // worktree, child/native session or SDK/model effect; untyped delegation of
+  // any other allowed specialist is unchanged.
+  if (input.codingWorkflow && targetId !== CODING_WORKFLOW_TARGET_PROFILE) {
+    throw AppError.forbidden('coding workflow is fixed to the workflow-orchestrator profile');
+  }
 
   const target = requireExecutableProfile(configRepo, targetId, 'target');
   if (!target.isAgent) {
@@ -323,6 +373,23 @@ export async function delegateToAgentAsync(
     ? `${input.context.trim()}\n\n${prompt}`
     : prompt;
   const childTitle = `Async delegation: ${target.label} (@${targetId} subagent)`;
+  // Typed preflight BEFORE the optional worktree: exact expected project and the
+  // current admission. The post-worktree block below is deliberately kept as the
+  // fresh currency check after that await, before any child/model exposure.
+  if (input.codingWorkflow) {
+    if (callerSession.projectId !== input.codingWorkflow.expectedProjectId) {
+      throw AppError.forbidden('coding workflow project scope does not match the caller session');
+    }
+    if ((await input.codingWorkflow.validate('prepare')) !== true) {
+      throw AppError.forbidden('coding workflow admission is no longer current');
+    }
+    // The admission await can race a project change: re-read the CANONICAL root
+    // (never the initial snapshot) synchronously, immediately before the worktree.
+    if (currentRootProject() !== input.codingWorkflow.expectedProjectId) {
+      throw AppError.forbidden('coding workflow project scope does not match the caller session');
+    }
+    assertPermissionScopeCurrent();
+  }
   let effectiveCwd = callerSession.cwd;
   let worktree: { name: string; path: string; branch: string | null } | null = null;
   if (input.isolateWorktree === true) {
@@ -337,6 +404,24 @@ export async function delegateToAgentAsync(
     };
   }
   assertPermissionScopeCurrent();
+  const workflow = input.codingWorkflow;
+  if (workflow) {
+    // Currency boundary after the awaited preparation, BEFORE any child session:
+    // the CURRENT project of the root (re-read, not the earlier snapshot) and,
+    // when an awaited worktree was created since the preflight, the admission
+    // proof again. Without that await the preflight proof is still the latest.
+    if (currentRootProject() !== workflow.expectedProjectId) {
+      throw AppError.forbidden('coding workflow project scope does not match the caller session');
+    }
+    if (worktree && (await workflow.validate('prepare')) !== true) {
+      throw AppError.forbidden('coding workflow admission is no longer current');
+    }
+    // Again synchronously AFTER the awaited admission, immediately before the child session.
+    if (currentRootProject() !== workflow.expectedProjectId) {
+      throw AppError.forbidden('coding workflow project scope does not match the caller session');
+    }
+    assertPermissionScopeCurrent();
+  }
   const childSession = await opencodeClient.createSession(
     childTitle,
     effectiveCwd,
@@ -373,13 +458,16 @@ export async function delegateToAgentAsync(
 
   const delegationRepo = new AgentAsyncDelegationsRepository();
   let delegationPersisted = false;
+  let delegationId: string | null = null;
+  let preparedBinding: { dispatchId: string; sdkUserMessageId: string } | null = null;
+  let deliveryOutcome: 'accepted' | 'unknown' | 'rejected' | null = null;
   try {
     assertPermissionScopeCurrent();
-    delegationRepo.create({
+    delegationId = delegationRepo.create({
       parentSessionId: callerSession.id,
       childSessionId: childRow.id,
       targetAgentConfigId: targetId,
-    });
+    }).id;
     delegationPersisted = true;
 
     // Subscribe before enqueue so a very fast child cannot finish before the
@@ -396,6 +484,14 @@ export async function delegateToAgentAsync(
       throw AppError.forbidden('child permission scope changed during async delegation');
     }
 
+    // The receipt names the exact engine process that will receive the request;
+    // without a current identity nothing is sent.
+    let engineIdentity: Awaited<ReturnType<typeof opencodeClient.getEngineIdentity>> = null;
+    if (workflow) {
+      engineIdentity = await opencodeClient.getEngineIdentity();
+      if (!engineIdentity) throw AppError.internal('engine identity unavailable for coding workflow dispatch');
+    }
+
     const runningAsOwnAgent =
       profileScope.ocAgent !== null && profileScope.ocAgent === targetId;
     const promptOpts: Record<string, unknown> = {
@@ -405,7 +501,7 @@ export async function delegateToAgentAsync(
         ? { system: profileScope.systemPrompt }
         : {}),
     };
-    const enqueued = await opencodeClient.promptAsync(
+    const promptHead = [
       childSession.id,
       scopedPrompt,
       runModel,
@@ -425,13 +521,98 @@ export async function delegateToAgentAsync(
         routeAuthed: null,
         finalProviderId: runModel.providerID,
         finalModelId: runModel.modelID,
+        ...(workflow ? { reasonCode: CODING_WORKFLOW_DISPATCH_REASON } : {}),
       },
-    );
+    ] as const;
+    // Calls without the typed input keep their exact original argument list.
+    const enqueued = workflow
+      ? await opencodeClient.promptAsync(
+        ...promptHead,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          kind: 'coding_workflow_dispatch_v1',
+          // Every awaited phase re-proves the caller's owner/permission scope,
+          // the child's permission scope and the admission itself.
+          validate: async (phase) => {
+            try {
+              assertPermissionScopeCurrent();
+              if (sessionRepo.findById(childRow.id)?.permissionMode !== permissionMode) return false;
+              return (await workflow.validate(phase.phase)) === true;
+            } catch {
+              return false;
+            }
+          },
+          isCurrent: () => {
+            try {
+              assertPermissionScopeCurrent();
+              // Final synchronous fence: the canonical root's CURRENT project too.
+              return currentRootProject() === workflow.expectedProjectId &&
+                sessionRepo.findById(childRow.id)?.permissionMode === permissionMode &&
+                workflow.isCurrent() === true;
+            } catch {
+              return false;
+            }
+          },
+          onPrepared: (binding) => {
+            preparedBinding = binding;
+            return true;
+          },
+          onOutcome: (outcome) => { deliveryOutcome = outcome.delivery; },
+        },
+      )
+      : await opencodeClient.promptAsync(...promptHead);
+    if (workflow) {
+      const prepared = preparedBinding as { dispatchId: string; sdkUserMessageId: string } | null;
+      const delivery = deliveryOutcome as 'accepted' | 'unknown' | 'rejected' | null;
+      const receipt = prepared && delegationId && engineIdentity && callerSession.ownerUserId !== null &&
+        callerSession.projectId && (delivery === 'accepted' || delivery === 'unknown')
+        ? parseCodingWorkflowDispatchReceipt({
+          schemaVersion: 1,
+          adapter: CODING_WORKFLOW_ADAPTER,
+          authorization: workflow.authorization,
+          owner: {
+            ownerUserId: callerSession.ownerUserId,
+            projectId: callerSession.projectId,
+            rootSessionId: callerSession.id,
+            rootSdkSessionId: parentSdkSessionId,
+          },
+          delegation: {
+            delegationId,
+            managerSessionId: childRow.id,
+            managerSdkSessionId: childSession.id,
+            nativeParentSdkSessionId: parentSdkSessionId,
+          },
+          dispatch: { ...prepared, delivery },
+          engine: engineIdentity,
+        })
+        : null;
+      if (delivery === 'unknown' || (enqueued && !receipt)) {
+        // The request left (or its identity cannot be exported): never claim
+        // failure and never claim success. The caller holds the job unknown.
+        throw new CodingWorkflowDeliveryUnknownError(receipt);
+      }
+      if (!enqueued) throw AppError.internal('failed to enqueue async delegated prompt');
+      if (worktree) sessionRepo.setWorktree(childRow.id, worktree);
+      return {
+        sessionId: childRow.id,
+        sdkSessionId: childSession.id,
+        status: 'dispatched',
+        targetAgentConfigId: targetId,
+        message: `Dispatched to ${target.label}; you'll be notified when it's done.`,
+        workflowReceipt: receipt!,
+      };
+    }
     if (!enqueued) {
       throw AppError.internal('failed to enqueue async delegated prompt');
     }
     if (worktree) sessionRepo.setWorktree(childRow.id, worktree);
   } catch (error) {
+    // An unknown workflow delivery leaves the delegation/child dispatched: the
+    // engine may be running it, so it is neither failed nor completed here.
+    if (error instanceof CodingWorkflowDeliveryUnknownError) throw error;
     const failure = dispatchFailureMessage(error);
     if (delegationPersisted) {
       delegationRepo.markDispatchFailed(childRow.id, failure);

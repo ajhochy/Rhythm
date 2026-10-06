@@ -60,10 +60,23 @@ import {
 } from './agent_profile_scope';
 import type { FiniteExecutionPermissionRule } from './coordinator_finite_execution_scope';
 import type {
+  BoundSessionLifecycleInspection,
   OpencodeClientService,
   OpencodeEngineIdentity,
   PersistedManagedConsentAuthority,
 } from './opencode_client_service';
+import {
+  CODING_WORKFLOW_BOUNDS,
+  CODING_WORKFLOW_DISPATCH_REASON,
+  parseCodingWorkflowDispatchReceipt,
+  type CodingWorkflowCoverageIds,
+  type CodingWorkflowCoverageResult,
+  type CodingWorkflowDispatchReceipt,
+  type CodingWorkflowHoldReason,
+  type CodingWorkflowRootTurn,
+} from '../contracts/coordinator_conversation_contract';
+import { AgentAsyncDelegationsRepository } from '../repositories/agent_async_delegations_repository';
+import { ModelProvenanceRepository } from '../repositories/model_provenance_repository';
 import { opencodeSessionMap } from './opencode_engine';
 
 const ACTIVE_JOB_STATES = new Set(['queued', 'claimed', 'running', 'unknown']);
@@ -3329,4 +3342,360 @@ function usageFromAssistantSteps(
     overshoot: policy ? totalTokens > policy.maxTokens : null,
     cost,
   };
+}
+
+// ── Coding Workflow coverage inspection (G2 first adapter) ─────────────────────
+
+/** Existing owned-engine read ports only; no new endpoint. */
+export interface CodingWorkflowInspectionEngine {
+  getEngineIdentity(): Promise<OpencodeEngineIdentity | null>;
+  getSession(sdkId: string): Promise<{ id: string; parentID?: string; directory?: string } | null>;
+  listChildrenStrict(sdkId: string, directory: string): Promise<Array<{ id: string; parentID: string; directory: string }> | null>;
+  listMessagesPageStrict(
+    sdkId: string,
+    directory: string,
+    options?: { limit?: number; before?: string },
+  ): Promise<{ messages: Array<{ info: Record<string, unknown>; parts?: unknown }>; nextCursor: string | null } | null>;
+  inspectBoundSessionLifecycles(sdkSessionIds: string[], directory: string): Promise<BoundSessionLifecycleInspection>;
+}
+
+export interface CodingWorkflowInspectionInput {
+  /** The typed receipt exported at the actual SDK boundary (re-parsed strictly here). */
+  receipt: unknown;
+  /**
+   * Exact persisted dispatch anchors of the root/review turns charged to this
+   * ordinal (including any charged automatic callback/review). Never lastN, a
+   * timestamp or an oldest/newest row.
+   */
+  rootTurns: unknown;
+  /** Synchronous owner/epoch/permission/admission proof, run after the last await. */
+  current(): boolean;
+}
+
+interface NativeNode { id: string; parentID: string; directory: string; depth: number }
+
+/**
+ * Complete manager + recursive native descendants + exact root/review accounting.
+ * Anything missing, malformed, ambiguous, pending, changed or over a bound is a
+ * hold with no usage figure: there is no fabricated zero and no manager-only total.
+ */
+export class CodingWorkflowCoverageInspector {
+  constructor(private readonly dependencies: {
+    engine: CodingWorkflowInspectionEngine;
+    sessions: Pick<AgentSessionsRepository, 'findById'>;
+    delegations: Pick<AgentAsyncDelegationsRepository, 'findById'>;
+    dispatches: Pick<ModelProvenanceRepository, 'get'>;
+    probeTimeoutMs?: number;
+  }) {}
+
+  async inspect(input: CodingWorkflowInspectionInput): Promise<CodingWorkflowCoverageResult> {
+    const hold = (reason: CodingWorkflowHoldReason, coverage: CodingWorkflowCoverageIds | null = null): CodingWorkflowCoverageResult =>
+      ({ status: 'hold', reason, coverage, usage: null });
+    const receipt = parseCodingWorkflowDispatchReceipt(input.receipt);
+    if (!receipt) return hold('receipt_invalid');
+    if (receipt.dispatch.delivery !== 'accepted') return hold('delivery_unknown');
+    const rootTurns = parseRootTurns(input.rootTurns);
+    if (!rootTurns) return hold('root_turns_missing');
+
+    const binding = this.localBinding(receipt, rootTurns);
+    if (binding.kind !== 'ok') return hold(binding.reason);
+    const ids = (descendants: string[] = [], turns: CodingWorkflowRootTurn[] = []): CodingWorkflowCoverageIds => ({
+      managerSessionId: receipt.delegation.managerSessionId,
+      managerSdkSessionId: receipt.delegation.managerSdkSessionId,
+      descendantSdkSessionIds: [...descendants].sort(),
+      rootTurns: turns,
+    });
+
+    const engine = this.dependencies.engine;
+    const before = await this.bounded(engine.getEngineIdentity());
+    if (!before) return hold('engine_identity_unavailable');
+    if (before.bootId !== receipt.engine.bootId) return hold('engine_identity_changed');
+
+    const manager = await this.bounded(engine.getSession(receipt.delegation.managerSdkSessionId));
+    if (
+      !manager || manager.id !== receipt.delegation.managerSdkSessionId ||
+      manager.parentID !== receipt.owner.rootSdkSessionId ||
+      typeof manager.directory !== 'string' || manager.directory.length === 0
+    ) return hold('native_metadata_unavailable', ids());
+    const managerNode: NativeNode = {
+      id: manager.id, parentID: manager.parentID, directory: manager.directory, depth: 0,
+    };
+
+    const tree = await this.enumerate(managerNode);
+    if (tree.kind !== 'ok') return hold(tree.reason, ids());
+    const descendants = tree.nodes;
+    const descendantIds = descendants.map((node) => node.id);
+    const covered = ids(descendantIds);
+
+    const lifecycle = await this.lifecycle([managerNode, ...descendants]);
+    if (lifecycle !== 'ok') return hold(lifecycle, covered);
+
+    const steps: Array<Record<string, unknown>> = [];
+    const sessionsWithSteps = new Set<string>();
+    // Manager: every assistant step in its session must belong to the one
+    // exact exported anchor, and exactly one terminal step must close it.
+    const managerMessages = await this.readAll(managerNode.id, managerNode.directory);
+    if (managerMessages.kind !== 'ok') return hold(managerMessages.reason, covered);
+    const managerAssistants = managerMessages.messages.filter((message) => message.info.role === 'assistant');
+    if (managerAssistants.some((message) => message.info.parentID !== receipt.dispatch.sdkUserMessageId)) {
+      return hold('uncovered_assistant_turn', covered);
+    }
+    if (managerAssistants.length === 0) return hold('accounting_missing', covered);
+    if (managerAssistants.some((message) => !completedStep(message.info))) return hold('turn_incomplete', covered);
+    if (turnGroupClosure(managerAssistants) !== 'closed') return hold('turn_not_terminal', covered);
+    steps.push(...managerAssistants.map((message) => message.info));
+    sessionsWithSteps.add(managerNode.id);
+
+    // Every actual native descendant is charged for ALL of its assistant steps.
+    for (const node of descendants) {
+      const read = await this.readAll(node.id, node.directory);
+      if (read.kind !== 'ok') return hold(read.reason, covered);
+      const assistants = read.messages.filter((message) => message.info.role === 'assistant');
+      if (assistants.length === 0) return hold('accounting_missing', covered);
+      if (assistants.some((message) => !completedStep(message.info))) return hold('turn_incomplete', covered);
+      // A completed tool-calls STEP is not a closed TURN: every actual turn
+      // group (assistant steps sharing one user parent) must close exactly once.
+      const groups = groupByParent(assistants);
+      if (!groups) return hold('uncovered_assistant_turn', covered);
+      if (groups.some((group) => turnGroupClosure(group) !== 'closed')) return hold('turn_not_terminal', covered);
+      steps.push(...assistants.map((message) => message.info));
+      sessionsWithSteps.add(node.id);
+    }
+
+    // Root/review turns: exactly the promised persisted dispatch anchors.
+    if (rootTurns.length > 0) {
+      const rootRead = await this.readAll(receipt.owner.rootSdkSessionId, binding.rootDirectory);
+      if (rootRead.kind !== 'ok') return hold(rootRead.reason, covered);
+      for (const turn of rootTurns) {
+        const assistants = rootRead.messages.filter((message) =>
+          message.info.role === 'assistant' && message.info.parentID === turn.sdkUserMessageId);
+        if (assistants.length === 0) return hold('accounting_missing', covered);
+        if (assistants.some((message) => !completedStep(message.info))) return hold('turn_incomplete', covered);
+        // Same closed-turn proof for each exactly charged root/review anchor; no
+        // blanket idle requirement for unrelated root activity.
+        if (turnGroupClosure(assistants) !== 'closed') return hold('turn_not_terminal', covered);
+        steps.push(...assistants.map((message) => message.info));
+      }
+      sessionsWithSteps.add(receipt.owner.rootSdkSessionId);
+    }
+    const coverage = ids(descendantIds, rootTurns);
+
+    // Every await above can race the engine: re-prove the identity, the child
+    // set and the lifecycle, then the local/owner/epoch scope synchronously.
+    const afterTree = await this.enumerate(managerNode);
+    if (afterTree.kind !== 'ok') return hold(afterTree.reason, coverage);
+    if (canonicalTree(afterTree.nodes) !== canonicalTree(descendants)) return hold('native_tree_changed', coverage);
+    const finalLifecycle = await this.lifecycle([managerNode, ...afterTree.nodes]);
+    if (finalLifecycle !== 'ok') return hold(finalLifecycle === 'lifecycle_unavailable' ? 'lifecycle_unavailable' : 'lifecycle_changed', coverage);
+    const after = await this.bounded(engine.getEngineIdentity());
+    if (!after || after.bootId !== before.bootId) return hold('engine_identity_changed', coverage);
+
+    const summed = usageFromAssistantSteps(steps, null);
+    if (!summed) return hold('usage_incomplete', coverage);
+    let current = false;
+    try { current = input.current() === true; } catch { current = false; }
+    if (!current) return hold('scope_changed', coverage);
+    if (this.localBinding(receipt, rootTurns).kind !== 'ok') return hold('local_binding_changed', coverage);
+
+    return {
+      status: 'complete',
+      coverage,
+      engineBootId: after.bootId,
+      usage: {
+        schemaVersion: 1,
+        status: 'actual',
+        basis: 'engine_assistant_turn_steps',
+        assistantStepCount: summed.assistantStepCount as number,
+        coveredSessionCount: sessionsWithSteps.size,
+        inputTokens: summed.inputTokens as number,
+        outputTokens: summed.outputTokens as number,
+        reasoningTokens: summed.reasoningTokens as number,
+        cacheReadTokens: summed.cacheReadTokens as number,
+        cacheWriteTokens: summed.cacheWriteTokens as number,
+        totalTokens: summed.totalTokens as number,
+        cost: summed.cost as number | null,
+      },
+    };
+  }
+
+  /** Exact synchronous local joins: owner/project/root/manager/delegation/dispatch/root anchors. */
+  private localBinding(
+    receipt: CodingWorkflowDispatchReceipt,
+    rootTurns: CodingWorkflowRootTurn[],
+  ): { kind: 'ok'; rootDirectory: string } | { kind: 'hold'; reason: CodingWorkflowHoldReason } {
+    const changed = { kind: 'hold', reason: 'local_binding_changed' } as const;
+    try {
+      const { sessions, delegations, dispatches } = this.dependencies;
+      const root = sessions.findById(receipt.owner.rootSessionId);
+      const manager = sessions.findById(receipt.delegation.managerSessionId);
+      if (
+        !root || !manager || root.ownerUserId !== receipt.owner.ownerUserId ||
+        root.projectId !== receipt.owner.projectId || root.sdkSessionId !== receipt.owner.rootSdkSessionId ||
+        root.parentSessionId !== null || typeof root.cwd !== 'string' || root.cwd.length === 0 ||
+        manager.ownerUserId !== receipt.owner.ownerUserId ||
+        manager.projectId !== receipt.owner.projectId ||
+        manager.parentSessionId !== root.id || manager.sdkSessionId !== receipt.delegation.managerSdkSessionId
+      ) return changed;
+      const delegation = delegations.findById(receipt.delegation.delegationId);
+      if (
+        !delegation || delegation.parentSessionId !== root.id || delegation.childSessionId !== manager.id ||
+        delegation.targetAgentConfigId !== 'workflow-orchestrator'
+      ) return changed;
+      const dispatch = dispatches.get(receipt.dispatch.dispatchId);
+      if (
+        !dispatch || dispatch.sessionId !== manager.id || dispatch.sdkSessionId !== manager.sdkSessionId ||
+        dispatch.sdkUserMessageId !== receipt.dispatch.sdkUserMessageId || dispatch.origin !== 'delegation' ||
+        dispatch.reasonCode !== CODING_WORKFLOW_DISPATCH_REASON || dispatch.outcome !== 'accepted'
+      ) return changed;
+      for (const turn of rootTurns) {
+        const row = dispatches.get(turn.dispatchId);
+        if (
+          !row || row.sessionId !== root.id || row.sdkSessionId !== root.sdkSessionId ||
+          row.sdkUserMessageId !== turn.sdkUserMessageId || row.outcome !== 'accepted'
+        ) return { kind: 'hold', reason: 'root_turn_unbound' };
+      }
+      return { kind: 'ok', rootDirectory: root.cwd };
+    } catch {
+      return changed;
+    }
+  }
+
+  /** Bounded BFS over actual native parent edges; excess or a cycle is a hold, never a partial tree. */
+  private async enumerate(
+    manager: NativeNode,
+  ): Promise<{ kind: 'ok'; nodes: NativeNode[] } | { kind: 'hold'; reason: CodingWorkflowHoldReason }> {
+    const seen = new Set<string>([manager.id]);
+    const nodes: NativeNode[] = [];
+    const directories = new Set<string>([manager.directory]);
+    const queue: NativeNode[] = [manager];
+    while (queue.length > 0) {
+      const node = queue.shift()!;
+      const children = await this.bounded(this.dependencies.engine.listChildrenStrict(node.id, node.directory));
+      if (!children) return { kind: 'hold', reason: 'native_tree_unavailable' };
+      for (const child of children) {
+        if (child.parentID !== node.id || !child.id || !child.directory) {
+          return { kind: 'hold', reason: 'descendant_identity_missing' };
+        }
+        if (seen.has(child.id)) return { kind: 'hold', reason: 'native_tree_cycle' };
+        const depth = node.depth + 1;
+        directories.add(child.directory);
+        if (
+          depth > CODING_WORKFLOW_BOUNDS.maxDepth || nodes.length + 1 > CODING_WORKFLOW_BOUNDS.maxDescendants ||
+          directories.size > CODING_WORKFLOW_BOUNDS.maxDirectories
+        ) return { kind: 'hold', reason: 'native_tree_bounds_exceeded' };
+        seen.add(child.id);
+        const next = { id: child.id, parentID: child.parentID, directory: child.directory, depth };
+        nodes.push(next);
+        queue.push(next);
+      }
+    }
+    return { kind: 'ok', nodes };
+  }
+
+  /** Strict lifecycle per owned directory batch (<=100 ids): known, idle/absent, nothing pending. */
+  private async lifecycle(nodes: NativeNode[]): Promise<'ok' | CodingWorkflowHoldReason> {
+    const byDirectory = new Map<string, string[]>();
+    for (const node of nodes) byDirectory.set(node.directory, [...(byDirectory.get(node.directory) ?? []), node.id]);
+    for (const [directory, sessionIds] of byDirectory) {
+      for (let offset = 0; offset < sessionIds.length; offset += 100) {
+        const batch = sessionIds.slice(offset, offset + 100);
+        const inspection = await this.bounded(this.dependencies.engine.inspectBoundSessionLifecycles(batch, directory));
+        if (!inspection?.available) return 'lifecycle_unavailable';
+        for (const id of batch) {
+          if (!inspection.knownSessionIds.includes(id)) return 'lifecycle_unavailable';
+          if (inspection.pendingQuestionSessionIds.includes(id) || inspection.pendingPermissionSessionIds.includes(id)) {
+            return 'pending_interaction';
+          }
+          const status = inspection.statusBySessionId[id];
+          if (status && status.type === 'busy') return 'session_busy';
+          if (status && status.type !== 'idle') return 'lifecycle_changed';
+        }
+      }
+    }
+    return 'ok';
+  }
+
+  /** Every cursor page to the engine's explicit end; a failed/repeated/over-cap page is a hold. */
+  private async readAll(
+    sdkSessionId: string,
+    directory: string,
+  ): Promise<{ kind: 'ok'; messages: Array<{ info: Record<string, unknown>; parts?: unknown }> } | { kind: 'hold'; reason: CodingWorkflowHoldReason }> {
+    const messages: Array<{ info: Record<string, unknown>; parts?: unknown }> = [];
+    const cursors = new Set<string>();
+    let before: string | undefined;
+    for (let page = 0; page < CODING_WORKFLOW_BOUNDS.maxMessagePagesPerSession; page += 1) {
+      const result = await this.bounded(this.dependencies.engine.listMessagesPageStrict(
+        sdkSessionId, directory, { limit: 100, ...(before === undefined ? {} : { before }) },
+      ));
+      if (!result) return { kind: 'hold', reason: 'messages_unavailable' };
+      messages.push(...result.messages);
+      if (!result.nextCursor) return { kind: 'ok', messages };
+      if (cursors.has(result.nextCursor)) return { kind: 'hold', reason: 'message_pages_incomplete' };
+      cursors.add(result.nextCursor);
+      before = result.nextCursor;
+    }
+    return { kind: 'hold', reason: 'message_pages_incomplete' };
+  }
+
+  private bounded<T>(pending: Promise<T>): Promise<T | null> {
+    const timeoutMs = this.dependencies.probeTimeoutMs ?? STATUS_PROBE_TIMEOUT_MS;
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => resolve(null), timeoutMs);
+      pending.then(
+        (value) => { clearTimeout(timeout); resolve(value); },
+        () => { clearTimeout(timeout); resolve(null); },
+      );
+    });
+  }
+}
+
+function parseRootTurns(value: unknown): CodingWorkflowRootTurn[] | null {
+  if (!Array.isArray(value) || value.length > CODING_WORKFLOW_BOUNDS.maxRootTurns) return null;
+  const turns: CodingWorkflowRootTurn[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    const record = asRecord(item);
+    if (
+      !record || Object.keys(record).length !== 2 ||
+      typeof record.dispatchId !== 'string' || record.dispatchId.length === 0 ||
+      typeof record.sdkUserMessageId !== 'string' || record.sdkUserMessageId.length === 0 ||
+      seen.has(record.dispatchId) || seen.has(record.sdkUserMessageId)
+    ) return null;
+    seen.add(record.dispatchId);
+    seen.add(record.sdkUserMessageId);
+    turns.push({ dispatchId: record.dispatchId, sdkUserMessageId: record.sdkUserMessageId });
+  }
+  return turns;
+}
+
+/** Assistant steps grouped by their user-message parent; null when any step has no usable parent. */
+function groupByParent(assistants: Array<{ info: Record<string, unknown> }>): Array<Array<{ info: Record<string, unknown> }>> | null {
+  const groups = new Map<string, Array<{ info: Record<string, unknown> }>>();
+  for (const message of assistants) {
+    const parent = message.info.parentID;
+    if (typeof parent !== 'string' || parent.length === 0) return null;
+    groups.set(parent, [...(groups.get(parent) ?? []), message]);
+  }
+  return [...groups.values()];
+}
+
+/**
+ * Supported terminal policy for ONE completed turn group: exactly one step with
+ * finish `stop` and no step carrying an engine error. A group with no `stop`
+ * (only tool-calls/length/other finishes), several `stop`s (ambiguous) or any
+ * error is `unclosed`; the caller holds with usage=null rather than guessing
+ * success or summing a smaller total. Coverage is not an outcome claim.
+ */
+function turnGroupClosure(group: Array<{ info: Record<string, unknown> }>): 'closed' | 'unclosed' {
+  if (group.some((message) => message.info.error !== undefined && message.info.error !== null)) return 'unclosed';
+  return group.filter((message) => message.info.finish === 'stop').length === 1 ? 'closed' : 'unclosed';
+}
+
+function completedStep(info: Record<string, unknown>): boolean {
+  const time = asRecord(info.time);
+  return !!time && typeof time.completed === 'number';
+}
+
+function canonicalTree(nodes: NativeNode[]): string {
+  return JSON.stringify(nodes.map((node) => `${node.id}<${node.parentID}@${node.directory}`).sort());
 }
