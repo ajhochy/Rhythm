@@ -209,6 +209,18 @@ const SAFE_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const COORDINATOR_BACKGROUND_CAPACITY = 2;
 const LEGACY_CAPACITY_SNAPSHOT_LIMIT = 100;
 const WORKFLOW_MEMBERSHIP_LIMIT = 48;
+/**
+ * The Coding Workflow manager's async delegation IS its native coordinator job
+ * (one capacity unit, counted on the native side). Excludes exactly the
+ * delegations bound by a live workflow job; terminal jobs stop excluding.
+ */
+const NOT_LIVE_WORKFLOW_DELEGATION = `NOT IN (
+  SELECT json_extract(j.native_metadata_json,'$.workflow.prepared.delegation.delegationId')
+  FROM agent_bridge_jobs j
+  WHERE j.direction='rhythm_to_native' AND j.native_execution_kind='coordinator'
+    AND j.state IN ('claimed','running','unknown')
+    AND json_extract(j.native_metadata_json,'$.workflow.kind')='coding_workflow'
+    AND json_extract(j.native_metadata_json,'$.workflow.prepared.delegation.delegationId') IS NOT NULL)`;
 
 /**
  * Server-private, pre-exposure binding for the fixed Coding Workflow manager.
@@ -382,7 +394,30 @@ function actualUsageTokens(row: AgentBridgeJobRow): number | null {
   const usage = parseRecord(row.native_usage_json);
   if (usage?.status !== 'actual') return null;
   const total = finiteNonNegative(usage.totalTokens);
-  return total !== null && Number.isSafeInteger(total) ? total : null;
+  if (total === null || !Number.isSafeInteger(total)) return null;
+  // A Coding Workflow job spans the manager, native descendants and callback
+  // turns: a partial sum would under-charge, so usage must cover the manager
+  // plus every persisted-assistant member session or it is unknown.
+  const workflow = parseRecord(row.native_metadata_json)?.workflow;
+  if (workflow && typeof workflow === 'object' && !Array.isArray(workflow)) {
+    const record = workflow as Record<string, unknown>;
+    if (record.kind === 'coding_workflow') {
+      const sessions = new Set<string>();
+      const prepared = record.prepared as { workflowBinding?: { managerSdkSessionId?: unknown } } | null | undefined;
+      if (typeof prepared?.workflowBinding?.managerSdkSessionId === 'string') {
+        sessions.add(prepared.workflowBinding.managerSdkSessionId);
+      }
+      for (const item of Array.isArray(record.membership) ? record.membership : []) {
+        const m = item as Record<string, unknown> | null;
+        if (m?.accountingKind === 'persisted_assistant' && typeof m.nativeSessionId === 'string') {
+          sessions.add(m.nativeSessionId);
+        }
+      }
+      const covered = usage.coveredSessionCount;
+      if (typeof covered !== 'number' || !Number.isSafeInteger(covered) || covered < sessions.size) return null;
+    }
+  }
+  return total;
 }
 
 function acknowledgedEstimateTokens(row: AgentBridgeJobRow): number | null {
@@ -686,7 +721,7 @@ export class AgentBridgeJobsRepository {
       if (!asyncTable) return { available: true, totalActive: 0, rows: [] };
       const total = this.db.prepare(`SELECT COUNT(*) AS count
         FROM agent_async_delegations
-        WHERE status IN ('dispatched','waking')`).get() as { count: number };
+        WHERE status IN ('dispatched','waking') AND id ${NOT_LIVE_WORKFLOW_DELEGATION}`).get() as { count: number };
       const rows = this.db.prepare(`SELECT
           d.id AS delegation_id,
           d.status AS delegation_status,
@@ -704,7 +739,7 @@ export class AgentBridgeJobsRepository {
         FROM agent_async_delegations d
         LEFT JOIN agent_sessions p ON p.id=d.parent_session_id
         LEFT JOIN agent_sessions c ON c.id=d.child_session_id
-        WHERE d.status IN ('dispatched','waking')
+        WHERE d.status IN ('dispatched','waking') AND d.id ${NOT_LIVE_WORKFLOW_DELEGATION}
         ORDER BY d.created_at ASC, d.id ASC
         LIMIT ?`).all(LEGACY_CAPACITY_SNAPSHOT_LIMIT) as LegacyCoordinatorCapacitySqlRow[];
       return {
@@ -735,7 +770,7 @@ export class AgentBridgeJobsRepository {
       FROM agent_async_delegations d
       LEFT JOIN agent_sessions p ON p.id=d.parent_session_id
       LEFT JOIN agent_sessions c ON c.id=d.child_session_id
-      WHERE d.id=? AND d.status IN ('dispatched','waking')`).get(id) as LegacyCoordinatorCapacitySqlRow | undefined;
+      WHERE d.id=? AND d.status IN ('dispatched','waking') AND d.id ${NOT_LIVE_WORKFLOW_DELEGATION}`).get(id) as LegacyCoordinatorCapacitySqlRow | undefined;
     return row ? legacyCapacityRow(row) : null;
   }
 
@@ -756,7 +791,7 @@ export class AgentBridgeJobsRepository {
       if (!asyncTable) return 0;
       const total = (this.db.prepare(`SELECT COUNT(*) AS count
         FROM agent_async_delegations
-        WHERE status IN ('dispatched','waking')`).get() as { count: number }).count;
+        WHERE status IN ('dispatched','waking') AND id ${NOT_LIVE_WORKFLOW_DELEGATION}`).get() as { count: number }).count;
       const assessment = input.assessment;
       if (
         !assessment ||
@@ -1117,6 +1152,61 @@ export class AgentBridgeJobsRepository {
         input.jobId, input.localUserId, input.workstreamId,
       ) as AgentBridgeJobRow | undefined;
       if (!row) throw new BridgeJobError('workflow_membership_conflict');
+      return row;
+    }).immediate();
+  }
+
+  /**
+   * The live workflow job whose manager is exactly this async delegation. A
+   * delegation not bound by a live (claimed/running/unknown) workflow job is
+   * unrelated and must never be attributed to one.
+   */
+  findLiveCoordinatorWorkflowJobByDelegation(delegationId: string): AgentBridgeJobRow | null {
+    if (!workflowId(delegationId)) return null;
+    return this.db.prepare(`
+      SELECT * FROM agent_bridge_jobs
+       WHERE direction='rhythm_to_native' AND native_execution_kind='coordinator'
+         AND state IN ('claimed','running','unknown')
+         AND json_extract(native_metadata_json,'$.workflow.kind')='coding_workflow'
+         AND json_extract(native_metadata_json,'$.workflow.delivery')='accepted'
+         AND json_extract(native_metadata_json,'$.workflow.prepared.delegation.delegationId')=?
+       LIMIT 1`).get(delegationId) as AgentBridgeJobRow | undefined ?? null;
+  }
+
+  /**
+   * Durable pre-exposure receipt for the bound manager's completion callback:
+   * the minted native user anchor, CAS'd onto the job JSON. A replay of the
+   * same anchor is idempotent; a different anchor for the same delegation
+   * holds.
+   */
+  recordCoordinatorWorkflowCallbackAnchor(input: {
+    delegationId: string;
+    dispatchId: string;
+    sdkUserMessageId: string;
+    now: string;
+  }): AgentBridgeJobRow {
+    if (!workflowId(input.delegationId) || !workflowId(input.dispatchId) || !workflowId(input.sdkUserMessageId)) {
+      throw new BridgeJobError('workflow_callback_anchor_invalid', 400);
+    }
+    return this.db.transaction(() => {
+      const current = this.findLiveCoordinatorWorkflowJobByDelegation(input.delegationId);
+      if (!current) throw new BridgeJobError('workflow_callback_unbound');
+      const metadata = parseRecord(current.native_metadata_json)!;
+      const record = metadata.workflow as Record<string, unknown>;
+      const anchors = Array.isArray(record.callbackAnchors) ? record.callbackAnchors as Array<Record<string, unknown>> : [];
+      const anchor = { delegationId: input.delegationId, dispatchId: input.dispatchId, sdkUserMessageId: input.sdkUserMessageId };
+      const existing = anchors.find((item) => item?.delegationId === input.delegationId);
+      if (existing) {
+        if (!sameJson(existing, anchor)) throw new BridgeJobError('workflow_callback_anchor_conflict');
+        return current;
+      }
+      if (anchors.length >= WORKFLOW_MEMBERSHIP_LIMIT) throw new BridgeJobError('workflow_membership_bounds');
+      const next = { ...metadata, workflow: { ...record, callbackAnchors: [...anchors, anchor] } };
+      const row = this.db.prepare(`UPDATE agent_bridge_jobs
+        SET native_metadata_json=?, native_progress_at=?, updated_at=?
+        WHERE id=? AND native_metadata_json=? AND state IN ('claimed','running','unknown')
+        RETURNING *`).get(serializedMetadata(next), input.now, input.now, current.id, current.native_metadata_json) as AgentBridgeJobRow | undefined;
+      if (!row) throw new BridgeJobError('workflow_callback_anchor_conflict');
       return row;
     }).immediate();
   }
