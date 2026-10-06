@@ -1,7 +1,25 @@
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import { test } from 'node:test';
+import { readFile } from 'node:fs/promises';
+import ts from 'typescript';
 
-import {
+// Node 20 (CI) cannot import .ts. Transpile the actual service and its local
+// dependencies, preserving module boundaries and every behavioral assertion.
+async function sourceModule(url) {
+  const source = await readFile(url, 'utf8');
+  let output = ts.transpileModule(source, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+  }).outputText;
+  const imports = [...output.matchAll(/from\s+(['"])(\.\.?\/[^'"]+)\1/g)];
+  for (const [, , specifier] of imports) {
+    const dependency = await sourceModule(new URL(specifier, url));
+    output = output.replaceAll(`'${specifier}'`, `'${dependency}'`).replaceAll(`"${specifier}"`, `"${dependency}"`);
+  }
+  return `data:text/javascript;base64,${Buffer.from(output).toString('base64')}`;
+}
+
+const {
   canCancelResearchRun,
   canFinishResearchRun,
   canResumeResearchRun,
@@ -14,7 +32,7 @@ import {
   serializeProfileScope,
   TOOL_SCREEN_MANIFEST,
   validateResearchBudgetField,
-} from '../providers/services/rhythm-tools-service.ts';
+} = await import(await sourceModule(new URL('../providers/services/rhythm-tools-service.ts', import.meta.url)));
 
 function recordingTransport(origin) {
   const calls = [];
