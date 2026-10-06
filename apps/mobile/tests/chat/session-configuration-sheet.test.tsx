@@ -284,6 +284,58 @@ describe('SessionConfigurationSheet', () => {
     fireEvent.press(screen.getByLabelText('Beta'));
     expect(onProjectChange).toHaveBeenCalledWith('/projects/beta');
   });
+
+  test('picker search hides the inert clear container when empty and restores the stock clear control when typing', () => {
+    // Real Paper Searchbar (not mocked). Paper keeps a transparent clear button mounted while empty, which showed as a blank
+    // pale circle. With `right` defined the whole clear wrapper is display:none; nonempty restores the stock clear control.
+    const onCreate = jest.fn().mockResolvedValue(undefined);
+    const builder: AgentOption = {
+      ...secretary,
+      id: 'builder' as AgentOption['id'],
+      profileId: 'builder' as AgentOption['profileId'],
+      opencodeAgentId: 'builder' as AgentOption['opencodeAgentId'],
+      label: 'Builder',
+    };
+    const screen = render(
+      sheet([secretary, builder], defaultChatPreferences, onCreate),
+    );
+    fireEvent.press(screen.getByLabelText('Profile, Secretary'));
+
+    // The empty-state wrapper is intentionally display:none, so the query must include hidden elements.
+    const wrapper = () => screen.getByTestId('search-bar-icon-wrapper', { includeHiddenElements: true });
+    const wrapperDisplay = () => StyleSheet.flatten(wrapper().props.style)?.display;
+    const search = () => screen.getByLabelText('Search profiles');
+
+    // Empty: the clear wrapper is still mounted by Paper but hidden (display:none), so there is no visible circle and no
+    // accessibility-exposed clear button; both profiles are listed.
+    expect(search().props.value).toBe('');
+    expect(wrapperDisplay()).toBe('none');
+    expect(screen.queryByLabelText('clear')).toBeNull();
+    expect(
+      screen.getByLabelText('clear', { includeHiddenElements: true }),
+    ).toBeTruthy();
+    expect(screen.getByText('Secretary')).toBeTruthy();
+    expect(screen.getByText('Builder')).toBeTruthy();
+
+    // Typing filters and exposes the stock accessible clear control.
+    fireEvent.changeText(search(), 'Secretary');
+    expect(search().props.value).toBe('Secretary');
+    expect(wrapperDisplay()).not.toBe('none');
+    expect(screen.getByText('Secretary')).toBeTruthy();
+    expect(screen.queryByText('Builder')).toBeNull();
+    expect(screen.getByLabelText('clear')).toBeTruthy();
+
+    // Pressing clear restores the empty query and all choices, and hides the empty container again.
+    fireEvent.press(screen.getByLabelText('clear'));
+    expect(search().props.value).toBe('');
+    expect(screen.getByText('Secretary')).toBeTruthy();
+    expect(screen.getByText('Builder')).toBeTruthy();
+    expect(wrapperDisplay()).toBe('none');
+    expect(screen.queryByLabelText('clear')).toBeNull();
+
+    // Searching and clearing is presentation only: no create/persistence callback ran.
+    expect(onCreate).not.toHaveBeenCalled();
+  });
 });
 
 

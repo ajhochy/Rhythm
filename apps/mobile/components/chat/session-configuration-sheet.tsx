@@ -339,6 +339,9 @@ export function SessionConfigurationSheet({
                     autoFocus
                     onChangeText={setQuery}
                     placeholder={`Search ${page}`}
+                    // Paper keeps an inert transparent clear button mounted when empty, which leaves a blank pale circle.
+                    // A defined `right` hides that whole clear wrapper (display:none); undefined restores the stock clear.
+                    right={query ? undefined : () => null}
                     value={query}
                   />
                 ) : null}
