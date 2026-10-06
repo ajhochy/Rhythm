@@ -89,6 +89,7 @@ async function main() {
     { DayflowReceivingHistoryGuard, DayflowProviderAdmissionService },
     { IntegrationAccountsRepository },
     { CalendarShadowEventsRepository },
+    { computeCodingWorkflowCapability },
   ] = await Promise.all([
     import('./app'),
     import('./database/db'),
@@ -134,6 +135,7 @@ async function main() {
     import('./services/dayflow_receiving_history_guard'),
     import('./repositories/integration_accounts_repository'),
     import('./repositories/calendar_shadow_events_repository'),
+    import('./services/coding_workflow_capability'),
   ]);
 
   logger.info(`[server] durable log: ${apiServerLogPath()}`);
@@ -278,8 +280,8 @@ async function main() {
     };
     coordinatorConversationService = new CoordinatorConversationService({
       repository: conversationRepository,
-      context: new CoordinatorConversationContextAssembler(
-        createCoordinatorConversationContextAdapters({
+      context: new CoordinatorConversationContextAssembler({
+        ...createCoordinatorConversationContextAdapters({
           dayflow: dayflowReferences,
           // Optional status-only sources. Calendar: owner-local cached mirror
           // reads only (no sync/refresh/provider call). Project sessions: the
@@ -292,7 +294,16 @@ async function main() {
             profiles: conversationConfigs,
           },
         }),
-      ),
+        // Status-only: the lane is usable only where the schema-2 provider
+        // admission below is composed (same env gate) and the roster is live.
+        codingWorkflowCapability: {
+          read: (scope) => computeCodingWorkflowCapability({
+            configs: conversationConfigs,
+            projectAuthorized: ownerProjectAccess(scope.ownerUserId, scope.projectId),
+            enrollmentAvailable: env.agentLocal && env.agentOriginGuardEnabled,
+          }),
+        },
+      }),
       workstreams: conversationWorkstreams,
       jobs: conversationJobs,
       sessions: conversationSessions,
@@ -1148,6 +1159,7 @@ async function main() {
       authority: dayflowQualificationAuthority,
       enrollment: dayflowEnrollment,
     }));
+    const workflowMembershipJobs = new AgentBridgeJobsRepository(getDb());
     dayflowProviderAdmission = new DayflowProviderAdmissionService({
       records: dayflowRecords,
       engine: opencodeClient,
@@ -1158,6 +1170,11 @@ async function main() {
       // The private schema-2 frame is admitted only through the same current
       // coordinator/root/finite-job authority that prepared it. This does not
       // make a workflow marker a Dayflow consent or source grant.
+      // Membership must already be durable on the exact job before an allow.
+      workflowMembership: {
+        hasMember: (jobId, nativeSessionId, nativeUserMessageId) =>
+          workflowMembershipJobs.hasCoordinatorWorkflowMember(jobId, nativeSessionId, nativeUserMessageId),
+      },
       workflow: {
         admit: async (input) => coordinatorConversationService
           ? coordinatorConversationService.admitWorkflowProvider({ ...input, actor: input.auth })

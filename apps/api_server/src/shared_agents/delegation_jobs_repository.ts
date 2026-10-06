@@ -661,6 +661,16 @@ export class AgentBridgeJobsRepository {
     `).get(jobId) as AgentBridgeJobRow | undefined ?? null;
   }
 
+  /** Exact durable member proof for the provider finalizer (membership precedes the request). */
+  hasCoordinatorWorkflowMember(jobId: string, nativeSessionId: string, nativeUserMessageId: string): boolean {
+    const workflow = parseRecord(this.findCoordinatorWorkflowJob(jobId)?.native_metadata_json ?? null)?.workflow as
+      { membership?: unknown } | undefined;
+    return Array.isArray(workflow?.membership) && workflow.membership.some((item) => {
+      const member = item as Record<string, unknown> | null;
+      return member?.nativeSessionId === nativeSessionId && member.nativeUserMessageId === nativeUserMessageId;
+    });
+  }
+
   listNativeForWorkstream(input: {
     localUserId: number;
     workstreamId: string;

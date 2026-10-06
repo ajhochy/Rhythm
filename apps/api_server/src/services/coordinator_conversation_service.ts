@@ -37,6 +37,7 @@ import { AgentWorkstreamsRepository } from '../repositories/agent_workstreams_re
 import { ProjectsRepository } from '../repositories/projects_repository';
 import { AgentBridgeJobsRepository, type AgentBridgeJobRow } from '../shared_agents/delegation_jobs_repository';
 import type { CoordinatorWorkflowMembership } from '../shared_agents/delegation_jobs_repository';
+import { computeCodingWorkflowCapability, renderCodingWorkflowCapabilityLine } from './coding_workflow_capability';
 import type {
   WorkflowProviderPendingExport,
   WorkflowProviderRequest,
@@ -1455,22 +1456,10 @@ export class CoordinatorConversationService {
     if (selected.session.permissionMode !== 'plan' || selected.session.approvalBypassExplicit === true) {
       return { kind: 'planning_authority_unavailable', conversation: initial };
     }
-    const manager = this.dependencies.configs.getById('workflow-orchestrator');
-    const reviewer = this.dependencies.configs.getById('verification-gate');
-    const managerAllowsReviewer = (() => {
-      try {
-        const value: unknown = manager?.allowedDelegatesJson ? JSON.parse(manager.allowedDelegatesJson) : [];
-        return Array.isArray(value) && value.includes('verification-gate');
-      } catch {
-        return false;
-      }
-    })();
-    if (
-      !manager || !reviewer || manager.id === reviewer.id || !manager.enabled || !manager.isAgent ||
-      manager.locked === true || agentConfigExecutionBlockReason(manager) !== null ||
-      !reviewer.enabled || !reviewer.isAgent || reviewer.locked === true ||
-      agentConfigExecutionBlockReason(reviewer) !== null || !managerAllowsReviewer
-    ) return { kind: 'planning_authority_unavailable', conversation: initial };
+    // One source of truth with the prompt/context capability line (S7).
+    if (!computeCodingWorkflowCapability({
+      configs: this.dependencies.configs, projectAuthorized: true, enrollmentAvailable: true,
+    }).available) return { kind: 'planning_authority_unavailable', conversation: initial };
 
     const existing = this.authorityForGoal(initial, initialGoal.id);
     const existingLive = existing !== null && new Date(existing.expiresAt).valueOf() > this.now().valueOf();
@@ -3131,6 +3120,7 @@ export class CoordinatorConversationService {
       ...(context.calendarMirror || context.projectSessions
         ? ['Calendar and project-session entries in the snapshot are cached/local observations with the stated sync age and coverage: the calendar mirror has unproven account binding and unknown external completeness (an empty window never means the calendar is clear), and project sessions are persisted status from a recent window (not live, not completion, and never a dispatch grant for another project). For detail use the signed status tool only if it is actually in your active profile scope; otherwise say detail is unavailable.']
         : []),
+      ...(context.codingWorkflow ? [renderCodingWorkflowCapabilityLine(context.codingWorkflow)] : []),
       `Current bounded coordinator snapshot: ${JSON.stringify(snapshot)}`,
     ].join('\n\n');
   }
@@ -3285,6 +3275,9 @@ export class CoordinatorConversationService {
   /** Compact source STATE only (no event/session bodies): system text and the oversize fallback. */
   private optionalSummary(context: CoordinatorConversationContextProjection): Record<string, unknown> {
     const out: Record<string, unknown> = {};
+    if (context.codingWorkflow) {
+      out.codingWorkflowLane = { available: context.codingWorkflow.available, reason: context.codingWorkflow.reason };
+    }
     if (context.calendarMirror) out.calendarMirror = this.calendarQualifications(context.calendarMirror);
     if (context.projectSessions) {
       out.projectSessions = {
@@ -3304,8 +3297,10 @@ export class CoordinatorConversationService {
   private optionalSemantics(context: CoordinatorConversationContextProjection): Record<string, unknown> | undefined {
     const calendar = context.calendarMirror;
     const projects = context.projectSessions;
-    if (!calendar && !projects) return undefined;
+    const lane = context.codingWorkflow;
+    if (!calendar && !projects && !lane) return undefined;
     return {
+      ...(lane ? { codingWorkflowLane: [lane.available, lane.reason] } : {}),
       calendar: calendar && {
         state: calendar.state, selection: calendar.selection, window: calendar.window,
         lastSuccessfulSyncAt: calendar.lastSuccessfulSyncAt, hasMore: calendar.hasMore,
