@@ -573,4 +573,189 @@ describe("#1134 external-content security boundary", () => {
       ).toBe(200);
     }
   });
+
+  describe("coordinator goal signed admission (delegation.start-async + rhythm_start_coordinator_goal)", () => {
+    const GOAL_TOOL = "rhythm_start_coordinator_goal";
+    const ACTION: SecurityAction = "delegation.start-async";
+    const cleanContext: TrustedContext = {
+      sdkSessionId: "sdk-security-two",
+      turnId: "turn-goal-clean",
+      agentName: "rhythm-secretary",
+      toolCallId: "call-goal-clean",
+    };
+
+    // Every call signs a FRESH real proof; `mutate` may tamper with the envelope after signing.
+    async function goalConsume(opts: {
+      tool?: string;
+      signedArgs?: Record<string, unknown>;
+      payload?: Record<string, unknown>;
+      action?: SecurityAction;
+      approvalId?: string;
+      context?: TrustedContext;
+      issuedAt?: number;
+      mutate?: (envelope: { proof: Record<string, unknown> }) => void;
+      envelope?: unknown;
+    } = {}) {
+      const context = opts.context ?? cleanContext;
+      const envelope =
+        opts.envelope ??
+        trustedSigner.signCall(
+          context,
+          opts.tool ?? GOAL_TOOL,
+          opts.signedArgs ?? { goalId: "goal-1" },
+          opts.issuedAt,
+        );
+      opts.mutate?.(envelope as { proof: Record<string, unknown> });
+      return fetch(`${baseUrl}/agent-approvals/consume`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          trustedCall: envelope,
+          context,
+          approvalId: opts.approvalId,
+          action: opts.action ?? ACTION,
+          payload: opts.payload ?? { goalId: "goal-1" },
+        }),
+      });
+    }
+    const consumedApprovals = () =>
+      (
+        getDb()
+          .prepare("SELECT COUNT(*) AS n FROM agent_approvals WHERE consumed_at IS NOT NULL")
+          .get() as { n: number }
+      ).n;
+
+    async function approvedGoalToken(payload: Record<string, unknown> = { goalId: "goal-1" }) {
+      const created = await requestBoundApproval(ACTION, payload, actionContext);
+      expect(created.status).toBe(201);
+      const approval = (await created.json()) as PendingApproval;
+      expect((await approve(approval)).status).toBe(200);
+      return approval.id;
+    }
+
+    it("a clean session admits the exact signed goal pair", async () => {
+      const res = await goalConsume();
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ allowed: true, consumed: false });
+    });
+
+    it("a tainted session without an approved token stays blocked", async () => {
+      expect((await taint()).status).toBe(201);
+      expect((await goalConsume({ context: actionContext })).status).toBe(403);
+      expect(consumedApprovals()).toBe(0);
+    });
+
+    it("an exact approved token is consumed once only, bound to the signed approval_id", async () => {
+      expect((await taint()).status).toBe(201);
+      const id = await approvedGoalToken();
+      const exact = await goalConsume({
+        context: actionContext,
+        signedArgs: { goalId: "goal-1", approval_id: id },
+        approvalId: id,
+      });
+      expect(exact.status).toBe(200);
+      expect(await exact.json()).toMatchObject({ allowed: true, consumed: true });
+      const replay = await goalConsume({
+        context: actionContext,
+        signedArgs: { goalId: "goal-1", approval_id: id },
+        approvalId: id,
+      });
+      expect(replay.status).toBe(409);
+      expect(consumedApprovals()).toBe(1);
+    });
+
+    it("another signed tool cannot use the goal action's exception, and the goal tool cannot use another action", async () => {
+      expect((await goalConsume({ tool: "rhythm_delegate" })).status).toBe(403);
+      expect((await goalConsume({ tool: "rhythm_prompt_session" })).status).toBe(403);
+      expect((await goalConsume({ action: "delegation.start", payload: { goalId: "goal-1" } })).status).toBe(403);
+      expect((await goalConsume({ action: "task.create", payload: { goalId: "goal-1" } })).status).toBe(403);
+      expect((await goalConsume({ action: "delegation.cancel", payload: { goalId: "goal-1" } })).status).toBe(403);
+    });
+
+    it("an altered proof tool name, signature or arguments hash fails real verification", async () => {
+      expect(
+        (await goalConsume({ tool: "rhythm_delegate_async", mutate: (e) => { e.proof.toolName = GOAL_TOOL; } })).status,
+      ).toBe(403);
+      expect(
+        (await goalConsume({ mutate: (e) => { e.proof.toolName = "rhythm_delegate_async"; } })).status,
+      ).toBe(403);
+      expect(
+        (
+          await goalConsume({
+            mutate: (e) => {
+              const sig = String(e.proof.signature);
+              e.proof.signature = (sig[0] === "A" ? "B" : "A") + sig.slice(1);
+            },
+          })
+        ).status,
+      ).toBe(403);
+      expect(
+        (await goalConsume({ mutate: (e) => { e.proof.argumentsHash = "A".repeat(43); } })).status,
+      ).toBe(403);
+    });
+
+    it("an expired proof and a replayed nonce are rejected", async () => {
+      expect((await goalConsume({ issuedAt: Date.now() - 60 * 60 * 1000 })).status).toBe(403);
+      const envelope = trustedSigner.signCall(cleanContext, GOAL_TOOL, { goalId: "goal-1" });
+      expect((await goalConsume({ envelope })).status).toBe(200);
+      expect((await goalConsume({ envelope })).status).toBe(403);
+    });
+
+    it("substituted or extra goal-dispatch fields are rejected in the signed arguments and the payload", async () => {
+      // payload goal differs from the signed goal
+      expect((await goalConsume({ payload: { goalId: "goal-2" } })).status).toBe(403);
+      // extra signed fields (each separately signed)
+      for (const extra of [
+        { cwd: "/etc" }, { target: "workflow-orchestrator" }, { profileId: "other" },
+        { prompt: "do something else" }, { model: "x/y" }, { goalID: "goal-1" },
+      ]) {
+        expect((await goalConsume({ signedArgs: { goalId: "goal-1", ...extra } })).status).toBe(403);
+        expect(
+          (await goalConsume({ signedArgs: { goalId: "goal-1", ...extra }, payload: { goalId: "goal-1", ...extra } })).status,
+        ).toBe(403);
+      }
+      // extra unsigned payload fields
+      expect((await goalConsume({ payload: { goalId: "goal-1", cwd: "/etc" } })).status).toBe(403);
+      // missing / empty / oversized goal id and non-string goal id
+      expect((await goalConsume({ signedArgs: {}, payload: {} })).status).toBe(403);
+      expect((await goalConsume({ signedArgs: { goalId: "" }, payload: { goalId: "" } })).status).toBe(403);
+      const long = "g".repeat(257);
+      expect((await goalConsume({ signedArgs: { goalId: long }, payload: { goalId: long } })).status).toBe(403);
+      expect((await goalConsume({ signedArgs: { goalId: 7 }, payload: { goalId: 7 } })).status).toBe(403);
+    });
+
+    it("an unsigned or mismatched approval id is rejected and leaves the approval unconsumed", async () => {
+      expect((await taint()).status).toBe(201);
+      const id = await approvedGoalToken();
+      // approval id in the body but not signed
+      expect((await goalConsume({ context: actionContext, approvalId: id })).status).toBe(403);
+      // signed approval differs from the body approval
+      expect(
+        (await goalConsume({ context: actionContext, signedArgs: { goalId: "goal-1", approval_id: "other" }, approvalId: id })).status,
+      ).toBe(403);
+      // oversized signed approval
+      const big = "a".repeat(257);
+      expect(
+        (await goalConsume({ context: actionContext, signedArgs: { goalId: "goal-1", approval_id: big }, approvalId: big })).status,
+      ).toBe(403);
+      expect(consumedApprovals()).toBe(0);
+      // the exact approval is still usable afterwards
+      expect(
+        (await goalConsume({ context: actionContext, signedArgs: { goalId: "goal-1", approval_id: id }, approvalId: id })).status,
+      ).toBe(200);
+    });
+
+    it("generic rhythm_delegate_async keeps its mapping: clean passes, tainted without token is held, wrong goal tool mapping unchanged", async () => {
+      const payload = { target: "reviewed-delegate", sequence: 1 };
+      const generic = (context: TrustedContext) =>
+        consume(undefined, ACTION, payload, context);
+      expect((await generic(cleanContext)).status).toBe(200);
+      expect((await taint()).status).toBe(201);
+      expect((await generic(actionContext)).status).toBe(403);
+      // the legacy tool signed over goal-shaped arguments is still the generic path, not the goal exception
+      expect(
+        (await goalConsume({ tool: "rhythm_delegate_async", context: { ...cleanContext, turnId: "turn-generic-2", toolCallId: "call-generic-2" } })).status,
+      ).toBe(200);
+    });
+  });
 });

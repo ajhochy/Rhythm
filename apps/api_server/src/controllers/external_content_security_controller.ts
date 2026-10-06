@@ -148,6 +148,51 @@ export const SECURITY_ACTION_TOOLS = new Map<string, string>([
   ['live-artifact.sharing.update', 'rhythm_update_live_artifact_sharing'],
 ]);
 
+const GOAL_ADMISSION_ACTION = 'delegation.start-async';
+const COORDINATOR_GOAL_TOOL = 'rhythm_start_coordinator_goal';
+const MAX_GOAL_FIELD_LENGTH = 256;
+
+/**
+ * The one server-fixed exception to the scalar action→tool mapping: the
+ * coordinator goal control is admitted through `delegation.start-async` but is
+ * signed by the engine as `rhythm_start_coordinator_goal`. The untrusted
+ * envelope only SELECTS between these two literals; the unchanged verifier
+ * then proves the signature/arguments/age/nonce against the selected literal.
+ */
+function expectedConsumeToolName(action: string, envelope: unknown): string | undefined {
+  if (action === GOAL_ADMISSION_ACTION && envelope && typeof envelope === 'object') {
+    const proof = (envelope as { proof?: unknown }).proof;
+    if (
+      proof && typeof proof === 'object' &&
+      (proof as { toolName?: unknown }).toolName === COORDINATOR_GOAL_TOOL
+    ) return COORDINATOR_GOAL_TOOL;
+  }
+  return SECURITY_ACTION_TOOLS.get(action);
+}
+
+function boundedGoalString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= MAX_GOAL_FIELD_LENGTH;
+}
+
+/** Goal pair only: signed {goalId, approval_id?}, payload exactly {goalId}, approval bound to the signed value. */
+function requireCoordinatorGoalShape(
+  signedArguments: Record<string, unknown>,
+  payload: Record<string, unknown>,
+  approvalId: string | undefined,
+): void {
+  const signedKeys = Object.keys(signedArguments).filter((key) => signedArguments[key] !== undefined);
+  const signedApproval = signedArguments.approval_id;
+  if (
+    signedKeys.some((key) => key !== 'goalId' && key !== 'approval_id') ||
+    !boundedGoalString(signedArguments.goalId) ||
+    (signedApproval !== undefined && !boundedGoalString(signedApproval)) ||
+    Object.keys(payload).length !== 1 || payload.goalId !== signedArguments.goalId ||
+    (approvalId !== undefined && approvalId !== signedApproval)
+  ) {
+    throw AppError.forbidden('coordinator goal admission does not match the signed goal arguments');
+  }
+}
+
 async function requireTrustedCall(
   value: unknown,
   expectedToolName: string,
@@ -222,7 +267,7 @@ export class ExternalContentSecurityController {
     try {
       const body = req.body ?? {};
       const action = parseSecurityAction(body.action);
-      const expectedToolName = SECURITY_ACTION_TOOLS.get(action);
+      const expectedToolName = expectedConsumeToolName(action, body.trustedCall);
       if (!expectedToolName) {
         throw AppError.forbidden('security action has no trusted MCP tool binding');
       }
@@ -232,6 +277,13 @@ export class ExternalContentSecurityController {
         'approval-consume',
       );
       const payload = parseSecurityPayload(body.payload);
+      const approvalId =
+        typeof body.approvalId === 'string' && body.approvalId !== ''
+          ? body.approvalId
+          : undefined;
+      if (expectedToolName === COORDINATOR_GOAL_TOOL) {
+        requireCoordinatorGoalShape(trustedCall.arguments, payload, approvalId);
+      }
       requireSecurityPayloadBoundToTrustedArguments(
         action,
         trustedCall.arguments,
@@ -239,10 +291,7 @@ export class ExternalContentSecurityController {
       );
       const result = security.consumeApproval({
         context: trustedCall.context,
-        approvalId:
-          typeof body.approvalId === 'string' && body.approvalId !== ''
-            ? body.approvalId
-            : undefined,
+        approvalId,
         action,
         payload,
       });
