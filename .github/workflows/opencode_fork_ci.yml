@@ -35,7 +35,7 @@ jobs:
         # trip a pre-existing 30s timeout in test/session/prompt.test.ts
         # ("shell rejects when another shell is already running"), so this keeps
         # the coverage that matters without importing unrelated flakiness.
-        run: bun test test/session/ src/session/ test/tool/task.test.ts
+        run: bun test test/session/ src/session/ test/tool/task.test.ts test/server/httpapi-rhythm-provider-guard.test.ts
 
       - name: Build complete fork SDK artifact
         working-directory: apps/opencode_fork/packages/sdk/js
