@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -54,6 +54,22 @@ async function request(route: string, body?: unknown, engine = false, directory?
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) : null };
 }
+// A tracked symlink is source in its own right; never dereference its target.
+// Missing regular files and unexpected kinds still fail closed.
+async function sourceEntry(file: string) {
+  const absolute = path.join(root, file);
+  const before = await lstat(absolute);
+  const kind = before.isSymbolicLink() ? 'symlink' : before.isFile() ? 'regular' : null;
+  if (!kind) throw new Error(`Unsupported tracked source kind: ${file}`);
+  const bytes = kind === 'symlink' ? await readlink(absolute, { encoding: 'buffer' }) : await readFile(absolute);
+  const after = await lstat(absolute);
+  if (before.dev !== after.dev || before.ino !== after.ino || before.mode !== after.mode ||
+      before.size !== after.size || before.mtimeMs !== after.mtimeMs ||
+      before.isSymbolicLink() !== after.isSymbolicLink() || before.isFile() !== after.isFile()) {
+    throw new Error(`Tracked source changed during inventory: ${file}`);
+  }
+  return { kind, bytes: bytes.length, sha256: hash(bytes) };
+}
 const strings = (value: unknown): string[] => typeof value === 'string' ? [value] : Array.isArray(value)
   ? value.flatMap(strings) : value && typeof value === 'object' ? Object.values(value).flatMap(strings) : [];
 
@@ -88,7 +104,7 @@ describe.skipIf(!enabled)('Coordinator native → async → native permission ce
       const binaryHash = hash(await readFile(bin));
       receipt.engineBinarySha256 = binaryHash;
       const tracked = (await command('git', ['ls-files', 'apps/api_server/src', 'apps/mcp_server/src', 'apps/opencode_fork/packages/opencode/src', 'tools/dev/sandbox.sh'])).output.trim().split('\n');
-      const sourceHashes = Object.fromEntries(await Promise.all(tracked.map(async file => [file, hash(await readFile(path.join(root, file)))])));
+      const sourceInventory = Object.fromEntries(await Promise.all(tracked.map(async file => [file, await sourceEntry(file)])));
       const localRequire = createRequire(path.join(root, 'apps/api_server/package.json'));
       const Database = localRequire('better-sqlite3');
       const query = (sql: string, values: unknown[] = []) => {
@@ -309,7 +325,7 @@ describe.skipIf(!enabled)('Coordinator native → async → native permission ce
         checks.normalListenersPreserved = JSON.stringify(receipt.protectedListenersAfter) === JSON.stringify(protectedBefore);
         checks.ownedListenersAbsent = Object.values(await listeners([4197, 4198, 4199])).every(value => value.length === 0);
         checks.engineBinaryUnchanged = hash(await readFile(bin)) === binaryHash;
-        checks.productSourceUnchanged = (await Promise.all(Object.entries(sourceHashes).map(async ([file, before]) => hash(await readFile(path.join(root, file))) === before))).every(Boolean);
+        checks.productSourceUnchanged = (await Promise.all(Object.entries(sourceInventory).map(async ([file, before]) => JSON.stringify(await sourceEntry(file)) === JSON.stringify(before)))).every(Boolean);
         checks.sourceCleanExactAfter = (await command('git', ['rev-parse', 'HEAD'])).output.trim() === sha && (await command('git', ['status', '--porcelain', '--untracked-files=no'])).output.trim() === '';
         receipt.qualification = !receipt.error && Object.values(checks).every(Boolean) && receipt.stockTeardownExit === 0 ? 'SCRIPTED_EXACT_SOURCE_PLUMBING' : 'UNVERIFIED';
         await save();

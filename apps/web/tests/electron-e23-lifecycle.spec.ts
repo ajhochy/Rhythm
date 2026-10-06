@@ -33,11 +33,15 @@ test('E23-c5 Prepare project cannot report success without an init request', asy
 });
 
 // Real workspace/store/gateway; only the remote HTTP/WS boundary is controlled.
-async function lifecycle(page: Page, options: { empty?: boolean; gone?: boolean; working?: boolean } = {}) {
+async function lifecycle(page: Page, options: { empty?: boolean; gone?: boolean; working?: boolean; stepMarkers?: boolean } = {}) {
   const session = { id: 'e23-owned', name: 'E23 lifecycle', profileId: 'e23-profile', cwd: '/tmp/e23', status: options.gone ? 'resumable' : options.working ? 'working' : 'idle', archivedAt: null as string | null, sdkSessionId: 'sdk-e23', providerId: 'openai', modelId: 'test-model', createdAt: '2026-09-11T00:00:00Z' };
   const original = [
     { sdkMessageId: 'user-1', role: 'input', parts: [{ type: 'text', text: 'Question' }] },
-    { sdkMessageId: 'answer-1', role: 'output', parts: [{ type: 'text', text: 'First answer' }] },
+    { sdkMessageId: 'answer-1', role: 'output', parts: options.stepMarkers ? [
+      { type: 'step-start', snapshot: '4b825dc642cb6eb9a060e54bf8d69288fbee4904' },
+      { type: 'text', text: 'First answer' },
+      { type: 'step-finish', reason: 'stop', snapshot: '4b825dc642cb6eb9a060e54bf8d69288fbee4904' },
+    ] : [{ type: 'text', text: 'First answer' }] },
     { sdkMessageId: 'answer-2', role: 'output', parts: [{ type: 'text', text: 'Second answer' }], tokens: { input: 9000, output: 150, cache: { read: 300, write: 0 } } },
   ];
   const state = { messages: options.empty ? [] : original, operations: [] as { path: string; body: any }[], frames: [] as any[], failure: '', detailFailure: false, detailGate: undefined as Promise<void> | undefined };
@@ -144,7 +148,9 @@ for (const [label, input] of [['Review project context', 'Review the project con
 
 test('E23-c7 copy writes actual message text and rejection never reports success', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await lifecycle(page);
+  await lifecycle(page, { stepMarkers: true });
+  await expect(page.getByRole('separator', { name: 'Step started' })).toBeVisible();
+  await expect(page.getByRole('separator', { name: 'Step finished' })).toContainText('Step finished · stop');
   await page.locator('#agent-message-answer-1 details.message-actions summary').click();
   await page.getByTestId('copy-answer-1').click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('First answer');

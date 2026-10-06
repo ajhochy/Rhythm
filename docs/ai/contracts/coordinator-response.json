@@ -9,7 +9,8 @@
       "mode": "unit",
       "status": "local_regression_pass",
       "test_file": "apps/web/tests/gateway/sessions-gateway.spec.ts",
-      "reason": "Genuine pre-repair RED and focused GREEN captured; root reviewed the production diff. Combined and live qualification remain pending."
+      "reason": "Adapter RED/GREEN captured. Actual Copy button omitted snapshot hashes but exposed empty-block separators; root narrowed copy joining and added lifecycle-marker coverage to the existing real-button test. New frozen-source browser and combined qualification pending.",
+      "browser_test_file": "apps/web/tests/electron-e23-lifecycle.spec.ts"
     },
     {
       "criterion_id": "coordinator-response-c2",
@@ -41,7 +42,7 @@
       "text": "An env-gated live behavioral test on the approved stock sandbox drives the actual API and newly built fork through the native-task/async/native-task hierarchy, proves approved fixture reading is reachable at the third level and preserved denies remain enforced, and records exact-source output and sandbox cleanup.",
       "mode": "integration",
       "status": "UNVERIFIED",
-      "reason": "Prepared two opt-in real API/fork/MCP hierarchy cases; scripted model and narrow invented human grants are explicit. Actual execution is pending.",
+      "reason": "C10 two-case live attempt failed before startup while dereferencing a tracked dangling documentation symlink. Typed link/file inventory repair preserves source integrity checks; fresh exact-source execution pending.",
       "test_file": "apps/api_server/src/__tests__/live_coordinator_nested_permissions.test.ts"
     },
     {

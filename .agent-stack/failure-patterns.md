@@ -738,3 +738,10 @@
 - Criteria checked manually: c1, c2, c3, c6.
 - Process: wrong initial E16/E20 config corrected; dedicated suites pass.
 - Follow-up: preserve runtime qualification boundaries.
+
+## 2026-10-06 — Coordinator nested work and model qualification
+
+- Result: user smoke FAIL after bounded workflow plumbing qualification.
+- Category: C1 (missing whole-hierarchy and actual-model contracts); W5 (qualification scope was allowed to imply broader functionality).
+- Root cause: mixed native/async/native work bypassed both root-only listing and direct-caller async status; generated routing clauses conflicted; scripted responses did not exercise model choices.
+- Required follow-up: preserve separate source, full-gate, real-engine, actual-model and installed-runtime evidence; do not claim one qualifies another.

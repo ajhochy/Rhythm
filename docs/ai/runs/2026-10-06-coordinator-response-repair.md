@@ -51,3 +51,15 @@ Earlier real API/engine/MCP qualification used scripted provider responses. It q
 ### Candidate freeze
 
 All owned product diffs and both opt-in live tests were independently reviewed. Focused RED/GREEN and typechecks are recorded per slice. This candidate commit exists to bind the forthcoming full repository and real API/fork/MCP sandbox checks to exact source; it is not an installed or completed repair claim.
+
+### C10 qualification checkpoint and recovery
+
+Frozen candidate `bc0b7241fc20e4082686cdeb45aebdf13dff2dcf` built its standalone engine after five missing ignored workspace dependency alias trees were copied and resolution parity verified. Engine SHA-256: `6ec9083f373be9400629ff5fd30098f78c854a3a559f8208fe795e8dbd269040`. API and MCP `npm run build` exited 0; no dependency installs or live profile writes.
+
+Issue gate passed 4/4. PR stages 1–6 passed, including 1,355 Flutter tests. Root cancelled the remaining gate to repair newly observed issues; stage 7 API tests were deliberately interrupted (exit 130), and the racing offline stage 8 build finished before all owned processes were closed. This is partial C10 evidence, not a full PR pass. Raw receipts are preserved outside the repository.
+
+The actual browser Copy control kept both step labels and omitted snapshot hashes, but copied empty-block separators around the answer. Root changed only `Transcript` copy joining to omit empty source blocks and extended the existing E23-c7 real-control test with step markers; rejected clipboard writes remain covered. GitNexus impact: `Transcript` LOW, one direct caller (`AgentsWorkspace`), three upstream symbols, zero execution flows; test fixture `lifecycle` LOW, one test-file caller.
+
+Both new nested live cases failed before provider/sandbox startup: the guard dereferenced tracked `copilot/AGENTS.md -> README.md`, whose target is absent. A typed source inventory now hashes literal symlink bytes and regular-file bytes separately, rejecting missing regular files or unexpected kinds and preserving strict before/after integrity. Read-only audit found 2,305 regular entries and this one symlink. No runtime permission conclusion was drawn from that failure.
+
+The next frozen candidate must run the complete gates and live checks again. Real-model decision replay is separate, bounded, synthetic-context evidence; it cannot qualify the installed Coordinator's existing history or turn scripted provider decisions into model proof.

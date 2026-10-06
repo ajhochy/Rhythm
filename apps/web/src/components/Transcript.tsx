@@ -319,7 +319,7 @@ export function Transcript({ coordinatorStatus, coordinatorTranscript }: {
   const sendInput = sessionGatewayMode === 'live' ? sendLiveInput : sendFixtureInput;
   const pending = usePendingDecisions(selected.id);
   const copyMessage = async (message: TranscriptMessage) => {
-    try { await navigator.clipboard.writeText(message.blocks.map(blockSource).join('\n\n')); notify('Message copied to clipboard'); }
+    try { await navigator.clipboard.writeText(message.blocks.map(blockSource).filter(text => text.length > 0).join('\n\n')); notify('Message copied to clipboard'); }
     catch { notify('Message copy failed'); }
   };
   const viewport = useRef<HTMLDivElement>(null);
