@@ -133,17 +133,76 @@ export const RhythmProviderFrame = Schema.Union([
     schemaVersion: Schema.Literal(1),
     status: Schema.Literals(["cancelled", "replaced", "not_pending"]),
   }),
+  Schema.Struct({
+    schemaVersion: Schema.Literal(2),
+    kind: Schema.Literal("coordinator_workflow_provider_frame"),
+    binding: Schema.Struct({
+      schemaVersion: Schema.Literal(1),
+      jobId: GuardId,
+      rootSdkSessionId: GuardId,
+      managerSdkSessionId: GuardId,
+      expiresAt: Schema.String,
+    }),
+    scope: Schema.Union([
+      Schema.Struct({ kind: Schema.Literal("manager_lineage") }),
+      Schema.Struct({ kind: Schema.Literal("root_turn"), userMessageId: GuardId }),
+    ]),
+    accounting: Schema.Union([
+      Schema.Struct({ kind: Schema.Literal("persisted_assistant"), assistantMessageId: GuardId, parentMessageId: GuardId }),
+      Schema.Struct({ kind: Schema.Literal("unmetered_auxiliary"), sourceUserMessageId: GuardId }),
+    ]),
+    nativeLineageDigest: Schema.String.check(Schema.isMinLength(64), Schema.isMaxLength(64)),
+    frame: Schema.Struct({
+      schemaVersion: Schema.Literal(1),
+      status: Schema.Literal("pending"),
+      request: GuardRequest,
+      agentName: GuardId,
+      userKind: Schema.Literals(["authored", "control"]),
+      initiatingUserMessageId: Schema.NullOr(GuardId),
+      inputGroupCount: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+      originCoverage: Schema.Literals(["complete", "ambiguous"]),
+      sourceProofs: Schema.Array(
+        Schema.Struct({
+          sourceAnchorId: GuardId,
+          stored: Schema.Boolean,
+          visible: Schema.Boolean,
+          relation: Schema.Literals(["before_current", "current", "after_current", "unknown"]),
+          derivedSummaryIds: Schema.Array(GuardId),
+        }),
+      ),
+    }),
+  }),
 ])
 export const RhythmProviderFrameQuery = Schema.Struct({
   ...WorkspaceRoutingQueryFields,
   sourceAnchorIds: Schema.optional(Schema.String),
 })
-export const RhythmDayflowGuardResponse = Schema.Struct({
-  schemaVersion: Schema.Literal(1),
-  sdkSessionId: GuardId,
-  engineGeneration: GuardGeneration,
-  guarded: Schema.Literal(true),
-})
+export const RhythmDayflowGuardResponse = Schema.Union([
+  Schema.Struct({
+    schemaVersion: Schema.Literal(1),
+    sdkSessionId: GuardId,
+    engineGeneration: GuardGeneration,
+    guarded: Schema.Literal(true),
+  }),
+  Schema.Struct({
+    schemaVersion: Schema.Literal(2),
+    kind: Schema.Literal("coordinator_workflow_enrollment"),
+    sdkSessionId: GuardId,
+    engineGeneration: GuardGeneration,
+    guarded: Schema.Literal(true),
+    binding: Schema.Struct({
+      schemaVersion: Schema.Literal(1),
+      jobId: GuardId,
+      rootSdkSessionId: GuardId,
+      managerSdkSessionId: GuardId,
+      expiresAt: Schema.String,
+    }),
+    scope: Schema.Union([
+      Schema.Struct({ kind: Schema.Literal("manager_lineage") }),
+      Schema.Struct({ kind: Schema.Literal("root_turn"), userMessageId: GuardId }),
+    ]),
+  }),
+])
 
 export const SessionPaths = {
   list: root,

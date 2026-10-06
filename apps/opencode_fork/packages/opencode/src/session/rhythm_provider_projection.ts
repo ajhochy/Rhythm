@@ -27,6 +27,8 @@ import {
   newGuardNonce,
   parseGuardRequest,
   parseGuardResponseText,
+  parseWorkflowProviderDecision,
+  parseWorkflowProviderRequest,
   runnerGenerations,
   sha256Hex,
   type GuardFrame,
@@ -35,7 +37,10 @@ import {
   type GuardRecord,
   type GuardRequest,
   type GuardResponse,
+  type WorkflowProviderDecision,
+  type WorkflowProviderRequest,
 } from "./rhythm_provider_guard"
+import { rhythmWorkflowLineageDigest } from "./session"
 
 const log = Log.create({ service: "rhythm.provider-guard" })
 
@@ -438,6 +443,69 @@ export async function postAdmission(
   }
 }
 
+/** The G2 envelope uses the same trusted authenticated route, never a second transport. */
+export async function postWorkflowAdmission(
+  integration: RhythmIntegration,
+  request: WorkflowProviderRequest,
+  signal: AbortSignal,
+): Promise<WorkflowProviderDecision | undefined> {
+  const deadline = AbortSignal.any([signal, AbortSignal.timeout(GUARD_BOUNDS.exchangeDeadlineMs)])
+  try {
+    const response = await guardTransport.fetch(new URL(GUARD_ADMISSION_PATH, integration.url).toString(), {
+      method: "POST",
+      headers: { authorization: `Bearer ${integration.token}`, "content-type": "application/json" },
+      body: JSON.stringify(request),
+      signal: deadline,
+      redirect: "error",
+    })
+    if (response.status !== 200) return undefined
+    const raw = JSON.parse(await readCapped(response, GUARD_BOUNDS.responseBytes))
+    const parsed = parseWorkflowProviderDecision(raw, request)
+    return parsed.ok ? parsed.value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Derive the private G2 frame only from the durable native marker and current
+ * runner/session facts. A marker from an older engine, a root marker for a
+ * different exact user turn, or an auxiliary call has no provider path.
+ */
+function workflowFactsFor(ctx: GuardAttemptContext): NonNullable<GuardFrame["workflow"]> | undefined {
+  const workflow = ctx.record?.schemaVersion === 2 ? ctx.record.workflow : undefined
+  if (!workflow || !ctx.outputAssistantId) return undefined
+  if (workflow.kind === "manager_lineage") {
+    if (workflow.engineGeneration !== ENGINE_GENERATION || Date.parse(workflow.binding.expiresAt) <= Date.now()) return undefined
+    const nativeLineageDigest = rhythmWorkflowLineageDigest(ctx.sdkSessionId as never)
+    if (!nativeLineageDigest) return undefined
+    return {
+      binding: workflow.binding,
+      scope: { kind: "manager_lineage" },
+      accounting: {
+        kind: "persisted_assistant",
+        assistantMessageId: ctx.outputAssistantId,
+        parentMessageId: ctx.userMessageId,
+      },
+      nativeLineageDigest,
+    }
+  }
+  const entry = workflow.entries.find((candidate) => candidate.userMessageId === ctx.userMessageId)
+  if (!entry || entry.engineGeneration !== ENGINE_GENERATION || Date.parse(entry.binding.expiresAt) <= Date.now()) return undefined
+  const nativeLineageDigest = rhythmWorkflowLineageDigest(ctx.sdkSessionId as never)
+  if (!nativeLineageDigest) return undefined
+  return {
+    binding: entry.binding,
+    scope: { kind: "root_turn", userMessageId: entry.userMessageId },
+    accounting: {
+      kind: "persisted_assistant",
+      assistantMessageId: ctx.outputAssistantId,
+      parentMessageId: ctx.userMessageId,
+    },
+    nativeLineageDigest,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Clean-generation certificates (transient, runner-scoped)
 // ---------------------------------------------------------------------------
@@ -621,8 +689,10 @@ interface Handoff {
   generation: string
   request: GuardRequest
   basisDigest: string
-  fromUserMessageId: string
-  sourceAnchorIds: string[]
+  fromUserMessageId?: string
+  sourceAnchorIds?: string[]
+  /** Rechecked synchronously immediately before the actual provider call. */
+  workflow?: NonNullable<GuardFrame["workflow"]>
 }
 const handoffs = new WeakMap<object, Handoff>()
 
@@ -673,8 +743,11 @@ export function providerGuardMiddleware(ctx: GuardAttemptContext): LanguageModel
         throw new RhythmProviderGuardHold(reason)
       }
 
-      // A model path this guard cannot bind to (workflow) never runs unguarded for a managed SDK.
-      if (ctx.isWorkflow) return hold("proof_unavailable")
+      // A GitLab workflow model has no G2 durable marker and must remain held.
+      // Conversely, a schema-2 record is a private G2 accounting marker, not
+      // permission to use an ordinary/no-receiver fallback.
+      const hasWorkflowMarker = ctx.record?.schemaVersion === 2
+      if (ctx.isWorkflow && !hasWorkflowMarker) return hold("proof_unavailable")
       // No positive proof of the current runner = nothing to bind a pending frame to: hold, no API call.
       const generation = runnerGenerations.get(ctx.sdkSessionId)
       if (generation === undefined) return hold("proof_unavailable")
@@ -695,6 +768,12 @@ export function providerGuardMiddleware(ctx: GuardAttemptContext): LanguageModel
       })
       if (!request.ok) return hold("bounds_exceeded")
 
+      // Auxiliary title/summary/compaction calls cannot create a fake zero
+      // usage workflow receipt. The durable marker plus a real persisted
+      // assistant identity are required before the frame becomes observable.
+      const workflow = hasWorkflowMarker ? workflowFactsFor(ctx) : undefined
+      if (hasWorkflowMarker && !workflow) return hold("proof_unavailable")
+
       const frame: GuardFrame = {
         request: request.value,
         agentName: ctx.agentName.slice(0, 200) || "unknown",
@@ -704,12 +783,36 @@ export function providerGuardMiddleware(ctx: GuardAttemptContext): LanguageModel
         originCoverage: analysis.coverage,
         visibleMessageIds: analysis.visible,
         signal: ctx.signal,
+        ...(workflow ? { workflow } : {}),
       }
       const release = installGuardFrame(frame)
       try {
-        const decision = ctx.integration ? await postAdmission(ctx.integration, request.value, ctx.signal) : undefined
+        let workflowRequest: WorkflowProviderRequest | undefined
+        let workflowDecision: WorkflowProviderDecision | undefined
+        if (workflow) {
+          const parsedWorkflow = parseWorkflowProviderRequest({
+            schemaVersion: 2,
+            kind: "coordinator_workflow_provider",
+            binding: workflow.binding,
+            scope: workflow.scope,
+            request: request.value,
+          })
+          if (!parsedWorkflow.ok) return hold("bounds_exceeded")
+          workflowRequest = parsedWorkflow.value
+          workflowDecision = ctx.integration ? await postWorkflowAdmission(ctx.integration, workflowRequest, ctx.signal) : undefined
+          if (!workflowDecision || workflowDecision.workflow.status !== "allow" ||
+              workflowDecision.workflow.nativeLineageDigest !== workflow.nativeLineageDigest) return hold("proof_unavailable")
+        }
+        const decision = workflowDecision?.response ?? (ctx.integration ? await postAdmission(ctx.integration, request.value, ctx.signal) : undefined)
         // ---- synchronous from here to the return: no unrelated await before provider exposure ----
         if (ctx.signal.aborted || !guardFrameIsCurrent(frame)) return hold("proof_unavailable")
+        if (workflowRequest) {
+          if (!workflow || !workflowDecision || workflowDecision.workflow.status !== "allow" ||
+              rhythmWorkflowLineageDigest(ctx.sdkSessionId as never) !== workflow.nativeLineageDigest ||
+              workflowDecision.workflow.nativeLineageDigest !== workflow.nativeLineageDigest) {
+            return hold("proof_unavailable")
+          }
+        }
         if (!decision) {
           // Known-ordinary, never-enrolled SDKs keep their behavior within this process generation.
           if (ordinary.has(ordinaryKey(ctx)) && ctx.record?.guarded === false) return finish(stripped, instructions)
@@ -723,7 +826,10 @@ export function providerGuardMiddleware(ctx: GuardAttemptContext): LanguageModel
           return hold(decision.reason)
         }
         if (decision.decision === "ordinary") {
-          if (decision.guardRegistrationVersion === 1) ordinary.add(ordinaryKey(ctx))
+          // A workflow envelope may carry an ordinary inner decision when no
+          // Dayflow material is selected. It reached here only through the
+          // checked workflow decision, never the ordinary fallback/cache.
+          if (!workflow && decision.guardRegistrationVersion === 1) ordinary.add(ordinaryKey(ctx))
           else ordinary.delete(ordinaryKey(ctx))
           return finish(stripped, instructions)
         }
@@ -766,13 +872,18 @@ export function providerGuardMiddleware(ctx: GuardAttemptContext): LanguageModel
         const out = finish(next, nextInstructions)
         // Only a safe, overlay-free projected exposure whose provider handoff actually happens can
         // certify its own output group (sealed in wrapStream after the real doStream).
-        if (certifiable && decision.projection) {
+        if ((certifiable && decision.projection) || workflow) {
           handoffs.set(out, {
             generation,
             request: request.value,
             basisDigest: decision.basisDigest,
-            fromUserMessageId: decision.projection.fromUserMessageId,
-            sourceAnchorIds: decision.projection.sourceAnchorIds,
+            ...(decision.projection
+              ? {
+                  fromUserMessageId: decision.projection.fromUserMessageId,
+                  sourceAnchorIds: decision.projection.sourceAnchorIds,
+                }
+              : {}),
+            ...(workflow ? { workflow } : {}),
           })
         }
         return out
@@ -783,6 +894,16 @@ export function providerGuardMiddleware(ctx: GuardAttemptContext): LanguageModel
     async wrapStream({ doStream, params }) {
       const handoff = handoffs.get(params)
       handoffs.delete(params)
+      // No await can occur between this current native lineage re-check and
+      // the real provider invocation. A changed/deleted lineage is a hold.
+      if (
+        handoff?.workflow &&
+        (ctx.signal.aborted ||
+          runnerGenerations.get(ctx.sdkSessionId) !== handoff.generation ||
+          rhythmWorkflowLineageDigest(ctx.sdkSessionId as never) !== handoff.workflow.nativeLineageDigest)
+      ) {
+        throw new RhythmProviderGuardHold("proof_unavailable")
+      }
       const result = await doStream() // the actual provider exposure
       if (!handoff || !ctx.outputAssistantId) return result
       const assistantId = ctx.outputAssistantId
@@ -797,6 +918,8 @@ export function providerGuardMiddleware(ctx: GuardAttemptContext): LanguageModel
               part.type === "finish" &&
               !failed &&
               !ctx.signal.aborted &&
+              handoff.fromUserMessageId !== undefined &&
+              handoff.sourceAnchorIds !== undefined &&
               runnerGenerations.get(ctx.sdkSessionId) === handoff.generation
             ) {
               registerCleanGroup(ctx.sdkSessionId, handoff.generation, {

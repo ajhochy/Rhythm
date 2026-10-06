@@ -20,11 +20,13 @@ import { filterMcpToolsByAllowlist } from "@/session/mcp_allowlist"
 import { Plugin } from "@/plugin"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import {
-  buildGuardExport,
+  buildWorkflowGuardExport,
   enrollGuard,
+  enrollWorkflowGuard,
   lookupGuardFrame,
   parseEnrollmentRequest,
-  parseGuardExport,
+  parseWorkflowEnrollmentRequest,
+  parseWorkflowGuardExport,
   parseSourceAnchorQuery,
   resolveSourceProofs,
 } from "@/session/rhythm_provider_guard"
@@ -237,11 +239,11 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         anchors.value.length > 0 && lookupGuardFrame(ctx.params.sessionID, ctx.params.requestNonce)
           ? yield* SessionError.mapStorageNotFound(session.messages({ sessionID: ctx.params.sessionID }))
           : []
-      const exported = buildGuardExport(ctx.params.sessionID, ctx.params.requestNonce, anchors.value, (frame, ids) =>
+      const exported = buildWorkflowGuardExport(ctx.params.sessionID, ctx.params.requestNonce, anchors.value, (frame, ids) =>
         resolveSourceProofs(messages, frame, ids),
       )
       // Never return an over-bound or malformed export as a successful proof.
-      const checked = parseGuardExport(exported)
+      const checked = parseWorkflowGuardExport(exported)
       if (!checked.ok) return yield* new HttpApiError.BadRequest({})
       return checked.value
     })
@@ -255,8 +257,16 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== "1") {
         return yield* notFound("Managed context exports are disabled")
       }
-      if (!parseEnrollmentRequest(ctx.payload).ok) return yield* new HttpApiError.BadRequest({})
-      return yield* enrollGuard(ctx.params.sessionID).pipe(
+      const v1 = parseEnrollmentRequest(ctx.payload)
+      if (v1.ok) {
+        return yield* enrollGuard(ctx.params.sessionID).pipe(
+          Effect.provideService(Storage.Service, storage),
+          Effect.catchCause(() => Effect.fail(new HttpApiError.BadRequest({}))),
+        )
+      }
+      const v2 = parseWorkflowEnrollmentRequest(ctx.payload)
+      if (!v2.ok) return yield* new HttpApiError.BadRequest({})
+      return yield* enrollWorkflowGuard(ctx.params.sessionID, v2.value).pipe(
         Effect.provideService(Storage.Service, storage),
         Effect.catchCause(() => Effect.fail(new HttpApiError.BadRequest({}))),
       )

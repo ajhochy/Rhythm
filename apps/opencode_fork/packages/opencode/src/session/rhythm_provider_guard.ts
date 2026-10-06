@@ -97,6 +97,63 @@ export interface GuardEnrollmentResponse {
   guarded: true
 }
 
+// G2 Coding Workflow uses the existing Dayflow provider-admission transport as
+// a private, stricter envelope.  These correlations are not source/Dayflow
+// authority and cannot make an ordinary session workflow-capable.
+export interface WorkflowBinding {
+  schemaVersion: 1
+  jobId: string
+  rootSdkSessionId: string
+  managerSdkSessionId: string
+  expiresAt: string
+}
+export type WorkflowScope =
+  | { kind: "manager_lineage" }
+  | { kind: "root_turn"; userMessageId: string }
+export interface WorkflowEnrollmentRequest {
+  schemaVersion: 2
+  kind: "coordinator_workflow_enrollment"
+  binding: WorkflowBinding
+  scope: WorkflowScope
+}
+export interface WorkflowEnrollmentResponse extends WorkflowEnrollmentRequest {
+  sdkSessionId: string
+  engineGeneration: string
+  guarded: true
+}
+export type WorkflowAccounting =
+  | { kind: "persisted_assistant"; assistantMessageId: string; parentMessageId: string }
+  | { kind: "unmetered_auxiliary"; sourceUserMessageId: string }
+export interface WorkflowProviderRequest {
+  schemaVersion: 2
+  kind: "coordinator_workflow_provider"
+  binding: WorkflowBinding
+  scope: WorkflowScope
+  request: GuardRequest
+}
+export interface WorkflowProviderPendingExport {
+  schemaVersion: 2
+  kind: "coordinator_workflow_provider_frame"
+  binding: WorkflowBinding
+  scope: WorkflowScope
+  accounting: WorkflowAccounting
+  nativeLineageDigest: string
+  frame: GuardPendingExport
+}
+export interface WorkflowProviderDecision {
+  schemaVersion: 2
+  kind: "coordinator_workflow_provider_decision"
+  binding: WorkflowBinding
+  scope: WorkflowScope
+  response: GuardResponse
+  workflow: {
+    status: "allow" | "hold"
+    reason: "none" | "binding_changed" | "authority_unavailable" | "membership_unavailable" | "accounting_unavailable" | "bounds_exceeded"
+    authorityDigest: string
+    nativeLineageDigest: string
+  }
+}
+
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string }
 
 const PURPOSES: readonly string[] = ["answer", "compaction", "summary"]
@@ -208,6 +265,112 @@ const sameRequest = (a: GuardRequest, b: GuardRequest) =>
   a.purpose === b.purpose &&
   a.inputDigest === b.inputDigest
 
+const isIso = (value: unknown): value is string => {
+  if (typeof value !== "string") return false
+  const parsed = new Date(value)
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value
+}
+
+export function parseWorkflowBinding(raw: unknown): Parsed<WorkflowBinding> {
+  if (!isObject(raw) || !exactKeys(raw, ["schemaVersion", "jobId", "rootSdkSessionId", "managerSdkSessionId", "expiresAt"]))
+    return fail("workflow binding keys")
+  if (
+    raw.schemaVersion !== 1 || !isId(raw.jobId) || !isId(raw.rootSdkSessionId) || !isId(raw.managerSdkSessionId) ||
+    raw.rootSdkSessionId === raw.managerSdkSessionId || !isIso(raw.expiresAt)
+  ) return fail("workflow binding values")
+  return ok({
+    schemaVersion: 1,
+    jobId: raw.jobId,
+    rootSdkSessionId: raw.rootSdkSessionId,
+    managerSdkSessionId: raw.managerSdkSessionId,
+    expiresAt: raw.expiresAt,
+  })
+}
+
+export const sameWorkflowBinding = (left: WorkflowBinding, right: WorkflowBinding) =>
+  left.jobId === right.jobId && left.rootSdkSessionId === right.rootSdkSessionId &&
+  left.managerSdkSessionId === right.managerSdkSessionId && left.expiresAt === right.expiresAt
+
+export function parseWorkflowScope(raw: unknown): Parsed<WorkflowScope> {
+  if (!isObject(raw) || typeof raw.kind !== "string") return fail("workflow scope")
+  if (raw.kind === "manager_lineage" && exactKeys(raw, ["kind"])) return ok({ kind: "manager_lineage" })
+  if (raw.kind === "root_turn" && exactKeys(raw, ["kind", "userMessageId"]) && isId(raw.userMessageId)) {
+    return ok({ kind: "root_turn", userMessageId: raw.userMessageId })
+  }
+  return fail("workflow scope")
+}
+
+export const sameWorkflowScope = (left: WorkflowScope, right: WorkflowScope) =>
+  left.kind === right.kind && (left.kind !== "root_turn" || (right.kind === "root_turn" && left.userMessageId === right.userMessageId))
+
+export function parseWorkflowEnrollmentRequest(raw: unknown): Parsed<WorkflowEnrollmentRequest> {
+  if (!isObject(raw) || !exactKeys(raw, ["schemaVersion", "kind", "binding", "scope"])) return fail("workflow enrollment keys")
+  if (raw.schemaVersion !== 2 || raw.kind !== "coordinator_workflow_enrollment") return fail("workflow enrollment values")
+  const binding = parseWorkflowBinding(raw.binding)
+  const scope = parseWorkflowScope(raw.scope)
+  if (!binding.ok || !scope.ok) return fail("workflow enrollment fields")
+  const value: WorkflowEnrollmentRequest = { schemaVersion: 2, kind: "coordinator_workflow_enrollment", binding: binding.value, scope: scope.value }
+  return utf8Bytes(JSON.stringify(value)) <= GUARD_BOUNDS.requestBytes ? ok(value) : fail("workflow enrollment too large")
+}
+
+export function parseWorkflowEnrollmentResponse(
+  raw: unknown,
+  expectedSdkSessionId: string,
+  expected: WorkflowEnrollmentRequest,
+): Parsed<WorkflowEnrollmentResponse> {
+  if (!isObject(raw) || !exactKeys(raw, ["schemaVersion", "kind", "sdkSessionId", "engineGeneration", "guarded", "binding", "scope"])) {
+    return fail("workflow enrollment response keys")
+  }
+  if (
+    raw.schemaVersion !== 2 || raw.kind !== "coordinator_workflow_enrollment" || raw.guarded !== true ||
+    raw.sdkSessionId !== expectedSdkSessionId || !isId(raw.sdkSessionId) || !isGeneration(raw.engineGeneration)
+  ) return fail("workflow enrollment response values")
+  const binding = parseWorkflowBinding(raw.binding)
+  const scope = parseWorkflowScope(raw.scope)
+  if (!binding.ok || !scope.ok || !sameWorkflowBinding(binding.value, expected.binding) || !sameWorkflowScope(scope.value, expected.scope)) {
+    return fail("workflow enrollment response echo")
+  }
+  const value: WorkflowEnrollmentResponse = {
+    schemaVersion: 2,
+    kind: "coordinator_workflow_enrollment",
+    sdkSessionId: raw.sdkSessionId,
+    engineGeneration: raw.engineGeneration,
+    guarded: true,
+    binding: binding.value,
+    scope: scope.value,
+  }
+  return utf8Bytes(JSON.stringify(value)) <= GUARD_BOUNDS.responseBytes ? ok(value) : fail("workflow enrollment response too large")
+}
+
+export function parseWorkflowProviderRequest(raw: unknown): Parsed<WorkflowProviderRequest> {
+  if (!isObject(raw) || !exactKeys(raw, ["schemaVersion", "kind", "binding", "scope", "request"])) return fail("workflow provider keys")
+  if (raw.schemaVersion !== 2 || raw.kind !== "coordinator_workflow_provider") return fail("workflow provider values")
+  const binding = parseWorkflowBinding(raw.binding)
+  const scope = parseWorkflowScope(raw.scope)
+  const request = parseGuardRequest(raw.request)
+  if (!binding.ok || !scope.ok || !request.ok) return fail("workflow provider fields")
+  const value: WorkflowProviderRequest = {
+    schemaVersion: 2,
+    kind: "coordinator_workflow_provider",
+    binding: binding.value,
+    scope: scope.value,
+    request: request.value,
+  }
+  return utf8Bytes(JSON.stringify(value)) <= GUARD_BOUNDS.requestBytes ? ok(value) : fail("workflow provider too large")
+}
+
+function parseWorkflowAccounting(raw: unknown): Parsed<WorkflowAccounting> {
+  if (!isObject(raw) || typeof raw.kind !== "string") return fail("workflow accounting")
+  if (
+    raw.kind === "persisted_assistant" && exactKeys(raw, ["kind", "assistantMessageId", "parentMessageId"]) &&
+    isId(raw.assistantMessageId) && isId(raw.parentMessageId)
+  ) return ok({ kind: "persisted_assistant", assistantMessageId: raw.assistantMessageId, parentMessageId: raw.parentMessageId })
+  if (raw.kind === "unmetered_auxiliary" && exactKeys(raw, ["kind", "sourceUserMessageId"]) && isId(raw.sourceUserMessageId)) {
+    return ok({ kind: "unmetered_auxiliary", sourceUserMessageId: raw.sourceUserMessageId })
+  }
+  return fail("workflow accounting")
+}
+
 /**
  * Strict admission response: exact keys, exact request echo, cross-field rules.
  * Anything else (unknown key/version, wrong echo, oversized, malformed) is `ok:false`
@@ -300,6 +463,44 @@ export function parseGuardResponseText(text: string, expected: GuardRequest): Pa
   return parseGuardResponse(raw, expected)
 }
 
+export function parseWorkflowProviderDecision(
+  raw: unknown,
+  expected: WorkflowProviderRequest,
+): Parsed<WorkflowProviderDecision> {
+  if (!isObject(raw) || !exactKeys(raw, ["schemaVersion", "kind", "binding", "scope", "response", "workflow"])) {
+    return fail("workflow decision keys")
+  }
+  if (raw.schemaVersion !== 2 || raw.kind !== "coordinator_workflow_provider_decision") return fail("workflow decision values")
+  const binding = parseWorkflowBinding(raw.binding)
+  const scope = parseWorkflowScope(raw.scope)
+  const response = parseGuardResponse(raw.response, expected.request)
+  if (!binding.ok || !scope.ok || !response.ok || !sameWorkflowBinding(binding.value, expected.binding) || !sameWorkflowScope(scope.value, expected.scope)) {
+    return fail("workflow decision echo")
+  }
+  if (
+    !isObject(raw.workflow) || !exactKeys(raw.workflow, ["status", "reason", "authorityDigest", "nativeLineageDigest"]) ||
+    (raw.workflow.status !== "allow" && raw.workflow.status !== "hold") ||
+    !["none", "binding_changed", "authority_unavailable", "membership_unavailable", "accounting_unavailable", "bounds_exceeded"].includes(String(raw.workflow.reason)) ||
+    typeof raw.workflow.authorityDigest !== "string" || !SHA256.test(raw.workflow.authorityDigest) ||
+    typeof raw.workflow.nativeLineageDigest !== "string" || !SHA256.test(raw.workflow.nativeLineageDigest)
+  ) return fail("workflow decision fields")
+  if ((raw.workflow.status === "allow") !== (raw.workflow.reason === "none")) return fail("workflow decision state")
+  const value: WorkflowProviderDecision = {
+    schemaVersion: 2,
+    kind: "coordinator_workflow_provider_decision",
+    binding: binding.value,
+    scope: scope.value,
+    response: response.value,
+    workflow: {
+      status: raw.workflow.status,
+      reason: raw.workflow.reason as WorkflowProviderDecision["workflow"]["reason"],
+      authorityDigest: raw.workflow.authorityDigest,
+      nativeLineageDigest: raw.workflow.nativeLineageDigest,
+    },
+  }
+  return utf8Bytes(JSON.stringify(value)) <= GUARD_BOUNDS.responseBytes ? ok(value) : fail("workflow decision too large")
+}
+
 /** Strict parser for an exported frame (API/test side symmetry; also validates our own builder). */
 export function parseGuardExport(raw: unknown): Parsed<GuardPendingExport | GuardUnavailableExport> {
   if (!isObject(raw) || raw.schemaVersion !== GUARD_SCHEMA_VERSION) return fail("export schemaVersion")
@@ -366,6 +567,31 @@ export function parseGuardExport(raw: unknown): Parsed<GuardPendingExport | Guar
   return ok(value)
 }
 
+export function parseWorkflowGuardExport(raw: unknown): Parsed<WorkflowProviderPendingExport | GuardPendingExport | GuardUnavailableExport> {
+  if (!isObject(raw)) return fail("workflow export")
+  if (raw.schemaVersion === 1) return parseGuardExport(raw)
+  if (
+    !exactKeys(raw, ["schemaVersion", "kind", "binding", "scope", "accounting", "nativeLineageDigest", "frame"]) ||
+    raw.schemaVersion !== 2 || raw.kind !== "coordinator_workflow_provider_frame" ||
+    typeof raw.nativeLineageDigest !== "string" || !SHA256.test(raw.nativeLineageDigest)
+  ) return fail("workflow export keys")
+  const binding = parseWorkflowBinding(raw.binding)
+  const scope = parseWorkflowScope(raw.scope)
+  const accounting = parseWorkflowAccounting(raw.accounting)
+  const frame = parseGuardExport(raw.frame)
+  if (!binding.ok || !scope.ok || !accounting.ok || !frame.ok || frame.value.status !== "pending") return fail("workflow export fields")
+  const value: WorkflowProviderPendingExport = {
+    schemaVersion: 2,
+    kind: "coordinator_workflow_provider_frame",
+    binding: binding.value,
+    scope: scope.value,
+    accounting: accounting.value,
+    nativeLineageDigest: raw.nativeLineageDigest,
+    frame: frame.value,
+  }
+  return utf8Bytes(JSON.stringify(value)) <= GUARD_BOUNDS.exportBytes ? ok(value) : fail("workflow export too large")
+}
+
 /** Optional `sourceAnchorIds` query: JSON array of at most 64 unique non-empty ids. */
 export function parseSourceAnchorQuery(raw: string | undefined): Parsed<string[]> {
   if (raw === undefined || raw === "") return ok([])
@@ -408,6 +634,18 @@ export interface GuardFrame {
   readonly visibleMessageIds: ReadonlySet<string>
   /** The attempt's abort signal; aborted = cancelled while pending. */
   readonly signal: AbortSignal
+  /**
+   * Private G2 correlation facts.  These are present only after the native
+   * marker, lineage and persisted assistant identity were all observed for
+   * this exact pending attempt.  They are deliberately not a general grant:
+   * the API must still re-check the durable binding before it returns allow.
+   */
+  readonly workflow?: {
+    binding: WorkflowBinding
+    scope: WorkflowScope
+    accounting: WorkflowAccounting
+    nativeLineageDigest: string
+  }
 }
 
 const frames = new Map<string, Map<string, GuardFrame>>()
@@ -457,7 +695,7 @@ export function buildGuardExport(
   if (!frame) return { schemaVersion: 1, status: "not_pending" }
   const status = guardFrameStatus(frame)
   if (status !== "pending") return { schemaVersion: 1, status }
-  return {
+  const pending: GuardPendingExport = {
     schemaVersion: 1,
     status: "pending",
     request: frame.request,
@@ -467,6 +705,33 @@ export function buildGuardExport(
     inputGroupCount: frame.inputGroupCount,
     originCoverage: frame.originCoverage,
     sourceProofs: proofs(frame, sourceAnchorIds),
+  }
+  return pending
+}
+
+/**
+ * G2 wrapper for the same pending-frame export. Keeping the V1 builder's
+ * static return type preserves existing callers/tests; only the explicit
+ * versioned HTTP consumer may receive this stricter envelope.
+ */
+export function buildWorkflowGuardExport(
+  sdkSessionId: string,
+  nonce: string,
+  sourceAnchorIds: string[],
+  proofs: (frame: GuardFrame, anchors: string[]) => GuardSourceProof[],
+): GuardPendingExport | GuardUnavailableExport | WorkflowProviderPendingExport {
+  const pending = buildGuardExport(sdkSessionId, nonce, sourceAnchorIds, proofs)
+  if (pending.status !== "pending") return pending
+  const frame = lookupGuardFrame(sdkSessionId, nonce)
+  if (!frame?.workflow || guardFrameStatus(frame) !== "pending") return pending
+  return {
+    schemaVersion: 2,
+    kind: "coordinator_workflow_provider_frame",
+    binding: frame.workflow.binding,
+    scope: frame.workflow.scope,
+    accounting: frame.workflow.accounting,
+    nativeLineageDigest: frame.workflow.nativeLineageDigest,
+    frame: pending,
   }
 }
 
@@ -539,11 +804,27 @@ export function resolveSourceProofs(
 // Monotonic managed/enrolled SDK record (existing Storage, no schema change)
 // ---------------------------------------------------------------------------
 
-export interface GuardRecord {
+export interface GuardRecordV1 {
   schemaVersion: 1
   managedSeen: boolean
   guarded: boolean
 }
+export interface WorkflowManagerLineageRecord {
+  kind: "manager_lineage"
+  binding: WorkflowBinding
+  engineGeneration: string
+}
+export interface WorkflowRootTurnRecord {
+  kind: "root_turns"
+  entries: Array<{ binding: WorkflowBinding; userMessageId: string; engineGeneration: string }>
+}
+export interface GuardRecordV2 {
+  schemaVersion: 2
+  managedSeen: true
+  guarded: true
+  workflow: WorkflowManagerLineageRecord | WorkflowRootTurnRecord
+}
+export type GuardRecord = GuardRecordV1 | GuardRecordV2
 
 export type GuardRecordState =
   | { state: "absent" }
@@ -555,10 +836,33 @@ const SAFE_SDK_ID = /^[A-Za-z0-9_-]{1,200}$/
 const recordKey = (sdkSessionId: string) => ["rhythm", "dayflow-guard", sdkSessionId]
 const recordLock = Semaphore.makeUnsafe(1)
 
+const MAX_WORKFLOW_ROOT_ENTRIES = 16
+
 function decodeRecord(raw: unknown): GuardRecord | undefined {
-  if (!isObject(raw) || raw.schemaVersion !== GUARD_SCHEMA_VERSION) return undefined
-  if (typeof raw.managedSeen !== "boolean" || typeof raw.guarded !== "boolean") return undefined
-  return { schemaVersion: 1, managedSeen: raw.managedSeen || raw.guarded, guarded: raw.guarded }
+  if (!isObject(raw) || typeof raw.schemaVersion !== "number") return undefined
+  if (raw.schemaVersion === 1) {
+    if (!exactKeys(raw, ["schemaVersion", "managedSeen", "guarded"]) || typeof raw.managedSeen !== "boolean" || typeof raw.guarded !== "boolean") return undefined
+    return { schemaVersion: 1, managedSeen: raw.managedSeen || raw.guarded, guarded: raw.guarded }
+  }
+  if (raw.schemaVersion !== 2 || !exactKeys(raw, ["schemaVersion", "managedSeen", "guarded", "workflow"]) || raw.managedSeen !== true || raw.guarded !== true || !isObject(raw.workflow)) return undefined
+  if (raw.workflow.kind === "manager_lineage" && exactKeys(raw.workflow, ["kind", "binding", "engineGeneration"])) {
+    const binding = parseWorkflowBinding(raw.workflow.binding)
+    if (!binding.ok || !isGeneration(raw.workflow.engineGeneration)) return undefined
+    return { schemaVersion: 2, managedSeen: true, guarded: true, workflow: { kind: "manager_lineage", binding: binding.value, engineGeneration: raw.workflow.engineGeneration } }
+  }
+  if (raw.workflow.kind === "root_turns" && exactKeys(raw.workflow, ["kind", "entries"]) && Array.isArray(raw.workflow.entries) && raw.workflow.entries.length <= MAX_WORKFLOW_ROOT_ENTRIES) {
+    const seen = new Set<string>()
+    const entries: WorkflowRootTurnRecord["entries"] = []
+    for (const entry of raw.workflow.entries) {
+      if (!isObject(entry) || !exactKeys(entry, ["binding", "userMessageId", "engineGeneration"])) return undefined
+      const binding = parseWorkflowBinding(entry.binding)
+      if (!binding.ok || !isId(entry.userMessageId) || !isGeneration(entry.engineGeneration) || seen.has(entry.userMessageId)) return undefined
+      seen.add(entry.userMessageId)
+      entries.push({ binding: binding.value, userMessageId: entry.userMessageId, engineGeneration: entry.engineGeneration })
+    }
+    return { schemaVersion: 2, managedSeen: true, guarded: true, workflow: { kind: "root_turns", entries } }
+  }
+  return undefined
 }
 
 /** Read the record. A corrupt or unreadable record is `error` (callers hold), never `absent`. */
@@ -577,23 +881,20 @@ export const readGuardRecord = Effect.fn("RhythmProviderGuard.readRecord")(funct
 })
 
 /**
- * Monotonic merge: flags only ever become true; there is no disable path. A corrupt
- * existing record is replaced only upward (the written value is a superset of any
- * claim), never downward.
+ * Monotonic merge: flags only ever become true; there is no disable path. An
+ * unreadable record is a hold rather than evidence it was ordinary: otherwise
+ * an unknown schema-2 workflow marker could be overwritten by a v1 write.
  */
 const raise = (sdkSessionId: string, next: { managedSeen: true; guarded?: true }) =>
   Effect.gen(function* () {
     if (!SAFE_SDK_ID.test(sdkSessionId)) return yield* Effect.die(new Error("Unsafe SDK session id for guard record"))
     const storage = yield* Storage.Service
     const existing = yield* readGuardRecord(sdkSessionId)
-    if (existing.state === "error") {
-      // Unknown prior value: a prior `guarded:true` cannot be disproved, so write the protective
-      // managed+guarded superset (never guarded:false). A truly absent record is not this branch.
-      const record: GuardRecord = { schemaVersion: 1, managedSeen: true, guarded: true }
-      yield* storage.write(recordKey(sdkSessionId), record)
-      return record
-    }
+    if (existing.state === "error") return yield* Effect.die(new Error("Unreadable Rhythm guard record"))
     const prior = existing.state === "record" ? existing.record : undefined
+    // A legacy enrollment/flag-raise may never erase the stricter workflow
+    // discriminator. Its already-monotonic flags are enough for the v1 caller.
+    if (prior?.schemaVersion === 2) return prior
     const record: GuardRecord = {
       schemaVersion: 1,
       managedSeen: true,
@@ -618,4 +919,99 @@ export const enrollGuard = Effect.fn("RhythmProviderGuard.enroll")(function* (sd
     engineGeneration: ENGINE_GENERATION,
     guarded: true,
   } satisfies GuardEnrollmentResponse
+})
+
+function bindingLive(binding: WorkflowBinding, now = Date.now()) {
+  return Date.parse(binding.expiresAt) > now
+}
+
+/**
+ * Upgrade a valid v1 guard record, or append/replay only the exact immutable
+ * workflow marker. This writes before any caller can expose a provider request.
+ * Expired root entries are the sole removable cache entries; durable API job
+ * membership is intentionally not represented or retired here.
+ */
+export const enrollWorkflowGuard = Effect.fn("RhythmProviderGuard.enrollWorkflow")(function* (
+  sdkSessionId: string,
+  enrollment: WorkflowEnrollmentRequest,
+) {
+  if (!SAFE_SDK_ID.test(sdkSessionId)) return yield* Effect.die(new Error("Unsafe SDK session id for workflow guard"))
+  const parsed = parseWorkflowEnrollmentRequest(enrollment)
+  if (!parsed.ok) return yield* Effect.die(new Error("Invalid workflow guard enrollment"))
+  const storage = yield* Storage.Service
+  return yield* Effect.gen(function* () {
+    const existing = yield* readGuardRecord(sdkSessionId)
+    if (existing.state === "error") return yield* Effect.die(new Error("Unreadable Rhythm guard record"))
+    const prior = existing.state === "record" ? existing.record : undefined
+    let next: GuardRecordV2
+    if (enrollment.scope.kind === "manager_lineage") {
+      const marker: WorkflowManagerLineageRecord = {
+        kind: "manager_lineage", binding: enrollment.binding, engineGeneration: ENGINE_GENERATION,
+      }
+      if (prior?.schemaVersion === 2) {
+        if (prior.workflow.kind !== "manager_lineage" || !sameWorkflowBinding(prior.workflow.binding, marker.binding) || prior.workflow.engineGeneration !== marker.engineGeneration) {
+          return yield* Effect.die(new Error("Conflicting workflow manager enrollment"))
+        }
+        next = prior
+      } else {
+        next = { schemaVersion: 2, managedSeen: true, guarded: true, workflow: marker }
+      }
+    } else {
+      const entry = { binding: enrollment.binding, userMessageId: enrollment.scope.userMessageId, engineGeneration: ENGINE_GENERATION }
+      if (prior?.schemaVersion === 2 && prior.workflow.kind === "manager_lineage") {
+        return yield* Effect.die(new Error("Workflow lineage/root enrollment mix"))
+      }
+      const entries = prior?.schemaVersion === 2 && prior.workflow.kind === "root_turns"
+        ? prior.workflow.entries.filter((candidate) => bindingLive(candidate.binding))
+        : []
+      const same = entries.find((candidate) => candidate.userMessageId === entry.userMessageId)
+      if (same && (!sameWorkflowBinding(same.binding, entry.binding) || same.engineGeneration !== entry.engineGeneration)) {
+        return yield* Effect.die(new Error("Conflicting workflow root enrollment"))
+      }
+      if (!same) entries.push(entry)
+      if (entries.length > MAX_WORKFLOW_ROOT_ENTRIES) return yield* Effect.die(new Error("Workflow root enrollment bound"))
+      next = { schemaVersion: 2, managedSeen: true, guarded: true, workflow: { kind: "root_turns", entries } }
+    }
+    if (prior?.schemaVersion !== 2 || canonicalJson(prior) !== canonicalJson(next)) yield* storage.write(recordKey(sdkSessionId), next)
+    return {
+      schemaVersion: 2,
+      kind: "coordinator_workflow_enrollment",
+      sdkSessionId,
+      engineGeneration: ENGINE_GENERATION,
+      guarded: true,
+      binding: enrollment.binding,
+      scope: enrollment.scope,
+    } satisfies WorkflowEnrollmentResponse
+  }).pipe(Semaphore.withPermit(recordLock))
+})
+
+/** Strict current marker lookup for projection/create/task paths. */
+export const workflowGuardFor = Effect.fn("RhythmProviderGuard.workflowFor")(function* (sdkSessionId: string) {
+  const record = yield* readGuardRecord(sdkSessionId)
+  if (record.state !== "record" || record.record.schemaVersion !== 2) return undefined
+  return record.record.workflow
+})
+
+/**
+ * Native sub-sessions inherit only a verified manager-lineage marker.  Root
+ * turn anchors intentionally do not taint every ordinary child. This happens
+ * before Session.Created publication, so a failed durable write leaves no
+ * exposed child session that could later reach a provider unregistered.
+ */
+export const inheritWorkflowGuard = Effect.fn("RhythmProviderGuard.inherit")(function* (
+  parentSdkSessionId: string | undefined,
+  childSdkSessionId: string,
+) {
+  if (!parentSdkSessionId) return false
+  const parent = yield* readGuardRecord(parentSdkSessionId)
+  if (parent.state === "error") return yield* Effect.die(new Error("Unreadable parent Rhythm guard record"))
+  if (parent.state !== "record" || parent.record.schemaVersion !== 2 || parent.record.workflow.kind !== "manager_lineage") return false
+  const enrollment: WorkflowEnrollmentRequest = {
+    schemaVersion: 2,
+    kind: "coordinator_workflow_enrollment",
+    binding: parent.record.workflow.binding,
+    scope: { kind: "manager_lineage" },
+  }
+  yield* enrollWorkflowGuard(childSdkSessionId, enrollment)
+  return true
 })
