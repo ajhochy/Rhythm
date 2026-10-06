@@ -3,7 +3,10 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { resolveMemoryDirPath } from '../config/env';
-import type { WorkstreamReferenceInput } from '../contracts/agent_workstream_contract';
+import {
+  SELECTED_REFERENCE_SUMMARY_CRITERION,
+  type WorkstreamReferenceInput,
+} from '../contracts/agent_workstream_contract';
 import { AgentMemoryRepository, type AgentMemory } from '../repositories/agent_memory_repository';
 import type { ManagedContextReference } from '../repositories/managed_workstream_context_repository';
 import { parseNote, vaultKeyToMemoryDirRelative } from './memoryVaultSyncService';
@@ -252,4 +255,97 @@ export class WorkstreamArtifactVerifier {
       jsonlRowHash: observedHash,
     };
   }
+}
+
+// ── G2 selected_reference_summary_v1 deterministic checks (S5) ───────────────
+// Pure parsers/checks only. They never resolve a source themselves; the caller
+// passes the server resolver's fresh result. A parsed model proposal is input
+// to these checks, never a receipt by itself.
+
+/** The exact stored expectation bound at admission. */
+export interface SelectedReferenceExpectation {
+  sourceId: string;
+  canonicalId: string;
+  observedVersion: string;
+  observedHash: string;
+  sourceInstance: string;
+}
+
+export const SELECTED_REFERENCE_SUMMARY_MAX_CHARS = 4_000;
+const PROPOSAL_TEXT_MAX = 16_384;
+
+export function selectedReferenceCitation(sourceId: string, version: string): string {
+  return `[source: ${sourceId}@${version}]`;
+}
+
+/** Fresh server resolution must equal the admitted expectation exactly. */
+export function selectedReferenceCurrent(
+  expectation: SelectedReferenceExpectation,
+  resolved: QualifiedWorkstreamArtifact,
+): boolean {
+  const receipt = resolved.receipt;
+  return resolved.eligible && resolved.managedReference !== null && receipt.kind === 'memory_vault' &&
+    receipt.verified === true && receipt.reason === null && resolved.selector === expectation.sourceId &&
+    receipt.canonicalId === expectation.canonicalId && receipt.observedVersion === expectation.observedVersion &&
+    receipt.observedHash === expectation.observedHash && receipt.sourceNamespace === 'memory-vault' &&
+    receipt.sourceInstance === expectation.sourceInstance;
+}
+
+/** One bounded JSON object: the whole text, or the span between the first '{' and last '}'. */
+function jsonObjectIn(text: string): Record<string, unknown> | null {
+  if (typeof text !== 'string' || text.length === 0 || text.length > PROPOSAL_TEXT_MAX) return null;
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    const value: unknown = JSON.parse(text.slice(start, end + 1));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+const exactKeys = (value: Record<string, unknown>, keys: string[]) =>
+  Object.keys(value).length === keys.length && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+
+export type SelectedReferenceSummaryCheck =
+  | { ok: true; summarySha256: string }
+  | { ok: false; reason: 'summary_unavailable' | 'summary_citation_mismatch' | 'summary_bounds' |
+    'review_unavailable' | 'review_not_pass' | 'review_mismatch' };
+
+/**
+ * Structural/citation check of the manager's brief plus the independent
+ * reviewer's strict verdict over that exact brief. The reviewer's judgement is
+ * model review; the server proves only identity, citation and bounds.
+ */
+export function checkSelectedReferenceSummary(input: {
+  expectation: SelectedReferenceExpectation;
+  managerText: string;
+  reviewerText: string;
+}): SelectedReferenceSummaryCheck {
+  const { expectation } = input;
+  const summary = jsonObjectIn(input.managerText);
+  if (!summary || !exactKeys(summary, ['kind', 'sourceId', 'version', 'summary']) ||
+      summary.kind !== 'selected_reference_summary_v1' || typeof summary.summary !== 'string') {
+    return { ok: false, reason: 'summary_unavailable' };
+  }
+  if (summary.summary.trim().length === 0 || summary.summary.length > SELECTED_REFERENCE_SUMMARY_MAX_CHARS) {
+    return { ok: false, reason: 'summary_bounds' };
+  }
+  if (summary.sourceId !== expectation.sourceId || summary.version !== expectation.observedVersion ||
+      !summary.summary.includes(selectedReferenceCitation(expectation.sourceId, expectation.observedVersion))) {
+    return { ok: false, reason: 'summary_citation_mismatch' };
+  }
+  const summarySha256 = hash(summary.summary);
+  const review = jsonObjectIn(input.reviewerText);
+  if (!review || !exactKeys(review, ['kind', 'criterionId', 'verdict', 'sourceId', 'version', 'summarySha256']) ||
+      review.kind !== 'selected_reference_review_v1') {
+    return { ok: false, reason: 'review_unavailable' };
+  }
+  if (review.verdict !== 'pass') return { ok: false, reason: 'review_not_pass' };
+  if (review.criterionId !== SELECTED_REFERENCE_SUMMARY_CRITERION || review.sourceId !== expectation.sourceId ||
+      review.version !== expectation.observedVersion || review.summarySha256 !== summarySha256) {
+    return { ok: false, reason: 'review_mismatch' };
+  }
+  return { ok: true, summarySha256 };
 }
