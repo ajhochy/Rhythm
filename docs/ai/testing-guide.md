@@ -771,3 +771,37 @@ dispatching an out-of-scope name is rejected, falsified in the implementing run 
 temporarily removing the guard and confirming the test failed). The manual smoke above
 is the live full-stack visual + token-count confirmation with the bundled binary, not
 yet run.
+
+### Bounded Coding Workflow live check
+
+`live_coding_workflow_bounded.test.ts` exercises the real local API, built fork,
+MCP server, manager/reviewer sessions and server-checked workflow criteria. Only
+external model responses are deterministic synthetic data; this proves wiring
+and bounded control, not normal served-provider judgement or installed UI behavior.
+The suite skips unless `RHYTHM_LIVE_E2E=1`. It creates invented read-only fixtures,
+uses only the stock `tools/dev/sandbox.sh` lifecycle, and owns API 4198, engine
+4197, gateway 4199, observer 4284 and one ephemeral model listener. Do not run
+another sandbox or build in the same worktree concurrently. No credential,
+private database, live HOME or existing fixture is copied.
+
+From `apps/api_server`, use an unused absolute receipt directory. The trusted
+caller PATH must contain compatible installed Node.js 22 and Bun; the harness
+does not install dependencies. Only PATH is propagated from the caller:
+
+```sh
+env -i PATH="$PATH" \
+  RHYTHM_LIVE_E2E=1 RHYTHM_G2_LIVE_TEST_OUT=/private/tmp/rhythm-g2-new-receipt \
+  node_modules/.bin/vitest run src/__tests__/live_coding_workflow_bounded.test.ts
+```
+
+The assertions require both server-checked criteria, one actual completed
+reviewer under manager 2, exact manager ordinals 1 and 2, admission/continuation
+replay invariance, 65 seconds of reconciliation quiescence, the current gateway
+fingerprint, unchanged product source hashes, unchanged normal-runtime listener
+identities, successful stock teardown, an absent runtime directory, unchanged
+read-only fixtures, and teardown of all five owned listeners. Evidence-copy
+errors fail qualification while all remaining cleanup still runs. The receipt preserves
+source HEAD, product/harness hashes, raw guard transport observations, runtime
+logs/guard markers and invented-data SQLite snapshots before stock teardown.
+A held, timed-out or interrupted run is unqualified; retain its receipt for
+failure triage rather than changing a guard response or weakening an assertion.

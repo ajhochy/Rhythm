@@ -18,7 +18,7 @@ index: "[[Rhythm]]"
 - [x] Read product diffs and validate architecture/fingerprint claims.
 - [x] Integrate independently reviewed triage and repair reproduced CI failures.
 - [ ] Run issue and full PR verification, including missing package coverage.
-- [ ] Run bounded G2 test through actual API/engine; record normal-app limits separately.
+- [x] Run bounded G2 recon through actual API/engine; record normal-app limits separately.
 - [ ] Rebuild/sign/relaunch exact desktop source and probe installed contract/health.
 - [ ] Inspect exact TestFlight availability; verify pairing before phone installation.
 - [ ] Record final state, update draft PR, and remove completed worktrees.
@@ -57,6 +57,15 @@ index: "[[Rhythm]]"
 - The two-line test repair awaits the exact full transcript before reading it. Existing intermediate streaming, zero-refetch, exact final text, cross-session isolation and authoritative idle reconciliation assertions remain intact; no product behavior, timeout or skip was changed. GitNexus spec-file impact LOW, zero indexed callers/processes.
 - Repaired focused repetitions passed 12/12; full mobile browser suite passed 77 tests with one existing relay-disabled skip, exit 0. Test ports were absent afterward. Twenty-one regenerated proof images were archived then restored to exact pre-run bytes. Required mobile human validation remains pending.
 - Evidence and diagnostic receipts: external `resume-mobile-stream-triage/`; no follow-up issue was filed because the reproduced test race was repaired within the current PR.
+
+### Bounded workflow checkpoint
+
+- Actual API/fork/MCP recon passed all 17 fail-closed qualifications at `052defe24564021d5bac4f3856693f71c4e052a7`; exact standalone command and receipt are recorded in `2026-10-06-resume-g2-live.md`. The external model response is synthetic; engine, API, delegation, persistence, guards and server checks are real. Final committed-head Vitest Confirm remains pending.
+- Both manager ordinals succeeded, both criteria were server checked and verified, one actual reviewer completed under manager 2, and native reviewer SDK/terminal identities matched the server review receipt. Recorded usage was 44 + 212 = 256 native tokens, including the manager completion callback. Replays created no job; 65 seconds of scheduler quiescence produced no third ordinal.
+- The additional tool-step ledger defect was repaired in `531f8070`; exact enrolled manager callback accounting was repaired in `052defe2`. Focused checks passed 75/75 and 113/113 respectively. Ownership, engine/runner lineage, immutable attempt conflicts, bounded membership, callback dispatch uniqueness, per-turn closure and final reproof remain enforced. Failed recons are preserved, including Recon14's test-only completed/notified status mismatch.
+- The live harness now independently attempts all cleanup even after evidence-copy errors, fails on incomplete evidence/teardown, requires healthy real endpoints, unchanged read-only fixtures, an absent sandbox and all five listeners absent. Recon15 met every requirement; normal listener identities and product hashes were unchanged.
+- The actual built MCP registry reported 109 tools through SDK initialize/tools-list; no API tool was invoked. The inherited PR changes `apps/mcp_server/src/index.ts`, so this count belongs in the final PR description.
+- Installed app, normal served-provider judgment, physical mobile, Dayflow onboarding and routing rollout remain separate gates. Fresh aggregate checks, signing, stable app staging and normal-profile launch are next.
 
 ## Notes
 
