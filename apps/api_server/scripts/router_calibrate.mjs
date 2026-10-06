@@ -36,6 +36,8 @@
 // Hosted Jev instead: JEV_API_KEY=... node router_calibrate.mjs --mode systemone --systemone-url https://api.typesafe.ai
 // (hosted Jev receives the 50 test prompts below; they are synthetic, no personal data)
 
+import { fileURLToPath } from 'node:url';
+
 const args = process.argv.slice(2);
 const arg = (name, fallback) => {
   const i = args.indexOf(`--${name}`);
@@ -56,6 +58,8 @@ const SYSTEMONE_REMOTE = !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/.t
 const SYSTEMONE_MODEL = arg('systemone-model', SYSTEMONE_REMOTE ? 'jev-latest' : 'kev-latest');
 const SYSTEMONE_KEY = arg('api-key', process.env.JEV_API_KEY ?? '');
 const EXAMPLES_FILE = arg('examples', null);
+// Router budget: DEFAULT_SYSTEMONE_TIMEOUT_MS in src/services/decision/decision_settings.ts:72.
+const DEFAULT_SYSTEMONE_TIMEOUT_MS = 1000;
 const TOP_K = 3; // per-tier aggregation: mean of the tier's best 3 example scores
 
 // Copied from apps/api_server/src/services/decision/model_router.ts (TIER_LABELS).
@@ -212,7 +216,68 @@ const CLASSIFIER_SYSTEM = [
   'Judge by how much reasoning the task needs, not by its length or its topic. A long request can still be a simple lookup; a short question can hide a hard problem.',
   'Answer with exactly one letter: A, B or C.',
 ].join('\n');
-let classifierNoLogprobs = false;
+
+// ---- probability validation (mirrors production; failed rows are NOT predictions) ----------
+// Mirrors systemone_client.ts parseAnswer (lines ~142-163) and model_router.ts classifyWithChoice
+// (lines ~46-75): every tier must be a finite number >= 0, the sum must be finite and > 0, values
+// are divided by the sum, each must land in [0,1], and the total must be within 1e-6 of 1. The
+// `choice` label is never evidence of confidence. Not importable from .mjs without a TS build.
+const MALFORMED = { failed: true, reason: 'malformed_response' };
+export function normalizeTierProbs(raw, ids = ['cheap', 'standard', 'frontier']) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return MALFORMED;
+  const probs = {};
+  let sum = 0;
+  for (const id of ids) {
+    const v = raw[id];
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return MALFORMED;
+    probs[id] = v;
+    sum += v;
+  }
+  if (!Number.isFinite(sum) || sum <= 0) return MALFORMED; // MAX_VALUE + MAX_VALUE overflows here
+  let total = 0;
+  for (const id of ids) {
+    probs[id] /= sum;
+    if (!Number.isFinite(probs[id]) || probs[id] < 0 || probs[id] > 1) return MALFORMED;
+    total += probs[id];
+  }
+  if (Math.abs(total - 1) > 1e-6) return MALFORMED;
+  return { probs };
+}
+
+// Method D: the answer object (body.answers.tier). Missing/partial/zero-sum probabilities fail; no one-hot from `choice`.
+export function tierProbsFromSystemOne(answer) {
+  if (!answer || typeof answer !== 'object') return MALFORMED;
+  return normalizeTierProbs(answer.probabilities);
+}
+
+// Method C: first generated token's top_logprobs. All three letters must be present with
+// finite logprob <= 0; a generated letter without logprobs is never promoted to probability 1.
+export function tierProbsFromLogprobs(choice) {
+  const cands = choice?.logprobs?.content?.[0]?.top_logprobs;
+  if (!Array.isArray(cands)) return MALFORMED;
+  const raw = {};
+  for (const cand of cands) {
+    const id = LETTER[String(cand?.token ?? '').trim().toUpperCase()];
+    if (!id) continue;
+    if (typeof cand.logprob !== 'number' || !Number.isFinite(cand.logprob) || cand.logprob > 0) return MALFORMED;
+    raw[id] = (raw[id] ?? 0) + Math.exp(cand.logprob);
+  }
+  return normalizeTierProbs(raw);
+}
+
+// Failed rows are non-predictions: counted and reported separately, never dropped or scored as misses.
+export function summarizeRows(rows) {
+  const total = rows.length;
+  const failed = rows.filter((r) => r.failed).length;
+  const predicted = total - failed;
+  const correct = rows.filter((r) => !r.failed && r.correct).length;
+  return {
+    total, predicted, failed, correct,
+    accuracyOfPredicted: predicted ? correct / predicted : null,
+    accuracyOfAll: total ? correct / total : null,
+  };
+}
+
 
 async function classifyByLLM(prompt) {
   const started = performance.now();
@@ -234,22 +299,10 @@ async function classifyByLLM(prompt) {
   if (!res.ok) throw new Error(`classifier HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const body = await res.json();
   const choice = body.choices?.[0] ?? {};
-  const first = choice.logprobs?.content?.[0];
-  const probs = { cheap: 0, standard: 0, frontier: 0 };
-  for (const cand of first?.top_logprobs ?? []) {
-    const letter = String(cand.token ?? '').trim().toUpperCase();
-    if (LETTER[letter]) probs[LETTER[letter]] += Math.exp(cand.logprob);
-  }
-  let total = probs.cheap + probs.standard + probs.frontier;
-  if (total === 0) {
-    // No logprobs from this server build: fall back to the generated letter at full confidence.
-    const letter = String(choice.message?.content ?? choice.text ?? '').trim().toUpperCase().replace(/[^ABC]/g, '')[0];
-    if (letter) probs[LETTER[letter]] = 1;
-    classifierNoLogprobs = true;
-    total = 1;
-  }
-  for (const k of Object.keys(probs)) probs[k] /= total;
-  return { tierScores: probs, raw: null, latencyMs: performance.now() - started, nearest: null };
+  const v = tierProbsFromLogprobs(choice);
+  const latencyMs = performance.now() - started;
+  if (v.failed) return { failed: true, reason: v.reason, latencyMs };
+  return { tierScores: v.probs, raw: null, latencyMs, nearest: null };
 }
 
 // Method D: one typed choice question, options = the three tiers (System One /v1/systemone).
@@ -277,19 +330,14 @@ async function classifyBySystemOne(prompt) {
   const body = await res.json();
   systemoneModel = body.model ?? systemoneModel;
   const answer = body.answers?.tier ?? (Array.isArray(body.answers) ? body.answers[0] : null);
-  const probs = { cheap: 0, standard: 0, frontier: 0 };
-  for (const t of TIERS) {
-    const v = answer?.probabilities?.[t.id];
-    if (typeof v === 'number' && Number.isFinite(v)) probs[t.id] = v;
-  }
-  let total = probs.cheap + probs.standard + probs.frontier;
-  if (total === 0 && answer?.choice && probs[answer.choice] !== undefined) { probs[answer.choice] = 1; total = 1; }
-  if (total === 0) throw new Error(`systemone response had no tier probabilities: ${JSON.stringify(body).slice(0, 200)}`);
-  for (const k of Object.keys(probs)) probs[k] /= total;
-  return { tierScores: probs, raw: null, latencyMs: performance.now() - started, nearest: null };
+  const v = tierProbsFromSystemOne(answer);
+  const latencyMs = performance.now() - started;
+  if (v.failed) return { failed: true, reason: v.reason, latencyMs };
+  return { tierScores: v.probs, raw: null, latencyMs, nearest: null };
 }
 
 function toRow(p, result) {
+  if (result.failed) return { ...p, failed: true, reason: result.reason, latencyMs: result.latencyMs, correct: false };
   const ranked = Object.entries(result.tierScores).map(([id, score]) => ({ id, score })).sort((a, b) => b.score - a.score);
   const sum = ranked.reduce((a, r) => a + r.score, 0) || 1;
   return {
@@ -302,13 +350,22 @@ function toRow(p, result) {
     nearest: result.nearest,
     latencyMs: result.latencyMs,
     correct: ranked[0].id === p.expected,
+    failed: false,
   };
 }
 
 // ---- report ---------------------------------------------------------------
 
-function report(title, rows, { showDescriptionBlame }) {
+function report(title, allRows, { showDescriptionBlame }) {
   console.log(`\n${'='.repeat(78)}\n${title}\n${'='.repeat(78)}`);
+  const sum = summarizeRows(allRows);
+  const failedRows = allRows.filter((r) => r.failed);
+  const rows = allRows.filter((r) => !r.failed);
+  if (failedRows.length) {
+    console.log(`\n   FAILED (non-predictions, excluded from accuracy below): ${failedRows.length}/${sum.total} — malformed_response`);
+    for (const r of failedRows) console.log(`   ! ${r.reason}  ${r.prompt.slice(0, 64)}`);
+    console.log(`   Accuracy counting failures as misses: ${pct(sum.accuracyOfAll)} (${sum.correct}/${sum.total})`);
+  }
 
   console.log('\n1) PER PROMPT  (✓ right tier, ✗ wrong)');
   console.log(`   ${pad('expected', 9)}${pad('picked', 9)}${pad('conf', 7)}${pad('margin', 8)}${pad('share', 7)}  prompt`);
@@ -317,6 +374,7 @@ function report(title, rows, { showDescriptionBlame }) {
   }
 
   const n = rows.length;
+  if (!n) { console.log('\n   No usable predictions.'); return { rows, n: 0, accuracy: 0, over: 0, under: 0, confPick: null, sharePick: null, avgMs: 0, confSweep: [], shareSweep: [], marginSweep: [], failed: failedRows.length, total: sum.total }; }
   const nOk = rows.filter((r) => r.correct).length;
   console.log(`\n2) ACCURACY  overall ${pct(nOk / n)} (${nOk}/${n})   [random guessing ≈ 33%]`);
   for (const t of TIERS) {
@@ -372,9 +430,9 @@ function report(title, rows, { showDescriptionBlame }) {
   if (sharePick) console.log(`   Share ≥ ${sharePick.t.toFixed(2)} → ${pct(sharePick.accuracy)} right on ${pct(sharePick.coverage)} of prompts (${sharePick.n} prompts).`);
   if (!confPick && !sharePick) console.log('   No threshold reaches 90% accuracy on at least 3 prompts. Keep Model routing in Shadow for this method.');
   const avgMs = rows.reduce((a, r) => a + r.latencyMs, 0) / n;
-  console.log(`   Latency: avg ${Math.round(avgMs)} ms per decision (Rhythm's router timeout is 400 ms by default).`);
+  console.log(`   Latency: avg ${Math.round(avgMs)} ms per decision (Rhythm's router timeout is ${DEFAULT_SYSTEMONE_TIMEOUT_MS} ms by default).`);
 
-  return { rows, n, accuracy: nOk / n, over: over.length, under: under.length, confPick, sharePick, avgMs, confSweep, shareSweep, marginSweep };
+  return { rows, failed: failedRows.length, total: sum.total, n, accuracy: nOk / n, over: over.length, under: under.length, confPick, sharePick, avgMs, confSweep, shareSweep, marginSweep };
 }
 
 // ---- main -----------------------------------------------------------------
@@ -438,7 +496,8 @@ async function main() {
       for (const p of PROMPTS) { rows.push({ ...toRow(p, await classifyByLLM(p.prompt)), source: 'test' }); process.stdout.write('.'); }
       for (const t of TIERS) for (const ex of EXAMPLES[t.id]) { rows.push({ ...toRow({ expected: t.id, prompt: ex, why: 'example' }, await classifyByLLM(ex)), source: 'extra' }); process.stdout.write('.'); }
       process.stdout.write('\n');
-      if (classifierNoLogprobs) console.log('   ⚠ This llama-server build returned no logprobs; confidence is 0/1 only. Update llama.cpp (brew upgrade llama.cpp) for real probabilities.');
+      const cFailed = rows.filter((r) => r.failed).length;
+      if (cFailed) console.log(`   ⚠ ${cFailed}/${rows.length} classifier rows had missing/partial logprobs and were recorded as failed (no 0/1 fallback). Update llama.cpp (brew upgrade llama.cpp) if this is most rows.`);
       summary.classifier = report('METHOD C: small instruct LLM, 20 test prompts', rows.filter((r) => r.source === 'test'), { showDescriptionBlame: false });
       summary.classifierAll = report(`METHOD C, all ${rows.length} prompts (zero-shot, so every prompt is held out) — use this sweep to pick a threshold`, rows, { showDescriptionBlame: false });
       out.classifier = rows;
@@ -503,8 +562,8 @@ async function main() {
     } else {
       console.log('   Start the classifier (C) or Kev (D) model (see above) and re-run to compare.');
     }
-    const slow = methods.filter(([, s20]) => s20.avgMs > 400).map(([n]) => n);
-    if (slow.length) console.log(`   ⚠ Over Rhythm's 400 ms timeout: ${slow.join(', ')}. With "first prompt" routing that is once per chat, so raising the timeout is reasonable.`);
+    const slow = methods.filter(([, s20]) => s20.avgMs > DEFAULT_SYSTEMONE_TIMEOUT_MS).map(([n]) => n);
+    if (slow.length) console.log(`   ⚠ Over Rhythm's ${DEFAULT_SYSTEMONE_TIMEOUT_MS} ms timeout: ${slow.join(', ')}. With "first prompt" routing that is once per chat, so raising the timeout is reasonable.`);
   }
 
   if (JSON_OUT) {
@@ -514,4 +573,4 @@ async function main() {
   }
 }
 
-main().catch((err) => { console.error(err); process.exit(1); });
+if (process.argv[1] === fileURLToPath(import.meta.url)) main().catch((err) => { console.error(err); process.exit(1); });
