@@ -2,8 +2,8 @@ import * as Clipboard from 'expo-clipboard';
 import { ResizeMode, Video } from 'expo-av';
 import { Image } from 'expo-image';
 import * as WebBrowser from 'expo-web-browser';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Platform,
@@ -31,6 +31,7 @@ import {
 import { ToolScreenState } from '@/components/tools/tool-screen-state';
 import { ToolDialog } from '@/components/tools/tool-dialog';
 import { ResearchMarkdown } from '@/components/tools/research-markdown';
+import { ResearchProjectWorkspace } from '@/components/tools/research-project-workspace';
 import { decodePlainTextEntities } from '@/components/tools/tool-display-text';
 import {
   BrainSearchSurface,
@@ -259,9 +260,10 @@ export default function RhythmToolScreen() {
     (entry) => entry.id === params.tool,
   );
   const tool = manifest?.id;
-  const { getGalleryArtifactSource, getState, perform, refresh } =
+  const { getGalleryArtifactSource, getState, perform, refresh, research } =
     useRhythmTools();
   const {
+    availableModels,
     chatPreferences,
     completeMcpOAuth,
     completeProviderOAuth,
@@ -300,6 +302,18 @@ export default function RhythmToolScreen() {
   useEffect(() => {
     if (tool) void refresh(tool);
   }, [refresh, tool]);
+
+  // Thin route visibility for the provider-owned Research workspace: visible only while this route is focused (blur and
+  // unmount both clear it; the native stack keeps unfocused routes mounted), so it never polls or accepts a pending read
+  // result while hidden.
+  const setResearchVisible = research?.setVisible;
+  useFocusEffect(
+    useCallback(() => {
+      if (tool !== 'research' || !setResearchVisible) return undefined;
+      setResearchVisible(true);
+      return () => setResearchVisible(false);
+    }, [setResearchVisible, tool]),
+  );
 
   useEffect(() => {
     if (!params.selectedId || selected || state.items.length === 0) return;
@@ -358,7 +372,10 @@ export default function RhythmToolScreen() {
         <Appbar.Action
           accessibilityLabel={`Refresh ${manifest.title}`}
           icon="refresh"
-          onPress={() => void refresh(tool)}
+          onPress={() => {
+            void refresh(tool);
+            if (tool === 'research') void research?.refresh();
+          }}
         />
       ) : null}
     </Appbar.Header>
@@ -1537,6 +1554,16 @@ export default function RhythmToolScreen() {
               </Button>
             </View>
           </Surface>
+        ) : null}
+        {tool === 'research' && research ? (
+          <>
+            <ResearchProjectWorkspace
+              models={availableModels ?? []}
+              palette={palette}
+              workspace={research}
+            />
+            <Text accessibilityRole="header" variant="titleMedium">Research history</Text>
+          </>
         ) : null}
         {items.length === 0 ? (
           <ToolScreenState
