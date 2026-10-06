@@ -285,3 +285,23 @@ describe('SessionConfigurationSheet', () => {
     expect(onProjectChange).toHaveBeenCalledWith('/projects/beta');
   });
 });
+
+
+test.each(['loading', 'unavailable'] as const)('canonical primary %s sheet hides prior ordinary values and keeps controls locked', (status) => {
+  const update = jest.fn();
+  const screen = render(<PaperProvider><SessionConfigurationSheet
+    availableModels={[]} availableProfiles={[secretary]} availableProviders={[]}
+    mode="edit" onPreferencesChange={update} onDismiss={jest.fn()} palette={Colors.light}
+    preferences={{ ...defaultChatPreferences, profileId: secretary.profileId }} visible
+    settingsGate={{ modelOnly: true, unavailableReason: 'Canonical values not ready', valuesUnavailable: status }}
+  /></PaperProvider>);
+  const label = status === 'loading' ? 'Loading…' : 'Unavailable';
+  for (const field of ['Profile', 'Model', 'Approval Policy']) {
+    const item = screen.getByLabelText(`${field}, ${label}`);
+    expect(item.props.accessibilityState?.disabled).toBe(true);
+    fireEvent.press(item);
+  }
+  expect(screen.queryByLabelText('Profile, Secretary')).toBeNull();
+  expect(screen.queryByLabelText('Approval Policy, Ask as needed')).toBeNull();
+  expect(update).not.toHaveBeenCalled();
+});
