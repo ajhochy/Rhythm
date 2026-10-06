@@ -31,6 +31,7 @@ const [
   cloudSrc,
   pairedSrc,
   mobileGatewayServiceSrc,
+  providerUtilsSrc,
 ] = await Promise.all([
   readFile(new URL('../lib/transport/api-error.ts', import.meta.url), 'utf8'),
   readFile(new URL('../lib/transport/types.ts', import.meta.url), 'utf8'),
@@ -38,6 +39,7 @@ const [
   readFile(new URL('../lib/transport/rhythm-cloud-client.ts', import.meta.url), 'utf8'),
   readFile(new URL('../lib/transport/paired-mac-client.ts', import.meta.url), 'utf8'),
   readFile(new URL('../providers/services/mobile-gateway-service.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../providers/opencode-provider-utils.ts', import.meta.url), 'utf8'),
 ]);
 
 // ---------------------------------------------------------------------------
@@ -49,7 +51,7 @@ const [
 
 function stripLocalImports(src) {
   // Remove any line that is a local relative import (from './…')
-  return src.replace(/^import\b[^'"]*from\s+['"]\.[^'"]*['"]\s*;?\n?/gm, '');
+  return src.replace(/^import\b[^'"]*from\s+['"](?:\.|@\/)[^'"]*['"]\s*;?\n?/gm, '');
 }
 
 function stripTypeKeyword(src) {
@@ -67,7 +69,15 @@ function prepare(src) {
   return stripReExports(stripTypeKeyword(stripLocalImports(src)));
 }
 
+// mobile-gateway-service imports parseSessionSettingsState at runtime (packet U). opencode-provider-utils shares top-level
+// names with the bundle, so it is loaded as its own module and injected rather than concatenated.
+const providerUtilsJs = ts.transpileModule(prepare(providerUtilsSrc), {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020, strict: false },
+}).outputText;
+
 const bundleSrc = [
+  `const { parseSessionSettingsState } = await import(${JSON.stringify(`data:text/javascript,${encodeURIComponent(providerUtilsJs)}`)});`,
+
   // types.ts — type-only; strip it entirely (no runtime content).
   '// --- types (type-only, stripped) ---',
 
