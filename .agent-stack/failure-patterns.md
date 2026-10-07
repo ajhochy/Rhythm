@@ -745,3 +745,11 @@
 - Category: C1 (missing whole-hierarchy and actual-model contracts); W5 (qualification scope was allowed to imply broader functionality).
 - Root cause: mixed native/async/native work bypassed both root-only listing and direct-caller async status; generated routing clauses conflicted; scripted responses did not exercise model choices.
 - Required follow-up: preserve separate source, full-gate, real-engine, actual-model and installed-runtime evidence; do not claim one qualifies another.
+
+## 2026-10-06 — C17 installed Coordinator/Dayflow smoke
+
+- **Result**: targeted installed smoke PASS; general model judgment not checked.
+- **Category**: none for checked UI criteria; W3 host lacked TodoWrite (durable stage receipts used).
+- **Criteria**: native Copy, installed generated Secretary routing/registry, Dayflow height/host scroll/chrome.
+- **Process**: release-input/dependency metadata holds and old-runtime restarts preserved; idle guards remained enabled. Exact-root helper gate corrected before any resync POST.
+- **Follow-up**: real-model status/dispatch/callback evaluation remains distinct from scripted API/engine/MCP proof. Prior human failure and historical zero-call cause remain recorded.

@@ -32,7 +32,7 @@
       "criterion_id": "chat-bounded-c4",
       "text": "Through the real API, built fork, and MCP tool entrypoint in the approved sandbox, a real manager and reviewer finish the selected-reference case. Chat reports `selected_reference_current` and `reviewed_summary_with_citation` as server-checked, exact ordinals 1 and 2, and no third ordinal after 65 seconds of quiescence. Prose-only success, missing citation/reviewer membership, source drift, missing usage accounting, budget/expiry hold, or duplicate callback cannot verify criteria or spawn extra work.",
       "mode": "integration",
-      "reason": "Exact C9 env-gated formal live qualification passed idle and stock API/engine restart through actual API, built fork, and MCP. Model transport and semantic ranking were synthetic.",
+      "reason": "C17 actual API/built fork/MCP formal idle/restart qualification passed 2/2 with exact-source preservation and cleanup. Provider decisions and semantic ranking remained scripted.",
       "status": "pass",
       "test_file": "apps/api_server/src/__tests__/live_chat_bounded_workflow.test.ts",
       "test_ids": [
@@ -40,6 +40,22 @@
         "consumes exact same-chat consent after stock API/engine restart, checks two ordinals and stops"
       ],
       "receipt": {
+        "source_sha": "36595fe0595e40f8ff7c9d9ee30465afecd2d95f",
+        "apps_tree": "ac4f73181c262655207c0b82d37175ef10fdcaff",
+        "command": "RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_SOURCE_SHA=36595fe0595e40f8ff7c9d9ee30465afecd2d95f node ./node_modules/vitest/vitest.mjs run src/__tests__/live_chat_bounded_workflow.test.ts --reporter=verbose",
+        "cwd": "apps/api_server",
+        "tests_passed": 2,
+        "duration_seconds": 347.88,
+        "actual_mcp_tool_count": 111,
+        "idle_qualification_checks": "19/19",
+        "idle_operational_checks": "5/5",
+        "restart_qualification_checks": "20/20",
+        "restart_operational_checks": "5/5",
+        "quiescence_seconds": 65,
+        "evidence": "/Users/ajhochhalter/Documents/Codex/2026-10-06/coordinator-response-live/combined-C17-formal/summary.json",
+        "evidence_sha256": "8631fb3d0d7607f6ac8e04c9bb1cdf6881c135f2dc54e434829643449c9160ea"
+      },
+      "prior_c9_receipt": {
         "source_sha": "54888e924c5b31cb7700b6eb1f5da7c4c450e930",
         "apps_tree": "47f1828030f1b14c2175975e47e72a5796b0cb47",
         "command": "PATH=/Users/ajhochhalter/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_SOURCE_SHA=54888e924c5b31cb7700b6eb1f5da7c4c450e930 RHYTHM_CHAT_LIVE_TEST_OUT=/Users/ajhochhalter/Documents/Codex/2026-10-06/codex-dayflow-cascade-c9-build ./node_modules/.bin/vitest run src/__tests__/live_chat_bounded_workflow.test.ts --reporter=verbose",

@@ -2,22 +2,24 @@
 
 ## Current focus
 
-Qualify and deliver the approved combined Coordinator and mobile response-stall repairs. C16 `244cb7c4d905aefb270df5a986f2fe2058003c29` preserves both sets; the next C17 checkpoint corrects two test-only TypeScript property reads. No combined candidate is signed or installed yet.
+Combined Coordinator and mobile response-stall candidate C17 (`36595fe0595e40f8ff7c9d9ee30465afecd2d95f`, apps `ac4f73181c262655207c0b82d37175ef10fdcaff`) is signed and running from its preserved external bundle with AJ’s normal profile. Installed Secretary routing and Dayflow/Copy checks succeeded. General Coordinator judgment remains unqualified.
 
 ## Active branch / PR
 
-Local `codex/coordinator-response-repair`; draft PR #1604 on `integration/2026-10-06-resume`, issue #1605. Remote remains the earlier documentation checkpoint. Human merge only.
+`codex/coordinator-response-repair` → draft #1604, remote `integration/2026-10-06-resume`, issue #1605. Human merge only; `/Applications/Rhythm.app`, production and TestFlight unchanged.
+
+## In progress
+
+Final documentation commit, push, exact-head GitHub CI and owned worktree archival. CI and cleanup receipts live outside the checkout so archival can follow the PR update immediately.
+
+## Risks / known issues
+
+Scripted providers prove actual API/engine/MCP plumbing, not the model’s decisions. Partial Opus replay overstated bounded visibility; general judgment and ancestor-root completion forwarding remain unqualified. UI Always allow restart persistence, physical phone latency, full native matrix, human P256 proof and notarization remain unverified. Historical C15 zero-call cause remains unconfirmed; C17 corrects test type access without changing production queue behavior. Other paused work and the investigator checkout remain outside this delivery.
 
 ## Test status
 
-C16 exact-source issue4/4, PR21/22: all application/behavioral suites passed, including API8,258 and fork523 tests. Only stage11 fork typecheck failed because the new queue assertions read `error` from a User|Assistant union. The two-line Reflect.get correction retains identical runtime assertions; fresh fork typecheck and focused queue test (1 pass,9 assertions) exit0. A fresh complete C17 run remains pending. Original C15 zero-call failure is preserved; cause remains unconfirmed, and no production queue change is supported.
-
-C16 actual API/fork/MCP nested grant/deny2/2 and formal idle/restart2/2 passed with all preservation/cleanup checks. Source and normal runtime were preserved; root archived/restored exactly22 generated PNGs. C16 native wrapper/input guard passed, but packaging/signing/install remain NOT RUN. Snapshot/bus71pass1skip and negative mutation proof qualify the small fixture, not measured physical phone latency.
-
-## Risks
-
-Scripted providers qualify real plumbing, not general model judgment. Partial Opus5.5 replay used synthetic results and overstated bounded visibility. UI Always allow restart persistence remains unverified. No global grants, automatic approval, copied human markers or taint bypass. Normal Secretary projection/cache refresh is still pending. Notarization, physical phone and full native matrix remain separate.
+C17 issue 4/4 and PR 22/22, including API 8,258 and fork 523 passing tests; nested grant/deny 2/2 (19 checks each), formal idle/restart 2/2 (19/20 qualification and 5 operational checks each). Package/sign/stable copy and both disposable signed smokes exited 0; normal-data guards passed. Strict mapped-executable verification binds app → API → engine to C17. Targeted Secretary resync preserves authored prompt, YAML/model/scope, account and permission markers; actual engine routing is current. Native Copy excludes lifecycle SHA; Dayflow checked at 1280×800, 1280×560 with host scrolling, 3440×1299, then restored.
 
 ## Next step
 
-Freeze C17, run fresh full/live/native qualification, preserve idle normal data, package/sign/install, verify mapped executable and targeted Secretary refresh, then native Dayflow smoke, final documentation/push/exact-head CI and owned cleanup. AJ approved combined delivery/install Oct6 18:40PDT; keep other paused work paused and preserve the investigator checkout. See `runs/2026-10-06-coordinator-response-repair.md`.
+Finish the documentation push and exact-head CI, archive only this managed worktree, then human review. Evaluate real Coordinator answers separately before claiming its judgment is repaired. Evidence: `runs/2026-10-06-coordinator-response-c17.md`.
