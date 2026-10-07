@@ -123,4 +123,39 @@ describe("boundPageBytes", () => {
     expect(newest.state.output.length).toBe(PART_BODY_LIMIT_BYTES)
     expect(oldest.state.output.length).toBe(EXHAUSTED_BODY_LIMIT_BYTES)
   })
+
+  test("inline attachment data URIs are what actually blow the budget", () => {
+    // Measured on a real 20-message page: state.attachments[].url was
+    // 15,575,354 of 15,714,325 bytes (99.1%), base64 data URIs ~508 KB each,
+    // while state.output was 10 KB across the whole page. Bounding only the
+    // text fields left the page byte-identical.
+    const attachment = (id: string, bytes: number) => ({
+      type: "file",
+      mime: "image/png",
+      url: `data:image/png;base64,${"A".repeat(bytes)}`,
+      id,
+      sessionID: "ses_test",
+      messageID: "msg_1",
+    })
+    const part: any = toolPart("prt_1", "msg_1", 10)
+    part.state.attachments = [attachment("att_1", 508 * 1024), attachment("att_2", 508 * 1024)]
+    const page = [message("msg_1", [part])]
+    expect(serializedBytes(page)).toBeGreaterThan(1000 * 1024)
+
+    const bounded = boundPageBytes(page)
+    expect(serializedBytes(bounded)).toBeLessThan(64 * 1024)
+
+    const out = bounded[0].parts[0] as any
+    // Attachments are kept with their identity so the client can re-fetch; a
+    // truncated base64 URI would be a corrupt image, so the body is dropped.
+    expect(out.state.attachments).toHaveLength(2)
+    expect(out.state.attachments[0].id).toBe("att_1")
+    expect(out.state.attachments[0].mime).toBe("image/png")
+    expect(out.state.attachments[0].url).toBe("")
+    expect(out.metadata.truncated.map((m: any) => m.field)).toEqual([
+      "attachments.att_1.url",
+      "attachments.att_2.url",
+    ])
+    expect(out.metadata.truncated[0].originalLength).toBeGreaterThan(508 * 1024)
+  })
 })

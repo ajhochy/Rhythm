@@ -55,14 +55,31 @@ function addMark(part: AnyPart, mark: TruncatedBodyMark): void {
   part.metadata = { ...(part.metadata ?? {}), truncated: [...existing, mark] }
 }
 
-/** The one or two string fields on a part that can realistically hold megabytes. */
+/**
+ * The string fields on a part that can realistically hold megabytes.
+ *
+ * Measured 2026-10-06 on a real 20-message page: `state.attachments[].url`
+ * was 15,575,354 of 15,714,325 bytes (99.1%) — inline base64 data URIs around
+ * 508 KB each. `state.output` was 10 KB across the whole page. Bounding the
+ * text fields alone changed nothing, so attachment URLs are the payload that
+ * actually matters here.
+ */
 function bodyFields(part: AnyPart): Array<{ owner: AnyPart; field: string }> {
   if (part.type === "text" || part.type === "reasoning") return [{ owner: part, field: "text" }]
   if (part.type === "tool" && part.state && typeof part.state === "object") {
-    return [
-      { owner: part.state as AnyPart, field: "output" },
-      { owner: part.state as AnyPart, field: "error" },
+    const state = part.state as AnyPart
+    const fields = [
+      { owner: state, field: "output" },
+      { owner: state, field: "error" },
     ]
+    if (Array.isArray(state.attachments)) {
+      for (const attachment of state.attachments) {
+        if (attachment && typeof attachment === "object") {
+          fields.push({ owner: attachment as AnyPart, field: "url" })
+        }
+      }
+    }
+    return fields
   }
   return []
 }
@@ -78,27 +95,71 @@ function bodyBytes(part: AnyPart): number {
 }
 
 /**
+ * An inline attachment URL is a base64 data URI: truncating it yields a
+ * corrupt image rather than a smaller one, so an oversized URL is dropped
+ * outright and marked. The client re-fetches that part from the
+ * single-message route when the user actually opens the attachment.
+ */
+function boundAttachments(state: AnyPart, limit: number, marks: TruncatedBodyMark[]): unknown[] | undefined {
+  if (!Array.isArray(state.attachments)) return undefined
+  let changed = false
+  const next = state.attachments.map((candidate: unknown) => {
+    if (!candidate || typeof candidate !== "object") return candidate
+    const attachment = candidate as AnyPart
+    const url = attachment.url
+    if (typeof url !== "string" || utf8Length(url) <= limit) return candidate
+    changed = true
+    marks.push({ field: `attachments.${attachment.id ?? "?"}.url`, originalLength: utf8Length(url), keptLength: 0 })
+    return { ...attachment, url: "" }
+  })
+  return changed ? next : undefined
+}
+
+/**
  * Return a trimmed clone of `part`, or the original reference when nothing
  * exceeded `limit`. Clones only the levels it modifies.
  */
 function boundPart(part: AnyPart, limit: number): AnyPart {
-  const oversized = bodyFields(part).filter(({ owner, field }) => {
-    const value = owner[field]
-    return typeof value === "string" && utf8Length(value) > limit
-  })
-  if (oversized.length === 0) return part
-
+  const marks: TruncatedBodyMark[] = []
   const next: AnyPart = { ...part }
-  // `state` is the only nested owner, so clone it once if we touch it.
-  if (oversized.some(({ owner }) => owner === part.state)) next.state = { ...(part.state as AnyPart) }
+  let changed = false
 
-  for (const { owner, field } of oversized) {
-    const target = owner === part ? next : (next.state as AnyPart)
-    const original = owner[field] as string
-    const kept = clampText(original, limit)
-    target[field] = kept
-    addMark(next, { field, originalLength: utf8Length(original), keptLength: utf8Length(kept) })
+  if (part.type === "text" || part.type === "reasoning") {
+    const text = part.text
+    if (typeof text === "string" && utf8Length(text) > limit) {
+      const kept = clampText(text, limit)
+      next.text = kept
+      marks.push({ field: "text", originalLength: utf8Length(text), keptLength: utf8Length(kept) })
+      changed = true
+    }
   }
+
+  if (part.type === "tool" && part.state && typeof part.state === "object") {
+    const state = part.state as AnyPart
+    const nextState: AnyPart = { ...state }
+    let stateChanged = false
+    for (const field of ["output", "error"]) {
+      const value = state[field]
+      if (typeof value === "string" && utf8Length(value) > limit) {
+        const kept = clampText(value, limit)
+        nextState[field] = kept
+        marks.push({ field, originalLength: utf8Length(value), keptLength: utf8Length(kept) })
+        stateChanged = true
+      }
+    }
+    const attachments = boundAttachments(state, limit, marks)
+    if (attachments) {
+      nextState.attachments = attachments
+      stateChanged = true
+    }
+    if (stateChanged) {
+      next.state = nextState
+      changed = true
+    }
+  }
+
+  if (!changed) return part
+  for (const mark of marks) addMark(next, mark)
   return next
 }
 
