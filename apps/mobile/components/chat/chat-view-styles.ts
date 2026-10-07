@@ -4,6 +4,9 @@ import { Fonts, MinimumTouchTarget, Radii, Spacing, TypeScale } from '@/constant
 
 export const styles = StyleSheet.create({
   screen: { flex: 1 },
+  // Restored from the merge base: integration replaced the generic loading row
+  // with AgentTypingBubble, but mega's completion-sync row still renders with it.
+  loadingRow: { flexDirection: 'row', gap: 10, alignItems: 'center', paddingHorizontal: 8, paddingBottom: 8 },
   keyboardArea: { flex: 1 },
   header: { alignItems: 'center', flexDirection: 'row', height: 52, minHeight: 52 },
   headerBackButton: { alignItems: 'center', height: 44, justifyContent: 'center', width: 44 },
