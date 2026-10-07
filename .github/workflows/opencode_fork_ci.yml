@@ -39,7 +39,7 @@ jobs:
         # explicitly for the same reason as task.test.ts above: they hold the
         # engine-stall regressions (unconditional `git gc` repack, and
         # per-token delta logging) and would otherwise never run in CI.
-        run: bun test test/session/ src/session/ test/tool/task.test.ts test/server/httpapi-rhythm-provider-guard.test.ts test/snapshot/snapshot-cleanup-auto.test.ts test/bus/
+        run: bun test test/session/ src/session/ test/tool/task.test.ts test/server/httpapi-rhythm-provider-guard.test.ts test/snapshot/ test/bus/
 
       - name: Build complete fork SDK artifact
         working-directory: apps/opencode_fork/packages/sdk/js
