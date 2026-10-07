@@ -10,7 +10,7 @@ Local `codex/coordinator-response-repair`, C15 `2a3f661c7ac2e93cbe0bcbb0a0ef4a54
 
 ## In progress
 
-Diagnose PR stage 12: `shell completion resumes queued loop callers` expected one LLM call, observed zero. The exact captured stage-12 command reran once with exit 0: 523 passed / 5 skipped / 1 todo / 0 failed. Original failure is preserved; no queue-arrival trace establishes its cause, so triage remains BLOCKED. Root owns further diagnosis/requalification, signed packaging, installed smoke and targeted Secretary regeneration; resync has not run.
+Diagnose PR stage 12: `shell completion resumes queued loop callers` expected one LLM call, observed zero. The exact captured stage-12 command reran once with exit 0: 523 passed / 5 skipped / 1 todo / 0 failed. Original failure is preserved; no queue-arrival trace establishes its cause, so triage remains BLOCKED. Instrumented correct-queue and controlled late-arrival cases both passed; no product queue fix is supported. The existing test now checks returned assistant errors and exact fixture text before the original count. Combined source freezes next for new full/live/signed/installed gates; resync has not run.
 
 ## Risks / known issues
 

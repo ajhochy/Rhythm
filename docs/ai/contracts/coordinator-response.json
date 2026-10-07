@@ -87,7 +87,7 @@
     "source": "2a3f661c7ac2e93cbe0bcbb0a0ef4a54d5c80c82",
     "targeted_criteria": "Actual sandbox/browser outcomes within each stated scope; global gate is not green",
     "full_gate": "Issue4/4; PR21/22; original queued-shell failure remains unresolved",
-    "stage12_diagnostic": "Exact captured command exit0,523pass/5skip/1todo; no causal fix established; BLOCKED",
+    "stage12_diagnostic": "Instrumented queued and late-arrival cases pass; no production cause established; historical failure preserved. New test asserts no assistant error and fixture text before original call count.",
     "c15_signed_installed": "NOT RUN",
     "normal_secretary_resync": "NOT RUN",
     "exact_head_follow_up_ci": "NOT RUN",
@@ -99,6 +99,7 @@
       "UI Always allow restart persistence",
       "Follow-up push/exact-head CI and final cleanup"
     ],
-    "scope_choice": "AJ approved combined mobile latency+Coordinator delivery/install at Oct6 18:40PDT; existing safeguards and other paused work retained"
+    "scope_choice": "AJ approved combined mobile latency+Coordinator delivery/install at Oct6 18:40PDT; existing safeguards and other paused work retained",
+    "combined_candidate": "C15 plus c5f557934b02437809d26297fb1ee7a76ef62aaa production changes; exact snapshot test identity and stricter queue result checks; new full/live/installed qualification pending"
   }
 }
