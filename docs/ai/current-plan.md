@@ -8,7 +8,7 @@ Scope: message integrity, discovery/auth/errors, evidence coverage, goal/delegat
 
 Additional authorized scope: fix repeated per-symbol GitNexus approval stops in the actual Rhythm-owned instruction sources, prove parent/child permission behavior through delegation and resume, and repair the scheduled-run `history_ambiguous` failure. Keep this separate from FPS CamControl implementation. Preserve merge, deployment, destructive-action, credential, and live-hardware restrictions. A HIGH impact rating requires disclosure and proportionate verification; it does not itself reopen approved feature scope.
 
-One isolated worktree at PR #1604 head f637276267081b491da56c0696416eb257600ae8, branch codex/coordinator-conversation-20261007. Preserve the original dirty checkout and other worktrees. Record incremental changes separately from inherited code.
+One isolated worktree at draft PR [#1610](https://github.com/ajhochy/Rhythm/pull/1610) product commit `30f51138`, stacked on #1604, branch codex/coordinator-conversation-20261007. No merge or install is authorized. Preserve the original dirty checkout and other worktrees. Record incremental changes separately from inherited code.
 
 Preserve human approval and existing grants/denies. Never click approval controls, copy human markers, or add global allows. Live tests use stock tools/dev/sandbox.sh, unique ports and synthetic sanitized fixtures. Bound actual model calls; scripted provider tests establish plumbing only.
 

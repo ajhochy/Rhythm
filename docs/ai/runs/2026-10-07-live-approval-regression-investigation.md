@@ -2,13 +2,15 @@
 date: 2026-10-07
 repo: Rhythm
 branch: codex/coordinator-conversation-20261007
-pr: "#1604"
+pr: "https://github.com/ajhochy/Rhythm/pull/1610 (stacked on #1604)"
 issues: []
 status: pending
 tags: [run, rhythm, approvals, investigation]
 ---
 
 # Live approval regression investigation
+
+Draft PR: [#1610](https://github.com/ajhochy/Rhythm/pull/1610) with product commit `30f51138`, stacked on #1604. No merge or install occurred.
 
 ## Scope
 
@@ -53,10 +55,13 @@ profile (configured `anthropic/claude-sonnet-5-5`) with a persisted fixed
 `anthropic/claude-opus-5-5` session model. It is also
 `bypassPermissions` with `approval_bypass_explicit=1`. Its tool event history
 contains one generic `rhythm_request_approval` call at `2026-10-07T15:20:04Z`
-(24 ms), but its response is not recoverable from persisted metadata and it
-created no row. It contains zero bounded proposal calls and zero bounded start
-calls. Therefore no evidence shows the live Coordinator reached either the
-bounded proposal creator or a pending-card renderer.
+(08:20 PT; 24 ms), but its response is not recoverable from persisted metadata
+and it created no row. Timing correction: this record predates the current
+PID 8192 launch at `2026-10-07T18:14:56Z` (11:14 PT), so it cannot be
+attributed to the current signed `237f` bundle. It contains zero bounded
+proposal calls and zero bounded start calls. Therefore no evidence shows the
+current live Coordinator reached either the bounded proposal creator or a
+pending-card renderer.
 
 Root also made read-only engine requests to `http://127.0.0.1:4096/permission`
 and `/question`: both returned HTTP 200 with empty arrays for the default

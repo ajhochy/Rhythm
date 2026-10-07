@@ -6,7 +6,7 @@ Coordinator conversational verification, scheduled Dayflow admission, truthful M
 
 ## Active branch / PR
 
-`codex/coordinator-conversation-20261007`, based on draft #1604 head `f637276267081b491da56c0696416eb257600ae8`. Separate stacked draft pending. Original dirty checkout and mobile investigation are untouched. Preserve this worktree; human merge only.
+`codex/coordinator-conversation-20261007`, draft [#1610](https://github.com/ajhochy/Rhythm/pull/1610) with product commit `30f51138`, stacked on #1604. No merge or install is authorized. Original dirty checkout and mobile investigation are untouched. Preserve this worktree; human merge only.
 
 ## Verified
 
@@ -23,7 +23,7 @@ The Q3 native Engraph fixture and profile closure resolved O's missing-input lim
 
 Active Coding Agent revision 4 already carries scope-based approval. The initial read of the legacy database was the wrong running source. Permission inheritance has not been established as the approval loop cause. The Rhythm-managed Workflow Orchestrator approved-scope patch remains a reviewed, isolated candidate, not a live change or a behaviorally proven orchestrator handoff.
 
-Read-only live approval investigation found the signed `237f54db` renderer includes the approval-queue refresh fix and the active Electron database has no pending approvals. The live Coordinator has explicit bypass and no bounded proposal/start tool events; its single generic approval request has no recoverable response and no row. Engine permission/question reads are empty for default context and that Coordinator CWD only. This does not establish either card-creation or UI failure. The exact chat/time and expected approval mechanism remain pending clarification.
+Read-only live approval investigation found the signed `237f54db` renderer includes the approval-queue refresh fix and the active Electron database has no pending approvals. The recorded generic Coordinator approval call at 15:20:04Z (08:20 PT) predates the current PID 8192 launch at 18:14:56Z (11:14 PT), so it cannot describe the current 237f bundle. Current Coordinator mode is explicit bypass with no bounded proposal/start tool events. Engine permission/question reads are empty for default context and that Coordinator CWD only. This does not establish either card-creation or UI failure. The exact chat/time and expected approval mechanism remain pending clarification.
 
 Real human UI approval, mixed native/async depth-three model delegation, descendant discovery during that work, and completion return remain unverified. The fixture human capability reads cards only and cannot authorize them. Q3's “nothing running except this chat” is limited to visible root/owner work: a separate errored `is_system` self-improvement session with no parent, owner, or project was outside that scope. It is neither a Coordinator descendant nor proof of global idleness.
 
