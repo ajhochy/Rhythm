@@ -14,6 +14,19 @@ Do **not** write session logs to the Obsidian vault note via `obsidian_post_file
 
 ---
 
+## Before investigating a bug: read `docs/ai/` first
+
+`docs/ai/` is a ~1,500-file record of every prior run, decision and plan.
+**Start any regression investigation by searching it and reading
+`docs/ai/regression-registry.md`, before forming a hypothesis.**
+
+When something looks like a bug "we already fixed", it is almost never a
+revert. Check, in order: (1) the fix is present but bypassed on an unchecked
+path; (2) the fix is write-path only with no backfill, so old rows still
+reproduce it; (3) the guard exists but CI never runs it.
+
+---
+
 ## Git / PR Workflow
 
 1. All work is done on a **feature branch** locally.

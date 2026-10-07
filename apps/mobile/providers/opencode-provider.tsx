@@ -428,6 +428,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     status: 'idle',
     message: 'Add a server URL and connect to OpenCode.',
   });
+  const [backgroundReadError, setBackgroundReadError] = useState<string | undefined>(undefined);
   const [macPresence, setMacPresence] = useState<
     'online' | 'offline' | 'unknown'
   >('unknown');
@@ -454,9 +455,22 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     },
     [pairedHostClient],
   );
+  // A failed background read used to be swallowed outright, so a gateway that
+  // was healthy while the engine was unresponsive left the last-loaded
+  // transcript on screen with no indication it was stale — measured
+  // 2026-10-06, chats showed 12-hour-old data and looked connected. Failures
+  // are now surfaced; `macPresence` deliberately still says online, because
+  // the Mac IS reachable, it is the read that failed.
   const settleBackgroundRead = useCallback(
     (operation: () => Promise<unknown>) => {
-      void trackMacOffline(operation).catch(() => undefined);
+      void trackMacOffline(operation).then(
+        () => setBackgroundReadError(undefined),
+        (error: unknown) => {
+          setBackgroundReadError(
+            summarizeError(error, 'Could not load the latest from your Mac.'),
+          );
+        },
+      );
     },
     [trackMacOffline],
   );
@@ -4550,6 +4564,24 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     pairedHostClient,
   ]);
 
+  // A session is only "working" while we can still hear from the engine.
+  // `session.status` is sticky: the engine emits busy, and if it then becomes
+  // unresponsive it never emits idle, so the phone kept animating a typing
+  // indicator for a turn that was already dead — measured 2026-10-07, three
+  // dots forever against an engine that never received the prompt. When the
+  // event stream is not connected we do not know a session is busy, so stop
+  // claiming it is.
+  useEffect(() => {
+    if (eventStreamStatus === 'connected' || eventStreamStatus === 'connecting') return;
+    setSessionStatuses((current) => {
+      const stale = Object.keys(current).filter((id) => current[id]?.type !== 'idle');
+      if (stale.length === 0) return current;
+      const next = { ...current };
+      for (const id of stale) next[id] = { type: 'idle' };
+      return next;
+    });
+  }, [eventStreamStatus]);
+
   const currentMessages = useMemo(
     () => (currentSessionId ? messagesBySession[currentSessionId] || [] : []),
     [currentSessionId, messagesBySession],
@@ -4662,6 +4694,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       latestAssistantTurnUsage,
       currentDiffs,
       currentTranscript,
+      backgroundReadError,
       currentTodos,
       currentPendingPermissions,
       currentPendingQuestions,
@@ -4819,6 +4852,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       latestAssistantTurnUsage,
       currentSessionId,
       currentTranscript,
+      backgroundReadError,
       currentTodos,
       currentPendingPermissions,
       currentPendingQuestions,

@@ -45,6 +45,9 @@ const blobReadLimit = 256 * 1024
 const patchFileLimit = 128 * 1024
 const patchTotalLimit = 1024 * 1024
 const patchAttemptLimit = 256
+/** Total untracked bytes track() will hash in one pass. A code worktree's
+ * dirty set is kilobytes; a media directory is gigabytes. */
+const aggregate = 64 * 1024 * 1024
 const core = ["-c", "core.longpaths=true", "-c", "core.symlinks=true"]
 const cfg = ["-c", "core.autocrlf=false", ...core]
 const quote = [...cfg, "-c", "core.quotepath=false"]
@@ -249,7 +252,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | AppProce
             const allow = all.filter((item) => !ignored.has(item))
             if (!allow.length) return
 
-            const large = new Set(
+            const sizes = new Map<string, number>(
               (yield* Effect.all(
                 allow.map((item) =>
                   fs
@@ -257,16 +260,51 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | AppProce
                     .pipe(Effect.catch(() => Effect.void))
                     .pipe(
                       Effect.map((stat) => {
-                        if (!stat || stat.type !== "File") return
+                        if (!stat || stat.type !== "File") return undefined
                         const size = typeof stat.size === "bigint" ? Number(stat.size) : stat.size
-                        return size > limit ? item : undefined
+                        return [item, size] as const
                       }),
                     ),
                 ),
                 { concurrency: 8 },
-              )).filter((item): item is string => Boolean(item)),
+              )).filter((entry): entry is readonly [string, number] => Boolean(entry)),
             )
-            const block = new Set(untracked.filter((item) => large.has(item)))
+            const large = new Set(
+              Array.from(sizes.entries())
+                .filter(([, size]) => size > limit)
+                .map(([item]) => item),
+            )
+            // The per-file `limit` above is not a budget: a library of
+            // sub-limit files still stages in aggregate. Measured 2026-10-07
+            // on a real session cwd, 483 untracked files were blocked as large
+            // while 5,590 files totalling 2.05 GB sailed under the per-file
+            // guard and were hashed on every track() — pinning the engine's
+            // main thread at 100% CPU for ~88s and making the app unusable.
+            //
+            // Untracked bulk is excluded smallest-first once the aggregate
+            // budget is spent, so the most files survive for revert. Only
+            // UNTRACKED paths are ever blocked: a file the agent edited is
+            // tracked and always stages, so undo/revert of real edits is
+            // unaffected.
+            const untrackedSet = new Set(untracked)
+            const overBudget = new Set<string>()
+            let budget = 0
+            for (const item of Array.from(untrackedSet)
+              .filter((item) => !large.has(item))
+              .map((item) => ({ item, size: sizes.get(item) ?? 0 }))
+              .sort((first, second) => first.size - second.size)) {
+              budget += item.size
+              if (budget > aggregate) overBudget.add(item.item)
+            }
+            if (overBudget.size > 0) {
+              log.info("snapshot aggregate budget reached", {
+                excluded: overBudget.size,
+                budget: aggregate,
+              })
+            }
+            const block = new Set(
+              untracked.filter((item) => large.has(item) || overBudget.has(item)),
+            )
             yield* sync(Array.from(block))
             // Stage only the allowed candidate paths so snapshot updates stay scoped.
             yield* stage(allow.filter((item) => !block.has(item)))
