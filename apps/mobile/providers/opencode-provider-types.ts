@@ -192,6 +192,8 @@ export type OpencodeContextValue = {
   currentMessages: SessionMessageRecord[];
   hasOlderMessages: boolean;
   currentTranscript: TranscriptEntry[];
+  /** Set when a background read failed; the visible data is stale. */
+  backgroundReadError?: string;
   currentUsage: SessionUsage;
   latestAssistantTurnUsage?: SessionUsage;
   currentDiffs: FileDiff[];

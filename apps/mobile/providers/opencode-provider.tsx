@@ -402,6 +402,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     status: 'idle',
     message: 'Add a server URL and connect to OpenCode.',
   });
+  const [backgroundReadError, setBackgroundReadError] = useState<string | undefined>(undefined);
   const [macPresence, setMacPresence] = useState<
     'online' | 'offline' | 'unknown'
   >('unknown');
@@ -428,9 +429,22 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     },
     [pairedHostClient],
   );
+  // A failed background read used to be swallowed outright, so a gateway that
+  // was healthy while the engine was unresponsive left the last-loaded
+  // transcript on screen with no indication it was stale — measured
+  // 2026-10-06, chats showed 12-hour-old data and looked connected. Failures
+  // are now surfaced; `macPresence` deliberately still says online, because
+  // the Mac IS reachable, it is the read that failed.
   const settleBackgroundRead = useCallback(
     (operation: () => Promise<unknown>) => {
-      void trackMacOffline(operation).catch(() => undefined);
+      void trackMacOffline(operation).then(
+        () => setBackgroundReadError(undefined),
+        (error: unknown) => {
+          setBackgroundReadError(
+            summarizeError(error, 'Could not load the latest from your Mac.'),
+          );
+        },
+      );
     },
     [trackMacOffline],
   );
@@ -4567,6 +4581,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       latestAssistantTurnUsage,
       currentDiffs,
       currentTranscript,
+      backgroundReadError,
       currentTodos,
       currentPendingPermissions,
       currentPendingQuestions,
@@ -4722,6 +4737,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       latestAssistantTurnUsage,
       currentSessionId,
       currentTranscript,
+      backgroundReadError,
       currentTodos,
       currentPendingPermissions,
       currentPendingQuestions,

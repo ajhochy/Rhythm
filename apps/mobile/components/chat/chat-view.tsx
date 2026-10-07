@@ -75,6 +75,7 @@ export function ChatView() {
     currentDiffs,
     currentMessages,
     hasOlderMessages,
+    backgroundReadError,
     currentPendingPermissions,
     currentPendingQuestions,
     currentTodos,
@@ -1072,6 +1073,23 @@ export function ChatView() {
           speakingMessageId={speakingMessageId}
           status={status}
         />
+
+        {/* A failed background read leaves the transcript above showing the
+            last data that loaded. Say so, rather than letting it pass for
+            current — this is what made a 12-hour-old chat look live. */}
+        {backgroundReadError ? (
+          <Card
+            mode="contained"
+            testID="stale-transcript-notice"
+            style={[styles.sendErrorCard, { backgroundColor: `${palette.muted}14` }]}>
+            <Card.Content style={styles.sendErrorContent}>
+              <Text variant="titleSmall" style={{ color: palette.text }}>Showing older messages</Text>
+              <Text selectable variant="bodySmall" numberOfLines={4} style={{ color: palette.muted }}>
+                {backgroundReadError}
+              </Text>
+            </Card.Content>
+          </Card>
+        ) : null}
 
         {sendErrorMessage ? (
           <Card mode="contained" style={[styles.sendErrorCard, { backgroundColor: `${palette.danger}14` }]}>
