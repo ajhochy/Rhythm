@@ -86,8 +86,13 @@ test('e10-c2: fresh fork assembly rejects stale output and pins vendored build i
 
 test('e10-c4: signing discovers extensionless engine and verifies its signature', async () => {
   const signing = await readFile(resolve(root, 'apps/electron/scripts/sign-and-notarize-mac.mjs'), 'utf8');
+  // Discovery moved into findNestedCodeSignTargets() (dayflow-desktop-artifact.mjs), which walks the
+  // bundle and keeps extensionless Mach-O files; the signer must use it and re-check the engine by magic.
+  const discovery = await readFile(resolve(root, 'apps/electron/src/dayflow-desktop-artifact.mjs'), 'utf8');
   assert.match(signing, /opencode_bin\/opencode/);
-  assert.match(signing, /await isMachO\(full\)/);
+  assert.match(signing, /await findNestedCodeSignTargets\(contentsDir/);
+  assert.match(signing, /await isMachO\(engine\)/);
+  assert.match(discovery, /await isMachO\(full\)/);
   assert.match(signing, /await codesign\(target\)/);
   assert.match(signing, /'--verify', '--strict', engine/);
 });

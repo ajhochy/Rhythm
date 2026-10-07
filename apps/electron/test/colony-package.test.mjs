@@ -100,14 +100,16 @@ test('1534:stage-colony-artifact:6 a valid artifact is copied and revalidated at
   })
 })
 
-test('1534:stage-colony-artifact:7 package-mac.mjs orders deep codesign, refreshColonyArtifactIntegrity, resolveColonyArtifact, then outer-only codesign', async () => {
+test('1534:stage-colony-artifact:7 package-mac.mjs orders the initial outer codesign, refreshColonyArtifactIntegrity, resolveColonyArtifact, then the final outer-only codesign', async () => {
   const source = await readFile(path.join(scriptsDir, 'package-mac.mjs'), 'utf8')
-  const deepSign = source.indexOf("run('codesign', ['--force', '--deep', '--sign', '-', stagingArtifact]")
+  // Dayflow qualification (6ec07b61) replaced the --deep sign with an outer-only seal so the upstream
+  // Dayflow.app signature survives; the ordering contract is unchanged: seal, reseal Colony, revalidate, final seal.
+  const deepSign = source.indexOf("run('codesign', ['--force', '--sign', '-', stagingArtifact]")
   const reseal = source.indexOf('refreshColonyArtifactIntegrity({ artifactRoot: stagedColonyArtifact }')
   const revalidate = source.indexOf('resolveColonyArtifact({\n  artifactRoot: stagedColonyArtifact')
   const outerSign = source.lastIndexOf("run('codesign', ['--force', '--sign', '-', stagingArtifact]")
-  assert.ok(deepSign >= 0 && reseal >= 0 && revalidate >= 0 && outerSign >= 0, 'all four ordered steps must be present in package-mac.mjs')
-  assert.ok(deepSign < reseal, 'deep codesign must precede the Colony integrity reseal')
+  assert.ok(deepSign >= 0 && reseal >= 0 && revalidate >= 0 && outerSign >= 0 && deepSign !== outerSign, 'all four ordered steps must be present in package-mac.mjs')
+  assert.ok(deepSign < reseal, 'the initial outer codesign must precede the Colony integrity reseal')
   assert.ok(reseal < revalidate, 'the reseal must precede the destination revalidation')
   assert.ok(revalidate < outerSign, 'revalidation must precede the final outer-only codesign')
   // stageColonyArtifact runs during staging, well before the deep codesign call above.
