@@ -145,6 +145,8 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
       undefined,
       'google',
       'sdk-parent',
+      'default',
+      true, // async child of an interactive chat → task restricted to explore/general
     );
     expect(streamSessionSpy).toHaveBeenCalledWith(result.sessionId, 'sdk-child-1', '/tmp');
     expect(streamSessionSpy.mock.invocationCallOrder[0])
@@ -154,7 +156,7 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
       'Produce the specialist result.',
       { providerID: 'google', modelID: 'gemini-2.5-pro' },
       '/tmp',
-      expect.objectContaining({ agent: 'specialist', permissionMode: 'bypassPermissions' }),
+      expect.objectContaining({ agent: 'specialist', permissionMode: 'default' }),
       undefined,
       undefined,
       expect.objectContaining({
@@ -186,7 +188,7 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
     });
 
     expect(engineSpies.createSession).toHaveBeenCalledWith(
-      expect.any(String), '/tmp', undefined, undefined, 'anthropic', 'sdk-parent',
+      expect.any(String), '/tmp', undefined, undefined, 'anthropic', 'sdk-parent', 'default', true,
     );
     expect(engineSpies.promptAsync).toHaveBeenCalledWith(
       'sdk-child-1', 'Use the selected model.',

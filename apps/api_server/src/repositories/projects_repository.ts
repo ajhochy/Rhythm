@@ -13,10 +13,15 @@ interface ProjectRow {
   vcs_checked_at: string | null;
   created_at: string;
   archived_at: string | null;
+  coordinator_owner_user_id?: number | null;
+  coordinator_setup_key?: string | null;
+  coordinator_setup_provenance?: string | null;
+  coordinator_workspace_generation?: number | null;
+  coordinator_profile_id?: string | null;
 }
 
 function rowToModel(row: ProjectRow): Project {
-  return {
+  const project = {
     id: row.id,
     name: row.name,
     cwd: row.cwd,
@@ -27,7 +32,29 @@ function rowToModel(row: ProjectRow): Project {
     vcsCheckedAt: row.vcs_checked_at,
     createdAt: row.created_at,
     archivedAt: row.archived_at,
-  };
+  } as Project;
+  // Setup provenance is server-internal authorization state, not catalog
+  // metadata. Keep it non-enumerable so existing generic project routes never
+  // serialize an owner id, command key, profile binding, or workspace version.
+  Object.defineProperties(project, {
+    coordinatorOwnerUserId: { value: row.coordinator_owner_user_id ?? null, enumerable: false },
+    coordinatorSetupKey: { value: row.coordinator_setup_key ?? null, enumerable: false },
+    coordinatorSetupProvenance: {
+      value: row.coordinator_setup_provenance === 'c2_fresh_owned_workspace_v1'
+        ? 'c2_fresh_owned_workspace_v1'
+        : null,
+      enumerable: false,
+    },
+    coordinatorWorkspaceGeneration: {
+      value: Number.isSafeInteger(row.coordinator_workspace_generation) &&
+        (row.coordinator_workspace_generation ?? 0) >= 1
+        ? row.coordinator_workspace_generation
+        : null,
+      enumerable: false,
+    },
+    coordinatorProfileId: { value: row.coordinator_profile_id ?? null, enumerable: false },
+  });
+  return project;
 }
 
 export interface ProjectVcsFields {
@@ -70,6 +97,79 @@ export class ProjectsRepository {
       .prepare(`SELECT * FROM projects WHERE id = ?`)
       .get(id) as ProjectRow | undefined;
     return row ? rowToModel(row) : null;
+  }
+
+  /**
+   * The only C2 bootstrap proof for a project with no prior ordinary chat.
+   * Generic catalog rows never satisfy this predicate, even if a caller knows
+   * their id/cwd. Archive wins over an old setup receipt.
+   */
+  isCoordinatorOwnedBy(ownerUserId: number, projectId: string): boolean {
+    try {
+      const project = this.findById(projectId);
+      return Boolean(
+        project && project.archivedAt === null &&
+        project.coordinatorOwnerUserId === ownerUserId &&
+        project.coordinatorSetupProvenance === 'c2_fresh_owned_workspace_v1' &&
+        typeof project.coordinatorSetupKey === 'string' && project.coordinatorSetupKey.length > 0 &&
+        Number.isSafeInteger(project.coordinatorWorkspaceGeneration) &&
+        (project.coordinatorWorkspaceGeneration ?? 0) >= 1 &&
+        typeof project.coordinatorProfileId === 'string' && project.coordinatorProfileId.length > 0,
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /** Exact owner+command replay lookup; no caller-supplied path is consulted. */
+  findCoordinatorSetup(ownerUserId: number, setupKey: string): Project | null {
+    try {
+      const row = getDb().prepare(`SELECT * FROM projects
+        WHERE coordinator_owner_user_id=? AND coordinator_setup_key=?
+          AND coordinator_setup_provenance='c2_fresh_owned_workspace_v1'
+        ORDER BY created_at LIMIT 1`).get(ownerUserId, setupKey) as ProjectRow | undefined;
+      return row ? rowToModel(row) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Insert a server-chosen fresh workspace receipt. The unique owner/key
+   * constraint makes a repeated authenticated setup command a replay rather
+   * than a second project claim. This method deliberately has no generic cwd
+   * input route; its caller has already generated/validated the path.
+   */
+  createCoordinatorOwned(input: {
+    ownerUserId: number;
+    setupKey: string;
+    cwd: string;
+    profileId: string;
+    name: string;
+    workspaceGeneration: number;
+  }): { project: Project; replay: boolean } {
+    const db = getDb();
+    const existing = this.findCoordinatorSetup(input.ownerUserId, input.setupKey);
+    if (existing) return { project: existing, replay: true };
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    try {
+      db.prepare(`INSERT INTO projects (
+        id,name,cwd,icon,vcs_root,vcs_branch,vcs_dirty,vcs_checked_at,created_at,archived_at,
+        coordinator_owner_user_id,coordinator_setup_key,coordinator_setup_provenance,
+        coordinator_workspace_generation,coordinator_profile_id
+      ) VALUES (?,?,?,?,?,?,?,?,?,NULL,?,?, 'c2_fresh_owned_workspace_v1',?,?)`).run(
+        id, input.name, input.cwd, null, null, null, 0, null, now,
+        input.ownerUserId, input.setupKey, input.workspaceGeneration, input.profileId,
+      );
+      const project = this.findById(id);
+      if (!project) throw new Error('coordinator project insert unavailable');
+      return { project, replay: false };
+    } catch (error) {
+      const replay = this.findCoordinatorSetup(input.ownerUserId, input.setupKey);
+      if (replay) return { project: replay, replay: true };
+      throw error;
+    }
   }
 
   list(opts: { includeArchived?: boolean } = {}): Project[] {

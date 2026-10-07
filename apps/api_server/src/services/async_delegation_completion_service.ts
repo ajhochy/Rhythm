@@ -9,9 +9,16 @@ import {
 } from '../repositories/agent_configs_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { CoordinatorConversationsRepository } from '../repositories/coordinator_conversations_repository';
 import type { AgentSession } from '../models/agent_session';
+import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { untrustedContext } from '../security/untrusted_fence';
+import { prepareAutomaticMemoryPreface } from './automatic_memory_preface';
+import type {
+  CoordinatorCallbackContext,
+  CoordinatorCallbackContextInput,
+} from './coordinator_conversation_service';
 import { getDb } from '../database/db';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { resolveProfileScope } from './agent_profile_scope';
@@ -19,8 +26,33 @@ import {
   AgentBridgeJobsRepository,
   type AgentBridgeJobRow,
 } from '../shared_agents/delegation_jobs_repository';
+import {
+  isNativeWorkstreamDeliveryScope,
+  projectNativeWorkstreamWake,
+  renderNativeWorkstreamWake,
+  type NativeWorkstreamDeliveryPolicy,
+  type NativeWorkstreamDeliveryScope,
+  type NativeWorkstreamWakeItem,
+} from '../shared_agents/native_workstream_wake_contract';
 
 const RESTART_RECOVERY_PARENT_LIMIT = 100;
+const CALLBACK_MEMORY_QUERY_CHARS = 1_000;
+
+/** Narrow server-composed preparer; implemented by the coordinator conversation service. */
+export interface CoordinatorCallbackContextPort {
+  prepare(input: CoordinatorCallbackContextInput): Promise<CoordinatorCallbackContext | null>;
+}
+const DISABLED_NATIVE_DELIVERY_POLICY: NativeWorkstreamDeliveryPolicy = {
+  enabled: () => false,
+  currentHostEpoch: () => null,
+  isParentContextEligible: () => false,
+};
+
+interface NativeDeliveryContext {
+  parent: AgentSession;
+  parentSdkSessionId: string;
+  scope: NativeWorkstreamDeliveryScope;
+}
 
 /**
  * Serializes and coalesces asynchronous child callbacks by parent session.
@@ -36,6 +68,58 @@ export class AsyncDelegationCompletionService {
   private messagesRepo = new AgentSessionMessagesRepository();
   private sessionsRepo = new AgentSessionsRepository();
   private bridgeRestartRecovered = false;
+  private coordinatorCallbackContext: CoordinatorCallbackContextPort | null = null;
+
+  constructor(
+    private readonly nativeDeliveryPolicy: NativeWorkstreamDeliveryPolicy =
+      DISABLED_NATIVE_DELIVERY_POLICY,
+  ) {}
+
+  /** Server composition supplies the coordinator contract preparer; absent means no overlay. */
+  setCoordinatorCallbackContext(port: CoordinatorCallbackContextPort | null): void {
+    this.coordinatorCallbackContext = port;
+  }
+
+  private async prepareCallbackOverlay(
+    parent: AgentSession,
+    parentSdkSessionId: string,
+    delegationId: string,
+    childSessionId: string,
+    wakeText: string,
+  ): Promise<{ text: string; current: () => Promise<boolean> } | null> {
+    const port = this.coordinatorCallbackContext;
+    if (!port || typeof parent.ownerUserId !== 'number' || !parent.projectId) return null;
+    try {
+      const contract = await port.prepare({
+        ownerUserId: parent.ownerUserId,
+        projectId: parent.projectId,
+        sessionId: parent.id,
+        sdkSessionId: parentSdkSessionId,
+        delegationId,
+        childSessionId,
+      });
+      if (!contract) return null;
+      let memoryText = '';
+      try {
+        const memory = await prepareAutomaticMemoryPreface({
+          query: wakeText.slice(0, CALLBACK_MEMORY_QUERY_CHARS),
+          sessionId: parent.id,
+          ownerUserId: parent.ownerUserId,
+        });
+        memoryText = memory?.text ?? '';
+      } catch {
+        // Retrieval/provenance stays fail-open, as in foreground ingress.
+      }
+      // Directly adjacent to enqueue: after every preparation await.
+      if (!(await contract.current())) return null;
+      return {
+        text: [contract.system, memoryText].filter((block) => block.length > 0).join('\n\n'),
+        current: () => contract.current(),
+      };
+    } catch {
+      return null;
+    }
+  }
 
   async onBridgeJobTerminal(parentSessionId: string): Promise<void> {
     await this.flushParent(parentSessionId);
@@ -93,6 +177,32 @@ export class AsyncDelegationCompletionService {
       if (!examined.has(parentSessionId)) {
         examined.add(parentSessionId);
         await this.flushParent(parentSessionId);
+      }
+    }
+
+    const nativeEpoch = this.nativeDeliveryEpoch();
+    if (nativeEpoch) {
+      let nativeCursor: string | undefined;
+      while (true) {
+        if (this.nativeDeliveryEpoch() !== nativeEpoch) break;
+        const scopes = bridgeJobs.listNativeWakingParentIds(
+          nativeEpoch,
+          pageSize,
+          nativeCursor,
+        );
+        if (scopes.length === 0) break;
+        for (const scope of scopes) {
+          if (this.nativeDeliveryEpoch() !== nativeEpoch) break;
+          const parent = this.sessionsRepo.findById(scope.parentSessionId);
+          if (!parent) continue;
+          const context = await this.resolveNativeDeliveryContext(parent);
+          if (!context || !sameNativeScope(context.scope, scope)) continue;
+          examined.add(scope.parentSessionId);
+          await this.flushParent(scope.parentSessionId);
+        }
+        const nextCursor = scopes.at(-1)?.parentSessionId;
+        if (!nextCursor || nextCursor === nativeCursor) break;
+        nativeCursor = nextCursor;
       }
     }
 
@@ -155,6 +265,17 @@ export class AsyncDelegationCompletionService {
     const parent = this.sessionsRepo.findById(parentSessionId);
     if (!parent) return;
 
+    const nativeContext = await this.resolveNativeDeliveryContext(parent);
+    let nativeReady = false;
+    if (nativeContext) {
+      nativeReady = await this.reconcileNativeWakingClaims(nativeContext);
+      if (!nativeReady && this.hasLegacyWakingClaims(parent.id)) {
+        // These claims may be one accepted mixed batch. Without a qualified
+        // native receipt, mutating the legacy half could create a duplicate.
+        return;
+      }
+    }
+
     // A process can die after the engine accepts a wake but before SQLite is
     // marked notified. Resolve that ambiguity before considering any retry.
     // A deterministic engine message id plus transcript inspection makes an
@@ -178,18 +299,49 @@ export class AsyncDelegationCompletionService {
     const claimed = this.delegationsRepo.claimCompletedForParent(parentSessionId);
     const bridgeRepo = new AgentBridgeJobsRepository();
     const bridgeClaimed = bridgeRepo.claimCompletedForParent(parentSessionId);
-    if (claimed.length === 0 && bridgeClaimed.length === 0) return;
     const ids = claimed.map((delegation) => delegation.id);
     const bridgeIds = bridgeClaimed.map((delegation) => delegation.id);
     const wakeDelegations: WakeDelegation[] = [
       ...claimed,
       ...bridgeClaimed.map(bridgeWakeDelegation),
     ];
-    const parentSdkSessionId =
-      parent.sdkSessionId ?? opencodeSessionMap.get(parent.id) ?? null;
+    let nativeRows: AgentBridgeJobRow[] = [];
+    if (nativeContext && nativeReady
+        && await this.nativeContextStillEligible(nativeContext)) {
+      nativeRows = bridgeRepo.claimNativeCompletedForParent(nativeContext.scope);
+    }
+    const projectedNative = nativeRows.flatMap((nativeRow) => {
+      const projection = projectNativeWorkstreamWake(nativeRow);
+      if (!projection.ok) {
+        logger.warn(
+          `[AsyncDelegation] native delivery held code=projection_${projection.code}`,
+        );
+        return [];
+      }
+      return [projection.item];
+    });
+    if (wakeDelegations.length === 0 && projectedNative.length === 0) return;
+
+    let activeNative = projectedNative;
+    if (activeNative.length > 0 && nativeContext
+        && !await this.nativeContextStillEligible(nativeContext)) {
+      activeNative = [];
+    }
+    if (wakeDelegations.length === 0 && activeNative.length === 0) return;
+
+    let parentSdkSessionId = activeNative.length > 0
+      ? nativeContext?.parentSdkSessionId ?? null
+      : parent.sdkSessionId ?? opencodeSessionMap.get(parent.id) ?? null;
     if (!parentSdkSessionId) {
       this.delegationsRepo.releaseClaims(ids);
       bridgeRepo.releaseDeliveryClaims(bridgeIds);
+      if (nativeContext) {
+        await this.releaseNativeClaimsIfEligible(
+          bridgeRepo,
+          nativeContext,
+          activeNative.map((item) => item.jobId),
+        );
+      }
       logger.warn(
         `[AsyncDelegation] parent ${parent.id} has no engine session; completion remains queued`,
       );
@@ -202,6 +354,13 @@ export class AsyncDelegationCompletionService {
     );
     if (executionBlockReason) {
       this.delegationsRepo.releaseClaims(ids);
+      if (nativeContext) {
+        await this.releaseNativeClaimsIfEligible(
+          bridgeRepo,
+          nativeContext,
+          activeNative.map((item) => item.jobId),
+        );
+      }
       logger.warn(
         `[AsyncDelegation] parent ${parent.id} locked before wake; completion remains queued: ${executionBlockReason}`,
       );
@@ -209,7 +368,6 @@ export class AsyncDelegationCompletionService {
     }
     const runningAsOwnAgent =
       profileScope.ocAgent !== null && profileScope.ocAgent === parentAgentConfigId;
-    const messageID = this.deliveryMessageId(wakeDelegations);
     // `messageID` is deliberately NOT forwarded to the engine.
     //
     // Engine message ids are `msg_` + 12 HEX characters encoding a timestamp +
@@ -234,38 +392,197 @@ export class AsyncDelegationCompletionService {
         ? { system: profileScope.systemPrompt }
         : {}),
     };
-    const wakeText = this.buildWakeText(wakeDelegations, messageID);
+
+    if (activeNative.length > 0 && nativeContext) {
+      if (!await this.nativeContextStillEligible(nativeContext)) {
+        activeNative = [];
+        parentSdkSessionId = parent.sdkSessionId ?? opencodeSessionMap.get(parent.id) ?? null;
+      } else {
+        // This synchronous read is deliberately adjacent to enqueue. It
+        // rechecks the exact claimed IDs against current ready/revision scope
+        // after every awaited policy/profile step.
+        activeNative = this.refreshClaimedNativeItems(
+          bridgeRepo,
+          nativeContext,
+          activeNative,
+        );
+      }
+    }
+    if (activeNative.length === 0) {
+      parentSdkSessionId = parent.sdkSessionId ?? opencodeSessionMap.get(parent.id) ?? null;
+    }
+    if (!parentSdkSessionId
+        || (wakeDelegations.length === 0 && activeNative.length === 0)) {
+      this.delegationsRepo.releaseClaims(ids);
+      bridgeRepo.releaseDeliveryClaims(bridgeIds);
+      return;
+    }
+
+    const messageID = activeNative.length > 0 && nativeContext
+      ? this.nativeDeliveryMessageId(
+        wakeDelegations,
+        activeNative,
+        nativeContext.scope.hostEpoch,
+      )
+      : this.deliveryMessageId(wakeDelegations);
+    const wakeText = activeNative.length > 0
+      ? this.buildNativeWakeText(wakeDelegations, activeNative, messageID)
+      : this.buildWakeText(wakeDelegations, messageID);
+    // A generic async completion must never acquire coordinator model-control
+    // authority merely because it shares the Secretary's SDK session. Only a
+    // single, previously bound Coding Workflow child gets this internal marker;
+    // mixed callbacks remain ordinary existing completion wakes.
+    const singleCoordinatorWake = activeNative.length === 0 && wakeDelegations.length === 1
+      ? wakeDelegations[0]
+      : null;
+    const singleCoordinatorChildSessionId = singleCoordinatorWake?.childSessionId;
+    const coordinatorCallbackReason = singleCoordinatorWake && singleCoordinatorChildSessionId
+      ? new CoordinatorConversationsRepository().coordinatorDelegationCallbackReason({
+        parentSessionId,
+        parentSdkSessionId,
+        delegationId: singleCoordinatorWake.id,
+        childSessionId: singleCoordinatorChildSessionId,
+        targetAgentConfigId: singleCoordinatorWake.targetAgentConfigId,
+      })
+      : null;
+
+    // Fresh bounded coordinator contract + automatic memory for the exact
+    // single bound child only. Mixed/native/unbound completions get neither.
+    // Both are rechecked after their awaits and directly before enqueue; a
+    // stale scope drops the overlay (the wake itself is unchanged), it never
+    // yields a qualified one.
+    let callbackFreshness: (() => Promise<boolean>) | null = null;
+    if (coordinatorCallbackReason && singleCoordinatorWake && singleCoordinatorChildSessionId) {
+      const overlay = await this.prepareCallbackOverlay(
+        parent,
+        parentSdkSessionId,
+        singleCoordinatorWake.id,
+        singleCoordinatorChildSessionId,
+        wakeText,
+      );
+      if (overlay) {
+        promptOpts.system = [
+          typeof promptOpts.system === 'string' ? promptOpts.system : '',
+          overlay.text,
+        ].filter((block) => block.length > 0).join('\n\n');
+        // The same recheck runs again at the client's final SDK boundary.
+        callbackFreshness = overlay.current;
+      }
+    }
+
+    // The bound Coding Workflow manager's exact single callback mints a native
+    // user anchor that must be durable BEFORE exposure, with or without a
+    // Dayflow receiver. An unrelated/mixed callback never reaches this branch.
+    const workflowJob = coordinatorCallbackReason && singleCoordinatorWake
+      ? bridgeRepo.findLiveCoordinatorWorkflowJobByDelegation(singleCoordinatorWake.id)
+      : null;
+    const callbackContext = callbackFreshness || workflowJob
+      ? {
+        kind: 'coordinator_callback_v1' as const,
+        validate: async () => (callbackFreshness ? await callbackFreshness() : true) &&
+          (!workflowJob || bridgeRepo.findLiveCoordinatorWorkflowJobByDelegation(singleCoordinatorWake!.id) !== null),
+        ...(workflowJob ? {
+          onPrepared: (binding: { dispatchId: string; sdkUserMessageId: string }): boolean => {
+            try {
+              bridgeRepo.recordCoordinatorWorkflowCallbackAnchor({
+                delegationId: singleCoordinatorWake!.id,
+                dispatchId: binding.dispatchId,
+                sdkUserMessageId: binding.sdkUserMessageId,
+                now: new Date().toISOString(),
+              });
+              return true;
+            } catch {
+              return false;
+            }
+          },
+        } : {}),
+      }
+      : null;
 
     this.wakeInFlight.add(parentSessionId);
     let deliveryUnknown = false;
+    const attemptedNative = activeNative.length > 0 && nativeContext
+      ? { context: nativeContext, items: activeNative }
+      : null;
     try {
-      const enqueued = await opencodeClient.promptAsync(
-        parentSdkSessionId,
-        wakeText,
-        profileScope.model,
-        parent.cwd,
-        promptOpts,
-        undefined,
-        undefined,
-        {
-          sessionId: parentSessionId,
-          sdkSessionId: parentSdkSessionId,
-          origin: 'delegation_completion',
-          requestedSource: 'agent_config',
-          requestedProviderId: profileScope.model?.providerID ?? null,
-          requestedModelId: profileScope.model?.modelID ?? null,
-          resolvedProviderId: profileScope.model?.providerID ?? null,
-          resolvedModelId: profileScope.model?.modelID ?? null,
-          routeAuthed: null,
-          finalProviderId: profileScope.model?.providerID ?? null,
-          finalModelId: profileScope.model?.modelID ?? null,
-        },
-      );
+      const dispatchProvenance = {
+        sessionId: parentSessionId,
+        sdkSessionId: parentSdkSessionId,
+        origin: 'delegation_completion' as const,
+        requestedSource: 'agent_config' as const,
+        requestedProviderId: profileScope.model?.providerID ?? null,
+        requestedModelId: profileScope.model?.modelID ?? null,
+        resolvedProviderId: profileScope.model?.providerID ?? null,
+        resolvedModelId: profileScope.model?.modelID ?? null,
+        routeAuthed: null,
+        finalProviderId: profileScope.model?.providerID ?? null,
+        finalModelId: profileScope.model?.modelID ?? null,
+        ...(coordinatorCallbackReason ? { reasonCode: coordinatorCallbackReason } : {}),
+      };
+      // Ordinary completions keep the exact historical call shape; only the
+      // exact prepared callback appends its final-boundary freshness hook.
+      const enqueued = callbackContext
+        ? await opencodeClient.promptAsync(
+          parentSdkSessionId,
+          wakeText,
+          profileScope.model,
+          parent.cwd,
+          promptOpts,
+          undefined,
+          undefined,
+          dispatchProvenance,
+          undefined,
+          undefined,
+          callbackContext,
+        )
+        : await opencodeClient.promptAsync(
+          parentSdkSessionId,
+          wakeText,
+          profileScope.model,
+          parent.cwd,
+          promptOpts,
+          undefined,
+          undefined,
+          dispatchProvenance,
+        );
       if (!enqueued) {
-        const delivered = await this.wasWakeDelivered(parent, wakeDelegations);
-        if (delivered === true) {
-          this.delegationsRepo.markNotified(ids);
-          bridgeRepo.markDelivered(bridgeIds);
+        let nativeDelivered = attemptedNative
+          ? wakeDelegations.length > 0
+            ? await this.wasMixedWakeDelivered(
+              attemptedNative.context,
+              attemptedNative.items,
+              wakeDelegations,
+            )
+            : await this.wasNativeWakeDelivered(
+              attemptedNative.context,
+              attemptedNative.items,
+              wakeDelegations,
+            )
+          : null;
+        if (nativeDelivered === true) {
+          const acknowledged = wakeDelegations.length > 0
+            ? await this.markMixedDeliveredIfEligible(
+              bridgeRepo,
+              attemptedNative!.context,
+              attemptedNative!.items.map((item) => item.jobId),
+              ids,
+              bridgeIds,
+            )
+            : await this.markNativeDeliveredIfEligible(
+              bridgeRepo,
+              attemptedNative!.context,
+              attemptedNative!.items.map((item) => item.jobId),
+            );
+          if (!acknowledged) nativeDelivered = null;
+        }
+        const delivered = attemptedNative
+          ? nativeDelivered
+          : await this.wasWakeDelivered(parent, wakeDelegations);
+        if (delivered === true && wakeDelegations.length > 0) {
+          if (!attemptedNative) {
+            this.delegationsRepo.markNotified(ids);
+            bridgeRepo.markDelivered(bridgeIds);
+          }
           logger.info(
             `[AsyncDelegation] recovered accepted parent wake ${messageID} after an ambiguous enqueue result`,
           );
@@ -281,14 +598,55 @@ export class AsyncDelegationCompletionService {
 
       this.delegationsRepo.markNotified(ids);
       bridgeRepo.markDelivered(bridgeIds);
+      if (attemptedNative) {
+        await this.markNativeDeliveredIfEligible(
+          bridgeRepo,
+          attemptedNative.context,
+          attemptedNative.items.map((item) => item.jobId),
+        );
+      }
       logger.info(
-        `[AsyncDelegation] woke parent ${parentSessionId} with ${claimed.length} completed delegate(s)`,
+        `[AsyncDelegation] woke parent ${parentSessionId} with ` +
+          `${claimed.length} completed delegate(s) and ${activeNative.length} native status item(s)`,
       );
     } catch (error) {
-      const delivered = await this.wasWakeDelivered(parent, wakeDelegations);
-      if (delivered === true) {
-        this.delegationsRepo.markNotified(ids);
-        bridgeRepo.markDelivered(bridgeIds);
+      let nativeDelivered = attemptedNative
+        ? wakeDelegations.length > 0
+          ? await this.wasMixedWakeDelivered(
+            attemptedNative.context,
+            attemptedNative.items,
+            wakeDelegations,
+          )
+          : await this.wasNativeWakeDelivered(
+            attemptedNative.context,
+            attemptedNative.items,
+            wakeDelegations,
+          )
+        : null;
+      if (nativeDelivered === true) {
+        const acknowledged = wakeDelegations.length > 0
+          ? await this.markMixedDeliveredIfEligible(
+            bridgeRepo,
+            attemptedNative!.context,
+            attemptedNative!.items.map((item) => item.jobId),
+            ids,
+            bridgeIds,
+          )
+          : await this.markNativeDeliveredIfEligible(
+            bridgeRepo,
+            attemptedNative!.context,
+            attemptedNative!.items.map((item) => item.jobId),
+          );
+        if (!acknowledged) nativeDelivered = null;
+      }
+      const delivered = attemptedNative
+        ? nativeDelivered
+        : await this.wasWakeDelivered(parent, wakeDelegations);
+      if (delivered === true && wakeDelegations.length > 0) {
+        if (!attemptedNative) {
+          this.delegationsRepo.markNotified(ids);
+          bridgeRepo.markDelivered(bridgeIds);
+        }
         logger.info(
           `[AsyncDelegation] recovered accepted parent wake ${messageID} after enqueue exception`,
         );
@@ -303,6 +661,407 @@ export class AsyncDelegationCompletionService {
         bridgeRepo.releaseDeliveryClaims(bridgeIds);
       }
     }
+  }
+
+  private hasLegacyWakingClaims(parentSessionId: string): boolean {
+    if (this.delegationsRepo.listWakingForParent(parentSessionId).length > 0) {
+      return true;
+    }
+    return new AgentBridgeJobsRepository()
+      .listWakingForParent(parentSessionId)
+      .length > 0;
+  }
+
+  private hasNativeWakingClaims(parentSessionId: string): boolean {
+    try {
+      const row = getDb().prepare(`SELECT 1 FROM agent_bridge_jobs
+        WHERE parent_runtime='opencode' AND parent_session_id=?
+          AND direction='rhythm_to_native' AND delivery_state='waking'
+          AND COALESCE(native_execution_kind, 'legacy') <> 'coordinator'
+        LIMIT 1`).get(parentSessionId);
+      return Boolean(row);
+    } catch {
+      logger.warn(
+        '[AsyncDelegation] native delivery held code=waking_inspection_exception',
+      );
+      return true;
+    }
+  }
+
+  private refreshClaimedNativeItems(
+    repository: AgentBridgeJobsRepository,
+    context: NativeDeliveryContext,
+    claimed: NativeWorkstreamWakeItem[],
+  ): NativeWorkstreamWakeItem[] {
+    const claimedIds = new Set(claimed.map((item) => item.jobId));
+    const refreshed: NativeWorkstreamWakeItem[] = [];
+    for (const row of repository.listNativeWakingForParent(context.scope)) {
+      if (!claimedIds.has(row.id)) continue;
+      const projection = projectNativeWorkstreamWake(row);
+      if (!projection.ok) {
+        logger.warn(
+          `[AsyncDelegation] native delivery held code=projection_${projection.code}`,
+        );
+        continue;
+      }
+      refreshed.push(projection.item);
+    }
+    if (refreshed.length !== claimed.length) {
+      logger.warn('[AsyncDelegation] native delivery held code=claimed_scope_changed');
+    }
+    return refreshed;
+  }
+
+  private nativeDeliveryEpoch(): string | null {
+    try {
+      if (!env.workstreamsEnabled
+          || env.dbClient !== 'sqlite'
+          || env.role === 'cloud'
+          || env.role === 'relay'
+          || !this.nativeDeliveryPolicy.enabled()) {
+        return null;
+      }
+      const epoch = this.nativeDeliveryPolicy.currentHostEpoch();
+      return typeof epoch === 'string' && epoch.length > 0 ? epoch : null;
+    } catch {
+      logger.warn('[AsyncDelegation] native delivery held code=gate_exception');
+      return null;
+    }
+  }
+
+  private nativeDeliveryContextForParent(
+    parent: AgentSession,
+  ): NativeDeliveryContext | null {
+    const hostEpoch = this.nativeDeliveryEpoch();
+    if (!hostEpoch || parent.ownerUserId === null || !parent.projectId) return null;
+    const parentSdkSessionId =
+      opencodeSessionMap.get(parent.id) ?? parent.sdkSessionId ?? null;
+    if (!parentSdkSessionId) return null;
+    const scope: NativeWorkstreamDeliveryScope = {
+      localUserId: parent.ownerUserId,
+      projectId: parent.projectId,
+      parentSessionId: parent.id,
+      hostEpoch,
+    };
+    if (!isNativeWorkstreamDeliveryScope(scope)) return null;
+    return { parent, parentSdkSessionId, scope };
+  }
+
+  private async resolveNativeDeliveryContext(
+    parent: AgentSession,
+  ): Promise<NativeDeliveryContext | null> {
+    const initial = this.nativeDeliveryContextForParent(parent);
+    if (!initial) return null;
+    let eligible = false;
+    try {
+      eligible = await this.nativeDeliveryPolicy.isParentContextEligible(
+        initial.parent,
+        initial.scope,
+      );
+    } catch {
+      logger.warn(
+        '[AsyncDelegation] native delivery held code=context_policy_exception',
+      );
+      return null;
+    }
+    if (!eligible) return null;
+    const refreshedParent = this.sessionsRepo.findById(parent.id);
+    if (!refreshedParent) return null;
+    const refreshed = this.nativeDeliveryContextForParent(refreshedParent);
+    if (!refreshed
+        || !sameNativeScope(initial.scope, refreshed.scope)
+        || initial.parentSdkSessionId !== refreshed.parentSdkSessionId) {
+      return null;
+    }
+    return refreshed;
+  }
+
+  private async nativeContextStillEligible(
+    context: NativeDeliveryContext,
+  ): Promise<boolean> {
+    const parent = this.sessionsRepo.findById(context.parent.id);
+    if (!parent) return false;
+    const current = this.nativeDeliveryContextForParent(parent);
+    if (!current
+        || !sameNativeScope(context.scope, current.scope)
+        || context.parentSdkSessionId !== current.parentSdkSessionId) {
+      return false;
+    }
+    let eligible = false;
+    try {
+      eligible = await this.nativeDeliveryPolicy.isParentContextEligible(
+        current.parent,
+        current.scope,
+      );
+    } catch {
+      logger.warn(
+        '[AsyncDelegation] native delivery held code=context_recheck_exception',
+      );
+      return false;
+    }
+    if (!eligible) return false;
+    const afterAwait = this.sessionsRepo.findById(context.parent.id);
+    if (!afterAwait) return false;
+    const finalContext = this.nativeDeliveryContextForParent(afterAwait);
+    return Boolean(finalContext
+      && sameNativeScope(context.scope, finalContext.scope)
+      && context.parentSdkSessionId === finalContext.parentSdkSessionId);
+  }
+
+  private async releaseNativeClaimsIfEligible(
+    repository: AgentBridgeJobsRepository,
+    context: NativeDeliveryContext,
+    ids: string[],
+  ): Promise<void> {
+    if (ids.length === 0 || !await this.nativeContextStillEligible(context)) return;
+    repository.releaseNativeDeliveryClaims(context.scope, ids);
+  }
+
+  private async markNativeDeliveredIfEligible(
+    repository: AgentBridgeJobsRepository,
+    context: NativeDeliveryContext,
+    ids: string[],
+  ): Promise<boolean> {
+    if (ids.length === 0 || !await this.nativeContextStillEligible(context)) {
+      return false;
+    }
+    repository.markNativeDelivered(context.scope, ids);
+    return true;
+  }
+
+  private async markMixedDeliveredIfEligible(
+    repository: AgentBridgeJobsRepository,
+    context: NativeDeliveryContext,
+    nativeIds: string[],
+    asyncLegacyIds: string[],
+    bridgeLegacyIds: string[],
+  ): Promise<boolean> {
+    if (nativeIds.length === 0
+        || (asyncLegacyIds.length === 0 && bridgeLegacyIds.length === 0)
+        || !await this.nativeContextStillEligible(context)) {
+      return false;
+    }
+    let acknowledged = false;
+    getDb().transaction(() => {
+      const eligibleIds = new Set(
+        repository.listNativeWakingForParent(context.scope).map((row) => row.id),
+      );
+      if (!nativeIds.every((id) => eligibleIds.has(id))) return;
+      const currentAsyncLegacyIds = new Set(
+        this.delegationsRepo.listWakingForParent(context.scope.parentSessionId)
+          .map((delegation) => delegation.id),
+      );
+      const currentBridgeLegacyIds = new Set(
+        repository.listWakingForParent(context.scope.parentSessionId)
+          .map((delegation) => delegation.id),
+      );
+      if (!asyncLegacyIds.every((id) => currentAsyncLegacyIds.has(id))
+          || !bridgeLegacyIds.every((id) => currentBridgeLegacyIds.has(id))) {
+        return;
+      }
+      repository.markNativeDelivered(context.scope, nativeIds);
+      this.delegationsRepo.markNotified(asyncLegacyIds);
+      repository.markDelivered(bridgeLegacyIds);
+      acknowledged = true;
+    }).immediate();
+    return acknowledged;
+  }
+
+  private async reconcileNativeWakingClaims(
+    context: NativeDeliveryContext,
+  ): Promise<boolean> {
+    if (!await this.nativeContextStillEligible(context)) return false;
+    const repository = new AgentBridgeJobsRepository();
+    const rows = repository.listNativeWakingForParent(context.scope);
+    if (rows.length === 0) {
+      return !this.hasNativeWakingClaims(context.scope.parentSessionId);
+    }
+    const items: NativeWorkstreamWakeItem[] = [];
+    for (const row of rows) {
+      const projection = projectNativeWorkstreamWake(row);
+      if (!projection.ok) {
+        logger.warn(
+          `[AsyncDelegation] native delivery held code=projection_${projection.code}`,
+        );
+        return false;
+      }
+      items.push(projection.item);
+    }
+    const asyncWaking = this.delegationsRepo.listWakingForParent(
+      context.scope.parentSessionId,
+    );
+    const bridgeWaking = repository.listWakingForParent(
+      context.scope.parentSessionId,
+    );
+    const legacyWaking: WakeDelegation[] = [
+      ...asyncWaking,
+      ...bridgeWaking.map(bridgeWakeDelegation),
+    ];
+    const delivered = legacyWaking.length > 0
+      ? await this.wasMixedWakeDelivered(context, items, legacyWaking)
+      : await this.wasNativeWakeDelivered(context, items, []);
+    if (delivered === true) {
+      if (legacyWaking.length > 0) {
+        const acknowledged = await this.markMixedDeliveredIfEligible(
+          repository,
+          context,
+          items.map((item) => item.jobId),
+          asyncWaking.map((delegation) => delegation.id),
+          bridgeWaking.map((delegation) => delegation.id),
+        );
+        if (!acknowledged) return false;
+      } else {
+        const acknowledged = await this.markNativeDeliveredIfEligible(
+          repository,
+          context,
+          items.map((item) => item.jobId),
+        );
+        if (!acknowledged) return false;
+      }
+      logger.info(
+        `[AsyncDelegation] reconciled exact native wake ${this.nativeDeliveryMessageId([], items, context.scope.hostEpoch)} for parent ${context.parent.id}`,
+      );
+      return true;
+    }
+    logger.warn(
+      `[AsyncDelegation] native wake inspection is incomplete for ${context.parent.id}; ` +
+        `retaining ${items.length} waking claim(s)`,
+    );
+    return false;
+  }
+
+  private async wasMixedWakeDelivered(
+    context: NativeDeliveryContext,
+    items: NativeWorkstreamWakeItem[],
+    legacyDelegations: WakeDelegation[],
+  ): Promise<true | null> {
+    if (items.length === 0
+        || legacyDelegations.length === 0
+        || !await this.nativeContextStillEligible(context)) {
+      return null;
+    }
+    const nativeMarker = this.nativeDeliveryMarker(
+      this.nativeDeliveryMessageId([], items, context.scope.hostEpoch),
+    );
+    const legacyMarker = this.deliveryMarker(
+      this.deliveryMessageId(legacyDelegations),
+    );
+    const maybeClient = opencodeClient as unknown as {
+      listMessages?: (
+        sdkId: string,
+        directory?: string,
+      ) => Promise<Array<{
+        parts?: Array<{ type?: string; text?: string }>;
+      }>>;
+    };
+    if (typeof maybeClient.listMessages !== 'function') return null;
+    try {
+      const messages = await maybeClient.listMessages.call(
+        opencodeClient,
+        context.parentSdkSessionId,
+        context.parent.cwd,
+      );
+      const exactMixedReceipt = messages.some((candidate) => {
+        const text = candidate.parts
+          ?.filter((part) => part.type === 'text' && typeof part.text === 'string')
+          .map((part) => part.text)
+          .join('\n') ?? '';
+        return text.includes(nativeMarker) && text.includes(legacyMarker);
+      });
+      return exactMixedReceipt ? true : null;
+    } catch {
+      logger.warn(
+        '[AsyncDelegation] native delivery held code=mixed_inspection_exception',
+      );
+      return null;
+    }
+  }
+
+  private async wasNativeWakeDelivered(
+    context: NativeDeliveryContext,
+    items: NativeWorkstreamWakeItem[],
+    _legacyDelegations: WakeDelegation[],
+  ): Promise<true | null> {
+    if (!await this.nativeContextStillEligible(context)) return null;
+    const messageID = this.nativeDeliveryMessageId(
+      [],
+      items,
+      context.scope.hostEpoch,
+    );
+    const marker = this.nativeDeliveryMarker(messageID);
+    const matches = (candidate: {
+      rawText?: string | null;
+      parts?: Array<{ type?: string; text?: string }>;
+    }): boolean => {
+      const text = candidate.rawText ?? candidate.parts
+        ?.filter((part) => part.type === 'text' && typeof part.text === 'string')
+        .map((part) => part.text)
+        .join('\n') ?? '';
+      return text.includes(marker);
+    };
+    const maybeClient = opencodeClient as unknown as {
+      listMessages?: (
+        sdkId: string,
+        directory?: string,
+      ) => Promise<Array<{
+        parts?: Array<{ type?: string; text?: string }>;
+      }>>;
+    };
+    if (typeof maybeClient.listMessages !== 'function') return null;
+    try {
+      const messages = await maybeClient.listMessages.call(
+        opencodeClient,
+        context.parentSdkSessionId,
+        context.parent.cwd,
+      );
+      return messages.some(matches) ? true : null;
+    } catch {
+      logger.warn(
+        '[AsyncDelegation] native delivery held code=inspection_exception',
+      );
+      return null;
+    }
+  }
+
+  private nativeDeliveryMessageId(
+    _legacyDelegations: WakeDelegation[],
+    items: NativeWorkstreamWakeItem[],
+    hostEpoch: string,
+  ): string {
+    const stableItems = items.map((item) => [
+      item.kind,
+      item.jobId,
+      item.workstreamId,
+      item.status,
+      item.reasonCode ?? 'none',
+      hostEpoch,
+    ].join(':')).sort().join('|');
+    const digest = createHash('sha256')
+      .update(stableItems)
+      .digest('hex')
+      .slice(0, 24);
+    return `msg_rhythm_native_${digest}`;
+  }
+
+  private nativeDeliveryMarker(messageID: string): string {
+    return `<!-- rhythm-native-workstream:${messageID} -->`;
+  }
+
+  private buildNativeWakeText(
+    legacyDelegations: WakeDelegation[],
+    items: NativeWorkstreamWakeItem[],
+    messageID: string,
+  ): string {
+    const nativeSection =
+      '[Native workstream status update]\n' +
+      items.map(renderNativeWorkstreamWake).join('\n\n') +
+      '\n\nTreat this as status-only notification bookkeeping. ' +
+      'Do not infer completion or apply effects from this notice.\n' +
+      this.nativeDeliveryMarker(messageID);
+    if (legacyDelegations.length === 0) return nativeSection;
+    const legacyMessageID = this.deliveryMessageId(legacyDelegations);
+    const legacyText = this.buildWakeText(legacyDelegations, legacyMessageID);
+    return `${legacyText}\n\n${nativeSection}`;
   }
 
   private parentExecutionBlockReason(
@@ -470,6 +1229,16 @@ export class AsyncDelegationCompletionService {
       this.deliveryMarker(messageID)
     );
   }
+}
+
+function sameNativeScope(
+  left: NativeWorkstreamDeliveryScope,
+  right: NativeWorkstreamDeliveryScope,
+): boolean {
+  return left.localUserId === right.localUserId
+    && left.projectId === right.projectId
+    && left.parentSessionId === right.parentSessionId
+    && left.hostEpoch === right.hostEpoch;
 }
 
 interface WakeDelegation {

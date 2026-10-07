@@ -47,6 +47,9 @@ import type {
   ReasoningLevel as ProviderReasoningLevel,
   ResponseScope as ProviderResponseScope,
   SessionExecutionState,
+  SessionSettingsEntry,
+  SessionSettingsPatch,
+  SessionSettingsTarget,
 } from '@/providers/opencode-provider-utils';
 import type { GatewayConnectionStatus } from '@/lib/transport/presence';
 
@@ -59,12 +62,48 @@ export type {
   OpenCodeAgentId,
   RhythmProfileId,
   SessionExecutionState,
+  SessionSettingsEntry,
+  SessionSettingsPatch,
+  SessionSettingsTarget,
 } from '@/providers/opencode-provider-utils';
 export type { ProviderAuthMethod } from '@/lib/opencode/types';
 
 export type MobileSession = Session & {
   rhythm?: SessionExecutionState;
 };
+
+/**
+ * Ephemeral proof that a session/root was observed in the current paired
+ * catalog. It is local UI eligibility data, never coordinator authority or a
+ * replacement for the server's owner/project checks.
+ */
+export type MobileCoordinatorSessionProvenance = {
+  actorKey: string;
+  localSessionId: string;
+  pairedClient: object;
+  projectId: string;
+  uiSessionId: string;
+};
+
+export type SessionActivityListener = (event: { projectId: string; sessionId: string }) => void;
+
+/**
+ * The existing safety fallback finished a successful project session read for
+ * the current client. It names no session and asserts no root or commit.
+ */
+export type ProjectReadListener = (read: { projectId: string }) => void;
+
+/**
+ * Identity-only canonical coordinator invalidation received on the paired
+ * project stream. Not an SDK session event, transcript, revision, command or
+ * proof of completion; `pairedClient` is the local originating client.
+ */
+export type CoordinatorChangedListener = (change: {
+  projectId: string;
+  conversationId: string;
+  localSessionId: string;
+  pairedClient: object;
+}) => void;
 
 export type CreateSessionOptions = {
   projectId?: string;
@@ -130,6 +169,16 @@ export type OpencodeContextValue = {
   activeProject?: OpencodeProject;
   selectProject: (path: string) => void;
   serverProjects: Project[];
+  /** Exact paired gateway project IDs, never inferred from a filesystem path. */
+  registeredGatewayProjectIds: ReadonlySet<string>;
+  /** Present only after this session was seen in the current paired catalog. */
+  coordinatorSessionProvenance?: MobileCoordinatorSessionProvenance;
+  /** Identity-only feed of current-project session events; it conveys no authority. */
+  subscribeSessionActivity: (listener: SessionActivityListener) => () => void;
+  /** Read-invalidation only: a safety-fallback project read completed. Not a session event. */
+  subscribeProjectReads: (listener: ProjectReadListener) => () => void;
+  /** Reserved server `rhythm.coordinator.changed` hint (paired stream only); invalidation, never authority. */
+  subscribeCoordinatorChanges: (listener: CoordinatorChangedListener) => () => void;
   currentProjectPath?: string;
   serverRootPath?: string;
   isRefreshingWorkspaceCatalog: boolean;
@@ -168,6 +217,19 @@ export type OpencodeContextValue = {
     sessionId: string,
     patch: Partial<ChatPreferences>,
   ) => Promise<ChatPreferences>;
+  /**
+   * Verified settings-contract-v1 state by exact target (see
+   * `sessionSettingsKey`). Absent until probed; `unsupported` disables editing.
+   */
+  sessionSettings: Record<string, SessionSettingsEntry>;
+  /** Read-only probe of one exact target. `isCurrent` re-qualifies the visible chat. */
+  loadSessionSettings: (target: SessionSettingsTarget, isCurrent?: () => boolean) => Promise<void>;
+  /** Explicit partial edit; resolves with the server readback, rejects stale/unsupported. */
+  updateSessionSettings: (
+    target: SessionSettingsTarget,
+    patch: SessionSettingsPatch,
+    isCurrent?: () => boolean,
+  ) => Promise<SessionExecutionState>;
   conversation: ConversationState;
   clearConversationFeedback: () => void;
   toggleConversationMode: () => Promise<void>;
@@ -196,7 +258,9 @@ export type OpencodeContextValue = {
   refreshCurrentSession: (silent?: boolean) => Promise<void>;
   loadOlderMessages: (sessionId: string) => Promise<void>;
   refreshCurrentTodos: (silent?: boolean) => Promise<void>;
-  ensureActiveSession: () => Promise<string | undefined>;
+  ensureActiveSession: (
+    options?: { allowCreate?: boolean },
+  ) => Promise<string | undefined>;
   createSession: (
     title?: string,
     options?: CreateSessionOptions,

@@ -41,7 +41,7 @@ beforeAll(async () => {
   sessionIdWithProvenance = s1.id;
 
   const s2 = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'Session with no memories used' });
-  provenanceRepo.record(s2.id, [], []);
+  provenanceRepo.record(s2.id, [], [], [], { semanticStatus: 'no_confidence', semanticHitCount: 20 });
   sessionIdWithEmptyProvenance = s2.id;
 
   const s3 = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'Session never recorded' });
@@ -79,9 +79,13 @@ describe('GET /agent-sessions/:id/memory-provenance (#862)', () => {
       headers: authHeaders,
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { recorded: boolean; memoryIds: string[] };
+    const body = (await res.json()) as {
+      recorded: boolean; memoryIds: string[]; semanticStatus: string; semanticHitCount: number;
+    };
     expect(body.recorded).toBe(true);
     expect(body.memoryIds).toEqual([]);
+    expect(body.semanticStatus).toBe('no_confidence');
+    expect(body.semanticHitCount).toBe(20);
   });
 
   it('returns recorded=false when no turn has been recorded for the session (distinct from empty)', async () => {

@@ -217,7 +217,10 @@ export function applySelectiveDeferral<T extends { servers: string[]; tools: str
   allowlist: T,
   toolCounts: Record<string, number>,
   _providerId?: string | null,
-): T & { deferredServers?: string[] } {
+): T & { deferred: true; deferredServers?: string[] } {
+  // Request-build lazy loading is now unconditional. These legacy counts stay
+  // only as explicitly estimated reporting metadata for callers that already
+  // surface selective-server diagnostics; they never choose the loading mode.
   const deferredServers = Object.entries(toolCounts)
     .filter(([name, count]) => {
       const sanitizedName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -228,7 +231,9 @@ export function applySelectiveDeferral<T extends { servers: string[]; tools: str
     })
     .map(([name]) => name)
     .sort();
-  return deferredServers.length === 0 ? allowlist : { ...allowlist, deferredServers };
+  return deferredServers.length === 0
+    ? { ...allowlist, deferred: true }
+    : { ...allowlist, deferred: true, deferredServers };
 }
 
 export function estimateSelectiveDeferral(

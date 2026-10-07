@@ -101,7 +101,7 @@ describe('issue #1575 — isolated async delegation worktree contract', () => {
 
     const worktreeDir = '/repo/.worktrees/issue-1575-child';
     expect(engine.createWorktree).toHaveBeenCalledWith('/repo/manager', { name: 'issue-1575-child' });
-    expect(engine.createSession).toHaveBeenCalledWith(expect.any(String), worktreeDir, undefined, undefined, 'google', 'sdk-parent');
+    expect(engine.createSession).toHaveBeenCalledWith(expect.any(String), worktreeDir, undefined, undefined, 'google', 'sdk-parent', 'default', true);
     expect(streamSession).toHaveBeenCalledWith(result.sessionId, 'sdk-child', worktreeDir);
     expect(engine.promptAsync).toHaveBeenCalledWith(
       'sdk-child',
@@ -210,7 +210,7 @@ describe('issue #1575 — isolated async delegation worktree contract', () => {
     });
 
     expect(engine.createWorktree).not.toHaveBeenCalled();
-    expect(engine.createSession).toHaveBeenCalledWith(expect.any(String), '/repo/manager', undefined, undefined, 'google', 'sdk-parent');
+    expect(engine.createSession).toHaveBeenCalledWith(expect.any(String), '/repo/manager', undefined, undefined, 'google', 'sdk-parent', 'default', true);
     expect(engine.removeWorktree).not.toHaveBeenCalled();
     expect(new AgentSessionsRepository().findById(result.sessionId)).toMatchObject({
       cwd: '/repo/manager',

@@ -159,6 +159,15 @@ describe('injectManagerPreamble — manager WITHOUT a roster gets no impossible 
 });
 
 describe('buildHubRoutingPreamble', () => {
+  it('gives interactive coding handoff an async route and confines Task to scheduled runs', () => {
+    const result = buildHubRoutingPreamble(['workflow-orchestrator'], 'secretary');
+    const coding = result.split('**Coding / development work:** ')[1].split('\n\n')[0];
+    expect(coding).toMatch(/interactive chat.*`rhythm_delegate_async`.*`targetAgentConfigId="workflow-orchestrator"`/);
+    expect(coding).toMatch(/scheduled, headless, or system run.*`task` tool.*`subagent_type="workflow-orchestrator"`/);
+    expect(coding).not.toContain('by calling the `task` tool');
+    expect(coding).not.toMatch(/rhythm_delegate(?!_async)/);
+  });
+
   it('makes direct work the default and delegation an explicit exception', () => {
     const result = buildHubRoutingPreamble([
       'theologian',

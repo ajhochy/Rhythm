@@ -56,11 +56,20 @@ export function replacePending(sessionId: string, incoming: Decisions, started: 
   publish(sessionId, { permissions: reconcile('permissions', incoming.permissions, current.permissions), questions: reconcile('questions', incoming.questions, current.questions) });
 }
 
-export async function rehydrateDecisions(gateway: RendererGateway, session: { id: string; sdkSessionId?: string; cwd: string }) {
-  if (gateway.mode !== 'live' || !gateway.environment || !session.id) return;
+export async function rehydrateDecisions(gateway: RendererGateway, session: { id: string; sdkSessionId?: string; cwd: string }, signal?: AbortSignal) {
+  if (gateway.mode !== 'live' || !gateway.environment || !session.id || signal?.aborted) return;
   const started = revision; const owner = epoch;
   const read = (reads.get(session.id) ?? 0) + 1;
   reads.set(session.id, read);
+  const current = () => owner === epoch && reads.get(session.id) === read && !signal?.aborted;
+  // An inert coordinator root deliberately has no SDK session. Its ordinary
+  // permission route cannot answer for that root, so never turn that known
+  // state into a connection failure. Drop only stale local decisions for this
+  // same root; real SDK-backed request failures remain visible below.
+  if (!session.sdkSessionId) {
+    if (current() && snapshot.has(session.id)) publish(session.id, empty);
+    return;
+  }
   const permissions = gateway.domains.permissions!.pending(session.id);
   // The existing local API exposes question replies, but not a pending-question list.
   // Use the engine's directory-scoped GET /question; never send the cloud bearer here.
@@ -73,10 +82,18 @@ export async function rehydrateDecisions(gateway: RendererGateway, session: { id
       return { requestId: row.id, callId: row.tool.callID, questions: row.questions.map((item: Record<string, unknown>) => ({ ...item, custom: item.custom !== false })) as LiveQuestion['questions'] };
     });
   }) : Promise.resolve([]);
-  const [permissionRows, questionRows] = await Promise.all([permissions, questions]);
-  if (owner !== epoch || reads.get(session.id) !== read) return;
-  if (!Array.isArray(permissionRows) || !permissionRows.every(row => row && row.sessionId === session.id && typeof row.permissionID === 'string' && row.permissionID && typeof row.directory === 'string' && typeof row.tool === 'string' && typeof row.title === 'string' && typeof row.createdAt === 'string' && Array.isArray(row.patterns) && row.patterns.every(pattern => typeof pattern === 'string'))) throw new Error('Invalid pending permission list');
-  replacePending(session.id, { permissions: new Map(permissionRows.map(row => [row.permissionID, row])), questions: new Map(questionRows.map(row => [row.requestId, row])) }, started);
+  try {
+    const [permissionRows, questionRows] = await Promise.all([permissions, questions]);
+    if (!current()) return;
+    if (!Array.isArray(permissionRows) || !permissionRows.every(row => row && row.sessionId === session.id && typeof row.permissionID === 'string' && row.permissionID && typeof row.directory === 'string' && typeof row.tool === 'string' && typeof row.title === 'string' && typeof row.createdAt === 'string' && Array.isArray(row.patterns) && row.patterns.every(pattern => typeof pattern === 'string'))) throw new Error('Invalid pending permission list');
+    replacePending(session.id, { permissions: new Map(permissionRows.map(row => [row.permissionID, row])), questions: new Map(questionRows.map(row => [row.requestId, row])) }, started);
+  } catch (error) {
+    // A selection/account transition may finish while an ordinary permission
+    // read is still settling. Its late error belongs to neither the newly
+    // selected chat nor the new account.
+    if (!current()) return;
+    throw error;
+  }
 }
 
 export function usePendingDecisions(sessionId: string) {

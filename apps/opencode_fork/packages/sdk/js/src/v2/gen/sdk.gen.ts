@@ -160,6 +160,14 @@ import type {
   SessionPromptResponses,
   SessionRevertErrors,
   SessionRevertResponses,
+  SessionRhythmActiveToolErrors,
+  SessionRhythmActiveToolResponses,
+  SessionRhythmDayflowGuardErrors,
+  SessionRhythmDayflowGuardResponses,
+  SessionRhythmPromptAnchorErrors,
+  SessionRhythmPromptAnchorResponses,
+  SessionRhythmProviderFrameErrors,
+  SessionRhythmProviderFrameResponses,
   SessionShareErrors,
   SessionShareResponses,
   SessionShellErrors,
@@ -3582,6 +3590,157 @@ export class Session2 extends HeyApiClient {
       url: "/session/{sessionID}/message/{messageID}",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Mint a managed prompt anchor
+   */
+  public rhythmPromptAnchor<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionRhythmPromptAnchorResponses,
+      SessionRhythmPromptAnchorErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/rhythm-prompt-anchor",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read one live managed tool owner
+   */
+  public rhythmActiveTool<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      assistantID: string
+      callID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "assistantID" },
+            { in: "path", key: "callID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      SessionRhythmActiveToolResponses,
+      SessionRhythmActiveToolErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/rhythm-active-tool/{assistantID}/{callID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read one pending managed provider frame
+   */
+  public rhythmProviderFrame<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      requestNonce: string
+      directory?: string
+      workspace?: string
+      sourceAnchorIds?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "requestNonce" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sourceAnchorIds" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      SessionRhythmProviderFrameResponses,
+      SessionRhythmProviderFrameErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/rhythm-provider-frame/{requestNonce}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Enroll a managed SDK session for Dayflow history protection
+   */
+  public rhythmDayflowGuard<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      body?: unknown
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "body", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionRhythmDayflowGuardResponses,
+      SessionRhythmDayflowGuardErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/rhythm-dayflow-guard",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 

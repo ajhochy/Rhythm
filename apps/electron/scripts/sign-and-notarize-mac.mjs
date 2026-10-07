@@ -16,9 +16,8 @@
 //   APPLE_ID                    — Apple ID email used for notarization.
 //   APPLE_APP_SPECIFIC_PASSWORD — app-specific password for that Apple ID.
 import { execFile } from 'node:child_process';
-import { open, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { hardenElectronFuses } from './harden-electron-fuses.mjs';
@@ -26,6 +25,8 @@ import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from '../src/hermes-desktop-confi
 import { refreshHermesDesktopArtifactIntegrity, resolveHermesDesktopArtifact } from '../src/hermes-desktop-artifact.mjs';
 import { EXPECTED_COLONY_ELECTRON_MAJOR, PINNED_COLONY_SOURCE_COMMIT } from '../src/colony-desktop-config.mjs';
 import { refreshColonyArtifactIntegrity, resolveColonyArtifact } from '../src/colony-desktop-artifact.mjs';
+import { findNestedCodeSignTargets, isMachO, validateDayflowDesktopArtifact } from '../src/dayflow-desktop-artifact.mjs';
+import { DEFAULT_SIGNING_INPUTS, verifyPackagedNativeDayflow } from './verify-packaged-native-dayflow.mjs';
 import { requireManifestSigningKey, signHermesDesktopManifest } from './sign-hermes-desktop-manifest.mjs';
 import { resolveSigningIdentityWithRunner } from './signing-identity.mjs';
 
@@ -64,49 +65,6 @@ if (!existsSync(artifact)) {
 const identity = await resolveSigningIdentityWithRunner(process.env.APPLE_SIGNING_IDENTITY, { runner: run });
 const teamId = process.env.APPLE_TEAM_ID.trim();
 
-// Mach-O magic numbers (32/64-bit, fat/universal, both endiannesses). Notarization rejected the
-// first attempt here because two helper executables nested inside Contents/Frameworks/*.framework
-// (Electron Framework's chrome_crashpad_handler, Squirrel's ShipIt) have NO file extension —
-// matching by extension (.dylib/.so/.node) alone misses them silently. Reading the real magic
-// bytes catches every Mach-O binary regardless of name, the same class of gap the Flutter
-// reference script hits by special-casing its two known extensionless binaries (opencode, node).
-const MACHO_MAGIC = new Set([0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe, 0xbebafeca]);
-async function isMachO(path) {
-  let handle;
-  try {
-    handle = await open(path, 'r');
-    const buffer = Buffer.alloc(4);
-    const { bytesRead } = await handle.read(buffer, 0, 4, 0);
-    if (bytesRead < 4) return false;
-    return MACHO_MAGIC.has(buffer.readUInt32BE(0));
-  } catch {
-    return false;
-  } finally {
-    await handle?.close();
-  }
-}
-
-async function findNestedCodeSignTargets(root) {
-  const targets = [];
-  async function walk(dir) {
-    for (const entry of await readdir(dir, { withFileTypes: true })) {
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name.endsWith('.app') || entry.name.endsWith('.framework')) targets.push(full);
-        await walk(full);
-      } else if (/\.(dylib|so|node)$/.test(entry.name)) {
-        targets.push(full);
-      } else if (await isMachO(full)) {
-        // Catches extensionless Mach-O helpers/executables (e.g. spawn-helper, chrome_crashpad_handler, ShipIt).
-        targets.push(full);
-      }
-    }
-  }
-  await walk(root);
-  // Sign deepest paths first so an inner .app/.framework is sealed before whatever wraps it.
-  return targets.sort((a, b) => b.split('/').length - a.split('/').length);
-}
-
 async function codesign(target, { deep = false } = {}) {
   const args = ['--force', '--options', 'runtime', '--timestamp'];
   if (deep) args.push('--deep');
@@ -118,7 +76,9 @@ async function codesign(target, { deep = false } = {}) {
 const contentsDir = resolve(artifact, 'Contents');
 const engine = resolve(contentsDir, 'Resources/opencode_bin/opencode');
 const approvalHelper = resolve(contentsDir, 'Resources/human-approval/rhythm-approval-signer');
-const targets = await findNestedCodeSignTargets(contentsDir);
+const nativeDayflowHelper = resolve(contentsDir, 'Helpers/rhythm-dayflow');
+const dayflowDesktopArtifact = resolve(contentsDir, 'Resources/dayflow-desktop/Dayflow.app');
+const targets = await findNestedCodeSignTargets(contentsDir, { excludedRoots: [dayflowDesktopArtifact] });
 if (!targets.includes(approvalHelper) || !(await isMachO(approvalHelper))) {
   throw new Error('Packaged approval helper Mach-O is missing from nested signing targets');
 }
@@ -131,10 +91,19 @@ for (const target of targets) {
     // Native helper needs no Electron JIT/library-validation exceptions. Keep Keychain identity stable.
     await run('codesign', ['--force', '--options', 'runtime', '--timestamp', '--identifier',
       'com.rhythm.desktop.approval-signer', '--sign', identity, target]);
+  } else if (target === nativeDayflowHelper) {
+    // Standalone native Dayflow helper: Developer ID + hardened runtime + timestamp, and NO
+    // --entitlements (accepted handoff forbids weaker/ad-hoc entitlements on it).
+    await run('codesign', ['--force', '--options', 'runtime', '--timestamp', '--sign', identity,
+      '--identifier', 'com.rhythm.desktop.dayflow-helper', target]);
   } else await codesign(target);
 }
 await run('codesign', ['--verify', '--strict', approvalHelper]);
 await run('codesign', ['--verify', '--strict', engine]);
+if (existsSync(resolve(contentsDir, 'Resources/native-dayflow'))) {
+  // Nested items are sealed; verify the native payload before the outer app seal. Throws => abort.
+  verifyPackagedNativeDayflow({ appDir: artifact, signingInputsPath: process.env.RHYTHM_NATIVE_DAYFLOW_SIGNING_INPUTS || DEFAULT_SIGNING_INPUTS });
+}
 const hermesDesktopArtifact = resolve(contentsDir, 'Resources/hermes-desktop');
 await refreshHermesDesktopArtifactIntegrity({ artifactRoot: hermesDesktopArtifact });
 await resolveHermesDesktopArtifact({
@@ -154,6 +123,9 @@ await resolveColonyArtifact({
   expectedSourceCommit: PINNED_COLONY_SOURCE_COMMIT,
   allowDirty: false,
 });
+// This must be the final check before outer signing. It catches any alteration after package
+// staging and proves the original upstream signature/Gatekeeper assessment still holds.
+await validateDayflowDesktopArtifact({ appRoot: dayflowDesktopArtifact, execute: run });
 await codesign(artifact, { deep: false });
 
 const verify = await run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', artifact]).catch((error) => error);

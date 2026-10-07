@@ -26,6 +26,11 @@ describe('classifyRouteTier', () => {
     expect(classifyRouteTier({ providerID: 'openai', modelID: 'gpt-5.6-sol' })).toBe('frontier');
   });
 
+  it('classifies terra and sonnet as standard', () => {
+    expect(classifyRouteTier({ providerID: 'openai', modelID: 'gpt-5.6-terra' })).toBe('standard');
+    expect(classifyRouteTier({ providerID: 'anthropic', modelID: 'claude-sonnet-4-6' })).toBe('standard');
+  });
+
   it('classifies haiku/mini/flash/qwen models as cheap', () => {
     expect(classifyRouteTier({ providerID: 'anthropic', modelID: 'claude-haiku-4-5' })).toBe('cheap');
     expect(classifyRouteTier({ providerID: 'openai', modelID: 'gpt-5.4-mini' })).toBe('cheap');

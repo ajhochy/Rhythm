@@ -11,6 +11,9 @@ import {
   MEMORY_CONSOLIDATION_SEED_NAME,
 } from '../services/memory_consolidation_seed';
 import { installAgentBridgeSchema } from '../shared_agents/bridge_schema';
+import { installAgentWorkstreamsSchema } from './agent_workstreams_schema';
+import { installManagedWorkstreamContextSchema } from './managed_workstream_context_schema';
+import { installCoordinatorConversationSchema } from './coordinator_conversation_schema';
 
 /**
  * W1 corrective-6 package B — monotonic persistence revisions.
@@ -90,6 +93,9 @@ function installRevisionInvariants(db: Database.Database, table: string): void {
 }
 
 export function runMigrations(db: Database.Database): void {
+  // S1 records are additive SQLite-local structure only; this preserves all
+  // existing rows, tables, indexes, and triggers on every replay.
+  installAgentWorkstreamsSchema(db);
   installAgentBridgeSchema(db);
   // ── Write-discipline contract ─────────────────────────────────────────
   // runMigrations() runs on EVERY boot (db.ts initDb), not just first
@@ -1376,6 +1382,28 @@ export function runMigrations(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(archived_at);
   `);
+  // C2 fresh coordinator setup is the one explicit way to establish project
+  // provenance without adopting a generic catalog row or hunting a chat. The
+  // fields are additive; NULL continues to mean an ordinary unproved project.
+  const projectColsC2 = (db.pragma('table_info(projects)') as { name: string }[]).map((c) => c.name);
+  if (!projectColsC2.includes('coordinator_owner_user_id')) {
+    db.exec('ALTER TABLE projects ADD COLUMN coordinator_owner_user_id INTEGER');
+  }
+  if (!projectColsC2.includes('coordinator_setup_key')) {
+    db.exec('ALTER TABLE projects ADD COLUMN coordinator_setup_key TEXT');
+  }
+  if (!projectColsC2.includes('coordinator_setup_provenance')) {
+    db.exec('ALTER TABLE projects ADD COLUMN coordinator_setup_provenance TEXT');
+  }
+  if (!projectColsC2.includes('coordinator_workspace_generation')) {
+    db.exec('ALTER TABLE projects ADD COLUMN coordinator_workspace_generation INTEGER');
+  }
+  if (!projectColsC2.includes('coordinator_profile_id')) {
+    db.exec('ALTER TABLE projects ADD COLUMN coordinator_profile_id TEXT');
+  }
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_coordinator_owner_setup
+    ON projects(coordinator_owner_user_id, coordinator_setup_key)
+    WHERE coordinator_owner_user_id IS NOT NULL AND coordinator_setup_key IS NOT NULL`);
 
   // M2-1 (issue #593) — session-level provider/model/agentMode overrides.
   const m2Cols = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
@@ -2514,6 +2542,8 @@ export function runMigrations(db: Database.Database): void {
       memory_ids_json TEXT NOT NULL DEFAULT '[]',
       note_paths_json TEXT NOT NULL DEFAULT '[]',
       items_json TEXT NOT NULL DEFAULT '[]',
+      semantic_status TEXT NOT NULL DEFAULT 'disabled',
+      semantic_hit_count INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
   `);
@@ -2526,6 +2556,46 @@ export function runMigrations(db: Database.Database): void {
        ADD COLUMN items_json TEXT NOT NULL DEFAULT '[]'`,
     );
   }
+  if (!memoryProvenanceCols.includes('semantic_status')) {
+    db.exec(
+      `ALTER TABLE agent_session_memory_provenance
+       ADD COLUMN semantic_status TEXT NOT NULL DEFAULT 'disabled'`,
+    );
+  }
+  if (!memoryProvenanceCols.includes('semantic_hit_count')) {
+    db.exec(
+      `ALTER TABLE agent_session_memory_provenance
+       ADD COLUMN semantic_hit_count INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
+
+  // Local decision engine — agent_decision_log: one row per shadow/applied
+  // decision (model routing, tool ranking, memory ranking) so the rollout can
+  // be judged on agreement, latency and calibration before flipping to 'on'.
+  // `query_preview` is capped at 160 chars by the writer; `detail_json` holds
+  // feature-specific extras. SQLite-only (mirrors agent_session_memory_
+  // provenance) — never added to postgres_bootstrap.ts; prompts must not leave
+  // the machine.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_decision_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      feature TEXT NOT NULL,
+      mode TEXT NOT NULL,
+      session_id TEXT,
+      status TEXT NOT NULL,
+      applied INTEGER NOT NULL DEFAULT 0,
+      chosen TEXT,
+      confidence REAL,
+      baseline TEXT,
+      latency_ms INTEGER,
+      model TEXT,
+      query_preview TEXT,
+      detail_json TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_decision_log_feature_created
+      ON agent_decision_log(feature, created_at);
+  `);
 
   // Dual Anthropic accounts (Task D) — per-session account routing + a
   // per-profile default. anthropic_account_id is the account a session's
@@ -2914,6 +2984,8 @@ The Step 2 / Runbook B helpers live in \`~/.config/opencode/tools/\` (\`classify
   };
   addAgentApprovalColumn('security_action', 'TEXT');
   addAgentApprovalColumn('payload_digest', 'TEXT');
+  // Compact exact chat workflow proposal, local SQLite execution state only.
+  addAgentApprovalColumn('bound_payload_json', 'TEXT');
   addAgentApprovalColumn('taint_id', 'TEXT');
   addAgentApprovalColumn('tainted_turn_id', 'TEXT');
   addAgentApprovalColumn('bound_agent', 'TEXT');
@@ -3317,6 +3389,19 @@ If someone asks for creative work that needs a local capability:
   }
   if (!agentSessionCols1058.includes('worktree_branch')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN worktree_branch TEXT`);
+  }
+
+  // Auto (router) model mode. 'fixed' default keeps every existing row on its
+  // pinned/stored-model behaviour; only new interactive sessions are 'auto'.
+  // Keep in sync with postgres_bootstrap.ts.
+  const agentSessionColsModelMode = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionColsModelMode.includes('model_mode')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN model_mode TEXT NOT NULL DEFAULT 'fixed'`);
+  }
+  // Routing scope: set when the decision router applied a pick to an auto
+  // session (first_prompt scope reuses it). NULL = not routed yet.
+  if (!agentSessionColsModelMode.includes('router_decided_at')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN router_decided_at TEXT`);
   }
 
   // Delegated-session isolation repair. Only a child still classified Chat
@@ -4599,6 +4684,10 @@ If someone asks for creative work that needs a local capability:
       ON agent_turn_dispatches(session_id, created_at, id);
   `);
 
+  // S3-A1 — inert, body-free durable dependency metadata. This must remain
+  // after both agent_sessions and agent_turn_dispatches exist.
+  installManagedWorkstreamContextSchema(db);
+
   // #1576 S2 — one row per engine step-finish part whose served identity was
   // captured (a fork stamp S1 has not landed yet; today this stays empty in
   // production and is exercised in tests against synthetic parts). Append-only,
@@ -4773,4 +4862,9 @@ If someone asks for creative work that needs a local capability:
       PRIMARY KEY (run_id, loop_id, item_key, item_id)
     );
   `);
+
+  // C2 is a local SQLite-only, default-off conversation control plane. The
+  // nullable column grants nothing by itself; routes remain absent unless the
+  // server composes an enabled coordinator service.
+  installCoordinatorConversationSchema(db);
 }

@@ -1,0 +1,19 @@
+# Astra review: three concrete core integration repairs
+
+2026-10-06. Accept the Sol-authored `rhythm-normal-goal-continuation-scope-review.md` follow-on plan, anchored to core packet `8d143183990f93481428091784332ec7022112a41c40ed34cc57133e136d4d3e`. Independent Sol established the four memory-suite failures are identical baseline failures; do not spend another generic cycle on those or mask them.
+
+The accepted changes are:
+
+1. Extend the existing conservative direct-action classifier for fix/implement/update/test requests, preserving exact authored text, questions/status exclusions and command replay. Goal capture conveys no new execution permission.
+2. Join each ordinary tracked goal to its actual existing delegated child's terminal/failure/unknown state for bounded current status and its freshness fingerprint. Keep dispatched, returned-result-unverified, failure and verified goal criterion distinct. Read-only joins must prove current owner/project/root/link; no new state machine, schema or automatic retry.
+3. Prepare fresh bounded automatic memory and coordinator context at the actual exact-child completion enqueue seam, reusing existing preparation helpers and durable callback identity. Recheck current scope after awaits and before enqueue. Do not fake a foreground command, route-authenticated user, native message or broaden callback tools. Preserve existing idempotency and uncertain-delivery behavior, history/Dayflow guards, actual native callback binding and all current permissions. A source test must inspect the actual completion SDK request, not just a fabricated callback record.
+
+Existing ordinary continuation means one authorized Coding Workflow child, then automatic root review/report. The child retains its existing workflow-owned continuation and failure delegates. The finite workstream lane advances only under its already admitted bounds. Preserve these distinctions and state the current plan-root-only start-control restriction truthfully; do not remove a permission fence to improve a completion claim.
+
+Implementation is sequential: builder finishes and freezes its current C3 backend Sonnet turn (session `5a65716e-eac3-49a4-99b0-8d708b2d9993`), then resumes that same persisted owner on its prepared clone for these named hunks. Retain C3 preimage/postimage separately. No new producer or parallel shared-file writer. Only the named service/repository/completion/server wiring and focused tests/logs are authorized; preserve frozen auth/permission/Dayflow and lazy seams.
+
+Sol verifies changed behavior and exact callback authority after source freeze. Builder owns composed normal-app proof, packaging and activation. Source tests, actual tool dispatch, persisted root response and automatic continuation remain separate evidence. No baseline OpenDesign check, new framework, global budget feature, or history/profile/grant rewrite.
+
+## Additional reproduced generic-memory pagination regression
+
+Accept Sol's smallest correction in `core-sol-verification.md`: generic Dayflow withholding currently happens after LIMIT/OFFSET, starving ordinary-memory pages and reporting counts from the withheld collection. Apply the same generic admission predicate before visible pagination/search shortlist and compute generic counts consistently, preserving owner/lifecycle/order and the raw qualified Dayflow repository path. Do not fetch an unbounded store or turn a scan limit into an authoritative empty result. Extend only the existing repository query seam if necessary; no auth/grant or producer change. Retain `core-sol-missing-seam-tests.patch` (SHA256 `e5952fbbbf4e2121620fc01f9e5cb58e7dd26a6e4d224d2c10c5ae9bf653209c`) as the actual red pagination case and passing real-signature boundary; add only relevant next-page/count/shortlist regressions. This fourth named repair is assigned to the same serialized Sonnet core follow-on.

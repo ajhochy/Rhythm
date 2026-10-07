@@ -25,6 +25,7 @@ import { resolveCoreCapabilitySurface } from './profile_capability_surface';
 import { readManagedSkillBody, readManagedSkillBytes } from './rhythm_managed_skills';
 import { parseScopeMutation } from './scope_mutation_contract';
 import type { TrustedMcpCallIdentity } from '../security/trusted_mcp_call';
+import { scanContextContent } from '../security/context_scanner';
 import { opencodeClient } from './opencode_engine';
 import {
   ORG_REVIEWER_ALLOWED_MCPS_JSON,
@@ -35,6 +36,8 @@ import {
 
 export const ORG_REVIEWER_READ_TOOL = 'rhythm_read_org_review_context';
 export const ORG_REVIEWER_SUBMIT_TOOL = 'rhythm_submit_org_review_proposal';
+export const ORG_REVIEWER_SESSION_TOOL = 'rhythm_read_org_review_session';
+export const ORG_REVIEWER_CATALOG_TOOL = 'rhythm_read_org_review_catalog';
 
 const SUPPORTED_KINDS = new Set([
   'refine-config',
@@ -47,13 +50,23 @@ const ALL_PROPOSAL_STATUSES = [
   'rejected', 'applied', 'measuring', 'active', 'reverted', 'failed',
   'reconciliation-required',
 ];
-// The engine truncates MCP tool output at 50 KiB. Keep the complete fenced JSON
-// below that hard boundary so hashes and evidence references are never cut.
-const MAX_TRANSCRIPT_BYTES = 14_000;
+// The engine truncates MCP tool output at 50 KiB. The overview carries only a
+// compact session index; transcripts are read one session at a time through
+// ORG_REVIEWER_SESSION_TOOL in pages of at most MAX_SESSION_PAGE_BYTES, so no
+// response ever needs clipping. Both leave headroom for the MCP fence.
 const MAX_CONTEXT_BYTES = 44_000;
+// Target-state pages are deliberately smaller than the overview. This leaves
+// more than 11 KiB for the MCP untrusted-content fence below its 50 KiB cap.
+const MAX_TARGET_STATE_PAGE_BYTES = 40_000;
+const MAX_SESSION_PAGE_BYTES = 40_000;
+// Messages per session the reviewer may read and cite (the verified view).
+const REVIEW_MESSAGE_LIMIT = 200;
+const MAX_INDEX_NAME_CHARS = 60;
+const CATALOG_KINDS = ['profiles', 'schedules', 'queue', 'skills', 'mcpTools', 'liveSkills'] as const;
 const MAX_SUBMISSION_BYTES = 64 * 1024;
 const MAX_EVIDENCE_QUOTE = 4_000;
 const DEFAULT_WINDOW_DAYS = 7;
+const MAX_SESSION_LIMIT = 100;
 const MAX_WINDOW_DAYS = 14;
 const REVIEW_PIPELINE_PROFILE_IDS = new Set([
   ORG_REVIEWER_PROFILE_ID,
@@ -82,6 +95,10 @@ interface CollectionStats {
   included: number;
   omitted: number;
   truncated: boolean;
+  /** Omitted only because the serialized response/transcript byte budget was spent. */
+  omittedByByteBudget: number;
+  /** Sessions only: omitted because they have no stored messages to cite. */
+  omittedWithoutMessages?: number;
 }
 
 interface EvidenceInput {
@@ -267,12 +284,145 @@ function messageText(message: StructuredAgentSessionMessage): string {
   return message.strippedText || message.rawText;
 }
 
-function collectionStats(total: number, included = 0): CollectionStats {
-  return { total, included, omitted: total - included, truncated: included < total };
+function collectionStats(total: number, included = 0, omittedWithoutMessages?: number): CollectionStats {
+  const omitted = total - included;
+  return {
+    total, included, omitted, truncated: included < total,
+    omittedByByteBudget: omitted - (omittedWithoutMessages ?? 0),
+    ...(omittedWithoutMessages === undefined ? {} : { omittedWithoutMessages }),
+  };
 }
 
-function prettyBytes(value: unknown): number {
-  return Buffer.byteLength(JSON.stringify(value, null, 2), 'utf8');
+/** Bytes of the compact JSON the MCP layer actually emits. */
+function jsonBytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), 'utf8');
+}
+
+function toolErrorCount(messages: StructuredAgentSessionMessage[]): number {
+  let count = 0;
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (isRecord(part) && part.type === 'tool' && isRecord(part.state) && part.state.status === 'error') count += 1;
+    }
+  }
+  return count;
+}
+
+/**
+ * End index of the longest slice of `text` from `start` whose JSON-escaped
+ * UTF-8 size fits `budget`. Never splits a surrogate pair.
+ */
+function isUnicodeSafeOffset(text: string, offset: number): boolean {
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > text.length) return false;
+  if (offset === 0 || offset === text.length) return true;
+  const before = text.charCodeAt(offset - 1);
+  const after = text.charCodeAt(offset);
+  return !(before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff);
+}
+
+function fitText(text: string, start: number, budget: number): number {
+  let bytes = 0;
+  let index = start;
+  while (index < text.length) {
+    const code = text.charCodeAt(index);
+    const next = text.charCodeAt(index + 1);
+    const width = code >= 0xd800 && code <= 0xdbff && next >= 0xdc00 && next <= 0xdfff ? 2 : 1;
+    const cost = Buffer.byteLength(JSON.stringify(text.slice(index, index + width)), 'utf8') - 2;
+    if (bytes + cost > budget) break;
+    bytes += cost;
+    index += width;
+  }
+  return index;
+}
+
+interface SessionCursor { sessionId: string; messageId: string; offset: number }
+
+/**
+ * An opaque, stateless page binding. It is deliberately not an authorization
+ * credential: every request still has to pass the engine-signed tool-argument
+ * check and current reviewer/owner authorization before this is considered.
+ */
+interface TargetStateCursor {
+  version: 1;
+  targetRef: string;
+  ownerUserId: number | null;
+  windowDays: number;
+  sessionLimit: number;
+  targetRevision: number | string;
+  targetStateHash: string;
+  offset: number;
+}
+
+interface ContextArguments {
+  windowDays: number;
+  sessionLimit: number;
+  targetRef?: string;
+  targetCursor?: TargetStateCursor;
+}
+
+function encodeCursor(cursor: SessionCursor): string {
+  return Buffer.from(JSON.stringify([cursor.sessionId, cursor.messageId, cursor.offset]), 'utf8').toString('base64url');
+}
+
+function decodeCursor(raw: string): SessionCursor {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+    if (
+      Array.isArray(parsed) && parsed.length === 3 && typeof parsed[0] === 'string' &&
+      typeof parsed[1] === 'string' && Number.isSafeInteger(parsed[2]) && parsed[2] >= 0
+    ) {
+      return { sessionId: parsed[0], messageId: parsed[1], offset: parsed[2] };
+    }
+  } catch { /* fall through */ }
+  throw AppError.badRequest('cursor must be a nextCursor value returned by this tool');
+}
+
+function isStableRevision(value: unknown): value is number | string {
+  return (typeof value === 'number' && Number.isSafeInteger(value)) ||
+    (typeof value === 'string' && value.length > 0 && value.length <= 200 && value.trim() === value);
+}
+
+function encodeTargetStateCursor(cursor: TargetStateCursor): string {
+  return Buffer.from(JSON.stringify([
+    cursor.version,
+    cursor.targetRef,
+    cursor.ownerUserId,
+    cursor.windowDays,
+    cursor.sessionLimit,
+    cursor.targetRevision,
+    cursor.targetStateHash,
+    cursor.offset,
+  ]), 'utf8').toString('base64url');
+}
+
+function decodeTargetStateCursor(raw: string): TargetStateCursor {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+    if (!Array.isArray(parsed) || parsed.length !== 8) throw new Error('invalid cursor');
+    const [version, targetRef, ownerUserId, windowDays, sessionLimit, targetRevision, targetStateHash, offset] = parsed;
+    if (
+      version === 1 &&
+      typeof targetRef === 'string' && targetRef.length > 0 && targetRef.length <= 300 && targetRef.trim() === targetRef &&
+      (ownerUserId === null || (typeof ownerUserId === 'number' && Number.isSafeInteger(ownerUserId))) &&
+      typeof windowDays === 'number' && Number.isSafeInteger(windowDays) && windowDays >= 1 && windowDays <= MAX_WINDOW_DAYS &&
+      typeof sessionLimit === 'number' && Number.isSafeInteger(sessionLimit) && sessionLimit >= 1 && sessionLimit <= MAX_SESSION_LIMIT &&
+      isStableRevision(targetRevision) &&
+      typeof targetStateHash === 'string' && /^[A-Za-z0-9_-]{20,200}$/.test(targetStateHash) &&
+      typeof offset === 'number' && Number.isSafeInteger(offset) && offset >= 0
+    ) {
+      return {
+        version,
+        targetRef,
+        ownerUserId,
+        windowDays,
+        sessionLimit,
+        targetRevision,
+        targetStateHash,
+        offset,
+      };
+    }
+  } catch { /* fall through */ }
+  throw AppError.badRequest('targetCursor must be a bounded nextCursor value returned by this tool');
 }
 
 function fitCollection(
@@ -281,13 +431,14 @@ function fitCollection(
   items: unknown[],
   updateStats: (included: number) => void,
 ): void {
+  // Skip (do not stop at) an item that does not fit, so one oversized entry
+  // cannot hide every smaller entry after it. Order stays deterministic.
   for (const item of items) {
     destination.push(item);
     updateStats(destination.length);
-    if (prettyBytes(result) < MAX_CONTEXT_BYTES) continue;
+    if (jsonBytes(result) < MAX_CONTEXT_BYTES) continue;
     destination.pop();
     updateStats(destination.length);
-    break;
   }
 }
 
@@ -324,6 +475,14 @@ function exactReviewerScopes(config: AgentConfig): boolean {
     canonicalJson(core) === canonicalJson(JSON.parse(ORG_REVIEWER_CORE_PERMISSIONS_JSON));
 }
 
+function hasNoReviewerDelegates(config: AgentConfig): boolean {
+  try {
+    return canonicalJson(JSON.parse(config.allowedDelegatesJson ?? 'null')) === canonicalJson([]);
+  } catch {
+    return false;
+  }
+}
+
 function stableStringLeaves(value: unknown, result = new Set<string>()): Set<string> {
   if (typeof value === 'string') result.add(value);
   else if (Array.isArray(value)) value.forEach((entry) => stableStringLeaves(entry, result));
@@ -331,12 +490,8 @@ function stableStringLeaves(value: unknown, result = new Set<string>()): Set<str
   return result;
 }
 
-function parseContextArguments(value: JsonRecord): {
-  windowDays: number;
-  sessionLimit: number;
-  targetRef?: string;
-} {
-  const allowed = ['windowDays', 'sessionLimit', 'targetRef'];
+function parseContextArguments(value: JsonRecord): ContextArguments {
+  const allowed = ['windowDays', 'sessionLimit', 'targetRef', 'targetCursor'];
   const extras = Object.keys(value).filter((key) => !allowed.includes(key));
   if (extras.length > 0) throw AppError.badRequest('Reviewer context request contains unsupported fields');
   const windowDays = value.windowDays ?? DEFAULT_WINDOW_DAYS;
@@ -344,13 +499,34 @@ function parseContextArguments(value: JsonRecord): {
   if (!Number.isSafeInteger(windowDays) || Number(windowDays) < 1 || Number(windowDays) > MAX_WINDOW_DAYS) {
     throw AppError.badRequest(`windowDays must be an integer between 1 and ${MAX_WINDOW_DAYS}`);
   }
-  if (!Number.isSafeInteger(sessionLimit) || Number(sessionLimit) < 1 || Number(sessionLimit) > 100) {
-    throw AppError.badRequest('sessionLimit must be an integer between 1 and 100');
+  if (!Number.isSafeInteger(sessionLimit) || Number(sessionLimit) < 1 || Number(sessionLimit) > MAX_SESSION_LIMIT) {
+    throw AppError.badRequest(`sessionLimit must be an integer between 1 and ${MAX_SESSION_LIMIT}`);
   }
   const targetRef = value.targetRef === undefined || value.targetRef === null
     ? undefined
     : exactString(value.targetRef, 'targetRef', 300);
-  return { windowDays: Number(windowDays), sessionLimit: Number(sessionLimit), ...(targetRef ? { targetRef } : {}) };
+  const targetCursor = value.targetCursor === undefined || value.targetCursor === null
+    ? undefined
+    : decodeTargetStateCursor(exactString(value.targetCursor, 'targetCursor', 2_000));
+  if (targetCursor && !targetRef) {
+    throw AppError.badRequest('targetCursor requires the exact targetRef from the previous page');
+  }
+  return {
+    windowDays: Number(windowDays),
+    sessionLimit: Number(sessionLimit),
+    ...(targetRef ? { targetRef } : {}),
+    ...(targetCursor ? { targetCursor } : {}),
+  };
+}
+
+function parseSessionArguments(value: JsonRecord): { sessionId: string; cursor?: SessionCursor } {
+  const extras = Object.keys(value).filter((key) => key !== 'sessionId' && key !== 'cursor');
+  if (extras.length > 0) throw AppError.badRequest('Reviewer session request contains unsupported fields');
+  const sessionId = exactString(value.sessionId, 'sessionId', 200);
+  if (value.cursor === undefined || value.cursor === null) return { sessionId };
+  const cursor = decodeCursor(exactString(value.cursor, 'cursor', 2_000));
+  if (cursor.sessionId !== sessionId) throw AppError.badRequest('cursor belongs to a different session');
+  return { sessionId, cursor };
 }
 
 function parseSubmission(value: JsonRecord): SubmissionInput {
@@ -558,9 +734,9 @@ export class OrgReviewerService {
     }
     const profile = this.configs.getById(ORG_REVIEWER_PROFILE_ID);
     if (
-      !profile || !profile.enabled || !profile.isAgent || profile.isManager ||
-      profile.sessionSelectable || !(profile.schedulable ?? profile.sessionSelectable) ||
-      profile.modelProvider !== 'openai' || profile.modelId !== 'gpt-5.6-sol' ||
+      !profile || !profile.enabled || !profile.isAgent || profile.isManager || profile.locked ||
+      profile.imageGenerationEnabled || profile.autoApproveActions ||
+      !profile.schedulable || !hasNoReviewerDelegates(profile) ||
       !exactReviewerScopes(profile)
     ) {
       throw AppError.forbidden('Org Reviewer profile is not in its least-privilege configuration');
@@ -590,57 +766,35 @@ export class OrgReviewerService {
     return { session, ownerUserId: session.ownerUserId };
   }
 
-  async context(argumentsValue: JsonRecord, reviewer: AuthorizedOrgReviewer): Promise<JsonRecord> {
-    const args = parseContextArguments(argumentsValue);
-    const cutoff = Date.now() - args.windowDays * 24 * 60 * 60 * 1_000;
-    const candidates = reviewableSessionPool(this.sessions, args.sessionLimit).filter((session) => {
+  /**
+   * The only sessions a reviewer may see: recent, owner-readable, and outside
+   * the review/diagnostic pipeline. Both the index and the per-session read
+   * route through this so a session outside it is never readable.
+   */
+  private reviewableSessions(windowDays: number, sessionLimit: number, ownerUserId: number | null): AgentSession[] {
+    const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1_000;
+    return reviewableSessionPool(this.sessions, sessionLimit).filter((session) => {
       const recentAt = Date.parse(session.lastActivityAt ?? session.updatedAt ?? session.createdAt);
       return recentAt >= cutoff &&
-        ownerCanRead(reviewer.ownerUserId, session.ownerUserId) &&
+        ownerCanRead(ownerUserId, session.ownerUserId) &&
         session.category !== 'self_improvement' &&
         !REVIEW_PIPELINE_PROFILE_IDS.has(String(session.profileId ?? session.opencodeAgentId ?? ''));
-    }).slice(0, args.sessionLimit);
+    }).slice(0, sessionLimit);
+  }
 
-    let remainingBytes = MAX_TRANSCRIPT_BYTES;
-    const sessionCandidates: JsonRecord[] = [];
-    for (const session of candidates) {
-      const sourceMessages = this.messages.listBySessionStructured(session.id, 50);
-      const messages: JsonRecord[] = [];
-      let clippedMessage = false;
-      for (const message of sourceMessages) {
-        const text = messageText(message).slice(0, MAX_EVIDENCE_QUOTE);
-        const item = {
-          messageId: String(message.sdkMessageId ?? message.id),
-          role: message.role,
-          text,
-          truncated: messageText(message).length > text.length,
-          createdAt: message.createdAt,
-        };
-        const bytes = Buffer.byteLength(JSON.stringify(item), 'utf8');
-        if (bytes > remainingBytes) break;
-        remainingBytes -= bytes;
-        clippedMessage ||= item.truncated;
-        messages.push(item);
-      }
-      sessionCandidates.push({
-        ...stableDispatch(session),
-        name: session.name,
-        ownerScope: session.ownerUserId === null ? 'global' : 'reviewer-owner',
-        createdAt: session.createdAt,
-        messages,
-        messageStats: {
-          ...collectionStats(sourceMessages.length, messages.length),
-          truncated: clippedMessage || messages.length < sourceMessages.length,
-        },
-      });
-      if (remainingBytes <= 0) break;
-    }
+  private reviewMessages(sessionId: string): StructuredAgentSessionMessage[] {
+    return this.messages.listBySessionStructured(sessionId, REVIEW_MESSAGE_LIMIT);
+  }
 
-    const visibleSchedules = (reviewer.ownerUserId === null
+  /** Configuration collections shown next to the session index (overview and catalog pages). */
+  private async overviewCollections(candidates: AgentSession[], ownerUserId: number | null): Promise<{
+    profiles: JsonRecord[]; skills: JsonRecord[]; schedules: JsonRecord[]; queue: JsonRecord[];
+  }> {
+    const visibleSchedules = (ownerUserId === null
       ? await this.schedules.listAllAsync()
-      : await this.schedules.listForOwnerAsync(reviewer.ownerUserId))
-      .filter((task) => ownerCanRead(reviewer.ownerUserId, task.createdByUserId));
-    const proposalRows = await this.listVisibleProposals(reviewer.ownerUserId);
+      : await this.schedules.listForOwnerAsync(ownerUserId))
+      .filter((task) => ownerCanRead(ownerUserId, task.createdByUserId));
+    const proposalRows = await this.listVisibleProposals(ownerUserId);
     const relevantProfileIds = new Set<string>([
       ORG_REVIEWER_PROFILE_ID,
       ...candidates.flatMap((session) => session.profileId === null ? [] : [String(session.profileId)]),
@@ -680,6 +834,151 @@ export class OrgReviewerService {
       .filter((task) => task.agentConfigId === null || relevantProfileIds.has(task.agentConfigId))
       .sort((a, b) => a.id.localeCompare(b.id))
       .map(scheduleSummary);
+    return { profiles, skills, schedules, queue };
+  }
+
+  private assertTargetStateCursor(
+    cursor: TargetStateCursor,
+    args: ContextArguments,
+    target: CurrentTarget,
+    canonicalState: string,
+    reviewer: AuthorizedOrgReviewer,
+  ): void {
+    if (
+      !args.targetRef ||
+      cursor.targetRef !== args.targetRef ||
+      cursor.targetRef !== target.targetRef ||
+      cursor.ownerUserId !== reviewer.ownerUserId ||
+      cursor.windowDays !== args.windowDays ||
+      cursor.sessionLimit !== args.sessionLimit
+    ) {
+      throw AppError.badRequest('targetCursor does not match this target review request');
+    }
+    if (
+      cursor.targetRevision !== target.targetRevision ||
+      cursor.targetStateHash !== target.targetStateHash
+    ) {
+      throw AppError.conflict('Reviewer current-state page is stale; restart without a targetCursor');
+    }
+    if (cursor.offset >= canonicalState.length || !isUnicodeSafeOffset(canonicalState, cursor.offset)) {
+      throw AppError.badRequest('targetCursor offset is outside a Unicode-safe current-state boundary');
+    }
+  }
+
+  /**
+   * Return a fragment only after scanning both whole-state representations.
+   * The legacy complete-target path scans insertion-order JSON.stringify()
+   * while pages emit canonical JSON; key sorting can otherwise move the two
+   * halves of a cross-field injection pattern apart. Scanning individual
+   * fragments would also miss a pattern split at a page boundary, so a blocked
+   * target is withheld as a whole rather than partially released or silently
+   * skipped.
+   */
+  private currentStatePage(
+    args: ContextArguments,
+    target: CurrentTarget,
+    canonicalState: string,
+    offset: number,
+    reviewer: AuthorizedOrgReviewer,
+  ): JsonRecord {
+    const legacyScan = scanContextContent(JSON.stringify(target.state), 'Org Reviewer current target state');
+    const canonicalScan = scanContextContent(canonicalState, 'Org Reviewer canonical current target state');
+    if (legacyScan.blocked || canonicalScan.blocked) {
+      throw AppError.conflict('Current target validation was withheld by the content safety boundary');
+    }
+    if (!isUnicodeSafeOffset(canonicalState, offset) || offset >= canonicalState.length) {
+      throw AppError.badRequest('targetCursor offset is outside a Unicode-safe current-state boundary');
+    }
+
+    const worstCaseCursor = encodeTargetStateCursor({
+      version: 1,
+      targetRef: target.targetRef,
+      ownerUserId: reviewer.ownerUserId,
+      windowDays: args.windowDays,
+      sessionLimit: args.sessionLimit,
+      targetRevision: target.targetRevision,
+      targetStateHash: target.targetStateHash,
+      offset: Number.MAX_SAFE_INTEGER,
+    });
+    const currentStatePage: JsonRecord = {
+      offset,
+      totalChars: canonicalState.length,
+      textComplete: false,
+      text: '',
+      // Measure with the longest possible cursor before adding text. The
+      // emitted nextCursor can only be smaller, so JSON stays strictly below
+      // the page cap even after escaping and cursor serialization.
+      nextCursor: worstCaseCursor,
+    };
+    const page: JsonRecord = {
+      windowDays: args.windowDays,
+      sessionLimit: args.sessionLimit,
+      targetRef: target.targetRef,
+      targetRevision: target.targetRevision,
+      targetStateHash: target.targetStateHash,
+      currentStatePage,
+    };
+    const textBudget = MAX_TARGET_STATE_PAGE_BYTES - jsonBytes(page) - 1;
+    const end = fitText(canonicalState, offset, Math.max(textBudget, 0));
+    if (end <= offset) {
+      throw AppError.conflict('Verified current target state cannot produce a bounded page');
+    }
+    currentStatePage.text = canonicalState.slice(offset, end);
+    currentStatePage.textComplete = end === canonicalState.length;
+    currentStatePage.nextCursor = end < canonicalState.length
+      ? encodeTargetStateCursor({
+        version: 1,
+        targetRef: target.targetRef,
+        ownerUserId: reviewer.ownerUserId,
+        windowDays: args.windowDays,
+        sessionLimit: args.sessionLimit,
+        targetRevision: target.targetRevision,
+        targetStateHash: target.targetStateHash,
+        offset: end,
+      })
+      : null;
+    if (jsonBytes(page) >= MAX_TARGET_STATE_PAGE_BYTES) {
+      throw AppError.conflict('Verified current target state cannot produce a bounded page');
+    }
+    return page;
+  }
+
+  async context(argumentsValue: JsonRecord, reviewer: AuthorizedOrgReviewer): Promise<JsonRecord> {
+    const args = parseContextArguments(argumentsValue);
+    if (args.targetCursor) {
+      // A continuation never recomputes/returns overview data. It re-resolves
+      // the complete target first so a changed skill or live catalog cannot be
+      // mixed with a fragment from an earlier state.
+      const target = await this.resolveCurrentTarget(args.targetRef!, reviewer.ownerUserId);
+      const canonicalState = canonicalJson(target.state);
+      this.assertTargetStateCursor(args.targetCursor, args, target, canonicalState, reviewer);
+      return this.currentStatePage(args, target, canonicalState, args.targetCursor.offset, reviewer);
+    }
+    const candidates = this.reviewableSessions(args.windowDays, args.sessionLimit, reviewer.ownerUserId);
+
+    // A compact index only: transcripts are read through the session tool.
+    let omittedWithoutMessages = 0;
+    const sessionIndex: JsonRecord[] = [];
+    for (const session of candidates) {
+      const sourceMessages = this.reviewMessages(session.id);
+      if (sourceMessages.length === 0) {
+        omittedWithoutMessages += 1;
+        continue;
+      }
+      sessionIndex.push({
+        sessionId: session.id,
+        profileId: session.profileId,
+        scheduledTaskId: session.scheduledTaskId,
+        name: session.name.slice(0, MAX_INDEX_NAME_CHARS),
+        lastActivityAt: session.lastActivityAt ?? session.updatedAt,
+        status: session.status,
+        messageCount: sourceMessages.length,
+        textChars: sourceMessages.reduce((sum, message) => sum + messageText(message).length, 0),
+        toolErrors: toolErrorCount(sourceMessages),
+      });
+    }
+
+    const { profiles, skills, schedules, queue } = await this.overviewCollections(candidates, reviewer.ownerUserId);
     const collectionTotals = {
       sessions: candidates.length,
       profiles: profiles.length,
@@ -687,8 +986,10 @@ export class OrgReviewerService {
       schedules: schedules.length,
       queue: queue.length,
     };
+    const statsFor = (name: keyof typeof collectionTotals, included: number) =>
+      collectionStats(collectionTotals[name], included, name === 'sessions' ? omittedWithoutMessages : undefined);
     const stats: Record<string, CollectionStats> = Object.fromEntries(
-      Object.entries(collectionTotals).map(([name, total]) => [name, collectionStats(total)]),
+      (Object.keys(collectionTotals) as Array<keyof typeof collectionTotals>).map((name) => [name, statsFor(name, 0)]),
     );
     const result: JsonRecord = {
       windowDays: args.windowDays,
@@ -703,8 +1004,9 @@ export class OrgReviewerService {
     let boundedCatalog: JsonRecord | null = null;
     let mcpToolIds: string[] = [];
     let liveSkills: string[] = [];
+    let target: CurrentTarget | null = null;
     if (args.targetRef) {
-      const target = await this.resolveCurrentTarget(args.targetRef, reviewer.ownerUserId);
+      target = await this.resolveCurrentTarget(args.targetRef, reviewer.ownerUserId);
       result.targetRef = target.targetRef;
       result.targetRevision = target.targetRevision;
       result.targetStateHash = target.targetStateHash;
@@ -726,14 +1028,20 @@ export class OrgReviewerService {
       };
       boundedCatalog = result.liveCapabilityCatalog as JsonRecord;
     }
-    if (prettyBytes(result) >= MAX_CONTEXT_BYTES) {
+    if (jsonBytes(result) >= MAX_CONTEXT_BYTES) {
+      if (target) {
+        return this.currentStatePage(args, target, canonicalJson(target.state), 0, reviewer);
+      }
       throw AppError.conflict('Verified reviewer context exceeds the bounded review window');
     }
     const fit = (name: keyof typeof collectionTotals, items: unknown[]) => {
       fitCollection(result, result[name] as unknown[], items, (included) => {
-        stats[name] = collectionStats(collectionTotals[name], included);
+        stats[name] = statsFor(name, included);
       });
     };
+    // The session index is the reviewer's map of evidence: admit it first,
+    // then configuration and catalogs share what remains.
+    fit('sessions', sessionIndex);
     fit('profiles', profiles);
     fit('schedules', schedules);
     fit('queue', queue);
@@ -750,8 +1058,119 @@ export class OrgReviewerService {
         boundedCatalog!.skillsTruncated = included < Number(boundedCatalog!.skillCount);
       });
     }
-    fit('sessions', sessionCandidates);
     return result;
+  }
+
+  /**
+   * One page of one overview collection, for entries the overview omitted by
+   * byte budget. Same owner scope and window as the overview with the same
+   * windowDays/sessionLimit; whole entries only, in the overview's order.
+   */
+  async catalog(argumentsValue: JsonRecord, reviewer: AuthorizedOrgReviewer): Promise<JsonRecord> {
+    const extras = Object.keys(argumentsValue).filter((key) => !['kind', 'cursor', 'windowDays', 'sessionLimit'].includes(key));
+    if (extras.length > 0) throw AppError.badRequest('Reviewer catalog request contains unsupported fields');
+    const kind = exactString(argumentsValue.kind, 'kind', 40);
+    if (!(CATALOG_KINDS as readonly string[]).includes(kind)) {
+      throw AppError.badRequest(`kind must be one of ${CATALOG_KINDS.join(', ')}`);
+    }
+    const cursor = argumentsValue.cursor ?? null;
+    if (cursor !== null && (typeof cursor !== 'string' || !/^(0|[1-9]\d{0,6})$/.test(cursor))) {
+      throw AppError.badRequest('cursor must be a nextCursor value returned by this tool');
+    }
+    const args = parseContextArguments({
+      ...(argumentsValue.windowDays === undefined ? {} : { windowDays: argumentsValue.windowDays }),
+      ...(argumentsValue.sessionLimit === undefined ? {} : { sessionLimit: argumentsValue.sessionLimit }),
+    });
+    const page: JsonRecord = { kind, windowDays: args.windowDays, sessionLimit: args.sessionLimit, total: 0, offset: 0, items: [] };
+    let all: unknown[];
+    if (kind === 'mcpTools' || kind === 'liveSkills') {
+      const lists = await this.liveCatalogLists();
+      all = kind === 'mcpTools' ? lists.sortedToolIds : lists.sortedSkills;
+      page.catalogHash = sha256(all);
+    } else {
+      const candidates = this.reviewableSessions(args.windowDays, args.sessionLimit, reviewer.ownerUserId);
+      all = (await this.overviewCollections(candidates, reviewer.ownerUserId))[kind as 'profiles' | 'skills' | 'schedules' | 'queue'];
+    }
+    const offset = cursor === null ? 0 : Number(cursor);
+    if (offset > all.length) throw AppError.badRequest('cursor is past the end of this collection; restart without a cursor');
+    const items = page.items as unknown[];
+    page.total = all.length;
+    page.offset = offset;
+    page.nextCursor = String(Number.MAX_SAFE_INTEGER); // worst-case size while fitting
+    let index = offset;
+    for (; index < all.length; index++) {
+      items.push(all[index]);
+      if (jsonBytes(page) < MAX_SESSION_PAGE_BYTES) continue;
+      items.pop();
+      if (items.length === 0) throw AppError.conflict('A reviewer catalog entry exceeds the bounded page size');
+      break;
+    }
+    page.nextCursor = index < all.length ? String(index) : null;
+    return page;
+  }
+
+  /**
+   * One page of one indexed session's transcript: full message text, never
+   * clipped. A message larger than a page continues on the next page from the
+   * character offset carried by nextCursor.
+   */
+  async session(argumentsValue: JsonRecord, reviewer: AuthorizedOrgReviewer): Promise<JsonRecord> {
+    const args = parseSessionArguments(argumentsValue);
+    // Same scope as the widest index the reviewer can request.
+    const session = this.reviewableSessions(MAX_WINDOW_DAYS, MAX_SESSION_LIMIT, reviewer.ownerUserId)
+      .find((candidate) => candidate.id === args.sessionId);
+    if (!session) throw AppError.notFound('Reviewable session');
+    const list = this.reviewMessages(session.id);
+    const idOf = (message: StructuredAgentSessionMessage) => String(message.sdkMessageId ?? message.id);
+    let index = 0;
+    let offset = 0;
+    if (args.cursor) {
+      const cursor = args.cursor;
+      index = list.findIndex((message) => idOf(message) === cursor.messageId);
+      if (index < 0 || cursor.offset > messageText(list[index]).length) {
+        throw AppError.badRequest('cursor no longer matches the stored transcript; restart without a cursor');
+      }
+      offset = cursor.offset;
+    }
+    const messages: JsonRecord[] = [];
+    const page: JsonRecord = {
+      sessionId: session.id,
+      profileId: session.profileId,
+      messageCount: list.length,
+      messages,
+      // Worst-case cursor placeholder, so the size measured below is an upper bound.
+      nextCursor: encodeCursor({ sessionId: session.id, messageId: '0'.repeat(200), offset: Number.MAX_SAFE_INTEGER }),
+    };
+    let next: SessionCursor | null = null;
+    for (; index < list.length; index++, offset = 0) {
+      const full = messageText(list[index]);
+      const item: JsonRecord = {
+        messageId: idOf(list[index]),
+        role: list[index].role,
+        createdAt: list[index].createdAt,
+        offset,
+        totalChars: full.length,
+        textComplete: false,
+        text: '',
+      };
+      messages.push(item);
+      const room = MAX_SESSION_PAGE_BYTES - jsonBytes(page);
+      // Start a later message on a fresh page rather than emitting a sliver.
+      if (messages.length > 1 && room < 2_000) {
+        messages.pop();
+        next = { sessionId: session.id, messageId: idOf(list[index]), offset };
+        break;
+      }
+      const end = fitText(full, offset, Math.max(room, 0));
+      item.text = full.slice(offset, end);
+      item.textComplete = end === full.length;
+      if (end < full.length) {
+        next = { sessionId: session.id, messageId: idOf(list[index]), offset: end };
+        break;
+      }
+    }
+    page.nextCursor = next ? encodeCursor(next) : null;
+    return page;
   }
 
   async submit(argumentsValue: JsonRecord, reviewer: AuthorizedOrgReviewer): Promise<JsonRecord> {
@@ -873,13 +1292,14 @@ export class OrgReviewerService {
       ) {
         throw AppError.badRequest('Reviewer evidence cannot come from the review or diagnostic pipeline');
       }
-      const message = this.messages.listBySessionStructured(session.id, 50).find(
+      const message = this.reviewMessages(session.id).find(
         (candidate) => String(candidate.sdkMessageId ?? candidate.id) === occurrence.messageId,
       );
       if (message && Date.parse(message.createdAt) < cutoff) {
         throw AppError.badRequest('Reviewer evidence is outside the bounded recent window');
       }
-      const displayed = message ? messageText(message).slice(0, MAX_EVIDENCE_QUOTE) : '';
+      // The full message text: exactly what the session tool pages out.
+      const displayed = message ? messageText(message) : '';
       if (!message || !displayed.includes(occurrence.quote)) {
         throw AppError.badRequest('Reviewer evidence could not be verified against the stored transcript');
       }
@@ -893,15 +1313,22 @@ export class OrgReviewerService {
     )).flat().filter((proposal) => ownerCanRead(ownerUserId, proposal.ownerUserId));
   }
 
-  private async liveCapabilityCatalog(): Promise<JsonRecord> {
+  private async liveCatalogLists(): Promise<{ mcpStatus: JsonRecord; sortedToolIds: string[]; sortedSkills: string[] }> {
     if (!opencodeClient.isReady) throw AppError.conflict('Current engine capability validation is unavailable');
     const [mcpStatus, mcpToolIds, skills] = await Promise.all([
       opencodeClient.listMcp(),
       opencodeClient.listMcpToolIds(),
       opencodeClient.listSkills(),
     ]);
-    const sortedToolIds = [...mcpToolIds].sort();
-    const sortedSkills = skills.map((skill) => skill.name).sort();
+    return {
+      mcpStatus: mcpStatus as JsonRecord,
+      sortedToolIds: [...mcpToolIds].sort(),
+      sortedSkills: skills.map((skill) => skill.name).sort(),
+    };
+  }
+
+  private async liveCapabilityCatalog(): Promise<JsonRecord> {
+    const { mcpStatus, sortedToolIds, sortedSkills } = await this.liveCatalogLists();
     return {
       mcpServers: Object.entries(mcpStatus).sort(([a], [b]) => a.localeCompare(b)).map(([name, status]) => ({
         name,

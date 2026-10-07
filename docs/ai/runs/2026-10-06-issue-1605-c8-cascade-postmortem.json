@@ -1,0 +1,89 @@
+{
+  "run_id": "2026-10-06-issue-1605-c8-production-cascade",
+  "issue": 1605,
+  "date": "2026-10-06",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "verification_scope": "repository/browser/AppKit source gates only; signed native criterion explicitly UNVERIFIED before CUA",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1605-c1",
+      "text": "**Short native viewport.** With a 445-point host viewport and a hosted native view whose intrinsic/fitting height is 558 points, the lifecycle retains a 445-point visible viewport and a separate scrollable document at least as tall as its measured minimum. Scrolling the owned AppKit document to its bottom makes the document\u2019s bottom region visible without enlarging or moving the native host beyond its owning viewport.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Isolated AppKit test passed; this GUI smoke did not separately check this criterion."
+    },
+    {
+      "criterion_id": "issue-1605-c2",
+      "text": "**Resize and tall viewport.** Resizing from a 944-point viewport to 445 points and back recomputes content dimensions from the current viewport and intrinsic/fitting size; it does not preserve a stale tall frame or truncate the 558-point content. At 944 points, content that fits needs no unnecessary scroll range. The scroll container remains inside the exact trusted parent and uses the current viewport coordinates and zoom.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Isolated AppKit test passed; this GUI smoke did not separately check this criterion."
+    },
+    {
+      "criterion_id": "issue-1605-c3",
+      "text": "**Scroll and lifecycle ownership.** Scrolling changes only the attached Dayflow document\u2019s visible region; the owning viewport, sibling views, and unrelated windows remain fixed. Hiding for an inactive tool, modal, or hidden/minimized window prevents native interaction and preserves the scroll position for reactivation. Detach/teardown removes only the owned scroll/document views, drops stale bounds/input, and does not steal focus from another window or responder.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Isolated AppKit test passed; this GUI smoke did not separately check this criterion."
+    },
+    {
+      "criterion_id": "issue-1605-c4",
+      "text": "**Actual native interaction (manual).** In the signed app with the original Dayflow view at 1280\u00d7800 and no outer Rhythm Dayflow header or footer, the native view fills the available tab height. Then shrink the window to a short native viewport below the measured 558-point document minimum (target window size 1280\u00d7560, recording actual viewport/document dimensions); a native trackpad or mouse-wheel check through CUA reaches the bottom timeline controls and scrolling back restores the top. At 3440\u00d71300, the full content remains visible without unnecessary scrolling. Record CUA/native-input evidence separately from physical-human evidence. This must be checked against the actual native view; a browser facade, synthetic DOM wheel, AppKit `scrollToPoint` fixture, or source-string check does not satisfy this criterion.",
+      "contract_status": "unverified",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Actual 1280x800 signed C8 app Dayflow pane blank. Browser layout contract passed with opposite CSS import order; production-order harness alone reproduces failure. Native AppKit fixture unchanged and not the failing seam."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "release-input-path",
+      "description": "External wrapper symlink Colony and Dayflow roots rejected by unchanged package guards; strict resolved pinned physical inputs validated, source unchanged.",
+      "detected_by": "Three preserved failed package logs plus actual artifact verifiers."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "planning-agent",
+      "issue-writer",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "failure-postmortem",
+      "project-state-updater"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "planning-agent",
+      "issue-writer",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [],
+    "notes": "Project-state-updater final record pending successful repair; TodoWrite unavailable, durable checklists used. No completion claim was made for signed native scrolling before GUI smoke."
+  },
+  "implementation_files": [
+    "apps/web/src/components/tools/DayflowTool.tsx",
+    "apps/web/src/components/ToolWorkspace.css",
+    "apps/web/tests/dayflow-view-harness.tsx",
+    "apps/web/tests/dayflow-view.spec.ts"
+  ],
+  "failure_output": "Settled actual C8 Dayflow route: empty pane, no unavailable message. Production-order browser RED expected blocked:false true, received false.",
+  "overall_category": "C2",
+  "suggested_follow_up": "Keep the synthetic harness in production stylesheet order and use higher-specificity scoped Dayflow grid rule; requalify and repeat actual signed-app short-wheel/tall check.",
+  "evidence": "dayflow-c8-cascade-smoke-failure.json",
+  "canonical_destination": "docs/ai/runs/2026-10-06-issue-1605-c8-cascade-postmortem.json",
+  "user_override": "Canonical run/postmortem records belong in docs/ai per AGENTS, not growing .agent-stack or global memories."
+}

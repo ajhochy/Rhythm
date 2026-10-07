@@ -225,6 +225,7 @@ describe('#1577 prompt an existing agent session', () => {
       'sdk-target',
       expect.objectContaining({ role: config.id, mcpServers: {} }),
       'anthropic',
+      expect.any(String),
     );
     expect(engine.opencodeClient.updateSessionSkillAllowlist).toHaveBeenCalledWith('sdk-target', []);
     expect(promptAsync.mock.calls[0][2]).toEqual({ providerID: 'anthropic', modelID: 'fixture-profile-model' });

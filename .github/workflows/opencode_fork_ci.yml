@@ -27,9 +27,19 @@ jobs:
         working-directory: apps/opencode_fork/packages/opencode
         run: bun run typecheck
 
-      - name: Session tests
+      - name: Session and tool tests
         working-directory: apps/opencode_fork/packages/opencode
-        run: bun test test/session/ src/session/
+        # test/tool/task.test.ts specifically, not all of test/tool/: it holds the
+        # child-scoping regression + writer/reader contract tests, which must be
+        # enforced by CI. Running the whole test/tool/ tree added enough load to
+        # trip a pre-existing 30s timeout in test/session/prompt.test.ts
+        # ("shell rejects when another shell is already running"), so this keeps
+        # the coverage that matters without importing unrelated flakiness.
+        # test/snapshot/snapshot-cleanup-auto.test.ts and test/bus/ are named
+        # explicitly for the same reason as task.test.ts above: they hold the
+        # snapshot-cleanup regression and bus delivery checks, which would
+        # otherwise never run in CI. Bus delivery checks do not assert log volume.
+        run: bun test test/session/ src/session/ test/tool/task.test.ts test/server/httpapi-rhythm-provider-guard.test.ts test/snapshot/snapshot-cleanup-auto.test.ts test/bus/
 
       - name: Build complete fork SDK artifact
         working-directory: apps/opencode_fork/packages/sdk/js

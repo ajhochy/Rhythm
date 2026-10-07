@@ -263,7 +263,14 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | AppProce
               Effect.gen(function* () {
                 if (!(yield* enabled())) return
                 if (!(yield* exists(state.gitdir))) return
-                const result = yield* git(args(["gc", `--prune=${prune}`]), { cwd: state.directory })
+                // `gc` without `--auto` unconditionally repacks. Measured
+                // 2026-10-06: a snapshot repo with 0 loose objects and 2 packs
+                // still took 6.9 minutes to rewrite its 1.73 GiB pack, and this
+                // runs under `locked`, so it blocked every other snapshot
+                // caller — and with them the engine's responsiveness — well past
+                // the mobile gateway's 30s abort. `--auto` no-ops unless git's
+                // own loose-object/pack thresholds are actually crossed.
+                const result = yield* git(args(["gc", "--auto", `--prune=${prune}`]), { cwd: state.directory })
                 if (result.code !== 0) {
                   log.warn("cleanup failed", {
                     exitCode: result.code,

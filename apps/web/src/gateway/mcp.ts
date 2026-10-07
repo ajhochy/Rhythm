@@ -84,3 +84,16 @@ export function createLiveMcpGateway(apiBase: string, token: string | undefined,
     remove: (name) => response<void>('Remove MCP server', request(`/opencode/mcp/${encodeURIComponent(name)}`, { method: 'DELETE' })),
   };
 }
+
+// Flutter parity (#814): after sign-in or session restore, the desktop client installs or
+// refreshes the rhythm MCP server with the signed-in session. The server needs
+// RHYTHM_API_TOKEN to start, so nothing else can install it. Idempotent server-side:
+// a no-op when opencode.json already matches.
+export async function ensureRhythmMcp(apiBase: string, productionApiBase: string, token: string, fetcher: typeof fetch = fetch): Promise<void> {
+  const response = await fetcher(`${apiBase}/opencode/mcp/rhythm/ensure`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ apiToken: token, apiUrl: productionApiBase }),
+  });
+  if (!response.ok) throw new Error(`rhythm MCP ensure failed with HTTP ${response.status}`);
+}

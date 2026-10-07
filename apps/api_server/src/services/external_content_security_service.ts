@@ -276,6 +276,47 @@ function canonicalJson(value: unknown): string {
   throw AppError.badRequest('security payload must be JSON-serializable');
 }
 
+/** Fixed message of the existing "tainted, no token" refusal; callers may recognize it exactly. */
+export const HUMAN_APPROVAL_REQUIRED_MESSAGE = 'human approval is required after external content was consumed';
+
+/**
+ * The coordinator goal control is admitted through the existing
+ * `delegation.start-async` action but is signed by the engine under its own
+ * tool name. Enforcement lives in the goal action endpoint (coupled with the
+ * goal reservation), never in the generic consume route.
+ */
+export const COORDINATOR_GOAL_ACTION: SecurityAction = 'delegation.start-async';
+export const COORDINATOR_GOAL_TOOL = 'rhythm_start_coordinator_goal';
+const MAX_GOAL_FIELD_LENGTH = 256;
+
+function boundedGoalString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= MAX_GOAL_FIELD_LENGTH;
+}
+
+/**
+ * Goal pair only: signed args exactly `{goalId, approval_id?}` (bounded,
+ * nonempty), payload exactly `{goalId}` equal to the signed goal, and any
+ * consume approval id equal to the SIGNED `approval_id` (an absent signed
+ * approval can never gain an unsigned one).
+ */
+export function requireCoordinatorGoalAdmissionShape(
+  signedArguments: Record<string, unknown>,
+  payload: Record<string, unknown>,
+  approvalId: string | undefined,
+): void {
+  const signedKeys = Object.keys(signedArguments).filter((key) => signedArguments[key] !== undefined);
+  const signedApproval = signedArguments.approval_id;
+  if (
+    signedKeys.some((key) => key !== 'goalId' && key !== 'approval_id') ||
+    !boundedGoalString(signedArguments.goalId) ||
+    (signedApproval !== undefined && !boundedGoalString(signedApproval)) ||
+    Object.keys(payload).length !== 1 || payload.goalId !== signedArguments.goalId ||
+    (approvalId !== undefined && approvalId !== signedApproval)
+  ) {
+    throw AppError.forbidden('coordinator goal admission does not match the signed goal arguments');
+  }
+}
+
 export function securityPayloadDigest(action: SecurityAction, payload: unknown): string {
   return createHash('sha256')
     .update(`${action}\n${canonicalJson(payload)}`)
@@ -499,6 +540,28 @@ export class ExternalContentSecurityService {
     };
   }
 
+  /**
+   * Synchronous admission for the coordinator goal action. It validates the
+   * strict goal shape (approval id only from the SIGNED arguments) and then runs
+   * the unchanged `consumeApproval` for `delegation.start-async` / `{goalId}`.
+   * There is no await, so a caller can couple it with its own SQLite writes in
+   * one transaction and roll both back on a refusal.
+   */
+  consumeCoordinatorGoalApproval(input: {
+    context: TrustedSecurityContext;
+    signedArguments: Record<string, unknown>;
+  }): { allowed: true; consumed: boolean } {
+    const goalId = input.signedArguments.goalId as string;
+    const approvalId = input.signedArguments.approval_id as string | undefined;
+    requireCoordinatorGoalAdmissionShape(input.signedArguments, { goalId }, approvalId);
+    return this.consumeApproval({
+      context: input.context,
+      approvalId,
+      action: COORDINATOR_GOAL_ACTION,
+      payload: { goalId },
+    });
+  }
+
   consumeApproval(input: {
     context: TrustedSecurityContext;
     approvalId?: string;
@@ -539,7 +602,7 @@ export class ExternalContentSecurityService {
         payload: input.payload,
       });
       if (auto) return auto;
-      throw AppError.forbidden('human approval is required after external content was consumed');
+      throw AppError.forbidden(HUMAN_APPROVAL_REQUIRED_MESSAGE);
     }
 
     return getDb().transaction(() => {

@@ -70,6 +70,15 @@ const externalReads = new Map<string, string>([
   ["rhythm_get_live_artifact", "live-artifact.get"],
 ]);
 
+// These reads return external activity evidence, but the accepted Dayflow
+// contract assigns scan/taint/fence admission to the authoritative backend
+// managed-evidence pipeline. The MCP consumer must carry the exact signed call
+// envelope and must not create a second client-side ingress path.
+const managedExternalEvidenceReads = new Map<string, string>([
+  ["rhythm_search_dayflow_activity", "dayflow.activity.search"],
+  ["rhythm_recent_dayflow_summaries", "dayflow.activity.recent-summaries"],
+]);
+
 const trustedNonUserReads = new Set([
   "rhythm_ping",
   // Rhythm's own delegation metadata. Returns NO child content by construction
@@ -79,6 +88,9 @@ const trustedNonUserReads = new Set([
   "rhythm_creative_capability_status",
   "rhythm_verify_creative_capability",
   "rhythm_get_setup_readiness",
+  // Server-resolved coordinator status for the signed foreground turn; the
+  // model supplies no selector and the tool returns Rhythm-owned metadata only.
+  "rhythm_get_coordinator_status",
 ]);
 
 const unavailableLegacyTools = new Set([
@@ -94,10 +106,34 @@ const retiredNoopTools = new Map<string, string>([
 
 const reviewerReadTools = new Map<string, string>([
   ["rhythm_read_org_review_context", "orgReviewer.ts"],
+  ["rhythm_read_org_review_session", "orgReviewer.ts"],
+  ["rhythm_read_org_review_catalog", "orgReviewer.ts"],
+]);
+
+const reviewerReadBoundaries = new Map<string, [string, string]>([
+  ["rhythm_read_org_review_context", ["fencedReviewerContext", "/agent-org-proposals/reviewer/context"]],
+  ["rhythm_read_org_review_session", ["fencedReviewerSession", "/agent-org-proposals/reviewer/session"]],
+  ["rhythm_read_org_review_catalog", ["fencedReviewerCatalog", "/agent-org-proposals/reviewer/catalog"]],
 ]);
 
 const humanReviewQueueWrites = new Map<string, string>([
   ["rhythm_submit_org_review_proposal", "orgReviewer.ts"],
+]);
+
+// Writes admitted by the API through the engine-signed goal action
+// (COORDINATOR_GOAL_ACTION = delegation.start-async) on the exact foreground
+// turn, not through an MCP-bound approval: the model supplies only a captured
+// goal id and the server derives target/profile/workspace.
+const serverSignedGoalWrites = new Map<string, string>([
+  ["rhythm_start_coordinator_goal", "coordinatorConversation.ts"],
+]);
+
+// Dedicated finite-workflow actions carry engine-signed arguments to the API.
+// Proposal only queues an exact human card; start requires its approved native
+// continuation. Neither action uses the ordinary goal or taint-bypass grant.
+const serverSignedWorkflowWrites = new Map<string, { route: string; verifierPurpose: string }>([
+  ["rhythm_propose_bounded_coding_workflow", { route: "/coordinator-agent/propose-workflow", verifierPurpose: "coordinator_workflow_proposal" }],
+  ["rhythm_start_bounded_coding_workflow", { route: "/coordinator-agent/start-workflow", verifierPurpose: "coordinator_workflow_start" }],
 ]);
 
 const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
@@ -436,11 +472,14 @@ describe("#1175 external-content role graph", () => {
     for (const [tool, sourceFile] of registered) {
       const classifications = [
         externalReads.has(tool),
+        managedExternalEvidenceReads.has(tool),
         trustedNonUserReads.has(tool),
         protectedWrites.has(tool),
         retiredNoopTools.has(tool),
         reviewerReadTools.has(tool),
         humanReviewQueueWrites.has(tool),
+        serverSignedGoalWrites.has(tool),
+        serverSignedWorkflowWrites.has(tool),
         tool === approvalRequestTool,
       ].filter(Boolean);
       expect(
@@ -450,11 +489,13 @@ describe("#1175 external-content role graph", () => {
     }
     for (const tool of [
       ...externalReads.keys(),
+      ...managedExternalEvidenceReads.keys(),
       ...trustedNonUserReads,
       ...protectedWrites.keys(),
       ...retiredNoopTools.keys(),
       ...reviewerReadTools.keys(),
       ...humanReviewQueueWrites.keys(),
+      ...serverSignedWorkflowWrites.keys(),
       approvalRequestTool,
     ]) {
       expect(
@@ -494,13 +535,14 @@ describe("#1175 external-content role graph", () => {
       expect(source, `${tool} must fence returned context`).toContain(
         "untrustedContext",
       );
+      const [sanitizer, endpoint] = reviewerReadBoundaries.get(tool)!;
       expect(block, `${tool} must use the bounded context sanitizer`).toContain(
-        "fencedReviewerContext",
+        sanitizer,
       );
       expect(block, `${tool} must send engine-signed identity`).toContain(
         "currentTrustedSecurityCall",
       );
-      expect(block).toContain("/agent-org-proposals/reviewer/context");
+      expect(block).toContain(endpoint);
     }
 
     for (const [tool, sourceFile] of humanReviewQueueWrites) {
@@ -520,24 +562,81 @@ describe("#1175 external-content role graph", () => {
       );
     }
 
+    for (const [tool, sourceFile] of serverSignedGoalWrites) {
+      const source = readFileSync(join(toolsDir, sourceFile), "utf8");
+      const block = toolBlock(source, tool);
+      expect(block, `${tool} must send engine-signed identity`).toContain(
+        "currentTrustedSecurityCall",
+      );
+      expect(block, `${tool} must use only the signed goal seam`).toContain(
+        "/coordinator-agent/start-goal",
+      );
+      expect(block, `${tool} must not consume a bypass approval`).not.toContain(
+        "authorizeOutboundAction",
+      );
+      expect(
+        apiSecuritySource,
+        `${tool} must be admitted by the API signed goal action`,
+      ).toContain("COORDINATOR_GOAL_TOOL = 'rhythm_start_coordinator_goal'");
+    }
+
+    const workflowToolSource = readFileSync(join(toolsDir, "coordinatorConversation.ts"), "utf8");
+    const boundedCall = workflowToolSource.slice(workflowToolSource.indexOf("const boundedCall ="), workflowToolSource.indexOf("registerTool(server, 'rhythm_propose_bounded_coding_workflow'"));
+    const workflowApiSource = readFileSync(join(repoRoot, "apps/api_server/src/services/coordinator_conversation_model_status_service.ts"), "utf8");
+    const workflowAuthoritySource = readFileSync(join(repoRoot, "apps/api_server/src/services/coordinator_foreground_mcp_authority.ts"), "utf8");
+    const workflowApprovalSource = readFileSync(join(repoRoot, "apps/api_server/src/services/chat_bounded_workflow.ts"), "utf8");
+    for (const [tool, boundary] of serverSignedWorkflowWrites) {
+      const block = toolBlock(workflowToolSource, tool);
+      expect(block, `${tool} must use its dedicated signed route`).toContain(`boundedCall('${boundary.route}')`);
+      expect(boundedCall).toContain("currentTrustedSecurityCall()");
+      expect(boundedCall).toContain("if (!trustedCall) return unavailable()");
+      expect(boundedCall).toContain("apiPost(apiUrl, apiToken, route, { trustedCall })");
+      expect(block).not.toContain("authorizeOutboundAction");
+      expect(boundedCall).not.toContain("authorizeOutboundAction");
+      const proposal = tool === "rhythm_propose_bounded_coding_workflow";
+      const apiBlock = workflowApiSource.slice(
+        workflowApiSource.indexOf(proposal ? "async proposeWorkflow(" : "async startWorkflow("),
+        workflowApiSource.indexOf(proposal ? "async startWorkflow(" : "async status("),
+      );
+      expect(apiBlock).toContain(`this.verify(envelope, '${tool}', Date.now(), '${boundary.verifierPurpose}')`);
+      if (proposal) {
+        expect(apiBlock).toContain(`this.authority.resolveForeground(auth, verified, '${tool}')`);
+        expect(apiBlock).toContain("securityAction: WORKFLOW_APPROVAL_ACTION");
+        expect(apiBlock).toContain("status: 'approval_pending'");
+        expect(apiBlock).not.toContain("preparePlan(");
+      } else {
+        expect(apiBlock).toContain("this.authority.resolveWorkflowApprovalResume(auth, verified, a.approval_id, a.proposal_digest)");
+        expect(apiBlock).toContain("status='approved' AND actor=?");
+        expect(apiBlock).toContain("WORKFLOW_APPROVAL_ACTION,binding.proposalDigest,JSON.stringify(p)");
+        expect(workflowAuthoritySource).toContain(`activeMatches(active, verified, '${tool}')`);
+        expect(workflowAuthoritySource).toContain("workflowResumeDispatchCurrent({ ...current, sdkUserMessageId: active.userMessageId })");
+        expect(workflowApprovalSource).toContain("approval.actor !== `user:${p.ownerUserId}`");
+        expect(workflowApprovalSource).toContain("rows.length === 1 && rows[0].origin === 'approval_continuation'");
+      }
+      expect(workflowApprovalSource).toContain("WORKFLOW_APPROVAL_ACTION = 'coordinator.workflow.start'");
+    }
+
     for (const role of roles) {
       const configuredTools = rhythmTools(role);
       const tools = configuredTools.includes("*")
         ? [...registered.keys()]
         : configuredTools;
       const reads = tools.filter(
-        (tool) => externalReads.has(tool) || reviewerReadTools.has(tool),
+        (tool) => externalReads.has(tool) || managedExternalEvidenceReads.has(tool) || reviewerReadTools.has(tool),
       );
       const writes = tools.filter((tool) => protectedWrites.has(tool));
 
       for (const tool of tools) {
         const classifications = [
           externalReads.has(tool),
+          managedExternalEvidenceReads.has(tool),
           trustedNonUserReads.has(tool),
           protectedWrites.has(tool),
           retiredNoopTools.has(tool),
           reviewerReadTools.has(tool),
           humanReviewQueueWrites.has(tool),
+          serverSignedGoalWrites.has(tool),
+          serverSignedWorkflowWrites.has(tool),
           tool === approvalRequestTool,
           !registered.has(tool) && unavailableLegacyTools.has(tool),
         ].filter(Boolean);
@@ -597,6 +696,9 @@ describe("#1175 external-content role graph", () => {
     expect(dev).toBeDefined();
     expect(rhythmTools(dev!)).toContain("*");
     expect([...registered.keys()].some((tool) => externalReads.has(tool))).toBe(
+      true,
+    );
+    expect([...registered.keys()].some((tool) => managedExternalEvidenceReads.has(tool))).toBe(
       true,
     );
     expect([...registered.keys()].some((tool) => protectedWrites.has(tool))).toBe(
@@ -742,6 +844,27 @@ describe("#1175 external-content role graph", () => {
     expect(boundary).toMatch(
       /scanContextContent[\s\S]+await recordExternalContentTaint[\s\S]+untrustedContext/,
     );
+  });
+
+  it("keeps Dayflow activity evidence behind the accepted backend-managed scan, taint, and fence boundary", () => {
+    const source = readFileSync(join(toolsDir, "dayflow.ts"), "utf8");
+    const expectedEndpoints = new Map([
+      ["rhythm_search_dayflow_activity", "/dayflow-agent/activity/search"],
+      ["rhythm_recent_dayflow_summaries", "/dayflow-agent/activity/recent-summaries"],
+    ]);
+    expect(source, "Dayflow must obtain the engine-signed current call in its shared invocation path").toContain("currentTrustedSecurityCall");
+    expect(source, "Dayflow must forward only the signed call envelope").toMatch(/apiPost\([\s\S]*\{ trustedCall \}/);
+    for (const [tool, endpoint] of expectedEndpoints) {
+      const block = toolBlock(source, tool);
+      expect(managedExternalEvidenceReads.has(tool), `${tool} must be an external activity evidence read`).toBe(true);
+      expect(trustedNonUserReads.has(tool), `${tool} must not be treated as trusted non-user metadata`).toBe(false);
+      expect(block, `${tool} must use the accepted managed-evidence route`).toContain(endpoint);
+    }
+    expect(source, "Dayflow must reject unknown/changed response shapes").toContain("Object.keys(item).length !== 4");
+    expect(source, "Dayflow must fail closed for unavailable/not-configured source text").toContain("status !== 'available' && (item.text.length !== 0 || item.blocked)");
+    expect(source, "Dayflow must return the bounded generic unavailable result").toContain("Dayflow activity is unavailable.");
+    expect(source, "Dayflow evidence reads never grant/select/import a source").not.toMatch(/authorizeOutboundAction|sourceSelectionToken|checkReadiness/);
+    expect(source, "Dayflow consumer must not duplicate backend ingress scanning").not.toContain("scanContextContentAndRecordExternalContentTaint");
   });
 
   it("church-admin malicious message and calendar reads stay blocked until a signed human approval is consumed", async () => {

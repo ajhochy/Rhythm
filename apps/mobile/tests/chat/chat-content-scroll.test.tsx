@@ -8,6 +8,18 @@ import { styles as chatViewStyles } from '@/components/chat/chat-view-styles';
 import { Colors } from '@/constants/theme';
 import type { TranscriptEntry } from '@/lib/opencode/format';
 
+jest.mock('@/components/chat/agent-typing-bubble', () => {
+  const React = jest.requireActual<typeof import('react')>('react');
+  const { Text } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    AgentTypingBubble: () => React.createElement(
+      Text,
+      { accessibilityLabel: 'Agent working' },
+      'Agent working',
+    ),
+  };
+});
+
 const noop = jest.fn();
 
 function entry(id: string, text: string): TranscriptEntry {
@@ -51,10 +63,14 @@ function props(
   };
 }
 
-function content(currentSessionId: string, displayTranscript: TranscriptEntry[]) {
+function content(
+  currentSessionId: string,
+  displayTranscript: TranscriptEntry[],
+  activeTab: ComponentProps<typeof ChatContent>['activeTab'] = 'session',
+) {
   return (
     <PaperProvider>
-      <ChatContent {...props(currentSessionId, displayTranscript)} />
+      <ChatContent {...props(currentSessionId, displayTranscript)} activeTab={activeTab} />
     </PaperProvider>
   );
 }
@@ -62,6 +78,96 @@ function content(currentSessionId: string, displayTranscript: TranscriptEntry[])
 afterEach(() => {
   cleanup();
   jest.restoreAllMocks();
+});
+
+test('task-mobile-chat-list-polish-scroll-c1: an early top scroll cannot cancel initial bottom positioning', () => {
+  // Regression caught: native onScroll reports offset 0 before content settles,
+  // clearing the initial-position request before the first content-size event.
+  const scrollToEnd = jest.spyOn(FlatList.prototype, 'scrollToEnd');
+  const rendered = render(content('session-a', [entry('1', 'Existing message')]));
+  const transcript = rendered.getByTestId('chat-transcript');
+
+  fireEvent.scroll(transcript, {
+    nativeEvent: {
+      contentOffset: { x: 0, y: 0 },
+      contentSize: { height: 900, width: 320 },
+      layoutMeasurement: { height: 300, width: 320 },
+    },
+  });
+  fireEvent(transcript, 'contentSizeChange', 320, 900);
+
+  expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
+});
+
+test('task-mobile-chat-list-polish-scroll-c2: returning to the session tab positions the transcript at bottom', () => {
+  // Regression caught: returning from Changes with the same session and message
+  // count leaves the transcript at its stale position because neither changed.
+  const scrollToEnd = jest.spyOn(FlatList.prototype, 'scrollToEnd');
+  const transcriptEntries = [entry('1', 'Existing message')];
+  const rendered = render(content('session-a', transcriptEntries));
+  const transcript = rendered.getByTestId('chat-transcript');
+  fireEvent(transcript, 'contentSizeChange', 320, 900);
+  scrollToEnd.mockClear();
+  fireEvent.scroll(transcript, {
+    nativeEvent: {
+      contentOffset: { x: 0, y: 100 },
+      contentSize: { height: 900, width: 320 },
+      layoutMeasurement: { height: 300, width: 320 },
+    },
+  });
+
+  rendered.rerender(content('session-a', transcriptEntries, 'changes'));
+  rendered.rerender(content('session-a', transcriptEntries));
+  fireEvent(rendered.getByTestId('chat-transcript'), 'contentSizeChange', 320, 900);
+
+  expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
+});
+
+test('task-mobile-chat-list-polish-scroll-c7: prepending older messages does not override the visible anchor', () => {
+  // Regression caught: when the prior transcript fits the viewport, prepending
+  // older entries is mistaken for an append and scrollToEnd defeats anchor retention.
+  const scrollToEnd = jest.spyOn(FlatList.prototype, 'scrollToEnd');
+  const rendered = render(content('session-a', [
+    entry('2', 'Previously first message'),
+    entry('3', 'Previously last message'),
+  ]));
+  const transcript = rendered.getByTestId('chat-transcript');
+  fireEvent(transcript, 'contentSizeChange', 320, 250);
+  scrollToEnd.mockClear();
+  fireEvent.scroll(transcript, {
+    nativeEvent: {
+      contentOffset: { x: 0, y: 0 },
+      contentSize: { height: 250, width: 320 },
+      layoutMeasurement: { height: 300, width: 320 },
+    },
+  });
+
+  rendered.rerender(content('session-a', [
+    entry('1', 'Loaded older message'),
+    entry('2', 'Previously first message'),
+    entry('3', 'Previously last message'),
+  ]));
+  fireEvent(rendered.getByTestId('chat-transcript'), 'contentSizeChange', 320, 400);
+
+  expect(scrollToEnd).not.toHaveBeenCalled();
+  expect(rendered.getByTestId('chat-transcript').props.maintainVisibleContentPosition)
+    .toEqual({ minIndexForVisible: 0 });
+
+  fireEvent.scroll(rendered.getByTestId('chat-transcript'), {
+    nativeEvent: {
+      contentOffset: { x: 0, y: 100 },
+      contentSize: { height: 400, width: 320 },
+      layoutMeasurement: { height: 300, width: 320 },
+    },
+  });
+  rendered.rerender(content('session-a', [
+    entry('1', 'Loaded older message'),
+    entry('2', 'Previously first message'),
+    entry('3', 'Previously last message'),
+    entry('4', 'New appended message'),
+  ]));
+  fireEvent(rendered.getByTestId('chat-transcript'), 'contentSizeChange', 320, 500);
+  expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
 });
 
 test('existing chats open at the bottom without pulling a reader back down', () => {
@@ -226,4 +332,66 @@ test('task-chat-polish-c7: a pending decision hides even an expanded todo panel'
   expect(rendered.getByText('Submit answer')).toBeTruthy();
   expect(rendered.queryByText('Waiting task')).toBeNull();
   expect(rendered.queryByText('1 of 2 tasks completed')).toBeNull();
+});
+
+test('agent typing bubble only appears for active, unblocked work and never replaces a pending decision', () => {
+  const rendered = render(
+    <PaperProvider>
+      <ChatContent {...props('session-a', [entry('1', 'Working')])} running />
+    </PaperProvider>,
+  );
+
+  expect(rendered.getByLabelText('Agent working')).toBeTruthy();
+  expect(rendered.queryByText('OpenCode is working through the current step...')).toBeNull();
+
+  rendered.rerender(
+    <PaperProvider>
+      <ChatContent
+        {...props('session-a', [entry('1', 'Waiting for approval')])}
+        awaitingUserInput
+        currentPendingPermissions={[{
+          id: 'permission-1',
+          patterns: ['src/**'],
+          permission: 'edit',
+          sessionID: 'session-a',
+        }] as never}
+        pendingInteractions={1}
+        running
+      />
+    </PaperProvider>,
+  );
+
+  expect(rendered.queryByLabelText('Agent working')).toBeNull();
+  expect(rendered.getByText('Allow OpenCode to edit files?')).toBeTruthy();
+  expect(rendered.getByText('Allow once')).toBeTruthy();
+
+  rendered.rerender(
+    <PaperProvider>
+      <ChatContent
+        {...props('session-a', [entry('1', 'Pending question')])}
+        currentPendingQuestions={[{
+          id: 'question-1',
+          questions: [{
+            custom: false,
+            header: 'Choose one',
+            multiple: false,
+            options: [{ label: 'Continue' }],
+            question: 'Proceed?',
+          }],
+          sessionID: 'session-a',
+        }] as never}
+        pendingInteractions={1}
+        running
+      />
+    </PaperProvider>,
+  );
+  expect(rendered.queryByLabelText('Agent working')).toBeNull();
+  expect(rendered.getByText('Submit answer')).toBeTruthy();
+
+  rendered.rerender(
+    <PaperProvider>
+      <ChatContent {...props('session-a', [entry('1', 'Idle')])} />
+    </PaperProvider>,
+  );
+  expect(rendered.queryByLabelText('Agent working')).toBeNull();
 });

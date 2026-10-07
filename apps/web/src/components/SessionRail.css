@@ -94,7 +94,7 @@
   .rail-compact .session-group-add:focus-visible { opacity: 1; }
 
   .session-rail:has(.rail-compact) .rail-header { min-height: 42px; }
-  .session-rail:has(.rail-compact) .rail-primary-actions { grid-template-columns: minmax(0, 1fr) 30px; padding: 8px 10px 4px; }
+  .session-rail:has(.rail-compact) .rail-primary-actions { grid-template-columns: max-content minmax(0, 1fr) 30px; padding: 8px 10px 4px; }
   .session-rail:has(.rail-compact) .rail-primary-actions > button { min-height: 30px; height: 30px; }
 }
 
@@ -173,8 +173,8 @@
 .session-rail .rail-header .rail-view-menu { inset-inline: 8px; top: calc(100% - 2px); }
 
 /* New session / More: quiet list rows, advanced options on hover/focus (like the reference "+ New"). */
-.rail-new-session, .rail-more-toggle { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 8px; border: 0; border-radius: var(--r-sm); color: var(--fg); background: transparent; font-size: 13px; font-weight: 500; text-align: start; cursor: pointer; }
-.rail-new-session:hover, .rail-new-session:focus-visible, .rail-more-toggle:hover, .rail-more-toggle:focus-visible { background: color-mix(in oklab, var(--surface), var(--fg) 7%); }
+.rail-new-session, .rail-rhythm-entry, .rail-more-toggle { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 8px; border: 0; border-radius: var(--r-sm); color: var(--fg); background: transparent; font-size: 13px; font-weight: 500; text-align: start; cursor: pointer; }
+.rail-new-session:hover, .rail-new-session:focus-visible, .rail-rhythm-entry:hover, .rail-rhythm-entry:focus-visible, .rail-more-toggle:hover, .rail-more-toggle:focus-visible { background: color-mix(in oklab, var(--surface), var(--fg) 7%); }
 
 /* More: a disclosure above the account footer; tools are single-line rows, description in the tooltip. */
 .rail-more { flex: 0 1 auto; max-height: 50%; display: flex; flex-direction: column; padding: 4px 10px; border-top: 1px solid var(--border-soft); }
@@ -184,7 +184,7 @@
 .rail-more .tools-nav[hidden] { display: none; }
 .rail-more .tools-nav button { grid-template-columns: 18px minmax(0, 1fr); min-height: 32px; font-size: 12px; }
 .rail-more .tools-nav strong { font-size: 12px; font-weight: 450; }
-.rail-new-session > svg { color: var(--accent); }
+.rail-new-session > svg, .rail-rhythm-entry > svg { color: var(--accent); }
 .rail-primary-actions { align-items: center; }
 .rail-primary-actions > .icon-button { opacity: 0; }
 .rail-primary-actions:hover > .icon-button, .rail-primary-actions > .icon-button:focus-visible { opacity: 1; }
@@ -202,7 +202,7 @@
 /* Touch keeps 44px targets; these selectors outrank the any-pointer: coarse block in styles.css. */
 @media (any-pointer: coarse) {
   .rail-primary-actions > .icon-button { opacity: 1; }
-  .rail-new-session, .rail-more-toggle, .rail-more .tools-nav button, .rail-view-item, .session-rail .scope-tabs button { min-height: 44px; }
+  .rail-new-session, .rail-rhythm-entry, .rail-more-toggle, .rail-more .tools-nav button, .rail-view-item, .session-rail .scope-tabs button { min-height: 44px; }
   .session-rail .rail-header .icon-button { min-width: 44px; min-height: 44px; width: 44px; height: 44px; }
   /* 44px compact rows: the 44px row menu must not hang below its row. */
   .rail-compact .session-overflow-button { top: 0; }

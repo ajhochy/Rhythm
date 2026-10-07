@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "createdAtUtc": "2026-10-05T16:43:29Z",
+  "checkout": "/Users/ajhochhalter/Documents/Codex/2026-10-01/task-11/renderer-transcript-cpu-repair-20261005/snapshot",
+  "baseline": {
+    "parentSourceCommit": "d10d689090f76d49de7b0f937cebf0706b645457",
+    "ownerBaselineCommit": "955e1958272aaae101819e9a72b69c21752df29c",
+    "sourceBaseline": "../source-baseline.json"
+  },
+  "changedPaths": [
+    {
+      "path": "apps/web/src/store.tsx",
+      "preimageSha256": "6c3448e3a9125f89fd1580481cebd2252ca2761fc81cad5506e829b8e8f5c8d4",
+      "postimageSha256": "b17033f8f5b5bafc3afaf426d3fbc8c421f9f4affba26ae21b54221c2490a4ab"
+    },
+    {
+      "path": "apps/web/src/gateway/transcript-reducer.ts",
+      "preimageSha256": "8ad156370cae083f380342784daa8cf73b7d99075dcb7d1af413f954aa08ba87",
+      "postimageSha256": "0a1c9c6fa06987d0efff6e7e0523e227d8423afb20ad7c0f91f64c15d4422828"
+    },
+    {
+      "path": "apps/web/tests/contract/transcript-cache-event-reducer.test.mjs",
+      "preimageSha256": "absent",
+      "postimageSha256": "43fcdb4e4b6293140ed6a61a25045ef8ce1b8e895a6dc2955b572c34558ee7fa"
+    },
+    {
+      "path": "docs/ai/runs/2026-10-05-renderer-transcript-cpu-repair.md",
+      "preimageSha256": "absent",
+      "postimageSha256": "0a586a9e06d4f239eabc2c34450e413539d52b7c44dc8001e9b3928960bf8848"
+    },
+    {
+      "path": "docs/ai/runs/2026-10-05-renderer-transcript-cpu-repair.freeze.json",
+      "preimageSha256": "absent",
+      "postimageSha256": null,
+      "note": "This manifest cannot truthfully embed its own final raw SHA-256; Root should compute it after composition."
+    }
+  ],
+  "redGreenWitness": {
+    "fixture": {
+      "historyRows": 257,
+      "liveEvents": 96,
+      "event": "message.part.delta",
+      "finalStreamedCharacters": 96
+    },
+    "baseline": {
+      "path": "store.tsx reduceSessionTranscript -> mergeSessionTranscript(session, [])",
+      "sourceRowsVisited": 24672,
+      "formula": "257 * 96"
+    },
+    "fixed": {
+      "path": "reduceCachedTranscriptEvent",
+      "sourceRowsVisited": 257,
+      "formula": "one initial hydration"
+    }
+  },
+  "checks": [
+    {
+      "command": "node --test tests/contract/transcript-cache-event-reducer.test.mjs tests/contract/issue-1582-transcript-reducer.test.mjs tests/contract/transcript-optimistic-user-replay.test.mjs",
+      "runner": "../../bounded-serialized-validation.py",
+      "exitCode": 0,
+      "result": "38 passed, 0 failed; normalRuntimeTouched=false"
+    },
+    {
+      "command": "npm run typecheck",
+      "exitCode": 2,
+      "result": "blocked by unrelated absent frozen-composition modules: electron/src/rhythm-agent-tools.mjs, @ajhochy/rhythm-workspace-ui, shared/production-api-base.mjs"
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0,
+      "result": "clean"
+    }
+  ],
+  "impactAnalysis": {
+    "commands": [
+      "node /Users/ajhochhalter/Documents/Rhythm/.gitnexus/run.cjs impact reduceSessionTranscript --repo $PWD --direction upstream",
+      "node /Users/ajhochhalter/Documents/Rhythm/.gitnexus/run.cjs impact mergeSessionTranscript --repo $PWD --direction upstream",
+      "node /Users/ajhochhalter/Documents/Rhythm/.gitnexus/run.cjs impact mergeTranscriptPage --repo $PWD --direction upstream"
+    ],
+    "result": "UNKNOWN",
+    "reason": "This isolated snapshot is not registered in the available GitNexus repositories. No index rebuild, registration, or alternate checkout lookup was performed.",
+    "manualCallerScope": [
+      "store live transcript event and session-status handlers",
+      "initial selected-session detail hydration",
+      "replaceLiveSession authoritative reconciliation",
+      "loadOlder pagination",
+      "sendLiveInput optimistic text and attachment writes",
+      "session removal/hard delete/effect cleanup",
+      "focused reducer contract tests"
+    ]
+  },
+  "protectedBoundaries": [
+    "No API, engine, Electron, Shell/styles, mobile, dependency, protocol, permission, database, runtime, browser, phone, model, capture, or live-session source/action changed.",
+    "apps/web/node_modules is a pre-existing untracked read-only dependency symlink and was not changed.",
+    "No commit, push, reload, restart, server, or device operation occurred."
+  ],
+  "limits": [
+    "The repair removes the repeated source-history seed cost; it does not prove a live CPU reduction or attribute the sampled V8 frame with more than the handoff's medium confidence.",
+    "This is desktop renderer code only. Expo does not import apps/web/src/store.tsx or apps/web/src/gateway/transcript-reducer.ts; no mobile speed claim is made.",
+    "Full web typecheck remains blocked by frozen missing modules outside this repair."
+  ]
+}

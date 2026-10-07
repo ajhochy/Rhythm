@@ -158,6 +158,8 @@ export interface Session {
   sdkSessionId?: string;
   providerId?: string;
   modelId?: string;
+  /** 'auto' routes each turn through the decision router; missing (old servers) means 'fixed'. */
+  modelMode?: 'auto' | 'fixed';
   // Live-mode transcript pagination cursor (post-m1-phase-4 capability 4/c2f). Populated from
   // the API's `transcriptPage`/`pageInfo` at apps/api_server/src/controllers/agent_sessions_controller.ts:614-616,2389-2391.
   transcriptCursor?: string | null;

@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   FlatList,
   Pressable,
@@ -13,6 +13,7 @@ import {
 import { ActivityIndicator, Button, Card, IconButton, Text, TouchableRipple } from 'react-native-paper';
 
 import { Colors } from '@/constants/theme';
+import { AgentTypingBubble } from '@/components/chat/agent-typing-bubble';
 import { DiffCard, PendingInteractionsCard, SessionDiffCard, TranscriptMessage } from '@/components/chat/chat-cards';
 import type { TranscriptEntry } from '@/lib/opencode/format';
 import type { FileDiff, Session, SessionStatus, Todo } from '@/lib/opencode/types';
@@ -30,8 +31,8 @@ type ChatContentProps = {
   activeTab: 'session' | 'changes';
   awaitingUserInput: boolean;
   connection: { status: GatewayConnectionStatus; message: string };
+  coordinatorStatus?: ReactNode;
   copiedMessageId?: string;
-  currentActivityLabel?: string;
   currentDiffs: FileDiff[];
   currentPendingPermissions: PendingPermissionRequest[];
   currentPendingQuestions: PendingQuestionRequest[];
@@ -59,6 +60,8 @@ type ChatContentProps = {
   palette: Palette;
   pendingInteractions: number;
   running: boolean;
+  /** A server-primary history without an SDK row is readable but not mutable. */
+  readOnlyTranscript?: boolean;
   speakingMessageId?: string;
   status?: SessionStatus;
 };
@@ -68,8 +71,8 @@ export function ChatContent({
   activeTab,
   awaitingUserInput,
   connection,
+  coordinatorStatus,
   copiedMessageId,
-  currentActivityLabel,
   currentDiffs,
   currentPendingPermissions,
   currentPendingQuestions,
@@ -97,28 +100,49 @@ export function ChatContent({
   palette,
   pendingInteractions,
   running,
+  readOnlyTranscript = false,
   speakingMessageId,
   status,
 }: ChatContentProps) {
   const [todosExpanded, setTodosExpanded] = useState(false);
   const transcriptRef = useRef<FlatList<TranscriptEntry>>(null);
   const transcriptNearBottomRef = useRef(true);
-  const shouldPositionInitialTranscriptRef = useRef(false);
-  const previousTranscriptRef = useRef({ sessionId: currentSessionId, length: displayTranscript.length });
+  const shouldPositionInitialTranscriptRef = useRef(activeTab === 'session' && displayTranscript.length > 0);
+  const suppressEndScrollForPrependRef = useRef(false);
+  const previousTranscriptRef = useRef({
+    activeTab,
+    firstId: displayTranscript[0]?.id,
+    lastId: displayTranscript.at(-1)?.id,
+    length: displayTranscript.length,
+    sessionId: currentSessionId,
+  });
   const completedTodoCount = currentTodos.filter((todo) => todo.status === 'completed').length;
   const transcriptExtraData = useMemo(
-    () => [copiedMessageId, speakingMessageId],
-    [copiedMessageId, speakingMessageId],
+    () => [copiedMessageId, speakingMessageId, coordinatorStatus],
+    [copiedMessageId, coordinatorStatus, speakingMessageId],
   );
 
   useLayoutEffect(() => {
     const previous = previousTranscriptRef.current;
-    if (previous.sessionId !== currentSessionId || (previous.length === 0 && displayTranscript.length > 0)) {
+    const firstId = displayTranscript[0]?.id;
+    const lastId = displayTranscript.at(-1)?.id;
+    suppressEndScrollForPrependRef.current = activeTab === 'session' &&
+      previous.activeTab === 'session' &&
+      previous.sessionId === currentSessionId &&
+      previous.length > 0 &&
+      displayTranscript.length > previous.length &&
+      previous.firstId !== firstId &&
+      previous.lastId === lastId;
+    if (activeTab === 'session' && (
+      previous.activeTab !== 'session' ||
+      previous.sessionId !== currentSessionId ||
+      (previous.length === 0 && displayTranscript.length > 0)
+    )) {
       shouldPositionInitialTranscriptRef.current = true;
       transcriptNearBottomRef.current = true;
     }
-    previousTranscriptRef.current = { sessionId: currentSessionId, length: displayTranscript.length };
-  }, [currentSessionId, displayTranscript.length]);
+    previousTranscriptRef.current = { activeTab, firstId, lastId, length: displayTranscript.length, sessionId: currentSessionId };
+  }, [activeTab, currentSessionId, displayTranscript]);
 
   return (
     <View style={styles.chatArea}>
@@ -143,6 +167,10 @@ export function ChatContent({
             }
           }}
           onContentSizeChange={() => {
+            if (suppressEndScrollForPrependRef.current) {
+              suppressEndScrollForPrependRef.current = false;
+              return;
+            }
             if (
               displayTranscript.length === 0 ||
               (!shouldPositionInitialTranscriptRef.current && !transcriptNearBottomRef.current)
@@ -166,8 +194,8 @@ export function ChatContent({
                 copied={copiedMessageId === entry.id}
                 entry={entry}
                 onCopy={() => onCopyMessage(entry)}
-                onFork={entry.role === 'user' ? () => onForkMessage(entry.id) : undefined}
-                onRevert={entry.role === 'user' ? () => onRevertMessage(entry.id) : undefined}
+                onFork={!readOnlyTranscript && entry.role === 'user' ? () => onForkMessage(entry.id) : undefined}
+                onRevert={!readOnlyTranscript && entry.role === 'user' ? () => onRevertMessage(entry.id) : undefined}
                 onToggleSpeak={() => onToggleSpeak(entry)}
                 speaking={speakingMessageId === entry.id}
               />
@@ -198,7 +226,7 @@ export function ChatContent({
           ListEmptyComponent={(
             <View style={styles.emptyContent}>
                 <Text variant="headlineSmall" style={[styles.emptyTitle, { color: palette.text }]}>Start a new task</Text>
-                <Text variant="bodyMedium" style={{ color: palette.muted }}>
+                <Text style={[styles.emptyDescription, { color: palette.muted }]}>
                   Keep the prompt specific and OpenCode will inspect the workspace, show progress, and stream back file changes.
                 </Text>
                 <View style={styles.promptStack}>
@@ -209,7 +237,7 @@ export function ChatContent({
                       onPress={() => onSendStarterPrompt(prompt)}>
                       <View style={styles.promptCardInner}>
                         <MaterialCommunityIcons name="lightning-bolt" size={18} color={palette.tint} />
-                        <Text variant="bodyMedium" style={{ color: palette.text }}>{prompt}</Text>
+                        <Text style={[styles.promptCardText, { color: palette.text }]}>{prompt}</Text>
                       </View>
                     </TouchableRipple>
                   ))}
@@ -218,6 +246,7 @@ export function ChatContent({
           )}
           ListFooterComponent={(
             <View style={styles.transcriptFooter}>
+              {coordinatorStatus}
               {pendingInteractions > 0 ? (
                 <PendingInteractionsCard
                   permissions={currentPendingPermissions}
@@ -237,13 +266,8 @@ export function ChatContent({
                 </Card>
               ) : null}
 
-              {running && !awaitingUserInput ? (
-                <View style={styles.loadingRow}>
-                  <ActivityIndicator color={palette.muted} size="small" />
-                  <Text style={{ color: palette.muted }}>
-                    {currentActivityLabel ? `OpenCode is ${currentActivityLabel.toLowerCase()}...` : 'OpenCode is working through the current step...'}
-                  </Text>
-                </View>
+              {running && !awaitingUserInput && pendingInteractions === 0 ? (
+                <AgentTypingBubble />
               ) : null}
 
               {pendingInteractions === 0 && currentTodos.length > 0 && (running || completedTodoCount < currentTodos.length) ? (

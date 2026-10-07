@@ -2218,6 +2218,92 @@ export class Session2 extends HeyApiClient {
         });
     }
     /**
+     * Mint a managed prompt anchor
+     */
+    rhythmPromptAnchor(parameters, options) {
+        const params = buildClientParams([parameters], [
+            {
+                args: [
+                    { in: "path", key: "sessionID" },
+                    { in: "query", key: "directory" },
+                    { in: "query", key: "workspace" },
+                ],
+            },
+        ]);
+        return (options?.client ?? this.client).post({
+            url: "/session/{sessionID}/rhythm-prompt-anchor",
+            ...options,
+            ...params,
+        });
+    }
+    /**
+     * Read one live managed tool owner
+     */
+    rhythmActiveTool(parameters, options) {
+        const params = buildClientParams([parameters], [
+            {
+                args: [
+                    { in: "path", key: "sessionID" },
+                    { in: "path", key: "assistantID" },
+                    { in: "path", key: "callID" },
+                    { in: "query", key: "directory" },
+                    { in: "query", key: "workspace" },
+                ],
+            },
+        ]);
+        return (options?.client ?? this.client).get({
+            url: "/session/{sessionID}/rhythm-active-tool/{assistantID}/{callID}",
+            ...options,
+            ...params,
+        });
+    }
+    /**
+     * Read one pending managed provider frame
+     */
+    rhythmProviderFrame(parameters, options) {
+        const params = buildClientParams([parameters], [
+            {
+                args: [
+                    { in: "path", key: "sessionID" },
+                    { in: "path", key: "requestNonce" },
+                    { in: "query", key: "directory" },
+                    { in: "query", key: "workspace" },
+                    { in: "query", key: "sourceAnchorIds" },
+                ],
+            },
+        ]);
+        return (options?.client ?? this.client).get({
+            url: "/session/{sessionID}/rhythm-provider-frame/{requestNonce}",
+            ...options,
+            ...params,
+        });
+    }
+    /**
+     * Enroll a managed SDK session for Dayflow history protection
+     */
+    rhythmDayflowGuard(parameters, options) {
+        const params = buildClientParams([parameters], [
+            {
+                args: [
+                    { in: "path", key: "sessionID" },
+                    { in: "query", key: "directory" },
+                    { in: "query", key: "workspace" },
+                    { key: "body", map: "body" },
+                ],
+            },
+        ]);
+        return (options?.client ?? this.client).post({
+            url: "/session/{sessionID}/rhythm-dayflow-guard",
+            ...options,
+            ...params,
+            headers: {
+                "Content-Type": "application/json",
+                ...options?.headers,
+                ...params.headers,
+            },
+        });
+    }
+    /**
      * Fork session
      *
      * Create a new session by forking an existing session at a specific message point.

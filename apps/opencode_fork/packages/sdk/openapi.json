@@ -6119,6 +6119,1088 @@
         ]
       }
     },
+    "/session/{sessionID}/rhythm-prompt-anchor": {
+      "post": {
+        "tags": [
+          "session"
+        ],
+        "operationId": "session.rhythmPromptAnchor",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mint a managed prompt anchor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "messageID": {
+                      "type": "string",
+                      "pattern": "^msg"
+                    }
+                  },
+                  "required": [
+                    "messageID"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Mint a managed prompt anchor"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Mint a managed prompt anchor",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.rhythmPromptAnchor({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/session/{sessionID}/rhythm-active-tool/{assistantID}/{callID}": {
+      "get": {
+        "tags": [
+          "session"
+        ],
+        "operationId": "session.rhythmActiveTool",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          },
+          {
+            "name": "assistantID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^msg"
+            },
+            "required": true
+          },
+          {
+            "name": "callID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Read one live managed tool owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sdkSessionId": {
+                      "type": "string",
+                      "pattern": "^ses"
+                    },
+                    "assistantId": {
+                      "type": "string",
+                      "pattern": "^msg"
+                    },
+                    "userMessageId": {
+                      "type": "string",
+                      "pattern": "^msg"
+                    },
+                    "partId": {
+                      "type": "string",
+                      "pattern": "^prt"
+                    },
+                    "toolCallId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "toolKey": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "agentName": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "serverName": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "toolName": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    }
+                  },
+                  "required": [
+                    "sdkSessionId",
+                    "assistantId",
+                    "userMessageId",
+                    "partId",
+                    "toolCallId",
+                    "toolKey",
+                    "agentName",
+                    "serverName",
+                    "toolName"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Read one live managed tool owner"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read one live managed tool owner",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.rhythmActiveTool({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/session/{sessionID}/rhythm-provider-frame/{requestNonce}": {
+      "get": {
+        "tags": [
+          "session"
+        ],
+        "operationId": "session.rhythmProviderFrame",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          },
+          {
+            "name": "requestNonce",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "sourceAnchorIds",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Read one pending managed provider frame",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "number",
+                          "enum": [
+                            1
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "pending"
+                          ]
+                        },
+                        "request": {
+                          "type": "object",
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "number",
+                              "enum": [
+                                1
+                              ]
+                            },
+                            "sdkSessionId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "userMessageId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "requestNonce": {
+                              "type": "string",
+                              "minLength": 24,
+                              "maxLength": 64
+                            },
+                            "engineGeneration": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "runnerGeneration": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "attempt": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100
+                            },
+                            "purpose": {
+                              "type": "string",
+                              "enum": [
+                                "answer",
+                                "compaction",
+                                "summary"
+                              ]
+                            },
+                            "inputDigest": {
+                              "type": "string",
+                              "minLength": 64,
+                              "maxLength": 64
+                            }
+                          },
+                          "required": [
+                            "schemaVersion",
+                            "sdkSessionId",
+                            "userMessageId",
+                            "requestNonce",
+                            "engineGeneration",
+                            "runnerGeneration",
+                            "attempt",
+                            "purpose",
+                            "inputDigest"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "agentName": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "userKind": {
+                          "type": "string",
+                          "enum": [
+                            "authored",
+                            "control"
+                          ]
+                        },
+                        "initiatingUserMessageId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "inputGroupCount": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "originCoverage": {
+                          "type": "string",
+                          "enum": [
+                            "complete",
+                            "ambiguous"
+                          ]
+                        },
+                        "sourceProofs": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "sourceAnchorId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "stored": {
+                                "type": "boolean"
+                              },
+                              "visible": {
+                                "type": "boolean"
+                              },
+                              "relation": {
+                                "type": "string",
+                                "enum": [
+                                  "before_current",
+                                  "current",
+                                  "after_current",
+                                  "unknown"
+                                ]
+                              },
+                              "derivedSummaryIds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 200
+                                }
+                              }
+                            },
+                            "required": [
+                              "sourceAnchorId",
+                              "stored",
+                              "visible",
+                              "relation",
+                              "derivedSummaryIds"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "schemaVersion",
+                        "status",
+                        "request",
+                        "agentName",
+                        "userKind",
+                        "initiatingUserMessageId",
+                        "inputGroupCount",
+                        "originCoverage",
+                        "sourceProofs"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "number",
+                          "enum": [
+                            1
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "cancelled",
+                            "replaced",
+                            "not_pending"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "schemaVersion",
+                        "status"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "number",
+                          "enum": [
+                            2
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "coordinator_workflow_provider_frame"
+                          ]
+                        },
+                        "binding": {
+                          "type": "object",
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "number",
+                              "enum": [
+                                1
+                              ]
+                            },
+                            "jobId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "rootSdkSessionId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "managerSdkSessionId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "expiresAt": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "schemaVersion",
+                            "jobId",
+                            "rootSdkSessionId",
+                            "managerSdkSessionId",
+                            "expiresAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "scope": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "manager_lineage"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "kind"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "root_turn"
+                                  ]
+                                },
+                                "userMessageId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 200
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "userMessageId"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        "accounting": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "persisted_assistant"
+                                  ]
+                                },
+                                "assistantMessageId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 200
+                                },
+                                "parentMessageId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 200
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "assistantMessageId",
+                                "parentMessageId"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "unmetered_auxiliary"
+                                  ]
+                                },
+                                "sourceUserMessageId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 200
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "sourceUserMessageId"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        "nativeLineageDigest": {
+                          "type": "string",
+                          "minLength": 64,
+                          "maxLength": 64
+                        },
+                        "frame": {
+                          "type": "object",
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "number",
+                              "enum": [
+                                1
+                              ]
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "pending"
+                              ]
+                            },
+                            "request": {
+                              "type": "object",
+                              "properties": {
+                                "schemaVersion": {
+                                  "type": "number",
+                                  "enum": [
+                                    1
+                                  ]
+                                },
+                                "sdkSessionId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 200
+                                },
+                                "userMessageId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 200
+                                },
+                                "requestNonce": {
+                                  "type": "string",
+                                  "minLength": 24,
+                                  "maxLength": 64
+                                },
+                                "engineGeneration": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 128
+                                },
+                                "runnerGeneration": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 128
+                                },
+                                "attempt": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 100
+                                },
+                                "purpose": {
+                                  "type": "string",
+                                  "enum": [
+                                    "answer",
+                                    "compaction",
+                                    "summary"
+                                  ]
+                                },
+                                "inputDigest": {
+                                  "type": "string",
+                                  "minLength": 64,
+                                  "maxLength": 64
+                                }
+                              },
+                              "required": [
+                                "schemaVersion",
+                                "sdkSessionId",
+                                "userMessageId",
+                                "requestNonce",
+                                "engineGeneration",
+                                "runnerGeneration",
+                                "attempt",
+                                "purpose",
+                                "inputDigest"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "agentName": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "userKind": {
+                              "type": "string",
+                              "enum": [
+                                "authored",
+                                "control"
+                              ]
+                            },
+                            "initiatingUserMessageId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "inputGroupCount": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "originCoverage": {
+                              "type": "string",
+                              "enum": [
+                                "complete",
+                                "ambiguous"
+                              ]
+                            },
+                            "sourceProofs": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "sourceAnchorId": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 200
+                                  },
+                                  "stored": {
+                                    "type": "boolean"
+                                  },
+                                  "visible": {
+                                    "type": "boolean"
+                                  },
+                                  "relation": {
+                                    "type": "string",
+                                    "enum": [
+                                      "before_current",
+                                      "current",
+                                      "after_current",
+                                      "unknown"
+                                    ]
+                                  },
+                                  "derivedSummaryIds": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "sourceAnchorId",
+                                  "stored",
+                                  "visible",
+                                  "relation",
+                                  "derivedSummaryIds"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "schemaVersion",
+                            "status",
+                            "request",
+                            "agentName",
+                            "userKind",
+                            "initiatingUserMessageId",
+                            "inputGroupCount",
+                            "originCoverage",
+                            "sourceProofs"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "schemaVersion",
+                        "kind",
+                        "binding",
+                        "scope",
+                        "accounting",
+                        "nativeLineageDigest",
+                        "frame"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ],
+                  "description": "Read one pending managed provider frame"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read one pending managed provider frame",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.rhythmProviderFrame({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/session/{sessionID}/rhythm-dayflow-guard": {
+      "post": {
+        "tags": [
+          "session"
+        ],
+        "operationId": "session.rhythmDayflowGuard",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Enroll a managed SDK session for Dayflow history protection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "number",
+                          "enum": [
+                            1
+                          ]
+                        },
+                        "sdkSessionId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "engineGeneration": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "guarded": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ]
+                        }
+                      },
+                      "required": [
+                        "schemaVersion",
+                        "sdkSessionId",
+                        "engineGeneration",
+                        "guarded"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "number",
+                          "enum": [
+                            2
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "coordinator_workflow_enrollment"
+                          ]
+                        },
+                        "sdkSessionId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "engineGeneration": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "guarded": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ]
+                        },
+                        "binding": {
+                          "type": "object",
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "number",
+                              "enum": [
+                                1
+                              ]
+                            },
+                            "jobId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "rootSdkSessionId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "managerSdkSessionId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "expiresAt": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "schemaVersion",
+                            "jobId",
+                            "rootSdkSessionId",
+                            "managerSdkSessionId",
+                            "expiresAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "scope": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "manager_lineage"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "kind"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "root_turn"
+                                  ]
+                                },
+                                "userMessageId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 200
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "userMessageId"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "schemaVersion",
+                        "kind",
+                        "sdkSessionId",
+                        "engineGeneration",
+                        "guarded",
+                        "binding",
+                        "scope"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ],
+                  "description": "Enroll a managed SDK session for Dayflow history protection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Enroll a managed SDK session for Dayflow history protection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.rhythmDayflowGuard({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/session/{sessionID}/fork": {
       "post": {
         "tags": [
@@ -11311,6 +12393,9 @@
             "$ref": "#/components/schemas/EventMcpBrowserOpenFailed"
           },
           {
+            "$ref": "#/components/schemas/EventMcpMetadataChanged"
+          },
+          {
             "$ref": "#/components/schemas/EventMcpToolsChanged"
           },
           {
@@ -11956,6 +13041,38 @@
             "required": [
               "mcpName",
               "url"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "properties"
+        ],
+        "additionalProperties": false
+      },
+      "EventMcpMetadataChanged": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "mcp.metadata.changed"
+            ]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "server": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "server"
             ],
             "additionalProperties": false
           }
@@ -14975,6 +16092,9 @@
                 "$ref": "#/components/schemas/EventMcpBrowserOpenFailed"
               },
               {
+                "$ref": "#/components/schemas/EventMcpMetadataChanged"
+              },
+              {
                 "$ref": "#/components/schemas/EventMcpToolsChanged"
               },
               {
@@ -15585,6 +16705,9 @@
       "MCPStatus": {
         "anyOf": [
           {
+            "$ref": "#/components/schemas/MCPStatusConfigured"
+          },
+          {
             "$ref": "#/components/schemas/MCPStatusConnected"
           },
           {
@@ -15600,6 +16723,21 @@
             "$ref": "#/components/schemas/MCPStatusNeedsClientRegistration"
           }
         ]
+      },
+      "MCPStatusConfigured": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "configured"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false
       },
       "MCPStatusConnected": {
         "type": "object",

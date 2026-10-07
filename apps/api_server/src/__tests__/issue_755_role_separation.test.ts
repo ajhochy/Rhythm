@@ -271,7 +271,7 @@ describe('#755 server.ts — agent-execution startup is role-gated', () => {
     expect(gateIdx, 'agent-execution gate must exist').toBeGreaterThan(-1);
     const gated = source.slice(gateIdx);
     for (const needle of [
-      'startAgentSchedulerJob()',
+      'startAgentSchedulerJob(',
       'opencodeClient',
       'managedChromeService.ensureReady()',
       'attachWsGateway',
@@ -287,7 +287,7 @@ describe('#755 server.ts — agent-execution startup is role-gated', () => {
     const gateIdx = source.indexOf('if (env.agentExecutionEnabled)');
     const beforeGate = source.slice(0, gateIdx);
     expect(
-      beforeGate.includes('startAgentSchedulerJob()'),
+      beforeGate.includes('startAgentSchedulerJob('),
       'startAgentSchedulerJob() must not be called unconditionally before the gate',
     ).toBe(false);
   });

@@ -9,12 +9,15 @@ import type {
   OpenCodeAgentId,
   PermissionMode,
   RhythmProfileId,
+  SessionModelMode,
   SessionScope,
 } from '../models/agent_session';
 import {
   asOpenCodeAgentId,
   asRhythmProfileId,
   isUntitledSessionName,
+  normalizeSessionModelMode,
+  PERMISSION_MODES,
 } from '../models/agent_session';
 import {
   appendRelayDelete,
@@ -50,6 +53,8 @@ interface AgentSessionRow {
   project_id: string | null;
   provider_id: string | null;
   model_id: string | null;
+  model_mode: string | null;
+  router_decided_at?: string | null;
   agent_mode: string | null;
   permission_mode: string | null;
   approval_bypass_explicit: number;
@@ -89,6 +94,7 @@ interface ParentSessionScopeRow {
   task_id: string | null;
   task_title: string | null;
   agent_kind: string;
+  permission_mode: PermissionMode;
   project_id: string | null;
   scheduled_task_id: string | null;
   is_system: number;
@@ -150,6 +156,8 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     projectId: row.project_id ?? null,
     providerId: row.provider_id ?? null,
     modelId: row.model_id ?? null,
+    modelMode: normalizeSessionModelMode(row.model_mode),
+    routerDecidedAt: row.router_decided_at ?? null,
     agentMode: row.agent_mode ?? null,
     permissionMode: (row.permission_mode ?? 'default') as PermissionMode,
     approvalBypassExplicit: row.approval_bypass_explicit === 1,
@@ -258,10 +266,10 @@ export function listPage(opts: SessionHistoryQuery = {}): SessionHistoryPage {
   else if (!search) matchClauses.push('parent_session_id IS NULL');
   if (search) {
     // instr is literal (%, _ are not wildcards); SQLite lower provides ASCII folding.
-    matchClauses.push(`(${['name', 'last_preview', 'cwd', 'task_title', 'project_id'].map(column =>
+    matchClauses.push(`(${['name', 'last_preview', 'cwd', 'task_title', 'project_id', 'sdk_session_id'].map(column =>
       `instr(lower(COALESCE(${column}, '')), lower(?)) > 0`).join(' OR ')}
       OR project_id IN (SELECT id FROM projects WHERE instr(lower(name), lower(?)) > 0 OR instr(lower(cwd), lower(?)) > 0))`);
-    matchParams.push(...Array(7).fill(search));
+    matchParams.push(...Array(8).fill(search));
   }
   const key = JSON.stringify([matchClauses, matchParams]);
   const now = Date.now();
@@ -449,7 +457,7 @@ export class AgentSessionsRepository {
   ): ParentSessionScopeRow | undefined {
     return db
       .prepare(
-        `SELECT id, task_id, task_title, agent_kind, project_id,
+        `SELECT id, task_id, task_title, agent_kind, permission_mode, project_id,
                 scheduled_task_id, is_system, anthropic_account_id,
                 openai_account_id, owner_user_id, delegation_depth, category,
                 worktree_name, worktree_path, worktree_branch
@@ -468,7 +476,10 @@ export class AgentSessionsRepository {
     cwd: string,
     mcpAllowedToolsJson: string | null,
     now: string,
-  ): AgentSession {
+  ): AgentSession | null {
+    // A native Task child must retain the canonical parent's execution mode.
+    // Invalid stored policy cannot be interpreted as default or new consent.
+    if (!PERMISSION_MODES.includes(parentRow.permission_mode)) return null;
     // #867: the engine's task title is the only carrier of a native task
     // child's specialist identity. Scope comes from the parent, identity does
     // not, so keep the parsed specialist agent kind child-owned.
@@ -543,9 +554,9 @@ export class AgentSessionsRepository {
           sdk_session_id, parent_session_id, mcp_allowed_tools_json,
           scheduled_task_id, is_system, anthropic_account_id, openai_account_id,
           owner_user_id, delegation_depth, category, worktree_name, worktree_path,
-          worktree_branch, created_at, updated_at)
+          worktree_branch, permission_mode, approval_bypass_explicit, created_at, updated_at)
        VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-               ?, ?, ?, ?, ?)`,
+               ?, ?, ?, ?, 0, ?, ?)`,
     ).run(
       childLocalId,
       parentRow.task_id,
@@ -567,6 +578,7 @@ export class AgentSessionsRepository {
       parentRow.worktree_name,
       parentRow.worktree_path,
       parentRow.worktree_branch,
+      parentRow.permission_mode,
       now,
       now,
     );
@@ -594,8 +606,8 @@ export class AgentSessionsRepository {
            (id, task_id, task_title, agent_kind, profile_id, status, cwd, name, project_id,
             permission_mode, mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system,
             anthropic_account_id, openai_account_id, owner_user_id, parent_session_id,
-            delegation_depth, category, approval_bypass_explicit, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            delegation_depth, category, approval_bypass_explicit, model_mode, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -618,6 +630,7 @@ export class AgentSessionsRepository {
         dto.delegationDepth ?? 0,
         category,
         dto.approvalBypassExplicit ? 1 : 0,
+        normalizeSessionModelMode(dto.modelMode),
         now,
         now,
       );
@@ -953,9 +966,9 @@ export class AgentSessionsRepository {
       db.prepare(
         `INSERT INTO agent_sessions
            (id, task_id, task_title, agent_kind, profile_id, status, cwd, name, project_id,
-            sdk_session_id, owner_user_id, provider_id, model_id, category, archived_at, created_at,
+            sdk_session_id, owner_user_id, provider_id, model_id, model_mode, category, archived_at, created_at,
             updated_at)
-         VALUES (?, NULL, NULL, ?, ?, 'idle', ?, ?, ?, ?, ?, ?, ?, 'chat', ?, ?, ?)`,
+         VALUES (?, NULL, NULL, ?, ?, 'idle', ?, ?, ?, ?, ?, ?, ?, 'auto', 'chat', ?, ?, ?)`,
       ).run(
         id,
         input.opencodeAgentId ?? '',
@@ -1208,6 +1221,7 @@ export class AgentSessionsRepository {
       opencodeAgentId?: OpenCodeAgentId | null;
       providerId?: string | null;
       modelId?: string | null;
+      modelMode?: SessionModelMode;
       agentMode?: string | null;
       permissionMode?: PermissionMode;
       approvalBypassExplicit?: boolean;
@@ -1237,6 +1251,12 @@ export class AgentSessionsRepository {
       sets.push('model_id = ?');
       values.push(fields.modelId);
     }
+    if (fields.modelMode !== undefined) {
+      sets.push('model_mode = ?');
+      values.push(normalizeSessionModelMode(fields.modelMode));
+      // Choosing Auto again forgets the router's earlier pick.
+      if (normalizeSessionModelMode(fields.modelMode) === 'auto') sets.push('router_decided_at = NULL');
+    }
     if (fields.agentMode !== undefined) {
       sets.push('agent_mode = ?');
       values.push(fields.agentMode);
@@ -1264,6 +1284,25 @@ export class AgentSessionsRepository {
     this.mutateAndReplicate(id, (db) => db
       .prepare(`UPDATE agent_sessions SET ${sets.join(', ')} WHERE id = ?`)
       .run(...values).changes);
+  }
+
+  /** Persist the router's pick for an auto session; modelMode stays 'auto'. */
+  setRouterDecision(
+    id: string,
+    pick: { providerId: string; modelId: string; decidedAt: string },
+  ): void {
+    this.mutateAndReplicate(id, (db) => db
+      .prepare(
+        `UPDATE agent_sessions SET provider_id = ?, model_id = ?, router_decided_at = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(pick.providerId, pick.modelId, pick.decidedAt, new Date().toISOString(), id).changes);
+  }
+
+  /** Forget the router's pick so the next prompt is routed again. */
+  clearRouterDecision(id: string): void {
+    this.mutateAndReplicate(id, (db) => db
+      .prepare(`UPDATE agent_sessions SET router_decided_at = NULL, updated_at = ? WHERE id = ?`)
+      .run(new Date().toISOString(), id).changes);
   }
 
   /** Set or clear archived_at. Returns the updated row or null if not found. */
