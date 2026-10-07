@@ -1849,8 +1849,8 @@ it.instance(
       if (Exit.isSuccess(ea) && Exit.isSuccess(eb)) {
         expect(ea.value.info.id).toBe(eb.value.info.id)
         expect(ea.value.info.role).toBe("assistant")
-        expect(ea.value.info.error).toBeUndefined()
-        expect(eb.value.info.error).toBeUndefined()
+        expect(Reflect.get(ea.value.info, "error")).toBeUndefined()
+        expect(Reflect.get(eb.value.info, "error")).toBeUndefined()
         expect(ea.value.parts.some((part) => part.type === "text" && part.text === "done")).toBe(true)
       }
       expect(yield* llm.calls).toBe(1)

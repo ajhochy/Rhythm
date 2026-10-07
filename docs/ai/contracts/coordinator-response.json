@@ -9,7 +9,7 @@
       "mode": "unit",
       "status": "targeted_behavioral_pass",
       "test_file": "apps/web/tests/gateway/sessions-gateway.spec.ts",
-      "reason": "C15 actual browser Copy control passed 1/1 with captured exit0, exact prose and no lifecycle SHA or empty separators. Gateway/clipboard regressions are included in repository verification. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C15 claim.",
+      "reason": "C16 actual browser Copy control passed 1/1 with captured exit0, exact prose and no lifecycle SHA or empty separators. Gateway/clipboard regressions are included in repository verification. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C16 claim.",
       "browser_test_file": "apps/web/tests/electron-e23-lifecycle.spec.ts"
     },
     {
@@ -18,7 +18,7 @@
       "mode": "integration",
       "status": "targeted_behavioral_pass",
       "test_file": "apps/api_server/src/__tests__/coordinator_calendar_project_context.test.ts",
-      "reason": "C15 actual API/engine/MCP formal idle/restart cases passed; each checked eight foreground date snapshots and one signed status, UTC Oct 7 -> Los Angeles today Oct6/yesterday Oct5. Clock fingerprint regressions also passed. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C15 claim.",
+      "reason": "C16 actual API/engine/MCP formal idle/restart cases passed; each checked eight foreground date snapshots and one signed status, UTC Oct 7 -> Los Angeles today Oct6/yesterday Oct5. Clock fingerprint regressions also passed. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C16 claim.",
       "live_test_file": "apps/api_server/src/__tests__/live_chat_bounded_workflow.test.ts"
     },
     {
@@ -27,7 +27,7 @@
       "mode": "integration",
       "status": "targeted_behavioral_pass",
       "test_file": "apps/opencode_fork/packages/opencode/test/tool/coordinator-task-permissions.test.ts",
-      "reason": "C15 canonical grant/deny depth-three actual Task/async/Task cases passed with canonical 13.0.3 dependency. Authored permission rules were retained; permitted reference reads reached the leaf and outside reads were denied. UI transient Alwaysallow durability is separate. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C15 claim."
+      "reason": "C16 canonical grant/deny depth-three actual Task/async/Task cases passed with canonical 13.0.3 dependency. Authored permission rules were retained; permitted reference reads reached the leaf and outside reads were denied. UI transient Alwaysallow durability is separate. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C16 claim."
     },
     {
       "criterion_id": "coordinator-response-c4",
@@ -35,14 +35,14 @@
       "mode": "integration",
       "status": "targeted_behavioral_pass",
       "test_file": "apps/api_server/src/__tests__/coordinator_native_child_permission_mode.test.ts",
-      "reason": "C15 actual four-depth chains all retained plan mode and zero copied explicit human markers; existing-child human-choice/idempotency regressions remain covered. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C15 claim."
+      "reason": "C16 actual four-depth chains all retained plan mode and zero copied explicit human markers; existing-child human-choice/idempotency regressions remain covered. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C16 claim."
     },
     {
       "criterion_id": "coordinator-response-c5",
       "text": "An env-gated live behavioral test on the approved stock sandbox drives the actual API and newly built fork through the native-task/async/native-task hierarchy, proves approved fixture reading is reachable at the third level and preserved denies remain enforced, and records exact-source output and sandbox cleanup.",
       "mode": "integration",
       "status": "targeted_behavioral_pass",
-      "reason": "C15 fresh canonical 13.0.3 nested grant/deny cases passed 2/2, all 19 checks each, actual API/fork/MCP, exact engine010f8853..., stockdown0 and normal/source/dependency guards intact. Models and fixture grants are synthetic. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C15 claim.",
+      "reason": "C16 fresh canonical 13.0.3 nested grant/deny cases passed 2/2, all 19 checks each, actual API/fork/MCP, exact engine7ddfeeab..., stockdown0 and normal/source/dependency guards intact. Models and fixture grants are synthetic. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C16 claim.",
       "test_file": "apps/api_server/src/__tests__/live_coordinator_nested_permissions.test.ts"
     },
     {
@@ -52,7 +52,7 @@
       "status": "targeted_behavioral_pass",
       "test_file": "apps/mcp_server/src/__tests__/agentSessions_tool.test.ts",
       "additional_test_file": "apps/api_server/src/repositories/agent_sessions_history.test.ts",
-      "reason": "C15 actual MCP list discovered all four native/async/native chain rows with parent/status/SDK identifiers and boundedscope metadata. Partial real-model replay selected session-list and reported statuses; its full-list wording still overstated scope. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C15 claim."
+      "reason": "C16 actual MCP list discovered all four native/async/native chain rows with parent/status/SDK identifiers and boundedscope metadata. Partial real-model replay selected session-list and reported statuses; its full-list wording still overstated scope. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C16 claim."
     },
     {
       "criterion_id": "coordinator-response-c7",
@@ -60,7 +60,7 @@
       "mode": "integration",
       "status": "targeted_behavioral_pass",
       "test_file": "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
-      "reason": "C15 actual sandbox authored-profile projection/registry checks passed. Partial synthetic-context Opus5.5 replay selected interactive asyncWorkflow. Existing normal-profile resync and actual cache verification are deployment gates pending separately. Sandbox authored-profile regeneration/routing passes; normal Secretary resync remains NOT RUN. No ancestor callback-forwarding expansion."
+      "reason": "C16 actual sandbox authored-profile projection/registry checks passed. Partial synthetic-context Opus5.5 replay selected interactive asyncWorkflow. Existing normal-profile resync and actual cache verification are deployment gates pending separately. Sandbox authored-profile regeneration/routing passes; normal Secretary resync remains NOT RUN. No ancestor callback-forwarding expansion."
     },
     {
       "criterion_id": "coordinator-response-c8",
@@ -69,7 +69,7 @@
       "status": "targeted_behavioral_pass",
       "test_file": "apps/opencode_fork/packages/opencode/test/session/mcp_allowlist_e2e.test.ts",
       "live_test_file": "apps/api_server/src/__tests__/live_coordinator_nested_permissions.test.ts",
-      "reason": "Three real SessionPrompt/LLM provider-request regressions captured genuine RED then GREEN;24 MCP/nativeTask regressions and fork typecheck passed. C15 fresh actual Explore advertised glob/grep/read/webfetch and performed granted/ungranted/outside reference reads; mutators were absent with real SDK denies. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C15 claim."
+      "reason": "Three real SessionPrompt/LLM provider-request regressions captured genuine RED then GREEN;24 MCP/nativeTask regressions and fork typecheck passed. C16 fresh actual Explore advertised glob/grep/read/webfetch and performed granted/ungranted/outside reference reads; mutators were absent with real SDK denies. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C16 claim."
     }
   ],
   "stack": "typescript",
@@ -81,25 +81,25 @@
     "Full installed history and actual dispatcher discovery were not covered by the partial real-model replay. Model quality is not globally qualified; its bounded-visibility wording still needs improvement.",
     "UI Alwaysallow is project-instance memory in the inspected code; no persistence write was found, and restart durability was not behaviorally qualified. The permission inheritance fix does not claim this.",
     "Full repository, signed packaging, normal Secretary resync, actual native smoke, final-head CI and owned cleanup must finish before a completion claim.",
-    "Canonical13.0.3 live reruns pass, but corrected complete PR gate remains21/22; stage 12 diagnostic must be recorded and gate qualified before completion."
+    "C16 complete PR gate remains21/22 due introduced test type error; focused correction passes, but fresh C17 full qualification is pending."
   ],
   "qualification_summary": {
-    "source": "2a3f661c7ac2e93cbe0bcbb0a0ef4a54d5c80c82",
+    "source": "244cb7c4d905aefb270df5a986f2fe2058003c29",
     "targeted_criteria": "Actual sandbox/browser outcomes within each stated scope; global gate is not green",
-    "full_gate": "Issue4/4; PR21/22; original queued-shell failure remains unresolved",
-    "stage12_diagnostic": "Instrumented queued and late-arrival cases pass; no production cause established; historical failure preserved. New test asserts no assistant error and fixture text before original call count.",
-    "c15_signed_installed": "NOT RUN",
+    "full_gate": "C16 issue4/4; PR21/22; stage11 new assertion type error only; runtime fork523 pass",
+    "stage12_diagnostic": "C16 stricter queue test passed650.20ms; historical C15 zero-call cause remains unconfirmed. Two-line Reflect.get access correction: typecheck0, focused test1pass9assertions. C17 fresh full run pending.",
     "normal_secretary_resync": "NOT RUN",
     "exact_head_follow_up_ci": "NOT RUN",
     "completion_claim_allowed": false,
     "remaining_qualification": [
-      "C15 signed/installed native acceptance",
+      "Combined signed/installed native acceptance",
       "Normal authored Secretary resync/cache verification",
       "Full installed-history/actual dispatcher real-model behavior",
       "UI Always allow restart persistence",
       "Follow-up push/exact-head CI and final cleanup"
     ],
     "scope_choice": "AJ approved combined mobile latency+Coordinator delivery/install at Oct6 18:40PDT; existing safeguards and other paused work retained",
-    "combined_candidate": "C15 plus c5f557934b02437809d26297fb1ee7a76ef62aaa production changes; exact snapshot test identity and stricter queue result checks; new full/live/installed qualification pending"
+    "combined_candidate": "C16 includes Coordinator and mobile production fixes. C17 changes test property access only; fresh exact-source gates pending",
+    "combined_signed_installed": "NOT RUN"
   }
 }

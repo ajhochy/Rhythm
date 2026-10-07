@@ -2,26 +2,22 @@
 
 ## Current focus
 
-Resume the approved combined candidate: preserve C15 Coordinator repairs and the mobile response-stall patch `c5f557934b02437809d26297fb1ee7a76ef62aaa`. C15 repairs cover clipboard lifecycle metadata, server local-day context, nested permission ceilings, bounded hierarchy visibility, interactive coding routing and permitted native tools when the dispatcher is denied. Targeted behavior passes; the complete PR gate is unresolved. C15 is not signed or installed.
+Qualify and deliver the approved combined Coordinator and mobile response-stall repairs. C16 `244cb7c4d905aefb270df5a986f2fe2058003c29` preserves both sets; the next C17 checkpoint corrects two test-only TypeScript property reads. No combined candidate is signed or installed yet.
 
 ## Active branch / PR
 
-Local `codex/coordinator-response-repair`, C15 `2a3f661c7ac2e93cbe0bcbb0a0ef4a54d5c80c82`, apps tree `072d398c7db754c8a429c7b310a61db2d4753ed2`, after documentation head `d83ffaa4bf8ec87fefd3104ec685e2b6a1209b7b`. Draft PR #1604 uses `integration/2026-10-06-resume` against `main`; follow-up push/exact-head CI and human merge remain pending. Issue #1605.
-
-## In progress
-
-Diagnose PR stage 12: `shell completion resumes queued loop callers` expected one LLM call, observed zero. The exact captured stage-12 command reran once with exit 0: 523 passed / 5 skipped / 1 todo / 0 failed. Original failure is preserved; no queue-arrival trace establishes its cause, so triage remains BLOCKED. Instrumented correct-queue and controlled late-arrival cases both passed; no product queue fix is supported. The existing test now checks returned assistant errors and exact fixture text before the original count. Combined source freezes next for new full/live/signed/installed gates; resync has not run.
-
-## Risks / known issues
-
-Scripted providers qualify actual software plumbing, not installed model judgment or unsolicited ancestor completion. Partial Opus5.5 replay supports routing/hierarchy tool choice but overstated a bounded list as complete. UI Always allow persistence is CODE_TRACE_ONLY and unqualified; no global permission fix is claimed. No automatic grants, copied ancestor approval markers or taint bypass. Notarization, phone and full native matrix proof remain separate.
+Local `codex/coordinator-response-repair`; draft PR #1604 on `integration/2026-10-06-resume`, issue #1605. Remote remains the earlier documentation checkpoint. Human merge only.
 
 ## Test status
 
-Canonical SQLite 13.0.3 rerun: C5 grant/deny 2/2, all 19 checks each; formal idle/restart 2/2, all 19/20 qualification plus 5 operational checks, eight foreground date snapshots plus one signed status per case. Stock teardown/source/build/dependency/binary/normal guards pass. Fresh full issue 4/4; PR 21/22, only fork stage 12 fails; API 8,258 tests pass. Original failed input run is retained. Root restored exactly 22 preserved PNGs; C15 source was clean before this documentation checkpoint.
+C16 exact-source issue4/4, PR21/22: all application/behavioral suites passed, including API8,258 and fork523 tests. Only stage11 fork typecheck failed because the new queue assertions read `error` from a User|Assistant union. The two-line Reflect.get correction retains identical runtime assertions; fresh fork typecheck and focused queue test (1 pass,9 assertions) exit0. A fresh complete C17 run remains pending. Original C15 zero-call failure is preserved; cause remains unconfirmed, and no production queue change is supported.
 
-Prior signed C9 `54888e924c5b31cb7700b6eb1f5da7c4c450e930` retains its original full/native/CI qualification; it does not qualify C15. Normal app was externally restarted at 18:13 PDT (main 4209/API 4220/engine 4289), with an unrelated `0.0.0-investigate/mobile-transcript-regression-202610070111` engine. Root and agents did not initiate that turnover; current normal runtime is not C15 proof.
+C16 actual API/fork/MCP nested grant/deny2/2 and formal idle/restart2/2 passed with all preservation/cleanup checks. Source and normal runtime were preserved; root archived/restored exactly22 generated PNGs. C16 native wrapper/input guard passed, but packaging/signing/install remain NOT RUN. Snapshot/bus71pass1skip and negative mutation proof qualify the small fixture, not measured physical phone latency.
+
+## Risks
+
+Scripted providers qualify real plumbing, not general model judgment. Partial Opus5.5 replay used synthetic results and overstated bounded visibility. UI Always allow restart persistence remains unverified. No global grants, automatic approval, copied human markers or taint bypass. Normal Secretary projection/cache refresh is still pending. Notarization, physical phone and full native matrix remain separate.
 
 ## Next step
 
-Capture queue-arrival causality without weakening the test, then obtain complete required gates. AJ approved combining the separate mobile latency fixes with this repair and delivering/installing the combined result at Oct 6 18:40 PDT (01:40 UTC Oct 7), verified from relayed human transcript evidence. Other paused work remains paused. Replacing it with C15 alone would remove its snapshot-gc and per-token logging mitigations. Qualify the combined frozen source, signed/installed behavior and targeted Secretary resync, push the draft PR, verify exact-head CI, and archive only owned work after root review. See `runs/2026-10-06-coordinator-response-repair.md`.
+Freeze C17, run fresh full/live/native qualification, preserve idle normal data, package/sign/install, verify mapped executable and targeted Secretary refresh, then native Dayflow smoke, final documentation/push/exact-head CI and owned cleanup. AJ approved combined delivery/install Oct6 18:40PDT; keep other paused work paused and preserve the investigator checkout. See `runs/2026-10-06-coordinator-response-repair.md`.
