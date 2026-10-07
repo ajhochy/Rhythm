@@ -175,6 +175,35 @@ count — item counts do not bound payloads.
 
 ---
 
+## 0. Instruments that lie — read this before trusting any signal
+
+The single largest source of wasted diagnosis in this repo. Four separate
+indicators report success, or a specific cause, that they have not verified.
+All four cost most of 2026-10-07.
+
+**"A notification arrived, therefore the backend worked" is not a valid
+inference in this codebase.**
+
+| Signal | What it claims | What it actually means |
+|---|---|---|
+| `"OpenCode finished a task"` push | a turn completed | **fires on ABSENCE of activity.** The phone marks a session pending on send, then notifies once it stops looking busy for 5s. A prompt that never reached the engine satisfies every guard — no busy status ever arrives — so the notification fires *because* the request failed. Local notification, not a server push; reads neither store. Fixed: requires an observed busy status first. |
+| `[MobileOpenCodeProxy] upstream request timed out` | the 30s timeout fired | fires on **any** `AbortError` from any source, and the branch that logs the real error name and cause code is unreachable for it. A 14ms connection abort was indistinguishable from a 30s timeout. Fixed: distinguishes our timer from a foreign abort and logs the identity. |
+| `session.status` busy | the agent is working | **sticky.** The engine emits busy and, if it dies, never emits idle — so the typing indicator spins forever on a dead turn. Fixed: non-idle statuses are cleared when the event stream is not connected. |
+| `settleBackgroundRead` | (silent) | swallowed **every** read failure (`.catch(() => undefined)`), so a healthy gateway in front of an unresponsive engine left hours-old data on screen looking current. Deliberate originally (2026-08-19, to stop uncaught `MacOfflineError` crashes) — the staleness was the unintended half. Fixed: surfaces a "Showing older messages" notice without rethrowing. |
+
+**Method that works:** verify the instrument before the subject. Confirm what
+a field or log line actually measures before reasoning from it. Specific traps
+already paid for:
+- A large `+Nms` gap in the engine log means only "no log lines for N ms" —
+  during idle that is normal, NOT a stall. Measure responsiveness directly.
+- The engine logs only some HTTP requests; absence of a log line does not mean
+  the request never arrived.
+- `/health` self-reports `commit: "dev"` and will not tell you the running SHA.
+  Get it from the process `--app-path`.
+- More than one Rhythm bundle can be installed. `open -a <path>` resolves via
+  LaunchServices by bundle ID and may launch a DIFFERENT copy than the path you
+  gave it. `lsof` the running engine to learn which binary is actually serving.
+
 ## 7. Guards that do not run, and tests that pass without testing
 
 Hit repeatedly. Before trusting any regression test:

@@ -450,11 +450,44 @@ export const layer = Layer.effect(
       ])
 
       if (untrackedOutput.trim()) {
+        const maxFileBytes = 1024 * 1024
+        // ponytail: Cap aggregate untracked-file reads at 64 MiB because a measured session contained 3 GB.
+        const maxTotalBytes = 64 * 1024 * 1024
+        let totalBytes = 0
         for (const file of untrackedOutput.trim().split("\n")) {
+          const full = path.join(ctx.directory, file)
+          const mimeType = AppFileSystem.mimeType(full).toLowerCase()
+          const textMime =
+            mimeType.startsWith("text/") ||
+            mimeType.includes("charset=") ||
+            mimeType === "application/json" ||
+            mimeType.endsWith("+json") ||
+            mimeType === "application/xml" ||
+            mimeType.endsWith("+xml") ||
+            mimeType === "application/javascript" ||
+            mimeType === "application/x-javascript"
+          if (!isTextByExtension(file) && !isTextByName(file) && !textMime) {
+            changed.push({ path: file, added: 0, removed: 0, status: "added" })
+            continue
+          }
+
+          const stat = yield* appFs.stat(full).pipe(Effect.catch(() => Effect.succeed(undefined)))
+          const size = stat ? Number(stat.size) : undefined
+          if (
+            size === undefined ||
+            size > maxFileBytes ||
+            totalBytes >= maxTotalBytes ||
+            totalBytes + size > maxTotalBytes
+          ) {
+            changed.push({ path: file, added: 0, removed: 0, status: "added" })
+            continue
+          }
+
           const content = yield* appFs
-            .readFileString(path.join(ctx.directory, file))
+            .readFileString(full)
             .pipe(Effect.catch(() => Effect.succeed<string | undefined>(undefined)))
           if (content === undefined) continue
+          totalBytes += size
           changed.push({
             path: file,
             added: content.split("\n").length,

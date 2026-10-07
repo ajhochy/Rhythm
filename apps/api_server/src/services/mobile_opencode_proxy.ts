@@ -1830,11 +1830,30 @@ export class MobileOpenCodeProxy {
         controller.signal.aborted ||
         (error instanceof Error && error.name === 'AbortError')
       ) {
-        logger.warn('[MobileOpenCodeProxy] upstream request timed out');
+        // Distinguish OUR 30s timer from a foreign AbortError arriving from
+        // upstream. Both used to log "upstream request timed out", so a
+        // connection-level failure was indistinguishable from a real timeout —
+        // measured 2026-10-07, aborts at 14ms were reported as 30s timeouts
+        // and the real cause was discarded, costing most of a night's
+        // diagnosis. Identity only; URL, headers and body stay redacted.
+        const timedOut = controller.signal.aborted;
+        const abortCause = error instanceof Error &&
+            typeof error.cause === 'object' &&
+            error.cause !== null &&
+            'code' in error.cause
+          ? String((error.cause as { code: unknown }).code)
+          : 'NONE';
+        logger.warn(
+          timedOut
+            ? `[MobileOpenCodeProxy] upstream timed out after ${this.timeoutMs}ms ` +
+              `(${error instanceof Error ? error.name : 'UnknownError'}/${abortCause})`
+            : `[MobileOpenCodeProxy] upstream aborted by peer, NOT our timeout ` +
+              `(${error instanceof Error ? error.name : 'UnknownError'}/${abortCause})`,
+        );
         throw new AppError(
           504,
           'OPENCODE_TIMEOUT',
-          'OpenCode request timed out',
+          timedOut ? 'OpenCode request timed out' : 'OpenCode connection aborted',
         );
       }
       const causeCode = error instanceof Error &&
