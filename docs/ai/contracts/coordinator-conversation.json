@@ -150,6 +150,24 @@
       "test_id": "fixed root session model workflow binding",
       "status": "pending",
       "reason": "Q3 actual Opus fixed-override proposal flow passed: the persisted Opus override was accepted against the Sonnet profile default and created/revised cards. The focused workflow/conversation suite passed 141 tests, but genuine human approval, start/resume, and an actual model-change invalidation remain pending."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c18",
+      "text": "An automatic engine permission reply uses the authoritative global-event directory even when persisted session CWD differs, while mode and hard-denial policy remain intact.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1458_bypass_engine_permission_live_e2e.test.ts",
+      "test_id": "global event permission directory",
+      "status": "pass",
+      "reason": "Root independently passed the opt-in real fork/API test: 1 passed/1 skipped, exit0 in10.78s. A loopback scripted provider drove read then edit; the synthetic child retained stale local CWD while matching engine ask/reply used the global-event directory, edited the file, cleared the queue, and produced final output. 88 focused routing/policy/ACK regressions and final typecheck also passed. This is automatic transport proof, not actual delegation, profile projection, installed UI, or proof of the historical AutoTrack404 cause. Manual/reconnect paths remain outside this criterion."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c19",
+      "text": "Automatic permission.resolved events require a successful engine acknowledgement; false or throwing replies do not claim resolution or weaken denials.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/permission_reply_acknowledgement.test.ts",
+      "test_id": "automatic permission reply acknowledgement",
+      "status": "pass",
+      "reason": "Root independently passed 88 focused bridge, permission, controller and security-boundary tests, including false/throw, recovery success, in-flight and post-ack duplication, and hard-denial preservation. Failed automatic replies now log local session/request identifiers without raw exception text. No terminal UI error or invented pending card is emitted."
     }
   ],
   "stack": "typescript",
