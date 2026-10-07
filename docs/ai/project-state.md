@@ -15,8 +15,8 @@ Product source `31ff93b13d01eb228e6c2f269f2239a66ff6b811` is on the existing dra
 
 ## In progress
 
-Production iOS 1.0.9 (17) and its exact EAS submission `05ae28e2-edb9-4e48-a175-7f715ec8a53f` finished. Apple’s UI verified the binary as Validated and build 17 as Testing in the existing internal Testing group with one tester, expiring in 90 days. Physical-device smoke is NOT RUN because paired devices remain unavailable.
-
+- #1609: teach `electron_release.yml` to obtain the native Dayflow artifact.
+- AJ's own phone smoke on build 22 against the swapped Mac.
 ## Risks / known issues
 
 The broader legacy web suite is not green; its scoped receipt preserves those failures. Native exact-byte PNG/workbook transport passed for two real providers, but installed JPEG selection and attachment replay/error UI were not checked. Sol reversed two image quadrants; Sonnet answered correctly. Model assignments stayed unchanged. Original approval cards are visible and undecided; native read-only refresh did not exercise creation, mount/reconnect, transcript association, or post-decision behavior from the full E1 contract. Read-only native inspection maps the existing operational Org Self-Optimizer row to the same outer Agent Schedules Trigger now control exercised on the disposable fixture; historical “Org Optimize” wording differs. No operational POST was sent or Hermes Cron triggered. The observed memory tests do not reproduce the user-reported 50 GB peak.
