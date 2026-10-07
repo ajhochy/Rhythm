@@ -389,7 +389,7 @@ describe.skipIf(!enabled)('Coordinator native → async → native permission ce
         }
         checks.actualMcpHierarchyVisible = true;
         expect(await readFile(editFile, 'utf8')).toBe('UNCHANGED');
-        expect((await command('/usr/bin/test', ['-e', bashFile])).code).toBe(1);
+        await expect(lstat(bashFile)).rejects.toMatchObject({ code: 'ENOENT' });
         expect(await readFile(note, 'utf8')).toBe(marker); expect(await readFile(outside, 'utf8')).toBe(forbiddenMarker);
         checks.fixtureActionsDidNotWrite = true;
         expect(replies.filter(reply => reply.reply === 'once' || reply.reply === 'always')).toHaveLength(0);
