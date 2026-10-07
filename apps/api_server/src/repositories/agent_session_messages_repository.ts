@@ -3,6 +3,7 @@ import { hostPartAttachments } from '../services/attachment_hosting';
 import type { AgentSessionMessage, StructuredAgentSessionMessage } from '../models/agent_session';
 import {
   appendRelayDelete,
+  appendRelayPrimaryRootUpsert,
   appendRelayUpsert,
 } from './relay_outbox_repository';
 
@@ -144,16 +145,22 @@ export class AgentSessionMessagesRepository {
     rawText: string,
     strippedText: string,
   ): AgentSessionMessage {
-    const result = getDb()
-      .prepare(
-        `INSERT INTO agent_session_messages (session_id, role, raw_text, stripped_text)
-         VALUES (?, ?, ?, ?)`,
-      )
-      .run(sessionId, role, rawText, strippedText);
-    const row = getDb()
-      .prepare(`SELECT * FROM agent_session_messages WHERE id = ?`)
-      .get(result.lastInsertRowid) as AgentSessionMessageRow;
-    return rowToModel(row);
+    const db = getDb();
+    // One transaction so a coordinator root's agent_sessions outbox record is
+    // dirtied durably with the canonical row, never after the fact.
+    return db.transaction(() => {
+      const result = db
+        .prepare(
+          `INSERT INTO agent_session_messages (session_id, role, raw_text, stripped_text)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run(sessionId, role, rawText, strippedText);
+      const row = db
+        .prepare(`SELECT * FROM agent_session_messages WHERE id = ?`)
+        .get(result.lastInsertRowid) as AgentSessionMessageRow;
+      appendRelayPrimaryRootUpsert(db, sessionId);
+      return rowToModel(row);
+    })();
   }
 
   /**
@@ -217,6 +224,7 @@ export class AgentSessionMessagesRepository {
         `SELECT * FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`
       ).get(sessionId, sdkMessageId) as AgentSessionMessageRow;
       appendRelayUpsert(db, 'agent_session_messages', String(row.id));
+      appendRelayPrimaryRootUpsert(db, sessionId);
       return rowToModel(row);
     })();
   }
@@ -268,6 +276,7 @@ export class AgentSessionMessagesRepository {
         `SELECT id FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`
       ).get(sessionId, sdkMessageId) as { id: number };
       appendRelayUpsert(db, 'agent_session_messages', String(row.id));
+      appendRelayPrimaryRootUpsert(db, sessionId);
     })();
   }
 
@@ -341,13 +350,15 @@ export class AgentSessionMessagesRepository {
         WHERE session_id = ? AND sdk_message_id = ?
       `).run(JSON.stringify(parts), rawText, rawText, sessionId, sdkMessageId);
       appendRelayUpsert(db, 'agent_session_messages', String(row.id));
+      appendRelayPrimaryRootUpsert(db, sessionId);
     })();
   }
 
   /**
    * Apply a text-field delta to a part already stored in parts_json.
    * Appends `delta` to `part.field` (typically `part.text`).
-   * No-op if the part or message row doesn't exist.
+   * No-op if the part or message row doesn't exist. Returns whether a row was
+   * actually written, so callers can tell a committed change from a no-op.
    */
   applyPartDelta(
     sessionId: string | number,
@@ -355,50 +366,56 @@ export class AgentSessionMessagesRepository {
     partId: string,
     field: string,
     delta: string,
-  ): void {
-    // ponytail: deliberately no relay outbox write for per-token deltas; the
-    // next full-part upsert is the replication convergence point.
+  ): boolean {
+    // ponytail: the per-token MESSAGE row still has no outbox write (the next
+    // full-part upsert converges it); only a coordinator root's agent_sessions
+    // record is dirtied, in this same transaction, so the relay learns the
+    // root identity and can emit its recovery hint. Coalesced per pk.
     const db = getDb();
-    const row = db.prepare(
-      `SELECT parts_json FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`
-    ).get(sessionId, sdkMessageId) as { parts_json: string | null } | undefined;
-    if (!row || row.parts_json == null) return;
+    return db.transaction((): boolean => {
+      const row = db.prepare(
+        `SELECT parts_json FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`
+      ).get(sessionId, sdkMessageId) as { parts_json: string | null } | undefined;
+      if (!row || row.parts_json == null) return false;
 
-    let parts: Array<Record<string, unknown>>;
-    try {
-      parts = JSON.parse(row.parts_json) as Array<Record<string, unknown>>;
-    } catch {
-      return;
-    }
+      let parts: Array<Record<string, unknown>>;
+      try {
+        parts = JSON.parse(row.parts_json) as Array<Record<string, unknown>>;
+      } catch {
+        return false;
+      }
 
-    const idx = parts.findIndex((p) => p.id === partId);
-    if (idx < 0) return;
+      const idx = parts.findIndex((p) => p.id === partId);
+      if (idx < 0) return false;
 
-    const existing = typeof parts[idx][field] === 'string' ? (parts[idx][field] as string) : '';
-    parts[idx] = { ...parts[idx], [field]: existing + delta };
+      const existing = typeof parts[idx][field] === 'string' ? (parts[idx][field] as string) : '';
+      parts[idx] = { ...parts[idx], [field]: existing + delta };
 
-    // Also update raw_text if the field that changed is 'text'.
-    const rawText =
-      field === 'text'
-        ? parts
-            .filter((p) => p.type === 'text' && typeof p.text === 'string')
-            .map((p) => p.text as string)
-            .join('\n')
-        : undefined;
+      // Also update raw_text if the field that changed is 'text'.
+      const rawText =
+        field === 'text'
+          ? parts
+              .filter((p) => p.type === 'text' && typeof p.text === 'string')
+              .map((p) => p.text as string)
+              .join('\n')
+          : undefined;
 
-    if (rawText !== undefined) {
-      db.prepare(`
-        UPDATE agent_session_messages
-        SET parts_json = ?, raw_text = ?, stripped_text = ?
-        WHERE session_id = ? AND sdk_message_id = ?
-      `).run(JSON.stringify(parts), rawText, rawText, sessionId, sdkMessageId);
-    } else {
-      db.prepare(`
-        UPDATE agent_session_messages
-        SET parts_json = ?
-        WHERE session_id = ? AND sdk_message_id = ?
-      `).run(JSON.stringify(parts), sessionId, sdkMessageId);
-    }
+      if (rawText !== undefined) {
+        db.prepare(`
+          UPDATE agent_session_messages
+          SET parts_json = ?, raw_text = ?, stripped_text = ?
+          WHERE session_id = ? AND sdk_message_id = ?
+        `).run(JSON.stringify(parts), rawText, rawText, sessionId, sdkMessageId);
+      } else {
+        db.prepare(`
+          UPDATE agent_session_messages
+          SET parts_json = ?
+          WHERE session_id = ? AND sdk_message_id = ?
+        `).run(JSON.stringify(parts), sessionId, sdkMessageId);
+      }
+      appendRelayPrimaryRootUpsert(db, sessionId);
+      return true;
+    })();
   }
 
   /**

@@ -53,11 +53,13 @@ describe('agent session memory provenance (#862)', () => {
 
   it('AC2: a turn with no memories injected is an explicit empty-list record', () => {
     const repo = new AgentSessionMemoryProvenanceRepository();
-    repo.record('session-2', [], []);
+    repo.record('session-2', [], [], [], { semanticStatus: 'no_confidence', semanticHitCount: 20 });
 
     const result = repo.getLatest('session-2');
     expect(result).not.toBeNull();
     expect(result!.memoryIds).toEqual([]);
+    expect(result!.semanticStatus).toBe('no_confidence');
+    expect(result!.semanticHitCount).toBe(20);
   });
 
   it('AC3: a second record() call for the same session replaces the first', () => {

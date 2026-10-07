@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { takeComposerSeed } from '../composerSeed';
 import { Icon } from '../icons';
 import { useGateway } from '../gateway/context';
@@ -17,6 +17,7 @@ import type { CommandEntry } from '../gateway/commands';
 import type { SessionSettings } from '../gateway/sessions';
 import { FocusDialog } from './FocusDialog';
 import { compressImageFile } from '../compressImage';
+import { submitCoordinatorComposerInput } from './use-coordinator-conversation';
 
 const slashCommands = ['/summarize', '/review', '/status', '/compact'];
 // post-m1-phase-5 c1e: canonical PermissionMode values persisted across the PATCH boundary —
@@ -82,16 +83,31 @@ function mentionMatch(value: string) {
 
 const AUTO_MODEL_VALUE = '__auto__';
 
-export function Composer() {
+export function Composer({ renderSecondaryChatActions, coordinator }: {
+  renderSecondaryChatActions?: (closeConfigurationThen: (action: () => void) => void) => ReactNode;
+  coordinator?: {
+    active: boolean;
+    onSend: (message: string) => Promise<{ accepted: boolean } | boolean>;
+  };
+}) {
   const { selected, profiles, models, catalogError, turnOverride, stageTurnOverride, saveSessionSettings, sendInput, sendLiveInput, sendLiveCommand, sessionGatewayMode, cancelSession, reconnect, updateSession, runShell, notify, liveChildView } = useFixtures();
   const gateway = useGateway();
   const auth = useAuthUser();
   const preferenceUserId = auth?.user.id ?? 'fixture';
   const [sendKey, setSendKey] = useState<SendMessageKey>(() => readLocalUserPreferences(preferenceUserId).sendKey);
   const [draft, setDraft] = useState('');
+  const draftRef = useRef(draft);
+  const draftEditRevisionRef = useRef(0);
+  draftRef.current = draft;
+  const setEditedDraft = (value: string) => {
+    draftEditRevisionRef.current += 1;
+    setDraft(value);
+  };
   const [pendingModel, setPendingModel] = useState<string | null>(null);
   const [pendingProfile, setPendingProfile] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState('');
+  const [configurationOpen, setConfigurationOpen] = useState(false);
+  const [configurationHandoff, setConfigurationHandoff] = useState<(() => void) | null>(null);
   const live = sessionGatewayMode === 'live';
   const selectedModel = turnOverride.modelOverride ?? { providerId: selected.providerId, modelId: selected.modelId };
   const isAuto = selected.modelMode === 'auto';
@@ -108,6 +124,7 @@ export function Composer() {
     return () => { active = false; };
   }, [live, isAuto, selected.id, selected.status, selected.updatedAt, provenanceFn]);
   const modelKey = selectedModel.providerId && selectedModel.modelId ? `${selectedModel.providerId}/${selectedModel.modelId}` : '';
+  const hasAuthorizedModels = models.length > 0;
   const persist = async (input: SessionSettings) => {
     setSettingsError('');
     try { await saveSessionSettings(selected.id, input); notify('Session settings saved and read back'); return true; }
@@ -166,11 +183,28 @@ export function Composer() {
   const pickerRef = useRef<HTMLDivElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const attachments = selected.pendingAttachments ?? [];
+  const coordinatorActive = Boolean(coordinator?.active);
 
   useEffect(() => {
-    setDraft(takeComposerSeed(selected.id) ?? (selected.queuedDraft || '')); setPickerOpen(false); setAttachmentFeedback(''); setSuggestionsDismissed(false); setHighlighted(0);
+    setEditedDraft(takeComposerSeed(selected.id) ?? (selected.queuedDraft || '')); setPickerOpen(false); setAttachmentFeedback(''); setSuggestionsDismissed(false); setHighlighted(0);
   }, [selected.id, selected.queuedDraft]);
   useEffect(() => { setPendingModel(null); setPendingProfile(null); setSettingsError(''); }, [selected.id]);
+  useEffect(() => {
+    const openConfiguration = () => setConfigurationOpen(true);
+    window.addEventListener('rhythm:open-chat-configuration', openConfiguration);
+    return () => window.removeEventListener('rhythm:open-chat-configuration', openConfiguration);
+  }, []);
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('rhythm:chat-configuration-visibility', { detail: configurationOpen }));
+  }, [configurationOpen]);
+  // Destination dialogs must open only after this dialog has committed its close. That lets the
+  // focus trap release before Workspace activates a lifecycle/defaults surface.
+  useLayoutEffect(() => {
+    if (configurationOpen || !configurationHandoff) return;
+    const action = configurationHandoff;
+    setConfigurationHandoff(null);
+    action();
+  }, [configurationHandoff, configurationOpen]);
   useEffect(() => {
     const syncSendKey = () => setSendKey(readLocalUserPreferences(preferenceUserId).sendKey);
     syncSendKey();
@@ -205,13 +239,23 @@ export function Composer() {
         : (selected.status === 'closed' || selected.status === 'error') && !recoverableSdk
           ? 'This run has ended. Resume it or start fresh if its runtime session is unavailable.'
           : '';
+  // A ready coordinator root has its own server-authoritative admission and
+  // plaintext sender. An absent SDK session after a normal restart must not
+  // turn that root into an ordinary closed/error transcript. Keep the ordinary
+  // lifecycle reason for profile/model controls, attachments, and all
+  // non-coordinator chats; only the coordinator's own send path can bypass it.
+  const coordinatorOwnsComposition = coordinatorActive && !liveChildView && selected.group !== 'archived';
+  const composerDisabledReason = coordinatorOwnsComposition ? '' : disabledReason;
+  const attachmentDisabledReason = coordinatorOwnsComposition
+    ? 'Coordinator messages are plaintext. Remove attachments before sending.'
+    : disabledReason;
   const isFileDrag = (event: React.DragEvent) => event.dataTransfer.types.includes('Files');
   const handleFileDrag = (event: React.DragEvent<HTMLFormElement>) => {
     if (!isFileDrag(event)) return;
     event.preventDefault();
     if (event.type === 'dragenter' || event.type === 'dragover') {
-      event.dataTransfer.dropEffect = disabledReason || !live ? 'none' : 'copy';
-      setFileDragActive(live && !disabledReason);
+      event.dataTransfer.dropEffect = attachmentDisabledReason || !live ? 'none' : 'copy';
+      setFileDragActive(live && !attachmentDisabledReason);
     } else if (event.type === 'dragleave' && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
       setFileDragActive(false);
     }
@@ -220,7 +264,7 @@ export function Composer() {
     if (!isFileDrag(event)) return;
     event.preventDefault();
     setFileDragActive(false);
-    if (disabledReason) { setAttachmentFeedback(disabledReason); notify(disabledReason); return; }
+    if (attachmentDisabledReason) { setAttachmentFeedback(attachmentDisabledReason); notify(attachmentDisabledReason); return; }
     if (!live) return;
     const files = Array.from(event.dataTransfer.files);
     if (files.length > 0) setLiveFiles((current) => [...current, ...files]);
@@ -228,7 +272,7 @@ export function Composer() {
   const atMatch = mentionMatch(draft);
   const atQuery = atMatch?.[1].toLowerCase() ?? '';
   const mentionOptions = useMemo(() => fileFixtures.filter((file) => file.path.toLowerCase().includes(atQuery)), [atQuery]);
-  const suggestionType = disabledReason || suggestionsDismissed ? null : draft.startsWith('/') ? 'slash' : atMatch ? 'mention' : draft.startsWith('!') ? 'shell' : null;
+  const suggestionType = coordinatorActive || disabledReason || suggestionsDismissed ? null : draft.startsWith('/') ? 'slash' : atMatch ? 'mention' : draft.startsWith('!') ? 'shell' : null;
   const slashOptions = sessionGatewayMode === 'live'
     ? liveCommands.map((command) => `/${command.name}`).filter((command) => command.startsWith(draft))
     : slashCommands.filter((command) => command.startsWith(draft));
@@ -265,7 +309,7 @@ export function Composer() {
   // session-scoped content fetch — never retains the transient dropdown/display token.
   const chooseLiveMention = (path: string) => {
     const match = mentionMatch(draft);
-    if (match && match.index !== undefined) setDraft(`${draft.slice(0, match.index)}${draft.slice(match.index + match[0].length)}`.trimStart());
+    if (match && match.index !== undefined) setEditedDraft(`${draft.slice(0, match.index)}${draft.slice(match.index + match[0].length)}`.trimStart());
     setSuggestionsDismissed(false);
     const filename = path.split('/').at(-1) ?? path;
     void gateway.domains.sessions!.fileContent(selected.id, path).then((content) => {
@@ -321,12 +365,40 @@ export function Composer() {
 
   const chooseMention = (file: FileFixture) => {
     const match = mentionMatch(draft);
-    if (match && match.index !== undefined) setDraft(`${draft.slice(0, match.index)}${draft.slice(match.index + match[0].length)}`.trimStart());
+    if (match && match.index !== undefined) setEditedDraft(`${draft.slice(0, match.index)}${draft.slice(match.index + match[0].length)}`.trimStart());
     addFixture(file); setSuggestionsDismissed(false); requestAnimationFrame(() => textareaRef.current?.focus());
   };
 
   const submit = async () => {
-    if (disabledReason) { notify(disabledReason); return; }
+    if (composerDisabledReason) { notify(composerDisabledReason); return; }
+    const submittedDraft = draft;
+    const submittedDraftEditRevision = draftEditRevisionRef.current;
+    const submittedSessionId = selected.id;
+    const coordinatorSubmission = await submitCoordinatorComposerInput({
+      active: coordinatorActive,
+      attachmentCount: sessionGatewayMode === 'live'
+        ? liveFiles.length + liveMentionAttachments.length
+        : attachments.length,
+      message: submittedDraft,
+      send: coordinator?.onSend ?? (async () => false),
+    });
+    if (coordinatorSubmission.handled) {
+      if (coordinatorSubmission.reason) {
+        setAttachmentFeedback(coordinatorSubmission.reason);
+        notify(coordinatorSubmission.reason);
+      }
+      if (coordinatorSubmission.accepted) {
+        // A late coordinator acknowledgement must never erase text typed
+        // while it was in flight, nor a draft from another selected chat.
+        if (activeContext.current.id === submittedSessionId &&
+          draftRef.current === submittedDraft &&
+          draftEditRevisionRef.current === submittedDraftEditRevision) {
+          setEditedDraft('');
+          setAttachmentFeedback('');
+        }
+      }
+      return;
+    }
     const value = draft.trim();
     if (sessionGatewayMode === 'live') {
       if (!value && liveFiles.length === 0 && liveMentionAttachments.length === 0) { notify('Enter a message or attach a file before sending'); textareaRef.current?.focus(); return; }
@@ -335,7 +407,7 @@ export function Composer() {
       const commandMatch = value.match(/^\/(\S+)(?:\s+([\s\S]*))?$/);
       if (commandMatch && liveCommandNames.has(commandMatch[1])) {
         sendLiveCommand(commandMatch[1], commandMatch[2] ?? '');
-        setLiveFiles([]); setLiveMentionAttachments([]); setDraft(''); setAttachmentFeedback('');
+        setLiveFiles([]); setLiveMentionAttachments([]); setEditedDraft(''); setAttachmentFeedback('');
         return;
       }
       const oversized = liveFiles.find((file) => file.size > MAX_LIVE_PARTS_BYTES);
@@ -372,21 +444,21 @@ export function Composer() {
       // confirm what was delivered instead of a content-free "Message sent".
       const textPreview = resolved.find((attachment) => attachment.content !== undefined)?.content;
       if (textPreview) notify(`Message sent · attached: ${textPreview.slice(0, 200)}`);
-      setLiveFiles([]); setLiveMentionAttachments([]); setDraft(''); setAttachmentFeedback('');
+      setLiveFiles([]); setLiveMentionAttachments([]); setEditedDraft(''); setAttachmentFeedback('');
       return;
     }
     if (!value && attachments.length === 0) { notify('Enter a message or attach a file before sending'); textareaRef.current?.focus(); return; }
     if (value.startsWith('\\!')) sendInput(value.slice(1), attachments);
     else if (value.startsWith('!')) { runShell(value.slice(1).trim()); notify('Shell command completed in the fixture terminal'); }
     else sendInput(value, attachments);
-    setDraft(''); setAttachmentFeedback('');
+    setEditedDraft(''); setAttachmentFeedback('');
   };
 
   const useHighlightedSuggestion = () => {
     if (suggestionType === 'mention' && sessionGatewayMode === 'live') { if (liveMentionResults[highlighted]) chooseLiveMention(liveMentionResults[highlighted]); }
     else if (suggestionType === 'mention' && mentionOptions[highlighted]) chooseMention(mentionOptions[highlighted]);
-    else if (suggestionType === 'slash' && slashOptions[highlighted]) { setDraft(`${slashOptions[highlighted]} `); requestAnimationFrame(() => textareaRef.current?.focus()); }
-    else if (suggestionType === 'shell') { setDraft('!git status --short'); requestAnimationFrame(() => textareaRef.current?.focus()); }
+    else if (suggestionType === 'slash' && slashOptions[highlighted]) { setEditedDraft(`${slashOptions[highlighted]} `); requestAnimationFrame(() => textareaRef.current?.focus()); }
+    else if (suggestionType === 'shell') { setEditedDraft('!git status --short'); requestAnimationFrame(() => textareaRef.current?.focus()); }
   };
 
   const handleComposerKey = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -399,22 +471,36 @@ export function Composer() {
     if (matchesSendMessageKey(event, sendKey)) { event.preventDefault(); void submit(); }
   };
 
+  const configurationFields = (
+    <div className="chat-configuration-fields">
+      <label className="field">Agent<select value={live ? turnOverride.profileId ?? selected.profileId : selected.profileId} onChange={(event) => { if (live) { setPendingProfile(event.target.value); setConfigurationOpen(false); } else { const profile = profiles.find((item) => item.id === event.target.value); updateSession(selected.id, { profileId: event.target.value, model: profile?.model || selected.model }); } }} data-testid="composer-profile" disabled={Boolean(disabledReason) || live && !selected.id}><option value="" disabled>Choose agent</option>{profiles.filter((profile) => profile.enabled && profile.selectable && (!live || !profile.id.startsWith('profile-created-'))).map((profile) => <option value={profile.id} key={profile.id}>{profile.label}</option>)}</select></label>
+      <label className="field">Model<select value={live ? (autoSelected ? AUTO_MODEL_VALUE : modelKey) : selected.model} onChange={(event) => { setPendingModel(event.target.value); if (live) setConfigurationOpen(false); }} data-testid="composer-model" disabled={Boolean(disabledReason) || live && (!selected.id || !hasAuthorizedModels)}>{live ? <><option value={AUTO_MODEL_VALUE}>Auto (router)</option><option value="" disabled>Session model default</option>{modelKey && !models.some(m => `${m.providerId}/${m.modelId}` === modelKey) && <option value={modelKey} disabled>{modelKey} (unavailable)</option>}{models.map(m => <option key={`${m.providerId}/${m.modelId}`} value={`${m.providerId}/${m.modelId}`}>{m.label} · {m.providerId}</option>)}</> : <><option>gpt-5.6</option><option>gpt-5.6-codex</option><option>claude-sonnet-4</option></>}</select>{live && !hasAuthorizedModels && <small role="status">No authorized models are available. Refresh configuration after an account or provider is available.</small>}{live && autoSelected && routerPick?.sessionId === selected.id && <small className="composer-router-pick" data-testid="composer-router-pick" role="status">Auto served {routerPick.label}</small>}</label>
+      <label className="field">Approval policy<select value={selected.permissionMode} onChange={(event) => { const bypassValue = live ? 'bypassPermissions' : 'Bypass'; if (event.target.value === bypassValue) { setBypassConfirm(true); setConfigurationOpen(false); } else if (live) void persist({ permissionMode: event.target.value }); else updateSession(selected.id, { permissionMode: event.target.value }); }} data-testid="composer-permission-mode" disabled={Boolean(disabledReason) || live && !selected.id}>{(live ? livePermissionModeOptions : fixturePermissionModeOptions).map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
+      <label className="field">Reasoning budget{live ? <input type="number" min="0" step="1" key={`${selected.id}-${selected.thinkingBudget}`} defaultValue={selected.thinkingBudget} placeholder="Default budget" onBlur={event => { if (event.target.checkValidity() && event.target.value !== selected.thinkingBudget) void persist({ thinkingBudget: event.target.value === '' ? null : Number(event.target.value) }); }} data-testid="composer-thinking" disabled={Boolean(disabledReason) || !selected.id} /> : <select value={selected.thinkingBudget} onChange={(event) => updateSession(selected.id, { thinkingBudget: event.target.value })} data-testid="composer-thinking" disabled={Boolean(disabledReason)}><option>Off</option><option>Low</option><option>Medium</option><option>High</option><option>X-High</option><option>Max</option></select>}</label>
+      <button className={`toggle-button ${selected.fastMode ? 'active' : ''}`} type="button" aria-pressed={selected.fastMode} onClick={() => { if (live) void persist({ fastMode: !selected.fastMode }); else updateSession(selected.id, { fastMode: !selected.fastMode }); }} data-testid="composer-fast" disabled={Boolean(disabledReason) || live && !selected.id}><Icon name="activity" size={13} />Fast mode</button>
+    </div>
+  );
+  const closeConfigurationThen = (action: () => void) => {
+    setConfigurationHandoff(() => action);
+    setConfigurationOpen(false);
+  };
+
   return (
     <form className={`composer ${offline ? 'offline' : ''} ${fileDragActive ? 'file-drag-active' : ''}`} aria-label="Message composer" onDragEnter={handleFileDrag} onDragOver={handleFileDrag} onDragLeave={handleFileDrag} onDrop={handleFileDrop} onSubmit={(event) => { event.preventDefault(); void submit(); }} data-od-id="agent-composer">
       {fileDragActive && <div className="composer-drop-status" role="status">Drop files to attach</div>}
       {live && (settingsError || catalogError) && <p role="alert">{settingsError || catalogError}</p>}
       {live && (turnOverride.profileId || turnOverride.modelOverride) && <p role="status">Next turn only: {profiles.find(p => p.id === turnOverride.profileId)?.label} {turnOverride.modelOverride?.modelId}</p>}
       {offline && <div className="offline-queue" role="status" data-testid="offline-queue"><span><Icon name="background" size={15} /><strong>Desktop offline</strong> · input remains local until you reconnect.</span><button className="secondary-button" type="button" onClick={reconnect} data-testid="reconnect-button"><Icon name="refresh" size={14} />Reconnect &amp; flush</button></div>}
-      {disabledReason && <div className="composer-disabled-reason" role="status"><Icon name="background" size={14} />{disabledReason}</div>}
+      {composerDisabledReason && <div className="composer-disabled-reason" role="status"><Icon name="background" size={14} />{composerDisabledReason}</div>}
       {attachments.length > 0 && <div className="attachment-list" role="region" aria-label="Pending attachments" data-testid="attachment-list">{attachments.map((attachment) => <div className="attachment-chip" key={attachment.id} data-testid={`attachment-${attachment.id.replace('attachment-', '')}`}><Icon name={attachment.type === 'file' ? 'command' : 'file'} size={14} /><span><strong>{attachment.filename}</strong><small>{attachment.truncated ? 'first 100 KB · truncated' : attachment.type === 'file' ? 'local file reference' : attachment.mime}</small></span><button type="button" onClick={() => removeAttachment(attachment.id)} aria-label={`Remove ${attachment.filename}`} disabled={Boolean(disabledReason)} data-testid={`attachment-remove-${attachment.id.replace('attachment-', '')}`}><Icon name="close" size={13} /></button></div>)}</div>}
       {sessionGatewayMode === 'live' && (liveFiles.length > 0 || liveMentionAttachments.length > 0) && <div className="attachment-list" role="region" aria-label="Pending attachments" data-testid="live-attachment-list">
         {liveMentionAttachments.map((attachment) => <div className="attachment-chip" key={attachment.id} data-testid={`live-mention-${attachment.id}`}><Icon name={attachment.type === 'file' ? 'command' : 'file'} size={14} /><span><strong>{attachment.filename}</strong><small>{attachment.mime}</small></span><button type="button" onClick={() => setLiveMentionAttachments((current) => current.filter((item) => item.id !== attachment.id))} aria-label={`Remove ${attachment.filename}`}><Icon name="close" size={13} /></button></div>)}
         {liveFiles.map((file, index) => <div className="attachment-chip" key={`${file.name}-${index}`} data-testid={`live-attachment-${index}`}><Icon name="file" size={14} /><span><strong>{file.name}</strong><small>{file.type || 'application/octet-stream'}</small></span><button type="button" onClick={() => setLiveFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${file.name}`}><Icon name="close" size={13} /></button></div>)}
       </div>}
       {attachmentFeedback && <div className={`attachment-feedback ${attachmentFeedback.startsWith('Could not') ? 'error' : ''}`} id="composer-attachment-feedback" role={attachmentFeedback.startsWith('Could not') ? 'alert' : 'status'} data-testid="attachment-feedback"><span>{attachmentFeedback}</span>{attachmentFeedback.startsWith('Could not') && <button type="button" className="text-button" onClick={() => { setAttachmentFeedback(''); textareaRef.current?.focus(); }}>Dismiss</button>}</div>}
-      <label className="composer-label" htmlFor="composer-input">Message the agent</label>
+      <label className="composer-label" htmlFor="composer-input">{coordinatorActive ? 'Message Rhythm' : 'Message the agent'}</label>
       <div className="composer-input-row">
-        <textarea id="composer-input" ref={textareaRef} value={draft} onChange={(event) => { setDraft(event.target.value); setSuggestionsDismissed(false); }} onKeyDown={handleComposerKey} placeholder="Message the agent · / command · @ file · ! shell" rows={2} role="combobox" aria-autocomplete="list" aria-controls="composer-suggestions-list" aria-expanded={Boolean(suggestionType)} aria-activedescendant={suggestionType && suggestionCount > 0 ? `composer-${suggestionType}-option-${highlighted}` : undefined} aria-describedby={`composer-help${attachmentFeedback ? ' composer-attachment-feedback' : ''}`} disabled={Boolean(disabledReason)} data-testid="composer-input" />
+        <textarea id="composer-input" ref={textareaRef} value={draft} onChange={(event) => { setEditedDraft(event.target.value); setSuggestionsDismissed(false); }} onKeyDown={handleComposerKey} placeholder={coordinatorActive ? 'Message Rhythm about your work…' : 'Message the agent · / command · @ file · ! shell'} rows={2} role="combobox" aria-autocomplete={coordinatorActive ? 'none' : 'list'} aria-controls={coordinatorActive ? undefined : 'composer-suggestions-list'} aria-expanded={Boolean(suggestionType)} aria-activedescendant={suggestionType && suggestionCount > 0 ? `composer-${suggestionType}-option-${highlighted}` : undefined} aria-describedby={`composer-help${attachmentFeedback ? ' composer-attachment-feedback' : ''}`} disabled={Boolean(composerDisabledReason)} data-testid="composer-input" />
         {selected.status === 'working' && !offline
           // Pre-existing gotcha (unrelated to Phase 4 attachments/streaming/parts/pagination):
           // without distinct `key`s, React patches this button's `type` in place (button→submit)
@@ -422,11 +508,11 @@ export function Composer() {
           // node's type attribute mutates to "submit" before the browser's native default action
           // for that same click runs — silently firing a second, empty form submit right after
           // cancel. Distinct keys force a real remount so the swap can't hijack the click.
-          ? <button key="composer-cancel" className="danger-icon-button" type="button" onClick={() => cancelSession(selected.id)} aria-label="Cancel running session" data-testid="composer-cancel" disabled={Boolean(disabledReason)}><Icon name="cancel" size={15} /></button>
-          : <button key="composer-send" className="send-button" type="submit" aria-label={offline ? 'Queue draft locally' : 'Send message'} data-testid="composer-send" disabled={Boolean(disabledReason)}><Icon name="send" size={17} /></button>}
+          ? <button key="composer-cancel" className="danger-icon-button" type="button" onClick={() => cancelSession(selected.id)} aria-label="Cancel running session" data-testid="composer-cancel" disabled={Boolean(composerDisabledReason)}><Icon name="cancel" size={15} /></button>
+          : <button key="composer-send" className="send-button" type="submit" aria-label={offline ? 'Queue draft locally' : 'Send message'} data-testid="composer-send" disabled={Boolean(composerDisabledReason)}><Icon name="send" size={17} /></button>}
       </div>
       {suggestionType && <div ref={suggestionsRef} id="composer-suggestions-list" className="composer-suggestions" role="listbox" aria-label={`${suggestionType} suggestions`} data-testid="composer-suggestions">
-        {suggestionType === 'slash' && slashOptions.map((command, index) => <button id={`composer-slash-option-${index}`} role="option" aria-selected={highlighted === index} type="button" key={command} onClick={() => { setDraft(`${command} `); textareaRef.current?.focus(); }} data-testid={`command-${command.slice(1)}`}><Icon name="command" size={14} /><strong>{command}</strong><small>{sessionGatewayMode === 'live' ? (liveCommands.find((entry) => entry.name === command.slice(1))?.description || 'Command') : 'Fixture command'}</small></button>)}
+        {suggestionType === 'slash' && slashOptions.map((command, index) => <button id={`composer-slash-option-${index}`} role="option" aria-selected={highlighted === index} type="button" key={command} onClick={() => { setEditedDraft(`${command} `); textareaRef.current?.focus(); }} data-testid={`command-${command.slice(1)}`}><Icon name="command" size={14} /><strong>{command}</strong><small>{sessionGatewayMode === 'live' ? (liveCommands.find((entry) => entry.name === command.slice(1))?.description || 'Command') : 'Fixture command'}</small></button>)}
         {suggestionType === 'slash' && sessionGatewayMode === 'live' && commandsUnavailable && <div className="suggestion-empty" role="status">Commands are unavailable. Try again after reconnecting.</div>}
         {suggestionType === 'slash' && sessionGatewayMode === 'live' && !commandsUnavailable && slashOptions.length === 0 && <div className="suggestion-empty" role="status">No matching commands</div>}
         {suggestionType === 'mention' && sessionGatewayMode === 'live' && liveMentionResults.map((path, index) => <button id={`composer-mention-option-${index}`} role="option" aria-selected={highlighted === index} type="button" key={path} onClick={() => chooseLiveMention(path)} data-testid={`mention-option-live-${index}`}><Icon name="file" size={14} /><strong>{path}</strong></button>)}
@@ -435,21 +521,22 @@ export function Composer() {
         {suggestionType === 'mention' && sessionGatewayMode === 'live' && mentionState === 'ready' && liveMentionResults.length === 0 && <div className="suggestion-empty" role="status" data-testid="mention-no-results">No matching files</div>}
         {suggestionType === 'mention' && sessionGatewayMode !== 'live' && mentionOptions.map((file, index) => <button id={`composer-mention-option-${index}`} role="option" aria-selected={highlighted === index} type="button" key={file.id} onClick={() => chooseMention(file)} data-testid={`mention-option-${file.id}`}><Icon name="file" size={14} /><strong>{file.path}</strong><small>{file.description}</small></button>)}
         {suggestionType === 'mention' && sessionGatewayMode !== 'live' && mentionOptions.length === 0 && <div className="suggestion-empty" role="status" data-testid="mention-no-results">No matching files</div>}
-        {suggestionType === 'shell' && <button id="composer-shell-option-0" role="option" aria-selected="true" type="button" onClick={() => { setDraft('!git status --short'); textareaRef.current?.focus(); }} data-testid="shell-shortcut-option"><Icon name="terminal" size={14} /><strong>!git status --short</strong><small>Run through session shell</small></button>}
+        {suggestionType === 'shell' && <button id="composer-shell-option-0" role="option" aria-selected="true" type="button" onClick={() => { setEditedDraft('!git status --short'); textareaRef.current?.focus(); }} data-testid="shell-shortcut-option"><Icon name="terminal" size={14} /><strong>!git status --short</strong><small>Run through session shell</small></button>}
       </div>}
       <div className="composer-toolbar">
         <div className="composer-selects">
-          <label><span className="sr-only">Agent</span><select value={live ? turnOverride.profileId ?? selected.profileId : selected.profileId} onChange={(event) => { if (live) setPendingProfile(event.target.value); else { const profile = profiles.find((item) => item.id === event.target.value); updateSession(selected.id, { profileId: event.target.value, model: profile?.model || selected.model }); } }} data-testid="composer-profile" disabled={Boolean(disabledReason) || live && !selected.id}><option value="" disabled>Choose agent</option>{profiles.filter((profile) => profile.enabled && profile.selectable && (!live || !profile.id.startsWith('profile-created-'))).map((profile) => <option value={profile.id} key={profile.id}>{profile.label}</option>)}</select></label>
-          <label><span className="sr-only">Model</span><select value={live ? (autoSelected ? AUTO_MODEL_VALUE : modelKey) : selected.model} onChange={(event) => setPendingModel(event.target.value)} data-testid="composer-model" disabled={Boolean(disabledReason) || live && !selected.id}>{live ? <><option value={AUTO_MODEL_VALUE}>Auto (router)</option><option value="" disabled>Session model default</option>{modelKey && !models.some(m => `${m.providerId}/${m.modelId}` === modelKey) && <option value={modelKey} disabled>{modelKey} (unavailable)</option>}{models.map(m => <option key={`${m.providerId}/${m.modelId}`} value={`${m.providerId}/${m.modelId}`}>{m.label} · {m.providerId}</option>)}</> : <><option>gpt-5.6</option><option>gpt-5.6-codex</option><option>claude-sonnet-4</option></>}</select></label>{live && autoSelected && routerPick?.sessionId === selected.id && <span className="composer-router-pick" data-testid="composer-router-pick" role="status">Auto → {routerPick.label}</span>}
-          <label><span className="sr-only">Permission mode</span><select value={selected.permissionMode} onChange={(event) => { const bypassValue = live ? 'bypassPermissions' : 'Bypass'; if (event.target.value === bypassValue) setBypassConfirm(true); else if (live) void persist({ permissionMode: event.target.value }); else updateSession(selected.id, { permissionMode: event.target.value }); }} data-testid="composer-permission-mode" disabled={Boolean(disabledReason) || live && !selected.id}>{(live ? livePermissionModeOptions : fixturePermissionModeOptions).map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
-          <label><span className="sr-only">Reasoning budget</span>{live ? <input type="number" min="0" step="1" key={`${selected.id}-${selected.thinkingBudget}`} defaultValue={selected.thinkingBudget} placeholder="Default budget" onBlur={event => { if (event.target.checkValidity() && event.target.value !== selected.thinkingBudget) void persist({ thinkingBudget: event.target.value === '' ? null : Number(event.target.value) }); }} data-testid="composer-thinking" disabled={Boolean(disabledReason) || !selected.id} /> : <select value={selected.thinkingBudget} onChange={(event) => updateSession(selected.id, { thinkingBudget: event.target.value })} data-testid="composer-thinking" disabled={Boolean(disabledReason)}><option>Off</option><option>Low</option><option>Medium</option><option>High</option><option>X-High</option><option>Max</option></select>}</label>
-          <button className={`toggle-button ${selected.fastMode ? 'active' : ''}`} type="button" aria-pressed={selected.fastMode} onClick={() => { if (live) void persist({ fastMode: !selected.fastMode }); else updateSession(selected.id, { fastMode: !selected.fastMode }); }} data-testid="composer-fast" disabled={Boolean(disabledReason) || live && !selected.id}><Icon name="activity" size={13} />Fast</button>
           {sessionGatewayMode === 'live'
-            ? <label className="icon-button small live-file-label" aria-label="Attach files" data-testid="composer-attach"><Icon name="attach" size={15} /><input type="file" multiple className="sr-only" onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length > 0) setLiveFiles((current) => [...current, ...files]); event.target.value = ''; }} disabled={Boolean(disabledReason)} data-testid="composer-live-file-input" /></label>
-            : <div className="attachment-picker-anchor"><button ref={attachButtonRef} className="icon-button small" type="button" onClick={() => setPickerOpen((value) => !value)} aria-label="Attach files" aria-haspopup="menu" aria-expanded={pickerOpen} data-testid="composer-attach" disabled={Boolean(disabledReason)}><Icon name="attach" size={15} /></button>{pickerOpen && <div ref={pickerRef} className="attachment-picker menu-popover" role="menu" aria-label="Fixture files" data-testid="attachment-picker"><div className="menu-heading"><span>Attach files</span><small>Local fixture</small></div>{fileFixtures.map((file) => <button className="menu-item stacked" role="menuitem" type="button" key={file.id} onClick={() => { addFixture(file); setPickerOpen(false); requestAnimationFrame(() => attachButtonRef.current?.focus()); }} data-testid={`attachment-option-${file.id}`}><Icon name={file.outcome === 'binary' ? 'command' : 'file'} size={14} /><span><strong>{file.path}</strong><small>{file.description}</small></span></button>)}</div>}</div>}
+            ? <label className="icon-button small live-file-label" aria-label="Attach files" data-testid="composer-attach"><Icon name="attach" size={15} /><input type="file" multiple className="sr-only" onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length > 0) setLiveFiles((current) => [...current, ...files]); event.target.value = ''; }} disabled={Boolean(disabledReason) || coordinatorActive} data-testid="composer-live-file-input" /></label>
+            : <div className="attachment-picker-anchor"><button ref={attachButtonRef} className="icon-button small" type="button" onClick={() => setPickerOpen((value) => !value)} aria-label="Attach files" aria-haspopup="menu" aria-expanded={pickerOpen} data-testid="composer-attach" disabled={Boolean(disabledReason) || coordinatorActive}><Icon name="attach" size={15} /></button>{pickerOpen && <div ref={pickerRef} className="attachment-picker menu-popover" role="menu" aria-label="Fixture files" data-testid="attachment-picker"><div className="menu-heading"><span>Attach files</span><small>Local fixture</small></div>{fileFixtures.map((file) => <button className="menu-item stacked" role="menuitem" type="button" key={file.id} onClick={() => { addFixture(file); setPickerOpen(false); requestAnimationFrame(() => attachButtonRef.current?.focus()); }} data-testid={`attachment-option-${file.id}`}><Icon name={file.outcome === 'binary' ? 'command' : 'file'} size={14} /><span><strong>{file.path}</strong><small>{file.description}</small></span></button>)}</div>}</div>}
         </div>
         <small id="composer-help">{sendKey === 'Enter' ? 'Enter to send · Shift+Enter for newline' : `${sendMessageKeyLabel(sendKey)} to send · Enter for newline`}</small>
       </div>
+      <FocusDialog open={configurationOpen} onClose={() => setConfigurationOpen(false)} title="Chat configuration" description="Choose an agent, model, approval policy, and response settings for this chat." testId="chat-configuration-dialog" wide>
+        {(settingsError || catalogError) && <p className="form-error" role="alert" aria-live="assertive">{settingsError || catalogError}</p>}
+        <div className="chat-configuration-summary" role="status">{profiles.find((profile) => profile.id === (turnOverride.profileId ?? selected.profileId))?.label ?? 'No agent'} · {autoSelected ? 'Auto model' : modelKey || 'Session model default'}</div>
+        {configurationFields}
+        {renderSecondaryChatActions && <details className="chat-configuration-secondary"><summary data-testid="session-actions-secondary">More chat actions</summary><div className="dialog-actions">{renderSecondaryChatActions(closeConfigurationThen)}</div></details>}
+      </FocusDialog>
       <FocusDialog open={Boolean(pendingProfile)} onClose={() => setPendingProfile(null)} title="Apply agent selection" description="Use this agent for one turn or save it as the session default." testId="agent-scope-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setPendingProfile(null)}>Cancel</button><button className="secondary-button" type="button" data-testid="agent-this-turn" onClick={() => { if (pendingProfile) stageTurnOverride({ profileId: pendingProfile }); setPendingProfile(null); }}>This turn only</button><button className="primary-button" type="button" data-testid="agent-session-default" onClick={() => { if (pendingProfile) void persist({ profileId: pendingProfile }).then(ok => { if (ok) setPendingProfile(null); }); }}>Session default</button></div>{settingsError && <p role="alert">{settingsError}</p>}</FocusDialog>
       <FocusDialog open={Boolean(pendingModel)} onClose={() => setPendingModel(null)} title="Apply model selection" description={pendingModel === AUTO_MODEL_VALUE ? 'Let the router choose the model for each turn in this session.' : pendingModel ? `Use ${pendingModel} for this prompt or make it the session default.` : ''} testId="model-scope-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setPendingModel(null)}>Cancel</button>{pendingModel !== AUTO_MODEL_VALUE && <button className="secondary-button" type="button" onClick={() => void applyModel('turn')} data-testid="model-this-turn">This turn only</button>}<button className="primary-button" type="button" onClick={() => void applyModel('session')} data-testid="model-session-default">Session default</button></div>{settingsError && <p role="alert">{settingsError}</p>}</FocusDialog>
       <FocusDialog open={bypassConfirm} onClose={() => setBypassConfirm(false)} title="Bypass all permissions?" description="The agent can run tools without asking. Use this only in a trusted workspace." testId="bypass-confirm-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setBypassConfirm(false)}>Cancel</button><button className="danger-button" type="button" onClick={() => { if (live) void persist({ permissionMode: 'bypassPermissions' }).then(ok => { if (ok) setBypassConfirm(false); }); else { updateSession(selected.id, { permissionMode: 'Bypass' }); setBypassConfirm(false); notify('Bypass permission mode enabled'); } }} data-testid="bypass-confirm">Enable Bypass</button></div>{settingsError && <p role="alert">{settingsError}</p>}</FocusDialog>

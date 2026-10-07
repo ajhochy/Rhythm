@@ -9,6 +9,18 @@ vi.mock('../opencode_engine', () => ({
   },
 }));
 
+// Scope assertions exercise routing with available provider quota, independent
+// of the operator's live usage-budget snapshot.
+vi.mock('../usage_budget_service', () => ({
+  getUsageBudget: vi.fn().mockResolvedValue({
+    fetchedAt: '2026-10-06T00:00:00Z',
+    providers: [
+      { provider: 'anthropic', label: 'Anthropic', kind: 'window', items: [{ label: '5h', remainingFraction: 1 }] },
+      { provider: 'openai', label: 'OpenAI', kind: 'window', items: [{ label: '5h', remainingFraction: 1 }] },
+    ],
+  }),
+}));
+
 import { setDb } from '../../database/db';
 import { runMigrations } from '../../database/migrations';
 import { AgentSessionsRepository } from '../../repositories/agent_sessions_repository';

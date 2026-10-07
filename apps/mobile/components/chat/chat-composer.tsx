@@ -38,6 +38,7 @@ type ChatComposerProps = {
   currentSessionId?: string;
   commands: Command[];
   onCommandSelect: (command: string) => void;
+  coordinatorActive?: boolean;
 };
 
 export function ChatComposer({
@@ -61,10 +62,13 @@ export function ChatComposer({
   palette,
   showSendAction,
   routerPick,
+  coordinatorActive = false,
 }: ChatComposerProps) {
   const hasComposerContent = Boolean(draft.trim()) || attachments.length > 0;
   const sendDisabled = !hasComposerContent || connectionStatus !== 'connected' || isCreatingSession || isSpeechInputListening;
   const stopDisabled = connectionStatus !== 'connected' || !currentSessionId || isStoppingSession;
+  // Coordinator messages remain plaintext, so ordinary dictation can safely
+  // fill this draft. Only the SDK-owned continuous conversation loop blocks it.
   const dictationDisabled = conversation.active || connectionStatus !== 'connected' || (!isSpeechInputListening && !isSpeechInputAvailable);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
@@ -102,7 +106,7 @@ export function ChatComposer({
         </ScrollView>
       ) : null}
 
-      {draft.startsWith('/') && !draft.includes(' ') && commands.length > 0 ? (
+      {!coordinatorActive && draft.startsWith('/') && !draft.includes(' ') && commands.length > 0 ? (
         <View style={styles.attachmentRow}>
           {commands.filter((command) => command.name.startsWith(draft.slice(1))).slice(0, 6).map((command) => (
             <Chip key={command.name} compact mode="outlined" onPress={() => onCommandSelect(command.name)}>
@@ -133,6 +137,7 @@ export function ChatComposer({
                 icon="plus"
                 size={20}
                 style={styles.composerInlineButton}
+                disabled={coordinatorActive}
                 onPress={onAttach}
               />
             </View>
@@ -153,7 +158,9 @@ export function ChatComposer({
                placeholder={
                  connectionStatus === 'desktop-offline'
                    ? 'Desktop offline — you can still read sessions'
-                   : 'Ask anything...'
+                  : coordinatorActive
+                    ? 'Message Rhythm about this project…'
+                    : 'Ask anything...'
                }
                placeholderTextColor={palette.muted}
                style={[

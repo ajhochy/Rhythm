@@ -150,6 +150,11 @@ function rhythmApplicationDataDir(): string {
   return path.dirname(expandHome(process.env.DB_PATH ?? path.join(os.homedir(), 'Library', 'Application Support', 'Rhythm', 'rhythm.db')));
 }
 
+/** Private, app-managed state for the local Dayflow integration. */
+export function resolveDayflowIntegrationStateDir(): string {
+  return path.join(rhythmApplicationDataDir(), 'dayflow-integration');
+}
+
 export function resolveManagedToolRoot(): string {
   return expandHome(process.env.RHYTHM_MANAGED_TOOL_ROOT ?? path.join(rhythmApplicationDataDir(), 'managed-tools'));
 }
@@ -609,6 +614,9 @@ export const env = {
    * execution.
    */
   recipeWorkflowsEnabled: process.env.RHYTHM_RECIPE_WORKFLOWS_ENABLED === 'true',
+  workstreamsEnabled:
+    process.env.RHYTHM_WORKSTREAMS_ENABLED === 'true' &&
+    dbClientValue === 'sqlite' && deploymentRole !== 'cloud' && deploymentRole !== 'relay',
   /** True only for the Synology relay container (RHYTHM_ROLE=relay). */
   isRelayRole: deploymentRole === 'relay',
   /**

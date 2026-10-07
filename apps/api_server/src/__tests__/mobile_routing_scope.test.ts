@@ -21,6 +21,18 @@ vi.mock('../services/opencode_engine', () => ({
   opencodeSessionMap: new Map<string, string>(),
 }));
 
+// Routing scope is independent of the operator's live provider quota. Keep this
+// fixture healthy so the real tier resolver can exercise the frontier choice.
+vi.mock('../services/usage_budget_service', () => ({
+  getUsageBudget: vi.fn().mockResolvedValue({
+    fetchedAt: '2026-10-06T00:00:00Z',
+    providers: [
+      { provider: 'anthropic', label: 'Anthropic', kind: 'window', items: [{ label: '5h', remainingFraction: 1 }] },
+      { provider: 'openai', label: 'OpenAI', kind: 'window', items: [{ label: '5h', remainingFraction: 1 }] },
+    ],
+  }),
+}));
+
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { asOpenCodeAgentId } from '../models/agent_session';

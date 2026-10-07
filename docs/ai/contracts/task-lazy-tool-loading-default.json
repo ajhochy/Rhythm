@@ -1,0 +1,77 @@
+{
+  "issue": 0,
+  "task": "lazy-tool-loading-default",
+  "schemaNote": "User request has no GitHub issue; issue0 is a local placeholder, not a GitHub issue claim. Criterion IDs use task namespace.",
+  "generated": "2026-10-06",
+  "criteria": [
+    {
+      "criterion_id": "task-lazy-default-c1",
+      "text": "New and existing supported Rhythm fork sessions default to lazy tool loading without changing grants.",
+      "mode": "unit",
+      "status": "pending",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/lazy_loading_default.test.ts",
+      "test_id": "task-lazy-default-c1: legacy and new session fields default to deferred tools"
+    },
+    {
+      "criterion_id": "task-lazy-default-c2",
+      "text": "A lightweight bounded bootstrap discovers tools on demand from the actual current inventory instead of loading every full definition.",
+      "mode": "unit",
+      "status": "pending",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/lazy_loading_default.test.ts",
+      "test_id": "task-lazy-default-c2: bootstrap catalog stays bounded for a large actual inventory"
+    },
+    {
+      "criterion_id": "task-lazy-default-c3",
+      "text": "Tool discovery returns current authorized tools and on-demand complete schemas; a valid discovered tool executes successfully.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: requires builder-owned composed actual fork/API fixture or installed-session metadata; worker must add focused existing-harness regressions before implementation and builder performs actual-runtime proof."
+    },
+    {
+      "criterion_id": "task-lazy-default-c4",
+      "text": "Missing, unknown, denied and revoked tools remain refused and no allowlist or permission is broadened.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: requires builder-owned composed actual fork/API fixture or installed-session metadata; worker must add focused existing-harness regressions before implementation and builder performs actual-runtime proof."
+    },
+    {
+      "criterion_id": "task-lazy-default-c5",
+      "text": "Signed coordinator and Dayflow calls retain exact current native assistant/tool-call/user-message identity during deferred execution.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: requires builder-owned composed actual fork/API fixture or installed-session metadata; worker must add focused existing-harness regressions before implementation and builder performs actual-runtime proof."
+    },
+    {
+      "criterion_id": "task-lazy-default-c6",
+      "text": "All supported Rhythm profile/provider and desktop/mobile entry paths use the same default; standalone Codex, Claude and Hermes settings are unchanged.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: requires builder-owned composed actual fork/API fixture or installed-session metadata; worker must add focused existing-harness regressions before implementation and builder performs actual-runtime proof."
+    },
+    {
+      "criterion_id": "task-lazy-default-c7",
+      "text": "Before and after model-facing schema/catalog sizes use real serialized definitions and are reported separately from provider usage and cost.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: requires builder-owned composed actual fork/API fixture or installed-session metadata; worker must add focused existing-harness regressions before implementation and builder performs actual-runtime proof."
+    },
+    {
+      "criterion_id": "task-lazy-default-c8",
+      "text": "Skill bodies remain lazy; any technically necessary eager bootstrap/control exceptions are explicitly enumerated.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: requires builder-owned composed actual fork/API fixture or installed-session metadata; worker must add focused existing-harness regressions before implementation and builder performs actual-runtime proof."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "task-lazy-default-c3",
+    "task-lazy-default-c4",
+    "task-lazy-default-c5",
+    "task-lazy-default-c6",
+    "task-lazy-default-c7",
+    "task-lazy-default-c8"
+  ],
+  "proposedBootstrapCeilingBytes": 6000,
+  "bootstrapCeilingStatus": "acceptance target, not an existing implemented bound"
+}

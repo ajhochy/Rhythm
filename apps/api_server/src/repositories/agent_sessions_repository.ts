@@ -17,6 +17,7 @@ import {
   asRhythmProfileId,
   isUntitledSessionName,
   normalizeSessionModelMode,
+  PERMISSION_MODES,
 } from '../models/agent_session';
 import {
   appendRelayDelete,
@@ -93,6 +94,7 @@ interface ParentSessionScopeRow {
   task_id: string | null;
   task_title: string | null;
   agent_kind: string;
+  permission_mode: PermissionMode;
   project_id: string | null;
   scheduled_task_id: string | null;
   is_system: number;
@@ -264,10 +266,10 @@ export function listPage(opts: SessionHistoryQuery = {}): SessionHistoryPage {
   else if (!search) matchClauses.push('parent_session_id IS NULL');
   if (search) {
     // instr is literal (%, _ are not wildcards); SQLite lower provides ASCII folding.
-    matchClauses.push(`(${['name', 'last_preview', 'cwd', 'task_title', 'project_id'].map(column =>
+    matchClauses.push(`(${['name', 'last_preview', 'cwd', 'task_title', 'project_id', 'sdk_session_id'].map(column =>
       `instr(lower(COALESCE(${column}, '')), lower(?)) > 0`).join(' OR ')}
       OR project_id IN (SELECT id FROM projects WHERE instr(lower(name), lower(?)) > 0 OR instr(lower(cwd), lower(?)) > 0))`);
-    matchParams.push(...Array(7).fill(search));
+    matchParams.push(...Array(8).fill(search));
   }
   const key = JSON.stringify([matchClauses, matchParams]);
   const now = Date.now();
@@ -455,7 +457,7 @@ export class AgentSessionsRepository {
   ): ParentSessionScopeRow | undefined {
     return db
       .prepare(
-        `SELECT id, task_id, task_title, agent_kind, project_id,
+        `SELECT id, task_id, task_title, agent_kind, permission_mode, project_id,
                 scheduled_task_id, is_system, anthropic_account_id,
                 openai_account_id, owner_user_id, delegation_depth, category,
                 worktree_name, worktree_path, worktree_branch
@@ -474,7 +476,10 @@ export class AgentSessionsRepository {
     cwd: string,
     mcpAllowedToolsJson: string | null,
     now: string,
-  ): AgentSession {
+  ): AgentSession | null {
+    // A native Task child must retain the canonical parent's execution mode.
+    // Invalid stored policy cannot be interpreted as default or new consent.
+    if (!PERMISSION_MODES.includes(parentRow.permission_mode)) return null;
     // #867: the engine's task title is the only carrier of a native task
     // child's specialist identity. Scope comes from the parent, identity does
     // not, so keep the parsed specialist agent kind child-owned.
@@ -549,9 +554,9 @@ export class AgentSessionsRepository {
           sdk_session_id, parent_session_id, mcp_allowed_tools_json,
           scheduled_task_id, is_system, anthropic_account_id, openai_account_id,
           owner_user_id, delegation_depth, category, worktree_name, worktree_path,
-          worktree_branch, created_at, updated_at)
+          worktree_branch, permission_mode, approval_bypass_explicit, created_at, updated_at)
        VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-               ?, ?, ?, ?, ?)`,
+               ?, ?, ?, ?, 0, ?, ?)`,
     ).run(
       childLocalId,
       parentRow.task_id,
@@ -573,6 +578,7 @@ export class AgentSessionsRepository {
       parentRow.worktree_name,
       parentRow.worktree_path,
       parentRow.worktree_branch,
+      parentRow.permission_mode,
       now,
       now,
     );

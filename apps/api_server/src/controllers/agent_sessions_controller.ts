@@ -926,7 +926,7 @@ export class AgentSessionsController {
       // "unassigned"). When the client omits the field entirely, fall back to
       // cwd-prefix lookup against the projects table (longest match wins,
       // archived projects skipped).
-      const expandedCwd = expandHome(cwd.trim());
+      const expandedCwd = expandHome(cwd);
 
       // Optional branch checkout before starting the session.
       const branchParam = body.branch;
@@ -2277,6 +2277,8 @@ export class AgentSessionsController {
         memoryIds: record.memoryIds,
         notePaths: record.notePaths,
         items: record.items,
+        semanticStatus: record.semanticStatus,
+        semanticHitCount: record.semanticHitCount,
       });
     } catch (err) {
       next(err);

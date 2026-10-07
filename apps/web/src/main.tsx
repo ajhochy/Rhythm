@@ -10,6 +10,16 @@ import './styles.css';
 
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 const environment = (import.meta as ImportMeta & { env: Record<string, string | undefined> }).env;
+type DayflowDesktopStatus =
+  | { status: 'ready'; version: string; build: string; identifier: string }
+  | { status: 'unavailable'; code: string }
+  | { status: 'unsupported'; code: string };
+
+interface DayflowDesktopBridge {
+  getDayflowDesktopStatus(): Promise<DayflowDesktopStatus>;
+  openDayflowDesktop(): Promise<DayflowDesktopStatus>;
+}
+
 declare global {
   interface Window {
     rhythmShell?: {
@@ -19,6 +29,7 @@ declare global {
         productionApiBase?: string;
       };
       auth?: DesktopAuthBridge;
+      dayflowDesktop?: DayflowDesktopBridge;
       agentServer?: {
         status(): Promise<{ status: string; ownership?: 'electron' | 'external' | 'none'; owned: boolean; errorMessage?: string | null }>;
         onStatusChange?(callback: (status: { status: string; ownership?: 'electron' | 'external' | 'none'; owned: boolean; errorMessage?: string | null }) => void): () => void;

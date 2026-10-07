@@ -10,6 +10,7 @@ import { Config } from "@/config/config"
 import { Effect, Exit, Schema } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { modelStreamScheduler } from "@/session/model-stream-scheduler"
+import { sameWorkflowBinding } from "@/session/rhythm_provider_guard"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -153,6 +154,7 @@ export const TaskTool = Tool.define(
         ? yield* sessions.get(SessionID.make(taskID)).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
         : undefined
       const parent = yield* sessions.get(ctx.sessionID)
+      const parentWorkflow = yield* sessions.workflowGuard(ctx.sessionID)
       const parentAgent = parent.agent
         ? yield* agent.get(parent.agent).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
         : undefined
@@ -178,11 +180,22 @@ export const TaskTool = Tool.define(
             }),
             ...(cfg.experimental?.primary_tools?.map((item) => ({
               pattern: "*",
-              action: "allow" as const,
+              action: "deny" as const,
               permission: item,
             })) ?? []),
           ],
         }))
+
+      // A marked manager may resume only its actual matching descendant.  A
+      // pre-existing/unrelated task_id is never promoted by the parent's
+      // marker, even though unmarked Task behavior remains unchanged.
+      if (parentWorkflow?.kind === "manager_lineage" && session) {
+        const childWorkflow = yield* sessions.workflowGuard(session.id)
+        if (
+          session.parentID !== ctx.sessionID || childWorkflow?.kind !== "manager_lineage" ||
+          !sameWorkflowBinding(childWorkflow.binding, parentWorkflow.binding)
+        ) return yield* Effect.fail(new Error("Workflow task resume lineage is unavailable"))
+      }
 
       yield* ctx.metadata({
         title: params.description,
@@ -226,11 +239,9 @@ export const TaskTool = Tool.define(
                   providerID: model.providerID,
                 },
                 agent: next.name,
-                tools: {
-                  ...(next.permission.some((rule) => rule.permission === "todowrite") ? {} : { todowrite: false }),
-                  ...(next.permission.some((rule) => rule.permission === id) ? {} : { task: false }),
-                  ...Object.fromEntries((cfg.experimental?.primary_tools ?? []).map((item) => [item, false])),
-                },
+                // All Task restrictions are already persisted on the child.
+                // Legacy prompt.tools replaces the entire session ruleset,
+                // which would discard inherited grants and security ceilings.
                 parts,
               })
 

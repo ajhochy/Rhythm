@@ -587,12 +587,14 @@ describe('ChatList hierarchy', () => {
 
     expect(rendered.getByPlaceholderText('Search projects and chats')).toBeTruthy();
     expect(rendered.getByLabelText('Search chats')).toBeTruthy();
+    expect(rendered.queryByLabelText('Clear chats search')).toBeNull();
 
     fireEvent.changeText(rendered.getByLabelText('Search chats'), 'Grandchild');
     expect(rendered.getByLabelText('Alpha project, 2 active, collapsed')).toBeTruthy();
     expect(rendered.getByTestId('chat-row-grandchild')).toBeTruthy();
-    fireEvent.changeText(rendered.getByLabelText('Search chats'), '');
+    fireEvent.press(rendered.getByLabelText('Clear chats search'));
     expect(rendered.queryByTestId('chat-row-grandchild')).toBeNull();
+    expect(rendered.queryByLabelText('Clear chats search')).toBeNull();
 
     fireEvent.press(rendered.getByLabelText('Alpha project, 2 active, collapsed'));
     fireEvent.press(rendered.getByLabelText('Collapse Parent chat'));

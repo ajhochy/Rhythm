@@ -14,14 +14,15 @@ export interface PendingApproval {
   createdAt: string;
   decisionNonce: string | null;
   payloadDigest: string | null;
+  /** Server-owned action; absent on legacy approval responses. */
+  securityAction?: string | null;
 }
 
 // The P-256 decision signature over {approvalId,status,decisionNonce,payloadDigest}
 // (and the desktop-Keychain `X-Rhythm-Human-Approval` capability header the server also
-// requires) can only be produced by the signed native app holding the private key —
-// never fabricated here. `decide` takes it as a required input and transmits it
-// verbatim; ponytail: this renderer has no signer to call yet, so nothing invokes
-// `decide` — wire it once a native bridge (Electron main / desktop Keychain) exists.
+// requires) is produced by the native signer when Electron exposes it, or by the
+// deliberate Web Crypto fallback used by isolated browser fixtures. `decide` takes
+// that material verbatim; the gateway never creates or relaxes a signature.
 export interface HumanApprovalMaterial {
   capability: string;
   signature: string;
@@ -93,7 +94,8 @@ export function createLiveApprovalGateway(apiBase: string, token: string | undef
         return !nullableText(row.sessionId) || typeof row.action !== 'string' || !row.action.trim()
           || !nullableText(row.preview) || !nullableText(row.consequence) || row.status !== 'pending'
           || typeof row.createdAt !== 'string' || !Number.isFinite(Date.parse(row.createdAt))
-          || !(row.decisionNonce === null || (typeof row.decisionNonce === 'string' && row.decisionNonce.trim())) || !nullableText(row.payloadDigest);
+          || !(row.decisionNonce === null || (typeof row.decisionNonce === 'string' && row.decisionNonce.trim())) || !nullableText(row.payloadDigest)
+          || !(row.securityAction === undefined || nullableText(row.securityAction));
       })) throw new ApprovalGatewayError(502, 'Invalid approval response. Pending cards were not replaced. Retry or check the desktop API configuration.');
       return rows as PendingApproval[];
     },

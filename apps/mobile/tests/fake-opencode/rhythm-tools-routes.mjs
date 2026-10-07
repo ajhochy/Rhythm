@@ -16,6 +16,22 @@ export function createRhythmToolsRoutes({ readJson, sendJson }) {
     'error',
   ]);
   const createState = () => ({
+    researchProjects: [{
+      id: 'research-project-demo', ownerUserId: 7, name: 'Guest follow-up',
+      question: 'How should we follow up with first-time guests?', goals: ['Use gathered evidence'],
+      domain: null, profileId: 'research', passConfig: [], modelPolicy: {},
+      criticConfig: { enabled: true }, synthesisConfig: { enabled: true }, scheduleRef: null,
+      budget: { maxPasses: 0, maxTokens: 500_000, maxCostUsd: 0.25, maxWallClockMs: 90_000 },
+      archivedAt: null, createdAt: now(), updatedAt: now(),
+    }],
+    researchRuns: [{
+      id: 'research-run-stopped', projectId: 'research-project-demo', ownerUserId: 7,
+      triggerType: 'manual', configSnapshot: {}, status: 'error',
+      progress: { stages: [{ id: 'evidence-1', role: 'researcher', status: 'done', ordinal: 0, tokens: 50_000 }] },
+      diagnostics: { budgetExhausted: true, reasons: ['max_tokens'] },
+      startedAt: now(), completedAt: now(), createdAt: now(), canonicalArtifact: null,
+      artifacts: [], sources: [], usage: { tokens: 50_000, costUsd: 0.05 },
+    }],
     brain: [
       {
         id: 'memory-sunday-checklist',
@@ -317,6 +333,79 @@ export function createRhythmToolsRoutes({ readJson, sendJson }) {
     }
 
     if (resource === 'agent-research') {
+      // Canonical project/run paths precede legacy /:jobId lookup.
+      if (id === 'projects') {
+        const projectId = parts[2];
+        const project = find(state.researchProjects, projectId);
+        if (parts.length === 2 && req.method === 'GET') {
+          sendJson(res, 200, clone(state.researchProjects));
+          return true;
+        }
+        if (parts.length === 2 && req.method === 'POST') {
+          const created = {
+            ...clone(createState().researchProjects[0]), ...body,
+            id: createdId('research-project'), createdAt: now(), updatedAt: now(),
+          };
+          state.researchProjects.unshift(created);
+          sendJson(res, 201, clone(created));
+          return true;
+        }
+        if (!project) {
+          sendJson(res, 404, { error: { code: 'NOT_FOUND', message: 'ResearchProject not found' } });
+          return true;
+        }
+        if (parts.length === 3 && req.method === 'GET') {
+          sendJson(res, 200, clone(project));
+          return true;
+        }
+        if (parts.length === 3 && req.method === 'PATCH') {
+          Object.assign(project, body, { updatedAt: now() });
+          sendJson(res, 200, clone(project));
+          return true;
+        }
+        if (parts[3] === 'runs') {
+          if (parts.length === 4 && req.method === 'GET') {
+            sendJson(res, 200, clone(state.researchRuns.filter((run) => run.projectId === projectId)));
+            return true;
+          }
+          if (parts.length === 4 && req.method === 'POST') {
+            const created = {
+              ...clone(createState().researchRuns[0]), id: createdId('research-run'), projectId,
+              status: 'running', configSnapshot: clone(project), progress: { stages: [] },
+              diagnostics: {}, startedAt: now(), completedAt: null, createdAt: now(),
+              usage: { tokens: 0, costUsd: 0 },
+            };
+            state.researchRuns.unshift(created);
+            sendJson(res, 201, clone(created));
+            return true;
+          }
+          const run = state.researchRuns.find((entry) => entry.projectId === projectId && entry.id === parts[4]);
+          if (!run) {
+            sendJson(res, 404, { error: { code: 'NOT_FOUND', message: 'ResearchProjectRun not found' } });
+            return true;
+          }
+          if (parts.length === 5 && req.method === 'GET') {
+            sendJson(res, 200, clone(run));
+            return true;
+          }
+          if (parts.length === 6 && req.method === 'POST' && ['cancel', 'resume', 'finish'].includes(parts[5])) {
+            run.status = { cancel: 'canceled', resume: 'running', finish: 'done' }[parts[5]];
+            run.completedAt = run.status === 'running' ? null : now();
+            if (parts[5] === 'finish') {
+              run.progress.stages.push({ id: 'synthesis-1', role: 'synthesis', status: 'done', report: '# Guest follow-up evidence\n\nUse a personal welcome and a clear next step.' });
+            }
+            sendJson(res, 200, clone(run));
+            return true;
+          }
+          if (parts.length === 6 && parts[5] === 'export' && req.method === 'GET' && requestUrl.searchParams.get('format') === 'markdown') {
+            const report = run.progress.stages.find((stage) => stage.role === 'synthesis' && stage.status === 'done')?.report;
+            sendJson(res, report ? 200 : 409, report ? { markdown: report } : { error: { code: 'REPORT_NOT_READY', message: 'Report is not ready' } });
+            return true;
+          }
+        }
+        sendJson(res, 404, { error: { code: 'NOT_FOUND', message: 'MobileToolOperation not found' } });
+        return true;
+      }
       if (req.method === 'GET' && parts.length === 1) {
         sendJson(res, 200, clone(state.research));
         return true;

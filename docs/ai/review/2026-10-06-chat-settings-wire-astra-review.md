@@ -1,0 +1,23 @@
+# Astra approval: existing chat control and message-menu parity
+
+Approve the bounded Sol plan `rhythm-chat-controls-parity-plan.md`, SHA `08d6a7e4bf22060ec84fb5ff476cb0fb85900b571827d8f2fd7e974b41614d47`, for disjoint source implementation. This is not live acceptance.
+
+Existing b70 Sonnet owns only the listed web/mobile controls, preferences/state transport and compact message rendering in task4/auth-repair. Existing 5a Sonnet alone owns the listed API coordinator selection/dispatch and canonical local-primary settings/state port. af remains fork-only. Prepare exact accepted UI preimages before resuming b70; preserve its accepted mobile packet and the accepted web deferred-child-link patch. Builder retains composition/build/signing/runtime ownership.
+
+The actual fix must honor model/reasoning/Fast in the next authorized Rhythm dispatch, not merely draw controls. Reuse ordinary authorized model resolution and existing settings fields, with fresh owner/project/current root/profile/model checks across awaits. Secretary role/profile/tool/grant scope stays selected independently of authorized session model choice. An inert local primary is addressed by its exact server-issued local identity, never a fabricated SDK id or ordinary-session fallback. No new endpoint family, role/profile swapping or agent-selected paid tier.
+
+Accept the smallest explicit scope: Rhythm model choice is a persisted session setting with authoritative readback. Ordinary chat retains its existing turn-only option; Rhythm must not offer a turn-only choice it cannot carry. This is a visible scope distinction, not silent mutation of a supposed turn override. Existing Auto selection remains intact; this slice does not enable, repair or qualify Kev routing. Fast stays unchanged on opening/switching, absent older fields preserve the server's value, and only an explicit supported user toggle changes it. Unsupported provider controls retain normal behavior.
+
+Reuse shared normal-chat controls. Opening a menu or changing Rhythm/ordinary views must not create an SDK, change model/profile/tier, dispatch a turn, or lose draft/history. Target settings to the actual visible canonical primary or ordinary session and recheck paired-client/current-root currency.
+
+Compact overflow uses existing menu/popover in a trailing header/content slot without its own empty closed-menu row. Preserve existing 44px/minimum touch target, keyboard focus/dismissal and Copy/Speak/long-press behavior. Reserve space to avoid text/code overlap. No transcript shaping or design-system rewrite.
+
+Before production packaging, deliver actual shared-component screenshots from the existing synthetic source preview at desktop and phone sizes, including short/long/multiline/code and open menu plus controls. Do not drive the user's live chat or use private bodies. User requested screenshots before build; produce these first without making an optional approval wait. Keep existing protected fake-server/E2E fixtures untouched unless the explicit human-validation rule is separately fulfilled. Prefer existing component/provider/HTTP adapter tests.
+
+Source checks cover actual settings handlers/readback, target isolation, root/project changes across awaits, invalid/missing state, preserved old-client Fast, and serialized actual dispatch options. Then Sol independently reviews exact frozen packets. Builder verifies actual served provider/model/reasoning/tier and same-chat transitions before claiming parity. New mobile build/TestFlight and device proof remain later delivery, not inferred from source previews.
+
+The precautionary research runtime hold has been released on authoritative idle metadata; fresh preactivation idle checks remain required. Do not auto-retry the user's research. Earlier accepted a34 coordinator increment remains independent. Research mobile parity uses the same b70 writer in a subsequent serialized turn and separate exact API allowlist scope.
+
+## Frozen wire acceptance — 2026-10-06
+
+Astra accepts revised plan SHA `811ad52147cf33daed637acda4ce2485572ea2feef05ecc8f3416bc7b140c1be`, exact shared wire SHA `eb0a8068d21c3891c00d539054adfa1345d3985c01ff32409489ec6d32d1add4` and fixtures SHA `46e9af5d52a1a47c2d8faf0eaa46afaef82cc327e7100f9b81adc8374fdb2a9b`. This supersedes the earlier plan hash only; ownership and release gates above stand. The explicit identity selector and versioned same-state port are approved. Both writers must implement this exact boundary; no fallback from a rejected versioned mutation to legacy SDK lookup. Preserve missing legacy Fast as unknown and unchanged reasoning on unrelated edits. Opening settings cannot manufacture a native session.

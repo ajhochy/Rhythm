@@ -8,6 +8,18 @@ import { styles as chatViewStyles } from '@/components/chat/chat-view-styles';
 import { Colors } from '@/constants/theme';
 import type { TranscriptEntry } from '@/lib/opencode/format';
 
+jest.mock('@/components/chat/agent-typing-bubble', () => {
+  const React = jest.requireActual<typeof import('react')>('react');
+  const { Text } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    AgentTypingBubble: () => React.createElement(
+      Text,
+      { accessibilityLabel: 'Agent working' },
+      'Agent working',
+    ),
+  };
+});
+
 const noop = jest.fn();
 
 function entry(id: string, text: string): TranscriptEntry {
@@ -384,4 +396,66 @@ test('task-chat-polish-c7: a pending decision hides even an expanded todo panel'
   expect(rendered.getByText('Submit answer')).toBeTruthy();
   expect(rendered.queryByText('Waiting task')).toBeNull();
   expect(rendered.queryByText('1 of 2 tasks completed')).toBeNull();
+});
+
+test('agent typing bubble only appears for active, unblocked work and never replaces a pending decision', () => {
+  const rendered = render(
+    <PaperProvider>
+      <ChatContent {...props('session-a', [entry('1', 'Working')])} running />
+    </PaperProvider>,
+  );
+
+  expect(rendered.getByLabelText('Agent working')).toBeTruthy();
+  expect(rendered.queryByText('OpenCode is working through the current step...')).toBeNull();
+
+  rendered.rerender(
+    <PaperProvider>
+      <ChatContent
+        {...props('session-a', [entry('1', 'Waiting for approval')])}
+        awaitingUserInput
+        currentPendingPermissions={[{
+          id: 'permission-1',
+          patterns: ['src/**'],
+          permission: 'edit',
+          sessionID: 'session-a',
+        }] as never}
+        pendingInteractions={1}
+        running
+      />
+    </PaperProvider>,
+  );
+
+  expect(rendered.queryByLabelText('Agent working')).toBeNull();
+  expect(rendered.getByText('Allow OpenCode to edit files?')).toBeTruthy();
+  expect(rendered.getByText('Allow once')).toBeTruthy();
+
+  rendered.rerender(
+    <PaperProvider>
+      <ChatContent
+        {...props('session-a', [entry('1', 'Pending question')])}
+        currentPendingQuestions={[{
+          id: 'question-1',
+          questions: [{
+            custom: false,
+            header: 'Choose one',
+            multiple: false,
+            options: [{ label: 'Continue' }],
+            question: 'Proceed?',
+          }],
+          sessionID: 'session-a',
+        }] as never}
+        pendingInteractions={1}
+        running
+      />
+    </PaperProvider>,
+  );
+  expect(rendered.queryByLabelText('Agent working')).toBeNull();
+  expect(rendered.getByText('Submit answer')).toBeTruthy();
+
+  rendered.rerender(
+    <PaperProvider>
+      <ChatContent {...props('session-a', [entry('1', 'Idle')])} />
+    </PaperProvider>,
+  );
+  expect(rendered.queryByLabelText('Agent working')).toBeNull();
 });

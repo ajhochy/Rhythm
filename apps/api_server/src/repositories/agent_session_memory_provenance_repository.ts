@@ -40,6 +40,11 @@ export interface MemoryProvenanceItem {
   estimatedTokens?: number;
   /** Body-free diagnostic outcome for the semantic retrieval lane. */
   semanticStatus?: MemorySemanticStatus;
+  /** Bounded source-material origin metadata; never a note body. */
+  origin?: string | null;
+  observationId?: string | null;
+  observedAt?: string | null;
+  originTags?: string[];
 }
 
 export interface MemoryProvenanceRecord {
@@ -50,6 +55,10 @@ export interface MemoryProvenanceRecord {
   notePaths: (string | null)[];
   /** Retrieval evidence only. Never contains a note body or prompt text. */
   items: MemoryProvenanceItem[];
+  /** Semantic retrieval outcome for the turn, even when no memory was selected. */
+  semanticStatus: MemorySemanticStatus;
+  /** Bounded, body-free count of Engraph hits observed for the turn. */
+  semanticHitCount: number;
   updatedAt: string;
 }
 
@@ -58,6 +67,8 @@ interface ProvenanceRow {
   memory_ids_json: string;
   note_paths_json: string;
   items_json: string;
+  semantic_status: string;
+  semantic_hit_count: number;
   updated_at: string;
 }
 
@@ -88,8 +99,19 @@ function rowToModel(row: ProvenanceRow): MemoryProvenanceRecord {
     memoryIds,
     notePaths,
     items,
+    semanticStatus: isSemanticStatus(row.semantic_status) ? row.semantic_status : 'disabled',
+    semanticHitCount: Number.isInteger(row.semantic_hit_count) && row.semantic_hit_count >= 0
+      ? row.semantic_hit_count
+      : 0,
     updatedAt: row.updated_at,
   };
+}
+
+function isSemanticStatus(value: unknown): value is MemorySemanticStatus {
+  return value === 'disabled' || value === 'backend_unavailable' || value === 'timeout'
+    || value === 'http_error' || value === 'malformed' || value === 'no_hits'
+    || value === 'no_confidence' || value === 'unmapped' || value === 'lexical_gate'
+    || value === 'used';
 }
 
 export class AgentSessionMemoryProvenanceRepository {
@@ -104,6 +126,9 @@ export class AgentSessionMemoryProvenanceRepository {
     memoryIds: string[],
     notePaths: (string | null)[],
     items: MemoryProvenanceItem[] = [],
+    diagnostics: Pick<MemoryProvenanceRecord, 'semanticStatus' | 'semanticHitCount'> = {
+      semanticStatus: 'disabled', semanticHitCount: 0,
+    },
   ): void {
     const cappedIds = memoryIds.slice(0, MAX_PROVENANCE_ENTRIES);
     const cappedPaths = notePaths.slice(0, MAX_PROVENANCE_ENTRIES);
@@ -117,16 +142,30 @@ export class AgentSessionMemoryProvenanceRepository {
       reason: item.reason.slice(0, 240),
       ...(item.excerptChars === undefined ? {} : { excerptChars: item.excerptChars }),
       ...(item.estimatedTokens === undefined ? {} : { estimatedTokens: item.estimatedTokens }),
+      ...(item.semanticStatus === undefined ? {} : { semanticStatus: item.semanticStatus }),
+      ...(item.origin === undefined ? {} : { origin: item.origin?.slice(0, 120) ?? null }),
+      ...(item.observationId === undefined ? {} : { observationId: item.observationId?.slice(0, 120) ?? null }),
+      ...(item.observedAt === undefined ? {} : { observedAt: item.observedAt?.slice(0, 120) ?? null }),
+      ...(item.originTags === undefined ? {} : { originTags: item.originTags.slice(0, 3).map((tag) => tag.slice(0, 120)) }),
     }));
+    const semanticStatus = isSemanticStatus(diagnostics.semanticStatus)
+      ? diagnostics.semanticStatus
+      : 'disabled';
+    const semanticHitCount = Number.isInteger(diagnostics.semanticHitCount)
+      && diagnostics.semanticHitCount >= 0
+      ? diagnostics.semanticHitCount
+      : 0;
     getDb()
       .prepare(
         `INSERT INTO agent_session_memory_provenance
-           (session_id, memory_ids_json, note_paths_json, items_json, updated_at)
-         VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+           (session_id, memory_ids_json, note_paths_json, items_json, semantic_status, semantic_hit_count, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
          ON CONFLICT(session_id) DO UPDATE SET
            memory_ids_json = excluded.memory_ids_json,
            note_paths_json = excluded.note_paths_json,
            items_json = excluded.items_json,
+           semantic_status = excluded.semantic_status,
+           semantic_hit_count = excluded.semantic_hit_count,
            updated_at = excluded.updated_at`,
       )
       .run(
@@ -134,6 +173,8 @@ export class AgentSessionMemoryProvenanceRepository {
         JSON.stringify(cappedIds),
         JSON.stringify(cappedPaths),
         JSON.stringify(cappedItems),
+        semanticStatus,
+        semanticHitCount,
       );
   }
 

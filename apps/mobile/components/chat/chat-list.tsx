@@ -370,6 +370,18 @@ export function ChatList({ controller }: ChatListProps) {
               inputStyle={styles.searchInput}
               onChangeText={setQuery}
               placeholder="Search projects and chats"
+              right={({ color, style, testID }) =>
+                query.trim() ? (
+                  <IconButton
+                    accessibilityLabel="Clear chats search"
+                    icon="close"
+                    iconColor={color}
+                    onPress={() => setQuery('')}
+                    style={style}
+                    testID={`${testID}-clear`}
+                  />
+                ) : null
+              }
               style={styles.searchField}
               value={query}
             />

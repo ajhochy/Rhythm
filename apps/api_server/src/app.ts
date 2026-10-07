@@ -2,6 +2,8 @@ import cors from 'cors';
 import express, { type Router } from 'express';
 
 import { env } from './config/env';
+import { getDb } from './database/db';
+import { agentApprovalContinuationService } from './services/agent_approval_continuation_service';
 import { errorHandler } from './middleware/error_handler';
 import { localAgentSurfaceGuard } from './middleware/local_agent_surface_guard';
 import { authRouter } from './routes/auth_routes';
@@ -55,7 +57,7 @@ import { streamBridge } from './services/opencode_stream_bridge';
 import { buildOpencodeHealthPayload } from './services/opencode_health';
 import { requireAuth } from './middleware/auth_middleware';
 import agentSchedulesRouter from './routes/agentSchedulesRoutes';
-import agentMemoryRouter from './routes/agentMemoryRoutes';
+import { createAgentMemoryRouter } from './routes/agentMemoryRoutes';
 import agentDecisionsRouter from './routes/agent_decisions_routes';
 import agentWebhookRouter from './routes/agentWebhookRoutes';
 import agentResearchRouter from './routes/agentResearchRoutes';
@@ -70,6 +72,13 @@ import { agentApprovalsRouter } from './routes/agent_approvals_routes';
 import { systemRouter } from './routes/system_routes';
 import { engraphManagerRouter } from './routes/engraph_manager_routes';
 import { createMobileGatewayRouter } from './routes/mobile_gateway_routes';
+import { createAgentMemoryImportRouter } from './routes/agent_memory_import_routes';
+import { createDayflowIntegrationRouter } from './routes/dayflow_integration_routes';
+import { createDayflowAuthenticatedManagementRouter, type DayflowAuthenticatedConsentService } from './routes/dayflow_authenticated_management_routes';
+import { createDayflowReferencesRouter } from './routes/dayflow_references_routes';
+import type { DayflowManagementService } from './integrations/dayflow/public_contract';
+import type { DayflowQualifiedEvidenceService } from './services/dayflow_qualified_evidence_service';
+import type { DayflowProviderAdmissionService } from './services/dayflow_receiving_history_guard';
 import { agentActivityRouter } from './routes/agent_activity_routes';
 import { creativePlatformRouter } from './routes/creative_platform_routes';
 import { setupReadinessRouter } from './routes/setup_readiness_routes';
@@ -84,13 +93,36 @@ import {
 import { createAgentBridgeRouter } from './routes/agent_bridge_routes';
 import { sharedAgentsCatalogRouter } from './shared_agents/bridge/catalog';
 import { requireLocalOrCloudAuth } from './middleware/auth_middleware';
+import { createAgentWorkstreamsRouter } from './routes/agent_workstreams_routes';
+import { createCoordinatorConversationsRouter } from './routes/coordinator_conversations_routes';
+import { createCoordinatorAgentToolsRouter } from './routes/coordinator_agent_tools_routes';
+import type { ManagedMemorySearchService } from './services/managed_workstream_evidence_capture';
+import type { PersistentWorkstreamCoordinator } from './services/persistent_workstream_coordinator';
+import type { CoordinatorConversationService } from './services/coordinator_conversation_service';
+import type { CoordinatorConversationModelStatusService } from './services/coordinator_conversation_model_status_service';
 
 export function isLoopbackAddress(address: string | undefined): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
 }
 
-export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
+export function createApp(options: {
+  mobileGatewayRouter?: Router;
+  dayflowService?: DayflowManagementService;
+  dayflowAuthenticatedConsent?: DayflowAuthenticatedConsentService;
+  dayflowQualifiedEvidence?: DayflowQualifiedEvidenceService;
+  dayflowProviderAdmission?: DayflowProviderAdmissionService;
+  managedMemorySearch?: ManagedMemorySearchService;
+  workstreamCoordinator?: PersistentWorkstreamCoordinator;
+  coordinatorConversationService?: CoordinatorConversationService;
+  coordinatorAgentTools?: CoordinatorConversationModelStatusService;
+} = {}) {
   const app = express();
+  const dayflowLocalSurface = Boolean(
+    options.dayflowService &&
+    env.agentExecutionEnabled &&
+    env.agentLocal &&
+    env.agentOriginGuardEnabled,
+  );
 
   app.use(localAgentSurfaceGuard);
   if (env.bridgeEnabled) {
@@ -138,11 +170,40 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
       allowedHeaders: ['Content-Type', 'Authorization', 'content-type', 'X-Signature-SHA256', 'Range', 'X-Rhythm-Project', 'X-Rhythm-Project-ID', 'X-Rhythm-Auto-Promotion-Confirmation', 'X-Rhythm-Human-Approval'],
     }),
   );
+  // This specific stream parser must precede the broad JSON parser.  Its
+  // internal middleware is post-scoped so unrelated /agent-memory requests
+  // keep their existing limits and parsing behavior.
+  if (dayflowLocalSurface) {
+    app.use('/agent-memory', createAgentMemoryImportRouter({
+      executionLocal: true,
+      originGuardEnabled: true,
+    }));
+    // Dayflow owns a stricter 16 KiB JSON parser. Mount it before the broad
+    // parser below so management requests cannot inherit the 1 MiB default.
+    // Its own router retains the same local Host/Origin and loopback guards.
+    app.use('/dayflow-integration', createDayflowIntegrationRouter(options.dayflowService!));
+  }
+  // Explicit consent uses the normal signed-app bearer and server-resolved
+  // session/project records. It is intentionally separate from local source
+  // configuration and stays absent until composition supplies the service.
+  if (env.agentExecutionEnabled && options.dayflowAuthenticatedConsent) {
+    app.use('/dayflow-agent', createDayflowAuthenticatedManagementRouter({
+      service: options.dayflowAuthenticatedConsent,
+    }));
+  }
   // Allow larger bodies for OAuth token exchange and session creation.
   // The OpenAI OAuth access token alone can exceed 4 KB; the default 100 KB
   // limit is sufficient for normal requests but we raise it to 1 MB as a
   // safety margin.
   app.use(express.json({ limit: '1mb' }));
+  // Signed evidence tools are default-off until both current receiving and
+  // persisted source qualification authorities are composed in server.ts.
+  if (env.agentExecutionEnabled && (options.dayflowQualifiedEvidence || options.dayflowProviderAdmission)) {
+    app.use('/dayflow-agent', createDayflowReferencesRouter({
+      evidence: options.dayflowQualifiedEvidence,
+      providerAdmission: options.dayflowProviderAdmission,
+    }));
+  }
 
   app.use('/health', healthRouter);
   app.use('/dashboard', dashboardRouter);
@@ -234,6 +295,13 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     app.use('/agent-capability-status', agentCapabilityStatusRouter);
     app.use('/creative-platform', creativePlatformRouter);
     app.use('/setup-readiness', setupReadinessRouter);
+    // Local server-only probe is bound to this composition's actual SQLite
+    // instance; a later test/runtime DB cannot borrow its readiness.
+    const workflowConversations = options.coordinatorConversationService;
+    const workflowDb = workflowConversations ? getDb() : null;
+    agentApprovalContinuationService.configureWorkflowReadiness(workflowConversations
+      ? async () => getDb() === workflowDb && await workflowConversations.boundedWorkflowRuntimeReady() && getDb() === workflowDb
+      : null);
     app.use('/agent-approvals', agentApprovalsRouter);
     app.use('/agents/usage-budget', usageBudgetRouter);
     app.use('/agents/run-quality', runQualityRouter);
@@ -241,6 +309,26 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     // Same agent-execution gate as its sibling agent routes: the hosted 'cloud'
     // role never runs agents, so it has no run outcomes to serve.
     app.use('/agent-run-outcomes', runOutcomeRouter);
+    app.use('/agent-workstreams', createAgentWorkstreamsRouter(options.workstreamCoordinator));
+    // C2 is mounted only with the same explicit local SQLite workstream
+    // coordinator. An unset flag/service remains a normal 404/default-off.
+    if (options.coordinatorConversationService) {
+      app.use('/coordinator-conversations', createCoordinatorConversationsRouter({
+        service: options.coordinatorConversationService,
+        enabled: () => Boolean(
+          env.workstreamsEnabled && env.dbClient === 'sqlite' && options.workstreamCoordinator,
+        ),
+      }));
+    }
+    // Model-facing coordinator state is a separate signed ingress. It stays
+    // default-off unless the server composed both the primary conversation
+    // service and the active-native-tool authority; browser/session identity
+    // cannot select another root through this route.
+    if (options.coordinatorAgentTools && options.coordinatorConversationService) {
+      app.use('/coordinator-agent', createCoordinatorAgentToolsRouter({
+        service: options.coordinatorAgentTools,
+      }));
+    }
     app.use('/agents/models', agentsModelsRouter);
     app.use('/agent-configs', agentConfigsRouter);
     if (env.bridgeEnabled) {
@@ -255,7 +343,9 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     // agent server on :4001). #1219 restores role-gated Postgres schema parity
     // for agent-execution deployments, but does not expose this router outside
     // the execution gate or change the vault's canonical authority.
-    app.use('/agent-memory', agentMemoryRouter);
+    app.use('/agent-memory', createAgentMemoryRouter({
+      managedMemorySearch: options.managedMemorySearch,
+    }));
     // Local decision engine rollout stats. LOCAL-ONLY like /agent-memory: it is
     // registered only inside this agent-execution gate and reads the SQLite-only
     // agent_decision_log (prompt previews never reach Postgres).

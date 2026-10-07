@@ -18,6 +18,7 @@ import {
 } from 'react-native-paper';
 
 import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
+import { MobileWorkstreamsPanel } from '@/components/agents/workstreams-panel';
 import { WorkspaceShell } from '@/components/workspace/workspace-shell';
 import { Colors, Fonts, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -550,6 +551,8 @@ export default function AgentWorkspaceScreen() {
       </View>}
 
         toolsContent={<View style={[styles.group, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+        <MobileWorkstreamsPanel projectId={activeProject?.path} parentSessionId={currentSessionId} profiles={availableAgents} />
+        <Divider />
         <View style={styles.groupHeader}>
           <View style={styles.groupHeaderCopy}><Text variant="titleLarge" style={{ color: palette.text }}>Project and worktrees</Text><Text style={{ color: palette.muted }}>Update bounded project metadata, initialize Git, or manage isolated worktrees.</Text></View>
           {

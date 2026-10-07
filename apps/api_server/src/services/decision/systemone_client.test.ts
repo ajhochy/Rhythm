@@ -62,15 +62,51 @@ describe('SystemOneClient', () => {
     });
   });
 
-  it('falls back to choice at probability 1 only when probabilities are missing', async () => {
-    const missing = await client(fakeFetch(() => answer({ choice: 'frontier' })).fetchImpl).choose('x', question);
-    expect(missing).toMatchObject({ status: 'ok', choice: 'frontier', confidence: 1, probabilities: { cheap: 0, standard: 0, frontier: 1 } });
-    const partial = await client(fakeFetch(() => answer({ choice: 'frontier', probabilities: { frontier: 0.9 } })).fetchImpl).choose('x', question);
-    expect(partial).toMatchObject({ status: 'error', reason: 'malformed_response' });
-    const nan = await client(fakeFetch(() => ok({ answers: { q: { choice: 'cheap', probabilities: { cheap: 'x', standard: 0, frontier: 0 } } } })).fetchImpl).choose('x', question);
-    expect(nan).toMatchObject({ status: 'error', reason: 'malformed_response' });
-    const unknownChoice = await client(fakeFetch(() => answer({ choice: 'huge' })).fetchImpl).choose('x', question);
-    expect(unknownChoice).toMatchObject({ status: 'error', reason: 'malformed_response' });
+  const rawBody = (probabilities: string) =>
+    new Response(`{"model":"kev-4b","answers":{"q":{"choice":"frontier","probabilities":${probabilities}}}}`, { status: 200 });
+  const choose = (respond: () => Response) => client(fakeFetch(respond).fetchImpl).choose('x', question);
+
+  it('P1: missing or null probabilities are malformed, never a synthesized confidence 1', async () => {
+    for (const a of [{ choice: 'frontier' }, { choice: 'frontier', probabilities: null }, { choice: 'huge' }]) {
+      const r = await choose(() => answer(a));
+      expect(r).toMatchObject({ status: 'error', reason: 'malformed_response' });
+      expect(r).not.toHaveProperty('confidence');
+      expect(r).not.toHaveProperty('probabilities');
+    }
+  });
+
+  it('P2: partial, non-numeric, negative, zero, nonfinite and overflowing probabilities are malformed', async () => {
+    const bad = [
+      '{"frontier":0.9}',
+      '{"cheap":"x","standard":0,"frontier":0}',
+      '{"cheap":null,"standard":0.5,"frontier":0.5}',
+      '{"cheap":-0.1,"standard":0.5,"frontier":0.6}',
+      '{"cheap":0,"standard":0,"frontier":0}',
+      '{"cheap":1e309,"standard":0,"frontier":0}',
+      `{"cheap":${Number.MAX_VALUE},"standard":${Number.MAX_VALUE},"frontier":0}`,
+      '[0.1,0.2,0.7]',
+      '0.5',
+    ];
+    for (const p of bad) {
+      const r = await choose(() => rawBody(p));
+      expect(r, p).toMatchObject({ status: 'error', reason: 'malformed_response' });
+      expect(r, p).not.toHaveProperty('probabilities');
+    }
+  });
+
+  it('P3: complete distributions normalise; the top option wins and ties keep option order', async () => {
+    const exact = await choose(() => rawBody('{"cheap":0.1,"standard":0.2,"frontier":0.7}'));
+    expect(exact).toMatchObject({ status: 'ok', choice: 'frontier', model: 'kev-4b' });
+    expect(Number.isFinite((exact as { latencyMs: number }).latencyMs)).toBe(true);
+    const { probabilities } = exact as { probabilities: Record<string, number> };
+    expect(probabilities.cheap).toBeCloseTo(0.1);
+    expect(probabilities.standard).toBeCloseTo(0.2);
+    expect(probabilities.frontier).toBeCloseTo(0.7);
+    const tie = await choose(() => rawBody('{"cheap":1,"standard":1,"frontier":0}'));
+    expect(tie).toMatchObject({ status: 'ok', choice: 'cheap', confidence: 0.5 });
+    const extra = await choose(() => rawBody('{"cheap":1,"standard":1,"frontier":2,"huge":1000}'));
+    expect(extra).toMatchObject({ status: 'ok', choice: 'frontier', confidence: 0.5 });
+    expect(extra).not.toHaveProperty('probabilities.huge');
   });
 
   it('maps HTTP errors, malformed JSON, missing answers and oversized bodies', async () => {
@@ -104,7 +140,7 @@ describe('SystemOneClient', () => {
   });
 
   it('allows loopback http without consent; a remote URL needs https and consent', async () => {
-    const f = fakeFetch(() => answer({ choice: 'cheap' }));
+    const f = fakeFetch(() => answer({ choice: 'cheap', probabilities: { cheap: 1, standard: 0, frontier: 0 } }));
     expect((await client(f.fetchImpl, { baseUrl: 'http://localhost:8009' }).choose('x', question)).status).toBe('ok');
     expect(await client(f.fetchImpl, { baseUrl: 'https://api.typesafe.ai' }).choose('x', question))
       .toMatchObject({ status: 'disabled', reason: 'consent_required' });

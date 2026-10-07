@@ -30,6 +30,7 @@ const eventIsComplete: RequiredForkEvent extends RhythmEvent ? true : never = tr
 const localConfig: McpLocalConfigInput = { type: 'local', command: ['node', 'server.js'] };
 const remoteConfig: McpRemoteConfigInput = { type: 'remote', url: 'https://example.invalid/mcp' };
 const status: McpStatusEntry = { status: 'connected' };
+const configuredStatus: McpStatusEntry = { status: 'configured' };
 const part: PartInput = { type: 'text', text: 'hello' };
 const clearAllowlists: SessionUpdateData['body'] = {
   mcpAllowlist: null,
@@ -48,4 +49,4 @@ const agent = {
   options: {},
 } satisfies SdkAgent;
 
-void [eventIsComplete, localConfig, remoteConfig, status, part, clearAllowlists, agent];
+void [eventIsComplete, localConfig, remoteConfig, status, configuredStatus, part, clearAllowlists, agent];

@@ -49,6 +49,13 @@ async function downgradeToV1(): Promise<string> {
   return skillPath;
 }
 
+/** Put only the owned skill back to the exact R13 shipped asset. */
+function downgradeSkillToV2(): string {
+  const skillPath = path.join(skillsRoot(), ORG_REVIEWER_SKILL, 'SKILL.md');
+  writeFileSync(skillPath, readFileSync(path.join(__dirname, 'fixtures', 'review-agent-org-health.v2.SKILL.md'), 'utf8'));
+  return skillPath;
+}
+
 describe('Org Reviewer owned profile and skill seed', () => {
   it('creates one resolvable weekly reviewer with only its four review tools and owned skill', async () => {
     const first = await seedOrgOptimizerTask();
@@ -88,6 +95,67 @@ describe('Org Reviewer owned profile and skill seed', () => {
     expect(readFileSync(skillPath, 'utf8')).toContain('rhythm_read_org_review_session');
   });
 
+  it('upgrades only the exact prior shipped reviewer skill to the target-page instructions', async () => {
+    await seedOrgOptimizerTask();
+    const skillPath = downgradeSkillToV2();
+
+    const result = await seedOrgOptimizerTask();
+
+    expect(result.reviewerTaskSkippedReason).toContain('existing reviewer task preserved');
+    const upgraded = readFileSync(skillPath, 'utf8');
+    expect(upgraded).toContain('currentStatePage');
+    expect(upgraded).toContain('targetCursor');
+  });
+
+  it('preserves the approved manual profile and canonical schedule runtime settings during reconciliation', async () => {
+    await seedOrgOptimizerTask();
+    const configs = new AgentConfigsRepository();
+    const [task] = await scheduled();
+    configs.update(ORG_REVIEWER_PROFILE_ID, {
+      modelProvider: 'openai',
+      modelId: 'gpt-6.1-sol',
+      sessionSelectable: true,
+      schedulable: true,
+      ocAgent: ORG_REVIEWER_PROFILE_ID,
+    });
+    await new AgentScheduledTasksRepository().updateAsync(task.id, {
+      modelProvider: 'openai',
+      modelId: 'gpt-6.1-sol',
+    });
+
+    const result = await seedOrgOptimizerTask();
+    const config = configs.getById(ORG_REVIEWER_PROFILE_ID)!;
+    const preservedTask = await new AgentScheduledTasksRepository().findByIdAsync(task.id);
+
+    expect(result.reviewerTaskSkippedReason).toContain('existing reviewer task preserved');
+    expect(config).toMatchObject({
+      enabled: true,
+      modelProvider: 'openai',
+      modelId: 'gpt-6.1-sol',
+      sessionSelectable: true,
+      schedulable: true,
+      ocAgent: ORG_REVIEWER_PROFILE_ID,
+    });
+    expect(JSON.parse(config.allowedMcpsJson!)).toEqual({ rhythm: REVIEW_TOOLS_V2 });
+    expect(JSON.parse(config.allowedSkillsJson!)).toEqual([ORG_REVIEWER_SKILL]);
+    expect(JSON.parse(config.corePermissionsJson!)).toEqual(permissions(REVIEW_TOOLS_V2));
+    expect(JSON.parse(config.allowedDelegatesJson!)).toEqual([]);
+    expect(preservedTask).toMatchObject({
+      enabled: true,
+      name: 'Org Reviewer',
+      scheduleType: 'weekly',
+      scheduledDay: 1,
+      scheduledTime: '08:30',
+      timezone: 'America/Los_Angeles',
+      agentKind: 'opencode',
+      agentConfigId: ORG_REVIEWER_PROFILE_ID,
+      modelProvider: 'openai',
+      modelId: 'gpt-6.1-sol',
+    });
+    expect(JSON.parse(preservedTask!.allowedMcpsJson!)).toEqual({ rhythm: REVIEW_TOOLS_V2 });
+    expect(JSON.parse(preservedTask!.allowedSkillsJson!)).toEqual([ORG_REVIEWER_SKILL]);
+  });
+
   it('does not upgrade a v1 reviewer whose skill was edited', async () => {
     await seedOrgOptimizerTask();
     const skillPath = await downgradeToV1();
@@ -125,6 +193,16 @@ describe('Org Reviewer owned profile and skill seed', () => {
     configs.update(ORG_REVIEWER_PROFILE_ID, { allowedMcpsJson: broad });
     expect((await seedOrgOptimizerTask()).reviewerTaskSkippedReason).toContain('policy changed');
     expect(configs.getById(ORG_REVIEWER_PROFILE_ID)).toMatchObject({ enabled: false, allowedMcpsJson: broad });
+    expect((await scheduled()).filter(task => task.enabled)).toHaveLength(0);
+  });
+
+  it('preserves a foreign OpenCode alias for review but disables its profile and task', async () => {
+    await seedOrgOptimizerTask();
+    const configs = new AgentConfigsRepository();
+    configs.update(ORG_REVIEWER_PROFILE_ID, { ocAgent: 'foreign-agent' });
+
+    expect((await seedOrgOptimizerTask()).reviewerTaskSkippedReason).toContain('policy changed');
+    expect(configs.getById(ORG_REVIEWER_PROFILE_ID)).toMatchObject({ enabled: false, ocAgent: 'foreign-agent' });
     expect((await scheduled()).filter(task => task.enabled)).toHaveLength(0);
   });
 

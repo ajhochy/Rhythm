@@ -1140,6 +1140,8 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     memoryIds: string[];
     notePaths: (string | null)[];
     items: MemoryProvenanceItem[];
+    semanticStatus: import('../repositories/agent_session_memory_provenance_repository').MemorySemanticStatus;
+    semanticHitCount: number;
   } | null = null;
   if (isMemoryInjectionEnabled() && shouldInjectMemoryPreface(opts)) {
     try {
@@ -1154,6 +1156,8 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         memoryIds: memPreface.memoryIds,
         notePaths: memPreface.notePaths,
         items: memPreface.items,
+        semanticStatus: memPreface.semanticStatus,
+        semanticHitCount: memPreface.semanticHitCount,
       };
     } catch (err) {
       // Non-fatal: a retrieval failure must never block the run.
@@ -1232,6 +1236,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         memoryProvenance.memoryIds,
         memoryProvenance.notePaths,
         memoryProvenance.items,
+        {
+          semanticStatus: memoryProvenance.semanticStatus,
+          semanticHitCount: memoryProvenance.semanticHitCount,
+        },
       );
     } catch (err) {
       logger.warn(`[AgentRunner] memory provenance record failed (non-fatal): ${String(err)}`);
@@ -1295,14 +1303,18 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       if (requiredServers.length > 0) {
         try {
           const statusMap = await _withinRunDeadline(
-            opencodeClient.listMcp(),
+            opencodeClient.listMcp(effectiveCwd),
             deadlinePolicy,
             'MCP readiness preflight',
           );
           const unavailableByServer = new Map<string, string>();
           for (const name of requiredServers) {
             const status = statusMap[name]?.status;
-            if (status === 'connected') continue;
+            // Lazy MCP lifecycle reports enabled idle servers as configured.
+            // The session's allowlisted schema acquisition is the intentional
+            // connection boundary, so configured is eligible rather than a
+            // preflight failure.
+            if (status === 'connected' || status === 'configured') continue;
 
             const remediation =
               status === 'needs_auth'

@@ -11,9 +11,33 @@
  * Contract file: docs/ai/contracts/issue-685.json
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import Database from 'better-sqlite3';
+import { afterAll, beforeAll, describe, it, expect, vi, beforeEach } from 'vitest';
+import { env } from '../config/env';
+import { setDb } from '../database/db';
+import { runMigrations } from '../database/migrations';
 import { OpencodeClientService } from '../services/opencode_client_service';
 import { logger } from '../utils/logger';
+
+// History-bearing SDK wrappers must receive a real empty local ledger.  The
+// production boundary intentionally treats an unavailable ledger as unsafe,
+// so these ordinary-wrapper fixtures cannot rely on a missing test database.
+let boundaryDb: Database.Database | null = null;
+let previousDb: Database.Database | null = null;
+
+beforeAll(() => {
+  boundaryDb = new Database(':memory:');
+  boundaryDb.pragma('foreign_keys = ON');
+  runMigrations(boundaryDb);
+  previousDb = setDb(boundaryDb);
+});
+
+afterAll(() => {
+  setDb(previousDb);
+  if (boundaryDb?.open) boundaryDb.close();
+  boundaryDb = null;
+  previousDb = null;
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -74,6 +98,25 @@ function injectClient(
   // Access private fields for test injection
   (svc as unknown as Record<string, unknown>)['status'] = 'ready';
   (svc as unknown as Record<string, unknown>)['client'] = client;
+}
+
+async function withCoordinatorDatabaseMode<T>(
+  dbClient: 'sqlite' | 'postgres',
+  run: () => Promise<T>,
+): Promise<T> {
+  const mutableEnv = env as { dbClient: 'sqlite' | 'postgres'; workstreamsEnabled: boolean };
+  const previousDbClient = mutableEnv.dbClient;
+  const previousWorkstreamsEnabled = mutableEnv.workstreamsEnabled;
+  mutableEnv.dbClient = dbClient;
+  // The history guard must not use this flag as a route bypass. Keeping it off
+  // exercises the ordinary path exactly as hosted deployments do.
+  mutableEnv.workstreamsEnabled = false;
+  try {
+    return await run();
+  } finally {
+    mutableEnv.dbClient = previousDbClient;
+    mutableEnv.workstreamsEnabled = previousWorkstreamsEnabled;
+  }
 }
 
 // ── issue-685-c1: no duck-typing patterns remain ──────────────────────────────
@@ -263,6 +306,80 @@ describe('issue-685-c4: dispatchCommand invokes SDK with command and args', () =
   });
 });
 
+describe('R3 ordinary PostgreSQL history-operation compatibility', () => {
+  it('continues to forward a never-managed SQLite prompt after a readable empty-ledger lookup', async () => {
+    const svc = new OpencodeClientService();
+    const sdkClient = makeRealSdkClient();
+    sdkClient.session.prompt.mockResolvedValue({
+      data: { info: { id: 'sqlite-ordinary' }, parts: [] },
+    });
+    injectClient(svc, sdkClient);
+
+    await withCoordinatorDatabaseMode('sqlite', async () => {
+      await expect(svc.prompt('ordinary-sqlite', 'hello')).resolves.toMatchObject({
+        info: { id: 'sqlite-ordinary' },
+      });
+    });
+
+    expect(sdkClient.session.prompt).toHaveBeenCalledOnce();
+  });
+
+  it('forwards ordinary PostgreSQL prompt and history operations with coordinator off without a local-ledger classification', async () => {
+    const svc = new OpencodeClientService();
+    const sdkClient = makeRealSdkClient();
+    sdkClient.session.prompt.mockResolvedValue({
+      data: { info: { id: 'postgres-prompt' }, parts: [] },
+    });
+    sdkClient.session.promptAsync.mockResolvedValue({ data: {} });
+    sdkClient.session.command.mockResolvedValue({
+      data: { info: { id: 'postgres-command' }, parts: [] },
+    });
+    sdkClient.session.summarize.mockResolvedValue({ data: true });
+    sdkClient.session.fork.mockResolvedValue({ data: { id: 'postgres-fork' } });
+    injectClient(svc, sdkClient);
+    (svc as unknown as { server: { url: string; close(): void } }).server = {
+      url: 'http://engine.test',
+      close() {},
+    };
+    const upstream = vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', upstream);
+
+    try {
+      await withCoordinatorDatabaseMode('postgres', async () => {
+        await expect(svc.prompt('ordinary-postgres', 'hello')).resolves.toMatchObject({
+          info: { id: 'postgres-prompt' },
+        });
+        await expect(svc.promptAsync('ordinary-postgres', 'hello')).resolves.toBe(true);
+        await expect(svc.dispatchCommand('ordinary-postgres', '/help', '')).resolves.toMatchObject({
+          info: { id: 'postgres-command' },
+        });
+        await expect(svc.summarizeSession('ordinary-postgres', {
+          providerID: 'provider', modelID: 'model',
+        })).resolves.toBe(true);
+        await expect(svc.forkSession('ordinary-postgres')).resolves.toMatchObject({
+          id: 'postgres-fork',
+        });
+        await expect(svc.sessionInit('ordinary-postgres', {
+          providerID: 'provider', modelID: 'model', messageID: 'message-1',
+        })).resolves.toBe(true);
+        await expect(svc.sessionShell('ordinary-postgres', 'pwd', 'build')).resolves.toEqual({ ok: true });
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(sdkClient.session.prompt).toHaveBeenCalledOnce();
+    expect(sdkClient.session.promptAsync).toHaveBeenCalledOnce();
+    expect(sdkClient.session.command).toHaveBeenCalledOnce();
+    expect(sdkClient.session.summarize).toHaveBeenCalledOnce();
+    expect(sdkClient.session.fork).toHaveBeenCalledOnce();
+    expect(upstream).toHaveBeenCalledTimes(2);
+  });
+});
+
 // ── issue-685-c5: wrappers reject before SDK initialization ───────────────────
 
 describe('issue-685-c5: wrappers reject before SDK initialization with engine-not-ready error', () => {
@@ -358,6 +475,28 @@ describe('wrapper method shapes (M3/M4 readiness)', () => {
     expect(sdkClient.session.messages).toHaveBeenCalledWith(
       expect.objectContaining({ path: { id: 'sdk-msg-id' } }),
     );
+  });
+
+  it('R2: listMessagesPage forwards the engine cursor and exposes its explicit completion cursor', async () => {
+    sdkClient.session.messages.mockResolvedValue({
+      data: [{ info: { id: 'assistant-page-one' }, parts: [] }],
+      response: new Response(null, { headers: { 'x-next-cursor': 'before-page-two' } }),
+    });
+
+    const page = await svc.listMessagesPage('sdk-msg-id', '/safe/project', {
+      limit: 100,
+      before: 'before-page-one',
+      caller: 'persistent_workstream_coordinator',
+    });
+
+    expect(sdkClient.session.messages).toHaveBeenCalledWith(expect.objectContaining({
+      path: { id: 'sdk-msg-id' },
+      query: { directory: '/safe/project', limit: 100, before: 'before-page-one' },
+    }));
+    expect(page).toMatchObject({
+      messages: [{ info: { id: 'assistant-page-one' } }],
+      nextCursor: 'before-page-two',
+    });
   });
 
   it('1503-A-transcript-fetch-instrumentation:1 warns once for a slow transcript fetch without logging message content', async () => {
@@ -464,11 +603,11 @@ describe('wrapper method shapes (M3/M4 readiness)', () => {
     );
   });
 
-  it('listMcp calls mcp.status and returns the data map', async () => {
+  it('listMcp forwards an intended directory to mcp.status and returns the data map', async () => {
     const mcpMap = { 'my-server': { type: 'connected', id: 'my-server' } };
     sdkClient.mcp.status.mockResolvedValue({ data: mcpMap });
-    const result = await svc.listMcp();
-    expect(sdkClient.mcp.status).toHaveBeenCalledTimes(1);
+    const result = await svc.listMcp('/tmp/rhythm-scoped-project');
+    expect(sdkClient.mcp.status).toHaveBeenCalledWith({ query: { directory: '/tmp/rhythm-scoped-project' } });
     expect(result).toEqual(mcpMap);
   });
 
@@ -707,5 +846,169 @@ describe('issue-689 repair: getSession gone-vs-transport discrimination', () => 
       statusCode: 502,
       message: expect.stringContaining('transport failure'),
     });
+  });
+});
+
+// ── R4: strict, read-only capacity lifecycle evidence ─────────────────────
+
+describe('R4 strict bound-session lifecycle inspection', () => {
+  function jsonResponse(value: unknown, status = 200): Response {
+    return new Response(JSON.stringify(value), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  function setup(input: {
+    session?: unknown;
+    questions?: { data?: unknown; error?: unknown } | Error;
+    status?: unknown;
+    statusCode?: number;
+    permissions?: unknown;
+    permissionCode?: number;
+  } = {}) {
+    const svc = new OpencodeClientService();
+    const sdkClient = makeRealSdkClient();
+    injectClient(svc, sdkClient);
+    if (input.session instanceof Error) {
+      sdkClient.session.get.mockRejectedValue(input.session);
+    } else {
+      sdkClient.session.get.mockResolvedValue(input.session ?? {
+        data: { id: 'sdk-idle', directory: '/safe/project' },
+      });
+    }
+    const questionList = input.questions instanceof Error
+      ? vi.fn().mockRejectedValue(input.questions)
+      : vi.fn().mockResolvedValue(input.questions ?? { data: [] });
+    svc.__setTestV2Client({ question: { list: questionList } } as never);
+    vi.stubGlobal('fetch', vi.fn((request: string | URL | Request) => {
+      const url = String(request);
+      if (url.includes('/session/status')) {
+        return Promise.resolve(jsonResponse(input.status ?? {}, input.statusCode ?? 200));
+      }
+      if (url.includes('/permission')) {
+        return Promise.resolve(jsonResponse(input.permissions ?? [], input.permissionCode ?? 200));
+      }
+      return Promise.reject(new Error(`unexpected lifecycle probe URL: ${url}`));
+    }));
+    return { svc, sdkClient, questionList };
+  }
+
+  it('accepts the engine’s documented idle-map omission only after every strict read succeeds', async () => {
+    const { svc, sdkClient, questionList } = setup();
+    try {
+      const result = await svc.inspectBoundSessionLifecycles(['sdk-idle'], '/safe/project');
+
+      expect(result).toEqual({
+        available: true,
+        knownSessionIds: ['sdk-idle'],
+        statusBySessionId: {},
+        pendingQuestionSessionIds: [],
+        pendingPermissionSessionIds: [],
+      });
+      expect(sdkClient.session.get).toHaveBeenCalledWith({ path: { id: 'sdk-idle' } });
+      expect(questionList).toHaveBeenCalledWith({ directory: '/safe/project' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('withholds a bounded inspection when any requested bound session is not positively known', async () => {
+    const { svc, sdkClient, questionList } = setup();
+    sdkClient.session.get.mockImplementation(async ({ path }: { path: { id: string } }) => (
+      path.id === 'sdk-idle'
+        ? { data: { id: 'sdk-idle', directory: '/safe/project' } }
+        : { error: { message: 'not found' } }
+    ));
+    try {
+      await expect(svc.inspectBoundSessionLifecycles(
+        ['sdk-idle', 'sdk-missing'],
+        '/safe/project',
+      )).resolves.toEqual({
+        available: false,
+        knownSessionIds: [],
+        statusBySessionId: {},
+        pendingQuestionSessionIds: [],
+        pendingPermissionSessionIds: [],
+      });
+      expect(questionList).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('holds missing/wrong session metadata and every failed or malformed lifecycle response', async () => {
+    const cases: Array<{
+      name: string;
+      setup: Parameters<typeof setup>[0];
+      expectedAvailable: boolean;
+      expectedKnown: string[];
+    }> = [
+      {
+        name: 'missing known session',
+        setup: { session: { error: { message: 'not found' } } },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+      {
+        name: 'wrong session directory',
+        setup: { session: { data: { id: 'sdk-idle', directory: '/other/project' } } },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+      {
+        name: 'session metadata transport failure',
+        setup: { session: new Error('transport down') },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+      {
+        name: 'status HTTP failure',
+        setup: { statusCode: 503 },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+      {
+        name: 'status malformed payload',
+        setup: { status: { 'sdk-idle': {} } },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+      {
+        name: 'question SDK failure',
+        setup: { questions: { error: { message: 'unavailable' } } },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+      {
+        name: 'question malformed payload',
+        setup: { questions: { data: [{}] } },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+      {
+        name: 'permission HTTP failure',
+        setup: { permissionCode: 503 },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+      {
+        name: 'permission malformed payload',
+        setup: { permissions: [{}] },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+    ];
+
+    for (const entry of cases) {
+      const { svc } = setup(entry.setup);
+      try {
+        const result = await svc.inspectBoundSessionLifecycles(['sdk-idle'], '/safe/project');
+        expect(result.available, entry.name).toBe(entry.expectedAvailable);
+        expect(result.knownSessionIds, entry.name).toEqual(entry.expectedKnown);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }
   });
 });

@@ -46,6 +46,7 @@ import { SessionShare } from "@/share/session"
 import { ShareNext } from "@/share/share-next"
 import { Skill } from "@/skill"
 import { Snapshot } from "@/snapshot"
+import { Storage } from "@/storage/storage"
 import { SyncEvent } from "@/sync"
 import { ToolRegistry } from "@/tool/registry"
 import { lazy } from "@/util/lazy"
@@ -228,6 +229,7 @@ export function createRoutes(corsOptions?: CorsOptions) {
       SessionSummary.defaultLayer,
       ShareNext.defaultLayer,
       Snapshot.defaultLayer,
+      Storage.defaultLayer,
       SyncEvent.defaultLayer,
       Skill.defaultLayer,
       Todo.defaultLayer,

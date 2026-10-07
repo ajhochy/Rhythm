@@ -2,7 +2,11 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: '.',
-  testMatch: ['post-m1-phase-3-live-pages.redspec.ts', 'post-m1-phase-3-selection-reload.redspec.ts'],
+  testMatch: [
+    'post-m1-phase-3-live-pages.redspec.ts',
+    'post-m1-phase-3-selection-reload.redspec.ts',
+    'quick-action-task-handoff.contract.spec.ts',
+  ],
   fullyParallel: false,
   workers: 1,
   timeout: 30_000,

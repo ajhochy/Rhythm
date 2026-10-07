@@ -743,9 +743,12 @@ export function Inspector({ collapsed, onToggle }: { collapsed: boolean; onToggl
   useEffect(() => {
     if (previousCollapsed.current === collapsed) return;
     previousCollapsed.current = collapsed;
-    requestAnimationFrame(() => (collapsed ? expandControl : collapseControl).current?.focus());
+    requestAnimationFrame(() => {
+      if (collapsed) document.querySelector<HTMLElement>('[data-testid="session-details"]')?.focus();
+      else collapseControl.current?.focus();
+    });
   }, [collapsed]);
-  if (collapsed) return <aside className="inspector collapsed" aria-label="Inspector collapsed" data-testid="inspector-collapsed" data-od-id="session-inspector"><button ref={expandControl} className="icon-button collapse-control" type="button" onClick={onToggle} aria-label="Expand Inspector" data-testid="inspector-expand"><Icon name="expand" /></button>{tabs.map((tab) => <button className={`rail-glyph ${inspectorTab === tab.id ? 'selected' : ''}`} type="button" key={tab.id} onClick={() => { setInspectorTab(tab.id); onToggle(); }} aria-label={tab.label} data-testid={`inspector-collapsed-${tab.id}`}><Icon name={tab.icon} /></button>)}</aside>;
+  if (collapsed) return <aside id="session-inspector" className="inspector collapsed" aria-label="Inspector collapsed" aria-hidden="true" data-testid="inspector-collapsed" data-od-id="session-inspector"><button ref={expandControl} className="icon-button collapse-control" type="button" onClick={onToggle} aria-label="Expand Inspector" data-testid="inspector-expand"><Icon name="expand" /></button>{tabs.map((tab) => <button className={`rail-glyph ${inspectorTab === tab.id ? 'selected' : ''}`} type="button" key={tab.id} onClick={() => { setInspectorTab(tab.id); onToggle(); }} aria-label={tab.label} data-testid={`inspector-collapsed-${tab.id}`}><Icon name={tab.icon} /></button>)}</aside>;
   const pty = ptySessions[selected.id] ?? { id: `pty-${selected.id}`, status: 'connected' as const, output: ['$ pwd', selected.cwd] };
   const updatePty = (next: PtyFixture) => setPtySessions((current) => ({ ...current, [selected.id]: next }));
   const live = sessionGatewayMode === 'live';
@@ -759,7 +762,7 @@ export function Inspector({ collapsed, onToggle }: { collapsed: boolean; onToggl
     requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-testid="inspector-${next}"]`)?.focus());
   };
   const todosCollapsed = Boolean(collapsedTodos[selected.id]);
-  return <aside className="inspector" aria-label="Session inspector" data-od-id="session-inspector">
+  return <aside id="session-inspector" className="inspector" aria-label="Session inspector" data-od-id="session-inspector">
     <header className="inspector-header"><div role="tablist" aria-label="Inspector views" onKeyDown={moveTab}>{tabs.map((tab) => <button role="tab" aria-selected={inspectorTab === tab.id} tabIndex={inspectorTab === tab.id ? 0 : -1} type="button" key={tab.id} onClick={() => { setInspectorTab(tab.id); setTrace(null); }} data-testid={`inspector-${tab.id}`}><Icon name={tab.icon} size={15} /><span>{tab.label}</span></button>)}</div><button ref={collapseControl} className="icon-button small" type="button" onClick={onToggle} aria-label="Collapse Inspector" data-testid="inspector-collapse"><Icon name="collapse" size={16} /></button></header>
     {/* ponytail: gate mounting, not just requests, so every session panel drops stale state. */}
     <div className="inspector-content" role="region" aria-label={`${tabs.find((tab) => tab.id === inspectorTab)?.label ?? 'Session'} inspector content`} tabIndex={0} data-testid="inspector-content">{live && <SharedWithMePanel />}{selected.id ? panel : <p className="inspector-empty" role="status">Select a session to inspect its details.</p>}</div>

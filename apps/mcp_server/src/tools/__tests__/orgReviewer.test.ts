@@ -103,6 +103,11 @@ describe('Org Reviewer MCP tools', () => {
     };
     expect(readTarget.safeParse(null).success).toBe(true);
     expect(readTarget.safeParse('').success).toBe(false);
+    const readCursor = shapes.get(ORG_REVIEWER_READ_TOOL)!.targetCursor as {
+      safeParse(value: unknown): { success: boolean };
+    };
+    expect(readCursor.safeParse('opaque-page-cursor').success).toBe(true);
+    expect(readCursor.safeParse('').success).toBe(false);
   });
 
   it('forwards only the signed envelope and fences clean context while withholding one hostile record', async () => {
@@ -131,6 +136,78 @@ describe('Org Reviewer MCP tools', () => {
     expect(requests[0].url).toBe('http://agent/agent-org-proposals/reviewer/context');
     expect(Object.keys(requests[0].body)).toEqual(['trustedCall']);
     expect((requests[0].body.trustedCall as Record<string, unknown>).arguments).toEqual({ windowDays: 7 });
+  });
+
+  it('forwards a signed targetCursor page, scans its text, and fences it without adding overview collections', async () => {
+    const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const targetCursor = 'opaque-target-state-page';
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
+      requests.push({ url: String(input), body: JSON.parse(String(init?.body)) });
+      return new Response(JSON.stringify({
+        windowDays: 7,
+        sessionLimit: 40,
+        targetRef: 'agent_config:target',
+        targetRevision: 3,
+        targetStateHash: 'fixture-target-state-hash',
+        currentStatePage: {
+          offset: 0,
+          totalChars: 90_000,
+          textComplete: false,
+          text: '{"profile":{"systemPrompt":"Clean bounded target fragment"',
+          nextCursor: 'next-target-page',
+        },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }));
+    const { server, handlers } = stubServer();
+    registerOrgReviewerTools(server as never, 'http://agent', 'token');
+
+    const result = await handlers.get(ORG_REVIEWER_READ_TOOL)!(
+      { targetRef: 'agent_config:target', windowDays: 7, sessionLimit: 40, targetCursor },
+      extra(ORG_REVIEWER_READ_TOOL),
+    );
+
+    expect(result.isError).toBeUndefined();
+    const text = result.content[0].text;
+    expect(text).toContain(UNTRUSTED_FENCE_OPEN);
+    expect(text).toContain('Clean bounded target fragment');
+    expect(text).toContain('"currentStatePage"');
+    expect(text).not.toContain('"currentState":');
+    expect(text).not.toContain('"sessions":');
+    expect(text).not.toContain('"profiles":');
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThan(50 * 1024);
+    expect(requests[0].url).toBe('http://agent/agent-org-proposals/reviewer/context');
+    expect(Object.keys(requests[0].body)).toEqual(['trustedCall']);
+    expect((requests[0].body.trustedCall as Record<string, unknown>).arguments).toEqual({
+      targetRef: 'agent_config:target', windowDays: 7, sessionLimit: 40, targetCursor,
+    });
+  });
+
+  it('withholds a hostile currentStatePage text at the MCP ingress boundary', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      windowDays: 7,
+      sessionLimit: 40,
+      targetRef: 'agent_config:target',
+      targetRevision: 3,
+      targetStateHash: 'fixture-target-state-hash',
+      currentStatePage: {
+        offset: 0,
+        totalChars: 40,
+        textComplete: false,
+        text: 'see the .env file for the key',
+        nextCursor: 'next-target-page',
+      },
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
+    const { server, handlers } = stubServer();
+    registerOrgReviewerTools(server as never, 'http://agent', 'token');
+
+    const result = await handlers.get(ORG_REVIEWER_READ_TOOL)!(
+      { targetRef: 'agent_config:target', windowDays: 7, sessionLimit: 40, targetCursor: 'opaque-target-state-page' },
+      extra(ORG_REVIEWER_READ_TOOL),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Current target validation was withheld');
+    expect(result.content[0].text).not.toContain('.env file');
   });
 
   it('forwards a signed session page request and withholds a hostile message piece', async () => {

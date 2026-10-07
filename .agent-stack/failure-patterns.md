@@ -754,3 +754,17 @@
 - **Criteria affected:** scoped installed PNG/workbook bytes and selected profile routing passed; one marked outer schedule Trigger now and read-only approval refresh passed. Full A1 replay/JPEG, operational Org Self-Optimizer execution, historical “Org Optimize” wording, and E1 creation/mount/reconnect/post-decision clauses remain unverified; read-only UI inspection mapped Org Self-Optimizer to the same outer control. Original approvals were not decided.
 - **Evidence:** signed installed 0.18.69 at source 31ff; two fresh real-provider sends with exact bytes; independent exact-ID cleanup; 61 RSS samples peaked at 950,848 KiB; healthy post-cleanup engine 608,528 KiB.
 - **Follow-up:** keep model assignments unchanged. EAS submission finished and Apple verified build 17 Validated and Testing in the existing internal group; physical-device smoke remains unrun because paired devices are unavailable. Let normal retention sweep remove the three unpinned metadata rows.
+## 2026-10-06 — Coordinator nested work and model qualification
+
+- Result: user smoke FAIL after bounded workflow plumbing qualification.
+- Category: C1 (missing whole-hierarchy and actual-model contracts); W5 (qualification scope was allowed to imply broader functionality).
+- Root cause: mixed native/async/native work bypassed both root-only listing and direct-caller async status; generated routing clauses conflicted; scripted responses did not exercise model choices.
+- Required follow-up: preserve separate source, full-gate, real-engine, actual-model and installed-runtime evidence; do not claim one qualifies another.
+
+## 2026-10-06 — C17 installed Coordinator/Dayflow smoke
+
+- **Result**: targeted installed smoke PASS; general model judgment not checked.
+- **Category**: none for checked UI criteria; W3 host lacked TodoWrite (durable stage receipts used).
+- **Criteria**: native Copy, installed generated Secretary routing/registry, Dayflow height/host scroll/chrome.
+- **Process**: release-input/dependency metadata holds and old-runtime restarts preserved; idle guards remained enabled. Exact-root helper gate corrected before any resync POST.
+- **Follow-up**: real-model status/dispatch/callback evaluation remains distinct from scripted API/engine/MCP proof. Prior human failure and historical zero-call cause remain recorded.

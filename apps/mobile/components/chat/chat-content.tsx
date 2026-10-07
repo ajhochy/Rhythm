@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   FlatList,
   Platform,
@@ -14,6 +14,7 @@ import {
 import { ActivityIndicator, Button, Card, IconButton, Text, TouchableRipple } from 'react-native-paper';
 
 import { Colors } from '@/constants/theme';
+import { AgentTypingBubble } from '@/components/chat/agent-typing-bubble';
 import { DiffCard, PendingInteractionsCard, SessionDiffCard, TranscriptMessage } from '@/components/chat/chat-cards';
 import type { TranscriptEntry } from '@/lib/opencode/format';
 import type { FileDiff, Session, SessionStatus, Todo } from '@/lib/opencode/types';
@@ -31,8 +32,8 @@ type ChatContentProps = {
   activeTab: 'session' | 'changes';
   awaitingUserInput: boolean;
   connection: { status: GatewayConnectionStatus; message: string };
+  coordinatorStatus?: ReactNode;
   copiedMessageId?: string;
-  currentActivityLabel?: string;
   currentDiffs: FileDiff[];
   currentPendingPermissions: PendingPermissionRequest[];
   currentPendingQuestions: PendingQuestionRequest[];
@@ -62,6 +63,8 @@ type ChatContentProps = {
   palette: Palette;
   pendingInteractions: number;
   running: boolean;
+  /** A server-primary history without an SDK row is readable but not mutable. */
+  readOnlyTranscript?: boolean;
   speakingMessageId?: string;
   status?: SessionStatus;
 };
@@ -71,8 +74,8 @@ export function ChatContent({
   activeTab,
   awaitingUserInput,
   connection,
+  coordinatorStatus,
   copiedMessageId,
-  currentActivityLabel,
   currentDiffs,
   currentPendingPermissions,
   currentPendingQuestions,
@@ -102,6 +105,7 @@ export function ChatContent({
   palette,
   pendingInteractions,
   running,
+  readOnlyTranscript = false,
   speakingMessageId,
   status,
 }: ChatContentProps) {
@@ -132,8 +136,8 @@ export function ChatContent({
   });
   const completedTodoCount = currentTodos.filter((todo) => todo.status === 'completed').length;
   const transcriptExtraData = useMemo(
-    () => [copiedMessageId, speakingMessageId],
-    [copiedMessageId, speakingMessageId],
+    () => [copiedMessageId, speakingMessageId, coordinatorStatus],
+    [copiedMessageId, coordinatorStatus, speakingMessageId],
   );
 
   useLayoutEffect(() => {
@@ -281,8 +285,8 @@ export function ChatContent({
                 copied={copiedMessageId === entry.id}
                 entry={entry}
                 onCopy={() => onCopyMessage(entry)}
-                onFork={entry.role === 'user' ? () => onForkMessage(entry.id) : undefined}
-                onRevert={entry.role === 'user' ? () => onRevertMessage(entry.id) : undefined}
+                onFork={!readOnlyTranscript && entry.role === 'user' ? () => onForkMessage(entry.id) : undefined}
+                onRevert={!readOnlyTranscript && entry.role === 'user' ? () => onRevertMessage(entry.id) : undefined}
                 onToggleSpeak={() => onToggleSpeak(entry)}
                 speaking={speakingMessageId === entry.id}
               />
@@ -333,6 +337,7 @@ export function ChatContent({
           )}
           ListFooterComponent={(
             <View style={styles.transcriptFooter}>
+              {coordinatorStatus}
               {pendingInteractions > 0 ? (
                 <PendingInteractionsCard
                   permissions={currentPendingPermissions}
@@ -352,13 +357,8 @@ export function ChatContent({
                 </Card>
               ) : null}
 
-              {running && !awaitingUserInput ? (
-                <View style={styles.loadingRow}>
-                  <ActivityIndicator color={palette.muted} size="small" />
-                  <Text style={{ color: palette.muted }}>
-                    {currentActivityLabel ? `OpenCode is ${currentActivityLabel.toLowerCase()}...` : 'OpenCode is working through the current step...'}
-                  </Text>
-                </View>
+              {running && !awaitingUserInput && pendingInteractions === 0 ? (
+                <AgentTypingBubble />
               ) : null}
 
               {completionSyncStatus ? (

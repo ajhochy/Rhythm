@@ -3,7 +3,7 @@ import { FIXED_NOW, seedDiff, seedFiles, seedProfiles, seedSessions, seedTodos }
 import { useGateway } from './gateway/context';
 import type { GatewayMode } from './gateway';
 import { SessionGatewayError, toSessionViewModel, createGenerationGuard, type ProfileMutation, type RichTranscriptMessage, type SessionSocket, type SessionWireEvent, type IdentityProfile, type ModelChoice, type AccountChoice, type SessionSettings, type TurnOverride } from './gateway/sessions';
-import { applyTranscriptEvent, emptyTranscript, mergeTranscriptPage, type TranscriptPageOptions, type TranscriptState } from './gateway/transcript-reducer';
+import { mergeCachedTranscriptPage, reduceCachedTranscriptEvent, type TranscriptPageOptions, type TranscriptState } from './gateway/transcript-reducer';
 import { useAuthUser } from './gateway/auth';
 import type { DomainNotification } from './gateway/notifications';
 import type { MessageThread } from './gateway/messages';
@@ -309,7 +309,6 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<DomainNotification[]>([]);
   const [pushNotifications, setPushNotifications] = useState<PushNotification[]>([]);
   const [approvalState, setApprovalState] = useState({ gateway, rows: [] as PendingApproval[], error: '', decisionError: '', loading: live, updatedAt: null as number | null, deciding: [] as string[] });
-  // Bind at render time: account/gateway replacement must hide old cards before effect cleanup.
   const pendingApprovals = approvalState.gateway === gateway ? approvalState.rows : [];
   const approvalError = approvalState.gateway === gateway ? approvalState.decisionError || approvalState.error : '';
   const approvalsLoading = approvalState.gateway !== gateway || approvalState.loading;
@@ -359,6 +358,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
 
   const selected = sessions.find((session) => session.id === selectedId) ?? (live ? emptyLiveSession() : sessions[0]) ?? emptyLiveSession();
   const pendingSessionRef = useRef(selected);
+  const decisionRehydrateAbortRef = useRef<AbortController | null>(null);
   pendingSessionRef.current = selected;
   useEffect(() => {
     clearPendingDecisions();
@@ -394,7 +394,18 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     childViewRequestRef.current++;
     childStack.current = [];
     setLiveChildView(null);
-    if (live && selected.id) void rehydrateDecisions(gateway, selected).catch(() => setLiveSessionError('Pending decisions could not be loaded'));
+    decisionRehydrateAbortRef.current?.abort();
+    const controller = new AbortController();
+    decisionRehydrateAbortRef.current = controller;
+    if (live && selected.id) {
+      void rehydrateDecisions(gateway, selected, controller.signal).catch(() => {
+        if (!controller.signal.aborted) setLiveSessionError('Pending decisions could not be loaded');
+      });
+    }
+    return () => {
+      controller.abort();
+      if (decisionRehydrateAbortRef.current === controller) decisionRehydrateAbortRef.current = null;
+    };
   }, [gateway, live, accountId, selected.id, selected.sdkSessionId, selected.cwd]);
   const notify = (message: string) => setToast((current) => ({ message, id: current.id + 1 }));
   const setTheme = (next: Theme) => { setThemeState(next); persistTheme(next); };
@@ -452,22 +463,19 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   }, [live, selectedId]);
 
   const mergeSessionTranscript = (session: Session, page: RichTranscriptMessage[], options: TranscriptPageOptions): TranscriptState => {
-    const stored = transcriptStatesRef.current.get(session.id) ?? emptyTranscript();
-    const seeded = mergeTranscriptPage(stored, session.messages as RichTranscriptMessage[], {
-      mode: 'merge', hasMore: session.transcriptHasMore ?? false, nextCursor: session.transcriptCursor,
-    });
-    const next = mergeTranscriptPage(seeded, page, options);
-    transcriptStatesRef.current.set(session.id, next);
-    return next;
+    return mergeCachedTranscriptPage(transcriptStatesRef.current, session.id, {
+      messages: session.messages as RichTranscriptMessage[],
+      hasMore: session.transcriptHasMore,
+      nextCursor: session.transcriptCursor,
+    }, page, options);
   };
 
   const reduceSessionTranscript = (session: Session, event: SessionWireEvent): TranscriptState => {
-    const seeded = mergeSessionTranscript(session, [], {
-      mode: 'merge', hasMore: session.transcriptHasMore ?? false, nextCursor: session.transcriptCursor,
-    });
-    const next = applyTranscriptEvent(seeded, event);
-    transcriptStatesRef.current.set(session.id, next);
-    return next;
+    return reduceCachedTranscriptEvent(transcriptStatesRef.current, session.id, {
+      messages: session.messages as RichTranscriptMessage[],
+      hasMore: session.transcriptHasMore,
+      nextCursor: session.transcriptCursor,
+    }, event);
   };
 
   const replaceLiveSession = (incoming: Session, options: { transcriptMode?: 'merge' | 'replace'; boundary?: { revertedMessageId?: string } } = {}) => {
@@ -778,12 +786,18 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     const onReconnect = () => {
       if (!active) return;
       const id = selectedIdRef.current;
-      if (id) { sessionSocketRef.current?.send({ v: 1, type: 'session.subscribe', id }); rehydratePendingPermission(id); }
+      if (id) {
+        sessionSocketRef.current?.send({ v: 1, type: 'session.subscribe', id });
+        if (pendingSessionRef.current.id === id && pendingSessionRef.current.sdkSessionId) rehydratePendingPermission(id);
+      }
       void requestReconcile().catch(onError);
     };
     sessionSocketRef.current = sessionGateway.connect(onEvent, onError, () => {
       onReconnect();
-      void rehydrateDecisions(gateway, pendingSessionRef.current).catch(onError);
+      const session = pendingSessionRef.current;
+      void rehydrateDecisions(gateway, session).catch(() => {
+        if (active && selectedIdRef.current === session.id && pendingSessionRef.current.sdkSessionId === session.sdkSessionId) onError();
+      });
     });
     // The hash listener above is installed before main flushes a pre-ready native click.
     emitAgentNotification({ v: 1, type: 'ready' }, live);
@@ -813,7 +827,15 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       rememberLiveSelection(chosen);
       if (chosen) {
         const detail = await sessionGateway.detail(chosen);
-        if (active) setSessions((current) => current.map((session) => session.id === chosen ? hydrateWorkingState(detail, session) : session));
+        if (active) setSessions((current) => current.map((session) => {
+          if (session.id !== chosen) return session;
+          // This initial detail can resolve after a WS frame. Merge it through the same
+          // explicit REST boundary so it fills an absent cache without clobbering live text.
+          const transcript = mergeSessionTranscript(session, detail.messages as RichTranscriptMessage[], {
+            mode: 'merge', hasMore: detail.transcriptHasMore ?? false, nextCursor: detail.transcriptCursor,
+          });
+          return { ...hydrateWorkingState(detail, session), messages: transcript.messages };
+        }));
         rehydratePendingPermission(chosen);
       }
     }).catch(onError).finally(() => { if (active) setLoading(false); });
@@ -855,8 +877,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gateway, live]);
 
-  // ponytail: one shared queue, 5s visible-window polling until the API offers approval events.
-  // Transcript consumes this same snapshot; failed reads never erase the last pending cards.
+  // One queue snapshot is shared by the bell and transcript; failed reads retain the last cards.
   useEffect(() => {
     if (!live) return;
     let active = true;
@@ -867,21 +888,18 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       if (context.inFlight) {
         if (force) { context.queued = true; ++context.generation; }
         await context.inFlight;
-        if (context.queued && active && currentApprovalGateway.current === gateway) {
-          context.queued = false;
-          return refresh();
-        }
+        if (context.queued && active && currentApprovalGateway.current === gateway) { context.queued = false; return refresh(); }
         return;
       }
       const generation = ++context.generation;
       const current = () => active && currentApprovalGateway.current === gateway && generation === context.generation;
-      setApprovalState(state => state.gateway === gateway ? { ...state, loading: true } : state);
+      setApprovalState((state) => state.gateway === gateway ? { ...state, loading: true } : state);
       const request = (async () => {
         try {
           const rows = await gateway.domains.approvals!.listPending();
-          if (current()) setApprovalState(state => ({ ...state, gateway, rows, error: '', loading: false, updatedAt: Date.now() }));
+          if (current()) setApprovalState((state) => ({ ...state, gateway, rows, error: '', loading: false, updatedAt: Date.now() }));
         } catch (error) {
-          if (current()) setApprovalState(state => ({ ...state, error: failureMessage('Pending approvals could not be refreshed', error), loading: false }));
+          if (current()) setApprovalState((state) => ({ ...state, error: failureMessage('Pending approvals could not be refreshed', error), loading: false }));
         }
       })();
       context.inFlight = request;
@@ -891,20 +909,9 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     const visibleRefresh = () => { if (document.visibilityState === 'visible') void refresh(); };
     void refresh();
     const timer = window.setInterval(visibleRefresh, 5_000);
-    window.addEventListener('focus', visibleRefresh);
-    window.addEventListener('online', visibleRefresh);
-    window.addEventListener('pageshow', visibleRefresh);
-    document.addEventListener('visibilitychange', visibleRefresh);
-    return () => {
-      active = false;
-      approvalRefreshRef.current = null;
-      approvalContextRef.current = null;
-      window.clearInterval(timer);
-      window.removeEventListener('focus', visibleRefresh);
-      window.removeEventListener('online', visibleRefresh);
-      window.removeEventListener('pageshow', visibleRefresh);
-      document.removeEventListener('visibilitychange', visibleRefresh);
-    };
+    window.addEventListener('focus', visibleRefresh); window.addEventListener('online', visibleRefresh); window.addEventListener('pageshow', visibleRefresh); document.addEventListener('visibilitychange', visibleRefresh);
+    return () => { active = false; approvalRefreshRef.current = null; approvalContextRef.current = null; window.clearInterval(timer); window.removeEventListener('focus', visibleRefresh); window.removeEventListener('online', visibleRefresh); window.removeEventListener('pageshow', visibleRefresh); document.removeEventListener('visibilitychange', visibleRefresh); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gateway, live]);
 
   // post-m1-p7-c4d: a real ECDSA P-256 signature over the server-issued decisionNonce/payloadDigest
@@ -917,13 +924,16 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     if (!context || context.gateway !== gateway || context.deciding.has(id)) return;
     const approval = pendingApprovals.find((item) => item.id === id);
     if (!approval) return;
-    if (!approval.decisionNonce?.trim()) {
-      setApprovalState(state => ({ ...state, decisionError: 'This legacy approval cannot be signed. Ask the agent to request approval again.' }));
-      return;
+    if (approval.securityAction === 'coordinator.workflow.start') {
+      const native = (window as Window & { rhythmShell?: { humanApproval?: { signDecision?: unknown } } }).rhythmShell?.humanApproval;
+      if (typeof native?.signDecision !== 'function' || !approval.payloadDigest?.trim()) {
+        setApprovalState((state) => ({ ...state, decisionError: 'Native signer unavailable. Reopen the signed Rhythm desktop chat to decide this workflow proposal.' }));
+        return;
+      }
     }
+    if (!approval.decisionNonce?.trim()) { setApprovalState((state) => ({ ...state, decisionError: 'This legacy approval cannot be signed. Ask the agent to request approval again.' })); return; }
     const current = () => approvalContextRef.current === context && currentApprovalGateway.current === gateway;
-    context.deciding.add(id);
-    setApprovalState(state => ({ ...state, deciding: [...context.deciding] }));
+    context.deciding.add(id); setApprovalState((state) => ({ ...state, deciding: [...context.deciding] }));
     try {
       const material = await signApprovalDecision({
         approvalId: id,
@@ -934,17 +944,17 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       if (!current()) return;
       await gateway.domains.approvals!.decide(id, status, material);
       if (!current()) return;
-      ++context.generation; // fence any pre-decision pending snapshot still in flight
-      setApprovalState(state => ({ ...state, decisionError: '', rows: state.rows.filter((item) => item.id !== id) }));
+      ++context.generation;
+      setApprovalState((state) => ({ ...state, decisionError: '', rows: state.rows.filter((item) => item.id !== id) }));
       notify(`Approval ${status}`);
-      if (current()) await refreshPendingApprovals();
       // c4d: focus only the originating owned session, never a different one.
-      if (current() && approval.sessionId) await selectLiveSession(approval.sessionId);
+      if (approval.sessionId) await selectLiveSession(approval.sessionId);
+      if (current()) await refreshPendingApprovals();
     } catch (error) {
-      if (current()) setApprovalState(state => ({ ...state, decisionError: error instanceof ApprovalGatewayError ? error.message : 'Native decision could not be sent. Open the signed Rhythm desktop queue and retry.' }));
+      if (current()) setApprovalState((state) => ({ ...state, decisionError: error instanceof ApprovalGatewayError ? error.message : 'Native decision could not be sent. Open the signed Rhythm desktop queue and retry.' }));
     } finally {
       context.deciding.delete(id);
-      if (current()) setApprovalState(state => ({ ...state, deciding: [...context.deciding] }));
+      if (current()) setApprovalState((state) => ({ ...state, deciding: [...context.deciding] }));
     }
   };
 
@@ -1025,22 +1035,25 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     const trimmed = input.trim();
     if (!selected.id || (!trimmed && attachments.length === 0)) return;
     const messageId = `local-user-${Date.now()}`;
-    setSessions((current) => current.map((session) => session.id === selected.id ? {
-      ...session,
-      status: 'working',
-      messages: [...session.messages, {
-        id: messageId, role: 'user', createdAt: new Date().toISOString(),
-        blocks: [{ id: `${messageId}-text`, kind: 'markdown', content: trimmed || 'Attached file context.' }],
-        attachments: structuredClone(attachments),
-      }],
-      pendingAttachments: [],
-    } : session));
+    const optimisticMessage: RichTranscriptMessage = {
+      id: messageId, role: 'user', createdAt: new Date().toISOString(),
+      blocks: [{ id: `${messageId}-text`, kind: 'markdown', content: trimmed || 'Attached file context.' }],
+      attachments: structuredClone(attachments),
+    };
+    setSessions((current) => current.map((session) => {
+      if (session.id !== selected.id) return session;
+      // Keep the reducer cache current at the only live optimistic-write boundary. A later
+      // WS confirmation can still alias this row without rehydrating every historical row.
+      const transcript = mergeSessionTranscript(session, [optimisticMessage], {
+        mode: 'merge', hasMore: session.transcriptHasMore ?? false, nextCursor: session.transcriptCursor,
+      });
+      return { ...session, status: 'working', messages: transcript.messages, pendingAttachments: [] };
+    }));
     const override = turnOverrides.current[selected.id] ?? {};
     delete turnOverrides.current[selected.id];
     setOverrideVersion(v => v + 1);
     const turnProfile = profiles.find(profile => profile.id === override.profileId && profile.enabled && profile.selectable);
     const agent = turnProfile ? turnProfile.ocAgent || turnProfile.id : undefined;
-    const profileId = turnProfile?.id;
     // Auto (router) sessions never echo the stored model back as an override — that would
     // pin the turn; only an explicitly staged turn-only model is sent.
     const modelOverride = override.modelOverride ?? (selected.modelMode !== 'auto' && selected.providerId && selected.modelId
@@ -1059,8 +1072,8 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     // canonical `data` (not `parts`) — the same wire alternative the API already accepts.
     // Only route through `parts` when there is a real attachment to carry.
     sessionSocketRef.current?.send(attachments.length > 0
-      ? { v: 1, type: 'session.input', id: selected.id, parts, ...(profileId ? { profileId } : {}), ...(agent ? { agent } : {}), ...(modelOverride ? { modelOverride } : {}) }
-      : { v: 1, type: 'session.input', id: selected.id, data: trimmed, ...(profileId ? { profileId } : {}), ...(agent ? { agent } : {}), ...(modelOverride ? { modelOverride } : {}) });
+      ? { v: 1, type: 'session.input', id: selected.id, parts, ...(agent ? { agent } : {}), ...(modelOverride ? { modelOverride } : {}) }
+      : { v: 1, type: 'session.input', id: selected.id, data: trimmed, ...(agent ? { agent } : {}), ...(modelOverride ? { modelOverride } : {}) });
     setRunMessage('Message delivered · agent is working');
     notify('Message sent');
   };
