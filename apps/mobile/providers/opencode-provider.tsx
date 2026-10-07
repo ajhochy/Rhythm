@@ -4370,8 +4370,28 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
       for (const sessionId of pendingIds) {
         const status = sessionStatuses[sessionId];
-        const oldEnough = Date.now() - (notificationRequestedAtRef.current.get(sessionId) || Date.now()) >= 5000;
-        if ((!busyNotificationSessionIdsRef.current.has(sessionId) && !oldEnough) || (status && status.type !== 'idle') || (sendingState.active && sendingState.sessionId === sessionId)) {
+        // A completion notification requires evidence the turn actually
+        // STARTED: the engine must have reported this session busy at least
+        // once (busyNotificationSessionIdsRef is set from session.status).
+        // Previously an elapsed timer alone was enough, so a prompt that never
+        // reached the engine — no busy status ever, sendingState cleared by the
+        // failure — satisfied every guard and fired "OpenCode finished a task".
+        // Measured 2026-10-07: that notification fired precisely BECAUSE the
+        // request failed, and it is why a dead backend looked like a working
+        // one for most of a night.
+        const observedBusy = busyNotificationSessionIdsRef.current.has(sessionId);
+        if (!observedBusy) {
+          // Never saw it start, so we cannot claim it finished. Drop the
+          // pending marker rather than leaving it to fire later.
+          const neverStarted = Date.now() - (notificationRequestedAtRef.current.get(sessionId) || Date.now()) >= 5000;
+          if (neverStarted) {
+            pendingNotificationSessionIdsRef.current.delete(sessionId);
+            notificationRequestedAtRef.current.delete(sessionId);
+            await clearTrackedPendingNotification(sessionId).catch(() => undefined);
+          }
+          continue;
+        }
+        if ((status && status.type !== 'idle') || (sendingState.active && sendingState.sessionId === sessionId)) {
           continue;
         }
 
