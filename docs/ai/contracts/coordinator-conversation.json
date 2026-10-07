@@ -1,0 +1,159 @@
+{
+  "issue": null,
+  "generated": "2026-10-07",
+  "criteria": [
+    {
+      "criterion_id": "coordinator-conversation-c1",
+      "text": "Multiple distinct user turns remain distinct and correctly ordered.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_coordinator_real_model.test.ts",
+      "test_id": "distinct user turns",
+      "status": "pass",
+      "reason": "Root independently compared all four actual O prompts against separate ordered engine user messages and API mirror inputs, with exact text/SHA matches. All assistant messages used configured anthropic/claude-opus-5-5. No concatenation defect reproduced; this does not prove every historical transcript."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c2",
+      "text": "After reading memory/Dayflow, a workflow request produces a reasoned proposal and actionable card.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_coordinator_real_model.test.ts",
+      "test_id": "evidence to exact approval proposal",
+      "status": "pending",
+      "reason": "Q3 captured the exact original goal, read authenticated native memory and Dayflow before proposal, and persisted same-chat cards; interactive desktop card presentation and a genuine human action remain untested."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c3",
+      "text": "A chat adjustment produces revised exact limits.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_coordinator_real_model.test.ts",
+      "test_id": "conversational limit revision",
+      "status": "pass",
+      "reason": "Q3 created two immutable same-goal cards with exact revisions: 160000 soft tokens/180 seconds/2 turns/1800 seconds, then 120000/90/2/1800. The first is rejected as system:workflow_superseded and the second remains pending with a different digest; neither was human-approved or consumed."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c4",
+      "text": "Mixed native/async delegation reaches at least three levels with permitted tools intact.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_coordinator_real_model.test.ts",
+      "test_id": "mixed depth-three permitted tools",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "coordinator-conversation-c5",
+      "text": "\u201cWhat is running?\u201d finds the actual descendants without requiring pasted IDs.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_coordinator_real_model.test.ts",
+      "test_id": "discover current descendants",
+      "status": "pending",
+      "reason": "Q3 correctly scoped its answer to visible root/owner work, but a separate errored system self-improvement session outside that scope existed. No native/async descendants were started, so descendant discovery remains pending."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c6",
+      "text": "Completion returns to the original chat.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_coordinator_real_model.test.ts",
+      "test_id": "originating chat completion",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "coordinator-conversation-c7",
+      "text": "Missing tools, denied access and incomplete listings produce accurate explanations.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_coordinator_real_model.test.ts",
+      "test_id": "truthful limitations",
+      "status": "pending",
+      "reason": "Q3 correctly reported an executed unknown tool as unavailable in its current inventory and described listing limits. No configured-model conversation exercised an actual denied-tool or authentication-failure explanation."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c8",
+      "text": "The model chooses the correct tools and does not overstate evidence.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_coordinator_real_model.test.ts",
+      "test_id": "evidence-grounded tool choice",
+      "status": "pending",
+      "reason": "Q3 used memory and Dayflow before proposal, stated the selected-reference code/test limitation, and was honestly uncertain about the prior card state omitted from the response. This bounded evidence does not establish universal answer quality."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c9",
+      "text": "Unknown and noncanonical permitted tool names do not masquerade as permission denials; denied canonical tools remain denied and run no effects.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/mcp_allowlist_e2e.test.ts",
+      "test_id": "Coordinator discovery errors",
+      "status": "pass",
+      "reason": "Root independent final engine dispatcher/helper/native Task suites: 46/46; full session suite: 526 passed, 5 skipped, 1 todo. Unknown/excluded names do not reveal process-global cached tool existence; permitted aliases receive exact canonical guidance. No installed-runtime claim."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c10",
+      "text": "A genuine human approves the exact final card; no agent clicks human approval controls or forges consent.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "User requires genuine human interaction. Agent must prepare the exact reviewable card and finish all independent work first."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c11",
+      "text": "A scheduled SDK session with no retained Dayflow history may run when its legitimate scheduler record lacks owner and/or project bindings.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/dayflow_scheduled_zero_history_admission.test.ts",
+      "test_id": "scheduled zero-history ordinary admission",
+      "status": "pass",
+      "reason": "N real scheduled run completed_no_op with exact DAYFLOW_SCHEDULED_OK_3043bd22 in engine and API output. Root independently asserted 12 API/engine/DB facts with null owner/project; configured openai/gpt-5.6-sol. The original live-test executor lost its final stdout; retained independent assertions exited 0."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c12",
+      "text": "Duplicate identities, malformed fields, unsafe markers, and retained or corrupt Dayflow context remain held.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/dayflow_scheduled_zero_history_admission.test.ts",
+      "test_id": "unsafe scheduled context holds",
+      "status": "pass",
+      "reason": "14 admission regressions passed, including corrupt context, duplicate identity, unsafe markers, foreign ownership and synchronous finalizer races."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c13",
+      "text": "One bounded feature approval covers TrackingManager, installTrackingRoutes and trackingSnapshot; HIGH impact alone does not reopen approval.",
+      "mode": "integration",
+      "test_file": "",
+      "test_id": "scope-based approval",
+      "status": "pass",
+      "reason": "Actual configured gpt-6.1-sol Coding Agent completed snapshot and resumed route edits under one preserved scope record with CRITICAL/30 direct dependents for all three symbols. Both pre-edit RED tests became GREEN. Root reviewed actual source diff and independently reran both tests: 2 passed. No per-symbol approval or bypass requested."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c14",
+      "text": "Delegation and resumption retain same-task approval scope without transferring it to unrelated work; separately restricted operations still need authorization.",
+      "mode": "integration",
+      "test_file": "",
+      "test_id": "durable scope handoff",
+      "status": "pending",
+      "reason": "Actual O toy proves same-session resume retains scope and unrelated separate payroll session/deployment are held with no effects. Parent-child handoff behavior has focused tests; actual configured-model mixed delegation remains pending. Managed Workflow Orchestrator skill patch is a candidate, not applied to installed services or behaviorally qualified by this Coding Agent toy."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c15",
+      "text": "Parent-child permission modes and explicit restrictions survive native and asynchronous delegation and resume; stops identify host permission, workflow or scope-risk cause.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/coordinator_native_child_permission_mode.test.ts",
+      "test_id": "parent-child authority",
+      "status": "pending",
+      "reason": "Independent API permission/resume 148 tests and real native Task/deferred 21 tests passed; configured-model mixed depth-three execution remains gated on genuine human approval."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c16",
+      "text": "A provider error carried in an engine assistant message is recorded as a failed scheduled run with a bounded explanation, never completed_no_op.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_738_agent_runner.test.ts",
+      "test_id": "structured assistant APIError",
+      "status": "pass",
+      "reason": "Structured assistant APIError reproduced in J; L actual engine/API/DB evidence demonstrates scheduler failure classification. Subsequent privacy repair emits a fixed safe message, with secret-bearing regression coverage. Final serial API run: 8283 passed, 297 skipped (834 files passed,155 skipped) in964.43 seconds (`npx --no-install vitest run --maxWorkers=1` from `apps/api_server`; evidence `api-full-workflow-final.log`); tsc exited0. Exact scheduled success is independently qualified by N."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c17",
+      "text": "A bounded selected-reference workflow accepts the persisted fixed model override of its originating Coordinator chat, and changing the root model invalidates the pending or resumed authority while unrelated finite paths stay strict.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/chat_bounded_workflow.contract.test.ts",
+      "test_id": "fixed root session model workflow binding",
+      "status": "pending",
+      "reason": "Q3 actual Opus fixed-override proposal flow passed: the persisted Opus override was accepted against the Sonnet profile default and created/revised cards. The focused workflow/conversation suite passed 141 tests, but genuine human approval, start/resume, and an actual model-change invalidation remain pending."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "coordinator-conversation-c10"
+  ]
+}

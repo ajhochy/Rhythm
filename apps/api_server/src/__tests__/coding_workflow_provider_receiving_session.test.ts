@@ -10,13 +10,13 @@ function fixture() {
   onTestFinished(() => { db.close(); });
   db.exec(`CREATE TABLE agent_sessions (id TEXT, owner_user_id INTEGER, project_id TEXT, parent_session_id TEXT,
     cwd TEXT, is_system INTEGER, category TEXT, archived_at TEXT, profile_id TEXT, sdk_session_id TEXT,
-    dayflow_context_nonreuse_code TEXT, dayflow_context_nonreuse_at TEXT);
+    scheduled_task_id TEXT, dayflow_context_nonreuse_code TEXT, dayflow_context_nonreuse_at TEXT);
     CREATE TABLE agent_turn_dispatches (id TEXT, dayflow_context_schema_version INTEGER,
     dayflow_context_sdk_session_id TEXT, sdk_session_id TEXT);
     INSERT INTO agent_sessions VALUES ('local-manager', 7, 'project-s4', 'root', '/safe/project', 0, 'chat', NULL,
-    'workflow-orchestrator', 'sdk-manager', NULL, NULL);
+    'workflow-orchestrator', 'sdk-manager', NULL, NULL, NULL);
     INSERT INTO agent_sessions VALUES ('root', 7, 'project-s4', NULL, '/safe/project', 0, 'chat', NULL,
-    'secretary', 'sdk-root', NULL, NULL);`);
+    'secretary', 'sdk-root', NULL, NULL, NULL);`);
   const records = new DayflowReceivingContextRepository(db);
   const request = { schemaVersion: 1 as const, sdkSessionId: 'sdk-manager', userMessageId: 'msg-1', requestNonce: 'n'.repeat(32),
     engineGeneration: 'engine-g1', runnerGeneration: 'runner-g1', attempt: 0, purpose: 'answer' as const, inputDigest: 'a'.repeat(64) };
@@ -60,7 +60,7 @@ describe('workflow provider receiving session classification', () => {
     ['foreign root owner', "UPDATE agent_sessions SET owner_user_id=8 WHERE id='root'"],
     ['archived root', "UPDATE agent_sessions SET archived_at='2026-10-06' WHERE id='root'"],
     ['unsafe root', "UPDATE agent_sessions SET dayflow_context_nonreuse_code='dayflow_receiving_context_changed' WHERE id='root'"],
-    ['ambiguous SDK', "INSERT INTO agent_sessions SELECT 'duplicate', owner_user_id, project_id, parent_session_id, cwd, is_system, category, archived_at, profile_id, sdk_session_id, dayflow_context_nonreuse_code, dayflow_context_nonreuse_at FROM agent_sessions WHERE id='local-manager'"],
+    ['ambiguous SDK', "INSERT INTO agent_sessions SELECT 'duplicate', owner_user_id, project_id, parent_session_id, cwd, is_system, category, archived_at, profile_id, sdk_session_id, scheduled_task_id, dayflow_context_nonreuse_code, dayflow_context_nonreuse_at FROM agent_sessions WHERE id='local-manager'"],
   ])('holds %s without releasing history', async (_name, mutation) => {
     const f = fixture(); f.db.exec(mutation);
     expect((await prepare(f)).finalize()).toMatchObject({ response: {

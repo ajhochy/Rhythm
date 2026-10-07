@@ -72,6 +72,8 @@ describe('chat bounded Coding Workflow API acceptance contract', () => {
   let rootId: string;
   let goalId: string;
   let repo: CoordinatorConversationsRepository;
+  let service: CoordinatorConversationService;
+  let coordinator: PersistentWorkstreamCoordinator;
   let active: { userMessageId: string; toolName: string };
   let sequence = 0;
   let memoryDir: string;
@@ -192,7 +194,7 @@ describe('chat bounded Coding Workflow API acceptance contract', () => {
         return { rhythm: { status: unavailable ? 'needs_auth' : mcpStatus } };
       },
     };
-    const coordinator = new PersistentWorkstreamCoordinator({
+    coordinator = new PersistentWorkstreamCoordinator({
       artifactResolver: realResolver, engine: engine as never, records: new ManagedWorkstreamContextRepository(db),
       captureAvailable: () => true, enabled: () => true, dbClient: 'sqlite', role: 'local', rhythmMcpServerName: 'rhythm',
       workstreams, jobs, sessions, configs,
@@ -222,7 +224,7 @@ describe('chat bounded Coding Workflow API acceptance contract', () => {
           targetAgentConfigId: 'workflow-orchestrator' as const, delivery: 'accepted' as const };
       },
     };
-    const service = new CoordinatorConversationService({
+    service = new CoordinatorConversationService({
       repository: repo,
       context,
       workstreams, jobs, coordinator, codingWorkflow,
@@ -362,9 +364,116 @@ describe('chat bounded Coding Workflow API acceptance contract', () => {
     expect(result.text).toMatch(/12,?000.*soft tokens/i);
     expect(result.text).toMatch(/notes\/sunday-service-notes\.md.*sha256:[a-f0-9]{64}/i);
     expect(result.text).toContain(args.estimate.rationale);
+    expect(result.text).toContain('Checked outcome: selected reference current plus an independently reviewed cited summary; code changes and tests are not verified by this workflow.');
     expect(JSON.stringify(result)).not.toMatch(/\/Users\/|\/private\/|sourceBytes|rawTranscript/i);
     expect(getDb().prepare(`SELECT COUNT(*) AS n FROM agent_workstreams`).get()).toEqual({ n: 0 });
     expect(getDb().prepare(`SELECT COUNT(*) AS n FROM agent_bridge_jobs WHERE native_execution_kind='coordinator'`).get()).toEqual({ n: 0 });
+  });
+
+  it('chat-bounded-c1: fixed parent model may propose and start the signed selected-reference workflow without changing profile grants', async () => {
+    db.prepare(`UPDATE agent_sessions SET provider_id='anthropic', model_id='claude-opus-5-5', model_mode='fixed' WHERE id=?`).run(rootId);
+    const { approvalId, proposalDigest } = await proposeApproval();
+    await decideApproval(approvalId, proposalDigest);
+    const started = await startApproval(approvalId, proposalDigest);
+    expect(await started.json()).toMatchObject({ schemaVersion: 1, status: 'started' });
+    const projectId = (db.prepare('SELECT project_id FROM agent_sessions WHERE id=?').get(rootId) as { project_id: string }).project_id;
+    expect(repo.get({ ownerUserId: 1, projectId, sessionId: rootId })).toMatchObject({
+      kind: 'found',
+      conversation: { continuations: [{ purpose: 'workflow', requestedModel: { providerId: 'anthropic', modelId: 'claude-opus-5-5', mode: 'fixed' } }] },
+    });
+    expect(new AgentApprovalsRepository().getById(approvalId)?.consumedAt).toBeTruthy();
+  });
+
+  it('chat-bounded-c1: auto root rows retain the existing strict profile-model workflow selection', async () => {
+    db.prepare(`UPDATE agent_sessions SET provider_id='anthropic', model_id='claude-opus-5-5', model_mode='auto' WHERE id=?`).run(rootId);
+    const { approvalId, proposalDigest } = await proposeApproval();
+    await decideApproval(approvalId, proposalDigest);
+    const started = await startApproval(approvalId, proposalDigest);
+    expect(await started.json()).toMatchObject({ schemaVersion: 1, status: 'started' });
+    const projectId = (db.prepare('SELECT project_id FROM agent_sessions WHERE id=?').get(rootId) as { project_id: string }).project_id;
+    expect(repo.get({ ownerUserId: 1, projectId, sessionId: rootId })).toMatchObject({
+      kind: 'found',
+      conversation: { continuations: [{ purpose: 'workflow', requestedModel: { providerId: 'provider', modelId: 'model', mode: 'auto' } }] },
+    });
+  });
+
+  it('chat-bounded-c1: fixed root model change after signed proposal holds without consuming approval or creating a job', async () => {
+    db.prepare(`UPDATE agent_sessions SET provider_id='anthropic', model_id='claude-opus-5-5', model_mode='fixed' WHERE id=?`).run(rootId);
+    const { approvalId, proposalDigest } = await proposeApproval();
+    await decideApproval(approvalId, proposalDigest);
+    db.prepare(`UPDATE agent_sessions SET model_id='claude-opus-5-6' WHERE id=?`).run(rootId);
+    const held = await startApproval(approvalId, proposalDigest);
+    expect(await held.json()).toMatchObject({ schemaVersion: 1, status: 'held' });
+    expect(new AgentApprovalsRepository().getById(approvalId)?.consumedAt).toBeNull();
+    expect(getDb().prepare(`SELECT COUNT(*) AS n FROM agent_bridge_jobs WHERE native_execution_kind='coordinator'`).get()).toEqual({ n: 0 });
+  });
+
+  it('chat-bounded-c1: the complete fixed-model terminal fixture advances without model drift', async () => {
+    db.prepare(`UPDATE agent_sessions SET provider_id='anthropic', model_id='claude-opus-5-5', model_mode='fixed' WHERE id=?`).run(rootId);
+    const { approvalId, proposalDigest } = await proposeApproval();
+    await decideApproval(approvalId, proposalDigest);
+    expect(await (await startApproval(approvalId, proposalDigest)).json()).toMatchObject({ schemaVersion: 1, status: 'started' });
+    const projectId = (db.prepare('SELECT project_id FROM agent_sessions WHERE id=?').get(rootId) as { project_id: string }).project_id;
+    const before = repo.get({ ownerUserId: 1, projectId, sessionId: rootId });
+    if (before.kind !== 'found') throw new Error('expected workflow authority');
+    const authority = before.conversation.continuations.find((candidate) => candidate.purpose === 'workflow');
+    if (!authority) throw new Error('expected workflow authority');
+    const job = getDb().prepare(`SELECT id FROM agent_bridge_jobs WHERE workstream_id=?`).get(authority.workstreamId) as { id: string } | undefined;
+    const workstream = getDb().prepare(`SELECT revision FROM agent_workstreams WHERE id=?`).get(authority.workstreamId) as { revision: number } | undefined;
+    if (!job || !workstream) throw new Error('expected workflow job and workstream');
+    db.prepare(`UPDATE agent_bridge_jobs SET state='succeeded', native_usage_json='{"status":"actual","totalTokens":1,"coveredSessionCount":2}' WHERE id=?`).run(job.id);
+    const advancedRevision = workstream.revision + 1;
+    db.prepare(`UPDATE agent_workstreams SET state='ready', revision=? WHERE id=?`).run(advancedRevision, authority.workstreamId);
+    const checked = vi.spyOn(coordinator, 'checkWorkflowResult').mockResolvedValue({ kind: 'intermediate', workstreamRevision: advancedRevision } as never);
+    const reserved = vi.spyOn(repo, 'reserveContinuationTurn');
+    await service.onCoordinatorTerminal({ ownerUserId: 1, projectId, workstreamId: authority.workstreamId,
+      parentSessionId: rootId, jobId: job.id, state: 'succeeded', hostEpoch: '' });
+    expect(checked).toHaveBeenCalledTimes(1);
+    expect(reserved).toHaveBeenCalledTimes(1);
+    expect(repo.get({ ownerUserId: 1, projectId, sessionId: rootId })).toMatchObject({
+      kind: 'found', conversation: { continuations: [{ authorizationId: authority.authorizationId, consumedTurns: 2, status: 'consumed' }] },
+    });
+  });
+
+  it('chat-bounded-c1: fixed root model drift prevents terminal and reconciliation advancement', async () => {
+    db.prepare(`UPDATE agent_sessions SET provider_id='anthropic', model_id='claude-opus-5-5', model_mode='fixed' WHERE id=?`).run(rootId);
+    const { approvalId, proposalDigest } = await proposeApproval();
+    await decideApproval(approvalId, proposalDigest);
+    expect(await (await startApproval(approvalId, proposalDigest)).json()).toMatchObject({ schemaVersion: 1, status: 'started' });
+    const projectId = (db.prepare('SELECT project_id FROM agent_sessions WHERE id=?').get(rootId) as { project_id: string }).project_id;
+    const before = repo.get({ ownerUserId: 1, projectId, sessionId: rootId });
+    if (before.kind !== 'found') throw new Error('expected workflow authority');
+    const authority = before.conversation.continuations.find((candidate) => candidate.purpose === 'workflow');
+    if (!authority) throw new Error('expected workflow authority');
+    const job = getDb().prepare(`SELECT id FROM agent_bridge_jobs WHERE workstream_id=?`).get(authority.workstreamId) as { id: string } | undefined;
+    const workstream = getDb().prepare(`SELECT revision FROM agent_workstreams WHERE id=?`).get(authority.workstreamId) as { revision: number } | undefined;
+    if (!job || !workstream) throw new Error('expected workflow job and workstream');
+    db.prepare(`UPDATE agent_bridge_jobs SET state='succeeded', native_usage_json='{"status":"actual","totalTokens":1,"coveredSessionCount":2}' WHERE id=?`).run(job.id);
+    const advancedRevision = workstream.revision + 1;
+    db.prepare(`UPDATE agent_workstreams SET state='ready', revision=? WHERE id=?`).run(advancedRevision, authority.workstreamId);
+    const checked = vi.spyOn(coordinator, 'checkWorkflowResult').mockResolvedValue({ kind: 'intermediate', workstreamRevision: advancedRevision } as never);
+    db.prepare(`UPDATE agent_sessions SET model_id='claude-opus-5-6' WHERE id=?`).run(rootId);
+    await service.onCoordinatorTerminal({ ownerUserId: 1, projectId, workstreamId: authority.workstreamId,
+      parentSessionId: rootId, jobId: job.id, state: 'succeeded', hostEpoch: '' });
+    await service.sweepFiniteConversationReconciliation();
+    expect(checked).not.toHaveBeenCalled();
+    expect(repo.get({ ownerUserId: 1, projectId, sessionId: rootId })).toMatchObject({
+      kind: 'found', conversation: { continuations: [{ authorizationId: authority.authorizationId, consumedTurns: 1, status: 'consumed' }] },
+    });
+  });
+
+  it('chat-bounded-c1: ordinary finite planning remains held when a fixed root model differs from its profile', async () => {
+    db.prepare(`UPDATE agent_sessions SET provider_id='anthropic', model_id='claude-opus-5-5', model_mode='fixed' WHERE id=?`).run(rootId);
+    const root = db.prepare('SELECT owner_user_id, project_id FROM agent_sessions WHERE id=?').get(rootId) as { owner_user_id: number; project_id: string };
+    const current = repo.get({ ownerUserId: root.owner_user_id, projectId: root.project_id, sessionId: rootId });
+    if (current.kind !== 'found') throw new Error('expected captured conversation');
+    const result = await service.preparePlan({ sessionToken: token, user: { id: root.owner_user_id } } as never, {
+      sessionId: rootId, projectId: root.project_id, expectedControlRevision: current.conversation.controlRevision, goalId,
+      admission: { commandKey: 'ordinary-fixed-model', totalTokenAuthorization: 12_000, maxTurns: 1,
+        maxWallTimeSeconds: 180, expiresInSeconds: 600, acknowledgesSoftTotalTokenAuthorization: true, purpose: 'decompose' },
+    });
+    expect(result).toMatchObject({ kind: 'planning_authority_unavailable' });
+    expect(getDb().prepare(`SELECT COUNT(*) AS n FROM agent_workstreams`).get()).toEqual({ n: 0 });
   });
 
   it('chat-bounded-c1: permission-bypassed root holds before approval or workstream creation', async () => {
@@ -375,7 +484,9 @@ describe('chat bounded Coding Workflow API acceptance contract', () => {
       estimate: { totalSoftTokens: 12_000, workerWallSeconds: 180, expirySeconds: 600, outerTurns: 2,
         rationale: 'One manager and one reviewer pass fit the existing two-turn stop.' },
     }) });
-    expect(await response.json()).toMatchObject({ schemaVersion: 1, status: 'held' });
+    const result = await response.json() as { schemaVersion: number; status: string; text: string };
+    expect(result).toMatchObject({ schemaVersion: 1, status: 'held' });
+    expect(result.text).toBe('Bounded Coding Workflow proposal is a workflow precondition hold; the generic response does not identify its cause. Do not infer a configuration fault or recommend changing settings or starting a new chat based solely on it. Check the current captured goal, indexed reference, and plan-root scope.');
     expect(getDb().prepare(`SELECT COUNT(*) AS n FROM agent_approvals WHERE security_action='coordinator.workflow.start'`).get()).toEqual({ n: 0 });
     expect(getDb().prepare(`SELECT COUNT(*) AS n FROM agent_workstreams`).get()).toEqual({ n: 0 });
     expect(getDb().prepare(`SELECT COUNT(*) AS n FROM agent_bridge_jobs WHERE native_execution_kind='coordinator'`).get()).toEqual({ n: 0 });

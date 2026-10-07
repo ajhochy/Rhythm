@@ -22,7 +22,7 @@ import { Bus } from "../../src/bus"
 import { Command } from "../../src/command"
 import { Config } from "@/config/config"
 import { LSP } from "@/lsp/lsp"
-import { MCP } from "../../src/mcp"
+import { MCP, type ToolSelection } from "../../src/mcp"
 import { Permission } from "../../src/permission"
 import { Plugin } from "../../src/plugin"
 import { Provider as ProviderSvc } from "@/provider/provider"
@@ -226,18 +226,34 @@ const MOCK_ORIGINS = Object.entries(MOCK_KEY_TO_SERVER).map(([key, serverName]) 
   serverName,
   toolName: key.slice(serverName.length + 1),
 }))
+type MockSelection = ToolSelection
 
 // Sol-only diagnostic seams: unset in every original fixture/test.
 let solInventoryGate: { calls: number; entered: boolean; release: () => void; wait: Promise<void> } | undefined
+// Production MCP.tools(selection) exposes only selected servers, while MCP.toolOrigins()
+// contains every already-connected server. Exercise both a cold excluded server and
+// a warm excluded server whose process-global metadata came from another session.
+let solSelectionFiltered = false
+let solIncludeWarmExcludedOrigins = false
+let solVisibleKeys: Set<string> | undefined
 const solReplacementState = () => (globalThis as typeof globalThis & {
   __solDiscoveryReplacement?: { replaced: boolean; oldCalls: number; newCalls: number }
 }).__solDiscoveryReplacement
-const solTools = Effect.fn("test.solTools")(function* () {
+const solTools = Effect.fn("test.solTools")(function* (selection?: MockSelection) {
   if (solInventoryGate && ++solInventoryGate.calls === 2) {
     solInventoryGate.entered = true
     yield* Effect.promise(() => solInventoryGate!.wait)
   }
   const out = freshMockMcpTools()
+  if (solSelectionFiltered) {
+    const visible = new Set(
+      Object.entries(MOCK_KEY_TO_SERVER)
+        .filter(([key, server]) => selection === undefined || selection.servers.includes(server) || selection.tools.includes(key))
+        .map(([key]) => key),
+    )
+    solVisibleKeys = visible
+    for (const key of Object.keys(out)) if (!visible.has(key)) delete out[key]
+  }
   const state = solReplacementState()
   if (state) {
     out.rhythm_status_probe = dynamicTool({
@@ -267,11 +283,14 @@ const mcpWithAllTools = Layer.succeed(
   MCP.Service.of({
     status: () => Effect.succeed({}),
     clients: () => Effect.succeed({}),
-    tools: () => solTools(),
+    tools: (selection) => solTools(selection),
     appTools: () => Effect.succeed({}),
-    toolClientNames: () => Effect.succeed(MOCK_KEY_TO_SERVER),
-    toolOrigins: () => Effect.sync(() => MOCK_ORIGINS.map(origin =>
-      solReplacementState()?.replaced && origin.key === "rhythm_status_probe"
+    toolClientNames: () => Effect.sync(() => Object.fromEntries(
+      Object.entries(MOCK_KEY_TO_SERVER).filter(([key]) => !solSelectionFiltered || solVisibleKeys?.has(key)),
+    )),
+    toolOrigins: () => Effect.sync(() => MOCK_ORIGINS
+      .filter((origin) => !solSelectionFiltered || solIncludeWarmExcludedOrigins || solVisibleKeys?.has(origin.key))
+      .map(origin => solReplacementState()?.replaced && origin.key === "rhythm_status_probe"
         ? { ...origin, toolName: "status.probe" } : origin)),
     prompts: () => Effect.succeed({}),
     resources: () => Effect.succeed({}),
@@ -1333,7 +1352,8 @@ it.instance(
       expect(described).toContain('"inputSchema"')
       expect(counted.rhythm_status_probe).toBe(1) // exactly the canonical call
       expect(counted.obsidian_status_probe).toBe(0)
-      expect(outputOf(parts[2])).toContain("not permitted")
+      expect(outputOf(parts[2])).toMatch(/canonical|exact.*name/i)
+      expect(outputOf(parts[2])).not.toContain("not permitted")
       // The denied tool is neither described nor named in its refusal.
       expect(outputOf(parts[4])).not.toContain("obsidian")
       expect(outputOf(parts[4])).not.toContain("obsidian_get_file") // only the model's own input is echoed
@@ -1545,4 +1565,92 @@ it.instance(
     }).pipe(Effect.ensuring(Effect.sync(() => { delete (globalThis as { __discoverySchemaOnly?: unknown }).__discoverySchemaOnly }))),
   { git: true, config: cfg },
   15_000,
+)
+
+// Root-authored regression contract: a misspelled name is not a denied capability.
+it.instance(
+  "Coordinator discovery errors — unknown, permitted alias, and excluded canonical calls reveal no inventory metadata",
+  () => Effect.gen(function* () {
+    counted.rhythm_status_probe = 0
+    counted.obsidian_status_probe = 0
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const session = yield* discoverySession("Coordinator truthful discovery", ["rhythm"])
+    yield* mcpCall(llm, { name: "rhythm_does_not_exist", arguments: {} })
+    yield* mcpCall(llm, { action: "describe", name: "rhythm_does_not_exist" })
+    yield* mcpCall(llm, { name: "status_probe", arguments: {} })
+    yield* mcpCall(llm, { name: "obsidian_status_probe", arguments: {} })
+    yield* mcpCall(llm, { name: "rhythm_status_probe", arguments: {} })
+    yield* llm.text("done")
+    yield* prompt.loop({ sessionID: session.id })
+    const parts = yield* dispatchParts(session.id)
+    expect(parts.map(part => part.state.status)).toEqual(["error", "error", "error", "error", "completed"])
+    for (const index of [0, 1]) {
+      expect(outputOf(parts[index])).toMatch(/unknown|not available.*inventory/i)
+      expect(outputOf(parts[index])).not.toMatch(/not permitted|permission denied|allowlist/i)
+    }
+    expect(outputOf(parts[2])).toMatch(/canonical|exact.*name/i)
+    expect(outputOf(parts[2])).not.toMatch(/not permitted|permission denied/i)
+    expect(outputOf(parts[3])).toMatch(/unknown|not available.*inventory/i)
+    expect(outputOf(parts[3])).not.toMatch(/not permitted|denied|allowlist/i)
+    expect(outputOf(parts[3])).not.toContain("inputSchema")
+    expect(counted.obsidian_status_probe).toBe(0)
+    expect(counted.rhythm_status_probe).toBe(1)
+    expect(outputOf(parts[4])).toContain("rhythm_status_probe-ok")
+  }),
+  { git: true, config: cfg },
+  30_000,
+)
+
+it.instance(
+  "Coordinator discovery errors — a warm excluded server remains unknown and is never probed",
+  () => Effect.gen(function* () {
+    counted.obsidian_status_probe = 0
+    solSelectionFiltered = true
+    solIncludeWarmExcludedOrigins = true
+    solVisibleKeys = undefined
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const session = yield* discoverySession("Coordinator warm selected inventory", ["rhythm"])
+    yield* mcpCall(llm, { name: "obsidian_status_probe", arguments: {} })
+    yield* llm.text("done")
+    yield* prompt.loop({ sessionID: session.id })
+    const parts = yield* dispatchParts(session.id)
+    expect(parts.map(part => part.state.status)).toEqual(["error"])
+    expect(outputOf(parts[0])).toMatch(/unknown|not available.*inventory/i)
+    expect(outputOf(parts[0])).not.toMatch(/not permitted|permission denied|allowlist/i)
+    expect(counted.obsidian_status_probe).toBe(0)
+  }).pipe(Effect.ensuring(Effect.sync(() => {
+    solSelectionFiltered = false
+    solIncludeWarmExcludedOrigins = false
+    solVisibleKeys = undefined
+  }))),
+  { git: true, config: cfg },
+  30_000,
+)
+
+it.instance(
+  "Coordinator discovery errors — a cold excluded server is not started just to classify an exact name",
+  () => Effect.gen(function* () {
+    counted.obsidian_status_probe = 0
+    solSelectionFiltered = true
+    solVisibleKeys = undefined
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const session = yield* discoverySession("Coordinator cold selected inventory", ["rhythm"])
+    yield* mcpCall(llm, { name: "obsidian_status_probe", arguments: {} })
+    yield* llm.text("done")
+    yield* prompt.loop({ sessionID: session.id })
+    const parts = yield* dispatchParts(session.id)
+    expect(parts.map(part => part.state.status)).toEqual(["error"])
+    expect(outputOf(parts[0])).toMatch(/unknown|not available.*inventory/i)
+    expect(outputOf(parts[0])).not.toMatch(/not permitted|permission denied|allowlist/i)
+    expect(counted.obsidian_status_probe).toBe(0)
+  }).pipe(Effect.ensuring(Effect.sync(() => {
+    solSelectionFiltered = false
+    solIncludeWarmExcludedOrigins = false
+    solVisibleKeys = undefined
+  }))),
+  { git: true, config: cfg },
+  30_000,
 )

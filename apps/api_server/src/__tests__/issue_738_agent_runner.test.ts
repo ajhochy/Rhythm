@@ -313,6 +313,43 @@ describe('#738 — AgentRunner', () => {
     expect(result.error).toMatch(/no output/i);
   });
 
+  it('classifies an engine assistant APIError without persisting provider details or completing no-op', async () => {
+    setDb(new Database(':memory:'));
+    runMigrations(getDb());
+    mockPrompt.mockResolvedValue({
+      info: {
+        id: 'assistant-api-error',
+        sessionID: 'sdk-session-1',
+        role: 'assistant',
+        error: {
+          name: 'APIError',
+          data: {
+            message: '401 Unauthorized; Authorization: Basic dXNlcjpzZWNyZXQ=; Cookie: session=must-not-persist; client_secret=must-not-persist; https://provider.test/callback?signature=must-not-persist',
+            responseHeaders: { authorization: 'Bearer must-not-be-persisted' },
+          },
+        },
+      },
+      parts: [],
+    });
+
+    const result = await run({ prompt: 'Run scheduled work' });
+
+    expect(result).toMatchObject({
+      status: 'error',
+      failureCategory: 'authentication',
+      error: expect.stringContaining('APIError'),
+    });
+    expect(result.error).toBe('Engine assistant APIError: provider request failed');
+    for (const secret of ['dXNlcjpzZWNyZXQ=', 'must-not-persist', 'client_secret', 'signature=']) {
+      expect(result.error).not.toContain(secret);
+    }
+    const recorded = new AgentSessionsRepository().findById(result.sessionId);
+    expect(recorded).toMatchObject({ status: 'error', lastPreview: 'Engine assistant APIError: provider request failed' });
+    for (const secret of ['dXNlcjpzZWNyZXQ=', 'must-not-persist', 'client_secret', 'signature=']) {
+      expect(recorded?.lastPreview).not.toContain(secret);
+    }
+  });
+
   // ── G. prompt returns null → fast error (replaces no-progress fast-fail) ──
 
   it('errors fast when model produces no output (prompt returns null)', async () => {

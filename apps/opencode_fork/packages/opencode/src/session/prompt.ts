@@ -1088,19 +1088,29 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 const cur = yield* readCurrentMcp()
                 const currentMcpTools = cur.currentMcpTools
                 // describe accepts the canonical key or an unambiguous registered tool name, resolved
-                // only inside the fresh permitted inventory. execute is canonical-only.
+                // only inside the fresh permitted inventory. execute is canonical-only, but tells a
+                // caller which permitted canonical key to use rather than misreporting the alias as
+                // an authorization failure.
                 let selected = request.name
-                if (request.action === "describe") {
-                  const resolved = resolveDeferredMcpDescribeName(request.name, cur.keys, cur.origins)
-                  if (!resolved.ok && resolved.reason === "ambiguous") {
-                    throw new Error(
-                      `MCP tool name "${request.name}" matches more than one permitted tool; describe one of these exact names: ${resolved.candidates.join(", ")}.`,
-                    )
-                  }
-                  if (resolved.ok) selected = resolved.key
+                const resolved = resolveDeferredMcpDescribeName(request.name, cur.keys, cur.origins)
+                if (!resolved.ok && resolved.reason === "ambiguous") {
+                  throw new Error(
+                    `MCP tool name "${request.name}" matches more than one permitted tool; describe one of these exact names: ${resolved.candidates.join(", ")}.`,
+                  )
+                }
+                if (request.action === "describe" && resolved.ok) {
+                  selected = resolved.key
+                }
+                if (request.action === "execute" && resolved.ok && resolved.key !== request.name) {
+                  throw new Error(
+                    `MCP tool "${request.name}" is a permitted registered alias; execute the exact canonical name "${resolved.key}" instead.`,
+                  )
                 }
                 if (!cur.keys.has(selected)) {
-                  throw new Error(`MCP tool "${request.name}" is not permitted for this session's allowlist.`)
+                  // Origins are process-global cached metadata. They can help resolve aliases
+                  // only after eligible-key filtering; they must not reveal whether a name on
+                  // another session's connected server exists. Do not probe excluded servers.
+                  throw new Error(`MCP tool "${request.name}" is unknown or not available in the current inventory.`)
                 }
                 const rawItem = currentMcpTools[selected]
                 if (!rawItem) {

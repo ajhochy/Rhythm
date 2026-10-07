@@ -753,3 +753,12 @@
 - **Criteria**: native Copy, installed generated Secretary routing/registry, Dayflow height/host scroll/chrome.
 - **Process**: release-input/dependency metadata holds and old-runtime restarts preserved; idle guards remained enabled. Exact-root helper gate corrected before any resync POST.
 - **Follow-up**: real-model status/dispatch/callback evaluation remains distinct from scripted API/engine/MCP proof. Prior human failure and historical zero-call cause remain recorded.
+
+
+## 2026-10-07 — Coordinator conversation — partial real-model qualification
+
+- **Result**: smoke UNKNOWN; c1, c3, c9, c11-c13, and c16 have retained evidence, while interactive c2 and configured-model mixed delegation remain pending.
+- **Category**: none for product correctness; process: runtime-fixture-prerequisites, provider-auth-capability, dependency-provenance, source-provenance; workflow: W3 and corrected W5.
+- **Criteria affected**: coordinator-conversation-c2/c4/c5/c6/c7/c8/c10/c14/c15/c17 remain unaccepted.
+- **Root cause**: early attempts lacked fixture or provider prerequisites; a legacy revision-2 database was initially treated as active before revision-4 Electron provenance corrected it; P2 then exposed strict proposal selection rejecting the fixed Opus root against the Sonnet profile default even in plan/no-bypass mode; an earlier scheduled PASS was corrected before final N evidence.
+- **Suggested fix**: retain the sandbox preflight invariants, require a fresh desktop signer and real human decision before start, and classify the remaining evidence before any whole-task pass claim.

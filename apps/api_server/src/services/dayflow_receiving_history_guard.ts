@@ -353,7 +353,7 @@ export class DayflowProviderAdmissionService {
       // A known manager/descendant row is not itself retained Dayflow evidence.
       // Its current owned root/project join must still be exact; ambiguous,
       // foreground and unsafe receivers cannot use this ordinary path.
-      if (lookup.kind === 'ambiguous' || (lookup.kind === 'found' && (
+      if (lookup.kind === 'ambiguous' || lookup.kind === 'unbound_scheduled' || (lookup.kind === 'found' && (
         lookup.scope.ownerUserId !== auth.user.id || lookup.scope.rootChat || lookup.scope.unsafeCode !== null ||
         lookup.scope.sdkSessionId !== request.request.sdkSessionId || root?.kind !== 'found' ||
         root.scope.ownerUserId !== auth.user.id || !root.scope.rootChat || root.scope.unsafeCode !== null ||
@@ -435,6 +435,32 @@ export class DayflowProviderAdmissionService {
     }
     const lookup = records.lookupProviderSession(request.sdkSessionId);
     if (lookup.kind === 'ambiguous') return this.hold(request, 'history_ambiguous');
+    if (lookup.kind === 'unbound_scheduled') {
+      const scheduled = lookup.session;
+      if (scheduled.ownerUserId !== null && scheduled.ownerUserId !== auth.user.id) {
+        return this.hold(request, 'receiver_changed');
+      }
+      if (records.hasSdkHistory(request.sdkSessionId)) return this.hold(request, 'receiver_changed');
+      const ordinary = this.build(request, { decision: 'ordinary', rawHistoryReusable: true, overlay: null, projection: null, reason: 'none' }, {
+        version: 2,
+        receiver: {
+          ownerUserId: auth.user.id, projectId: '', sessionId: '', sdkSessionId: request.sdkSessionId, agent: '',
+          receiverKind: 'none', consentGeneration: null, configurationGeneration: null, overlayEligible: false,
+        },
+        witnesses: [], decision: 'ordinary', reason: 'none', rawHistoryReusable: true, projection: null, overlaySha256: null,
+      });
+      FINALIZERS.set(ordinary, () => {
+        const current = records.lookupProviderSession(request.sdkSessionId);
+        if (current.kind !== 'unbound_scheduled' || current.session.sessionId !== scheduled.sessionId ||
+            current.session.scheduledTaskId !== scheduled.scheduledTaskId ||
+            current.session.directory !== scheduled.directory ||
+            current.session.ownerUserId !== scheduled.ownerUserId || current.session.projectId !== scheduled.projectId ||
+            (current.session.ownerUserId !== null && current.session.ownerUserId !== auth.user.id) ||
+            records.hasSdkHistory(request.sdkSessionId)) return this.hold(request, 'receiver_changed');
+        return ordinary;
+      });
+      return ordinary;
+    }
     if (lookup.kind === 'none') {
       // No Rhythm session row. Zero retained dependency = authoritative ordinary;
       // a retained dependency without its session is a lost receiver = hold.

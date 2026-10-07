@@ -1,0 +1,224 @@
+{
+  "run_id": "2026-10-07-coordinator-conversation",
+  "issue": null,
+  "date": "2026-10-07",
+  "smoke_result": "unknown",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "coordinator-conversation-c1",
+      "text": "Multiple distinct user turns remain distinct and correctly ordered.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Root independently compared all four actual O prompts with ordered engine/API mirror user messages; no concatenation defect reproduced in this bounded evidence."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c2",
+      "text": "After reading memory/Dayflow, a workflow request produces a reasoned proposal and actionable card.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Q3 captured the exact original goal; authenticated native Engraph/Dayflow reads preceded two persisted cards. Interactive desktop card display and a genuine human action remain untested. Selected-reference checks bind source currentness/cited summary/review, not arbitrary implementation or test correctness."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c3",
+      "text": "A chat adjustment produces revised exact limits.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Q3 persisted two exact immutable revisions: 160000 soft tokens/180 seconds/2 turns/1800 seconds, then 120000/90/2/1800. The old card is rejected as system:workflow_superseded; the new card is pending with a distinct digest and neither is human-approved or consumed."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c4",
+      "text": "Mixed native/async delegation reaches at least three levels with permitted tools intact.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Pending configured-model mixed native/async depth-three execution."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c5",
+      "text": "\u201cWhat is running?\u201d finds the actual descendants without requiring pasted IDs.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Q3 scoped \u201cnothing running\u201d to visible root/owner work. A separate errored is_system self-improvement session with null parent/owner/project existed outside that scope; no native/async descendants were started."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c6",
+      "text": "Completion returns to the original chat.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Pending configured-model completion return to the original chat."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c7",
+      "text": "Missing tools, denied access and incomplete listings produce accurate explanations.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Q3 executed an unknown-tool probe and accurately reported current-inventory unavailability and listing limits. No actual denied-tool or authentication-failure conversation was exercised."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c8",
+      "text": "The model chooses the correct tools and does not overstate evidence.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Q3 used memory/Dayflow before proposal, stated selected-reference limits, and was honestly uncertain about prior-card state omitted from the tool response. This bounded result does not establish universal answer quality."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c9",
+      "text": "Unknown and noncanonical permitted tool names do not masquerade as permission denials; denied canonical tools remain denied and run no effects.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Final engine dispatcher/helper/native Task suites and the full session suite qualified unknown/noncanonical and denied-canonical MCP behavior; no installed-runtime claim."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c10",
+      "text": "A genuine human approves the exact final card; no agent clicks human approval controls or forges consent.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Pending genuine human approval of an exact final card; no agent may substitute for that action."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c11",
+      "text": "A scheduled SDK session with no retained Dayflow history may run when its legitimate scheduler record lacks owner and/or project bindings.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Final N API/engine/DB evidence qualified the exact scheduled result. An earlier scheduled PASS statement was corrected; only the final retained evidence is relied on."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c12",
+      "text": "Duplicate identities, malformed fields, unsafe markers, and retained or corrupt Dayflow context remain held.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Admission regressions passed for corrupt context, duplicate identity, unsafe markers, foreign ownership, and finalizer races."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c13",
+      "text": "One bounded feature approval covers TrackingManager, installTrackingRoutes and trackingSnapshot; HIGH impact alone does not reopen approval.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Configured Coding Agent completed actual RED-to-GREEN snapshot and resumed route edits under one immutable scope record; root independently reviewed source and reran both toy tests."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c14",
+      "text": "Delegation and resumption retain same-task approval scope without transferring it to unrelated work; separately restricted operations still need authorization.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "O covers same-session continuation plus a separately created unrelated-session refusal and deployment hold. Actual configured-model parent-child handoff remains pending."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c15",
+      "text": "Parent-child permission modes and explicit restrictions survive native and asynchronous delegation and resume; stops identify host permission, workflow or scope-risk cause.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Focused permission/resume tests passed, but configured-model mixed depth-three execution remains pending."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c16",
+      "text": "A provider error carried in an engine assistant message is recorded as a failed scheduled run with a bounded explanation, never completed_no_op.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "A structured assistant API error was classified as failed rather than completed_no_op in retained scheduled API/engine/DB evidence and frozen-source regressions."
+    },
+    {
+      "criterion_id": "coordinator-conversation-c17",
+      "text": "A bounded selected-reference workflow accepts the persisted fixed model override of its originating Coordinator chat, and changing the root model invalidates the pending or resumed authority while unrelated finite paths stay strict.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Q3 actual Opus fixed-override proposal flow succeeded against the Sonnet profile default and created/revised cards; focused workflow/conversation tests passed 141. Genuine human approval, start/resume, and actual model-change invalidation remain pending."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "runtime-fixture-prerequisites",
+      "description": "Several retained sandbox attempts stopped before useful model evidence because fixture prerequisites were missing or mismatched, including HOME/runtime dependency setup and managed-context export needed for Dayflow proof.",
+      "detected_by": "Attempt receipts A through O and source review; the final O sandbox supplied the required managed-context proof."
+    },
+    {
+      "process_category": "provider-auth-capability",
+      "description": "Synthetic engine auth state initially overwrote the protected sandbox OpenAI account store; earlier Anthropic scheduling also exposed a client-version compatibility rejection. The final fixture copied bounded access credential material into its owned account store, did not copy a real refresh secret, and preserved the selected access fingerprint without live mutation.",
+      "detected_by": "Read-only pre/post-startup account metadata/fingerprint checks and retained provider error evidence."
+    },
+    {
+      "process_category": "dependency-provenance",
+      "description": "A removed donor worktree left linked dependencies unavailable, including SQLite/native tooling and tsgo. The owned worktree recovered exact locked-version copy-on-write dependency trees and a local tsgo symlink; no install was run.",
+      "detected_by": "Typecheck/runtime startup failures and inspection of the broken donor node_modules link."
+    },
+    {
+      "process_category": "source-provenance",
+      "description": "The initial approval-loop profile diagnosis read the legacy Rhythm SQLite database at revision 2. The active Electron database was revision 4 and already contained the bounded feature-scope wording, so no obsolete profile patch was applied.",
+      "detected_by": "WAL-aware read-only active Electron DB and engine prompt-hash comparison against the legacy-path capture."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W3",
+        "affected_skill": "workflow orchestration",
+        "description": "TodoWrite was unavailable to the root coordinator. The durable contract and plan were maintained instead; no TodoWrite completion state was fabricated.",
+        "detected_by": "Root coordination transcript and the durable docs/ai contract/plan artifacts."
+      },
+      {
+        "workflow_category": "W5",
+        "affected_skill": "verification-gate",
+        "description": "An earlier scheduled PASS statement was corrected before final qualification. The final N receipt and independent API/engine/DB assertions, rather than the earlier statement, support c11.",
+        "detected_by": "Retained scheduled-run evidence and root correction in the active task record."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/opencode_plugins/rhythm-anthropic-accounts/dist/model-config.js",
+    "apps/api_server/src/__tests__/coding_workflow_provider_receiving_session.test.ts",
+    "apps/api_server/src/__tests__/coordinator_conversation_navigation.test.ts",
+    "apps/api_server/src/__tests__/coordinator_core_followon.test.ts",
+    "apps/api_server/src/__tests__/dayflow_scheduled_zero_history.live.test.ts",
+    "apps/api_server/src/__tests__/dayflow_scheduled_zero_history_admission.test.ts",
+    "apps/api_server/src/__tests__/issue_738_agent_runner.test.ts",
+    "apps/api_server/src/__tests__/issue_739_scheduler_agent_runner.test.ts",
+    "apps/api_server/src/__tests__/live_coordinator_real_model.test.ts",
+    "apps/api_server/src/repositories/dayflow_receiving_context_repository.ts",
+    "apps/api_server/src/services/agent_runner.ts",
+    "apps/api_server/src/services/coordinator_conversation_service.ts",
+    "apps/api_server/src/services/dayflow_receiving_history_guard.ts",
+    "apps/opencode_fork/packages/opencode/src/session/prompt.ts",
+    "apps/opencode_fork/packages/opencode/test/session/mcp_allowlist_e2e.test.ts",
+    "tools/dev/approval_scope_real_model_toy.mjs",
+    "tools/dev/coordinator-real-model-harness.mjs"
+  ],
+  "failure_output": "No final whole-task smoke result despite final serial API coverage (8283 passed,297 skipped across834 passed/155 skipped files in964.43 seconds; `npx --no-install vitest run --maxWorkers=1` from `apps/api_server`, evidence `api-full-workflow-final.log`): c2 awaits interactive actionable UI/human action; c4-c8/c10/c14/c15/c17 retain stated configured-model or human gates. Q3 proposal revisions passed at API/engine/DB level only; no card was consumed.",
+  "overall_category": "none",
+  "suggested_follow_up": "Finish P with retained fixture/provider prerequisites and classify each remaining contract criterion from its own real-model receipt before any overall acceptance claim."
+}
