@@ -7,81 +7,98 @@
       "criterion_id": "coordinator-response-c1",
       "text": "Copying a Coordinator answer through the real transcript mapPart/blockSource path copies its prose without either step-start or step-finish snapshot hash; on-screen step labels and other supported clipboard content remain intact.",
       "mode": "unit",
-      "status": "local_regression_pass",
+      "status": "targeted_behavioral_pass",
       "test_file": "apps/web/tests/gateway/sessions-gateway.spec.ts",
-      "reason": "Adapter RED/GREEN and actual frozen C11 Copy button checks passed (external C1 and tracked E23c7, 1/1 each). Snapshot hash and empty-block separators are absent; combined and new signed candidate qualification remain pending.",
+      "reason": "C15 actual browser Copy control passed 1/1 with captured exit0, exact prose and no lifecycle SHA or empty separators. Gateway/clipboard regressions are included in repository verification. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C15 claim.",
       "browser_test_file": "apps/web/tests/electron-e23-lifecycle.spec.ts"
     },
     {
       "criterion_id": "coordinator-response-c2",
       "text": "Authorized foreground context and both full and bounded read-only status payloads carry the server projection's asOf, timeZone, today and yesterday; UTC/PDT midnight cases and the next foreground turn use the correct local day without turning clock ticks into permission-fingerprint drift.",
       "mode": "integration",
-      "status": "local_regression_pass",
+      "status": "targeted_behavioral_pass",
       "test_file": "apps/api_server/src/__tests__/coordinator_calendar_project_context.test.ts",
-      "reason": "Genuine pre-repair RED and focused GREEN captured; root reviewed the production diff. Combined and live qualification remain pending.",
+      "reason": "C15 actual API/engine/MCP formal idle/restart cases passed; each checked eight foreground date snapshots and one signed status, UTC Oct 7 -> Los Angeles today Oct6/yesterday Oct5. Clock fingerprint regressions also passed. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C15 claim.",
       "live_test_file": "apps/api_server/src/__tests__/live_chat_bounded_workflow.test.ts"
     },
     {
       "criterion_id": "coordinator-response-c3",
       "text": "The real native Task prompt path preserves inherited directory grants, edit denies and ask rules through a third delegation level while retaining task/todo and experimental primary-tool prohibitions; it never replaces all inherited permissions with the legacy tool-toggle rules.",
       "mode": "integration",
-      "status": "local_regression_pass",
+      "status": "targeted_behavioral_pass",
       "test_file": "apps/opencode_fork/packages/opencode/test/tool/coordinator-task-permissions.test.ts",
-      "reason": "Genuine pre-repair RED and focused GREEN captured; root reviewed the production diff. Combined and live qualification remain pending."
+      "reason": "C15 canonical grant/deny depth-three actual Task/async/Task cases passed with canonical 13.0.3 dependency. Authored permission rules were retained; permitted reference reads reached the leaf and outside reads were denied. UI transient Alwaysallow durability is separate. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C15 claim."
     },
     {
       "criterion_id": "coordinator-response-c4",
       "text": "A newly projected native child inherits its canonical parent's valid permission mode instead of defaulting locally; repeated events preserve the child's own later choice, invalid parent modes fail closed, and ancestry never sets the child's own explicit human approval-bypass marker.",
       "mode": "integration",
-      "status": "local_regression_pass",
+      "status": "targeted_behavioral_pass",
       "test_file": "apps/api_server/src/__tests__/coordinator_native_child_permission_mode.test.ts",
-      "reason": "Genuine pre-repair RED and focused GREEN captured; root reviewed the production diff. Combined and live qualification remain pending."
+      "reason": "C15 actual four-depth chains all retained plan mode and zero copied explicit human markers; existing-child human-choice/idempotency regressions remain covered. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C15 claim."
     },
     {
       "criterion_id": "coordinator-response-c5",
       "text": "An env-gated live behavioral test on the approved stock sandbox drives the actual API and newly built fork through the native-task/async/native-task hierarchy, proves approved fixture reading is reachable at the third level and preserved denies remain enforced, and records exact-source output and sandbox cleanup.",
       "mode": "integration",
-      "status": "UNVERIFIED",
-      "reason": "C10\u2013C13 attempts and external recon are preserved. Actual C13 chain reached depth three but advertised zero leaf tools. C14 fixture records genuinely unavailable mutators, actual leaf SDK denies, and real granted/ungranted reads without fabricating tool results. Fresh exact-source sandbox execution remains pending.",
+      "status": "targeted_behavioral_pass",
+      "reason": "C15 fresh canonical 13.0.3 nested grant/deny cases passed 2/2, all 19 checks each, actual API/fork/MCP, exact engine010f8853..., stockdown0 and normal/source/dependency guards intact. Models and fixture grants are synthetic. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C15 claim.",
       "test_file": "apps/api_server/src/__tests__/live_coordinator_nested_permissions.test.ts"
     },
     {
       "criterion_id": "coordinator-response-c6",
       "text": "The actual Secretary session tool can search and page bounded local session history, includes native and async descendants with status and parent identifiers, and clearly reports listing scope so an empty bounded/direct-child result cannot be interpreted as proof that no work exists. The real mixed hierarchy is discoverable through MCP in the sandbox.",
       "mode": "integration",
-      "status": "local_regression_pass",
+      "status": "targeted_behavioral_pass",
       "test_file": "apps/mcp_server/src/__tests__/agentSessions_tool.test.ts",
       "additional_test_file": "apps/api_server/src/repositories/agent_sessions_history.test.ts",
-      "reason": "Genuine RED; repository 10/10 and MCP session/status 12/12 passed. Actual MCP sandbox coverage remains pending."
+      "reason": "C15 actual MCP list discovered all four native/async/native chain rows with parent/status/SDK identifiers and boundedscope metadata. Partial real-model replay selected session-list and reported statuses; its full-list wording still overstated scope. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C15 claim."
     },
     {
       "criterion_id": "coordinator-response-c7",
       "text": "The generated Secretary coding instructions consistently select rhythm_delegate_async in interactive chat so completion returns to that same caller, while scheduled/headless routing retains native Task. The workflow manager does not delegate to itself. Actual authored-profile regeneration removes the contradictory unconditional Task coding clause without rewriting user-authored prompt bodies.",
       "mode": "integration",
-      "status": "local_regression_pass",
+      "status": "targeted_behavioral_pass",
       "test_file": "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
-      "reason": "Genuine RED; 58 writer regressions and API typecheck passed. Actual sandbox projection assertion is prepared; real provider decisions remain unqualified."
+      "reason": "C15 actual sandbox authored-profile projection/registry checks passed. Partial synthetic-context Opus5.5 replay selected interactive asyncWorkflow. Existing normal-profile resync and actual cache verification are deployment gates pending separately. Sandbox authored-profile regeneration/routing passes; normal Secretary resync remains NOT RUN. No ancestor callback-forwarding expansion."
     },
     {
       "criterion_id": "coordinator-response-c8",
       "text": "Default lazy native tools remain reachable when the dispatcher is denied or disabled: actual provider requests expose permitted builtins through the original eager pipeline while preserving dispatcher, edit, bash and directory denies. Native Explore can reach its approved read at depth three.",
       "mode": "integration",
-      "status": "local_regression_pass",
+      "status": "targeted_behavioral_pass",
       "test_file": "apps/opencode_fork/packages/opencode/test/session/mcp_allowlist_e2e.test.ts",
       "live_test_file": "apps/api_server/src/__tests__/live_coordinator_nested_permissions.test.ts",
-      "reason": "Actual clean C13 sandbox reached native Explore with zero advertised tools. Three real SessionPrompt/LLM provider-request tests failed before repair and passed after a narrow fallback; 24 MCP/native Task regressions and fork typecheck passed. Exact-source nested sandbox and combined qualification remain pending."
+      "reason": "Three real SessionPrompt/LLM provider-request regressions captured genuine RED then GREEN;24 MCP/nativeTask regressions and fork typecheck passed. C15 fresh actual Explore advertised glob/grep/read/webfetch and performed granted/ungranted/outside reference reads; mutators were absent with real SDK denies. Targeted criterion proof retained; overall release/full gate remains blocked. No installed C15 claim."
     }
   ],
   "stack": "typescript",
-  "not_tested": [
-    "coordinator-response-c5",
-    "coordinator-response-c6",
-    "coordinator-response-c7",
-    "coordinator-response-c8"
-  ],
+  "not_tested": [],
   "limits": [
     "No global allow rules, automatic approval, ancestor human-marker copying, or taint-policy bypass are authorized by this repair.",
     "Dayflow source admission and provider response quality require distinct evidence; advertised tools and readiness alone do not prove a tool call succeeded.",
-    "Scripted provider responses prove real software plumbing only, never actual Coordinator model decisions or unsolicited ancestor completion forwarding."
-  ]
+    "Scripted provider responses prove real software plumbing only, never actual Coordinator model decisions or unsolicited ancestor completion forwarding.",
+    "Full installed history and actual dispatcher discovery were not covered by the partial real-model replay. Model quality is not globally qualified; its bounded-visibility wording still needs improvement.",
+    "UI Alwaysallow is project-instance memory in the inspected code; no persistence write was found, and restart durability was not behaviorally qualified. The permission inheritance fix does not claim this.",
+    "Full repository, signed packaging, normal Secretary resync, actual native smoke, final-head CI and owned cleanup must finish before a completion claim.",
+    "Canonical13.0.3 live reruns pass, but corrected complete PR gate remains21/22; stage 12 diagnostic must be recorded and gate qualified before completion."
+  ],
+  "qualification_summary": {
+    "source": "2a3f661c7ac2e93cbe0bcbb0a0ef4a54d5c80c82",
+    "targeted_criteria": "Actual sandbox/browser outcomes within each stated scope; global gate is not green",
+    "full_gate": "Issue4/4; PR21/22; original queued-shell failure remains unresolved",
+    "stage12_diagnostic": "Exact captured command exit0,523pass/5skip/1todo; no causal fix established; BLOCKED",
+    "c15_signed_installed": "NOT RUN",
+    "normal_secretary_resync": "NOT RUN",
+    "exact_head_follow_up_ci": "NOT RUN",
+    "completion_claim_allowed": false,
+    "remaining_qualification": [
+      "C15 signed/installed native acceptance",
+      "Normal authored Secretary resync/cache verification",
+      "Full installed-history/actual dispatcher real-model behavior",
+      "UI Always allow restart persistence",
+      "Follow-up push/exact-head CI and final cleanup"
+    ],
+    "scope_choice": "AJ approved combined mobile latency+Coordinator delivery/install at Oct6 18:40PDT; existing safeguards and other paused work retained"
+  }
 }
