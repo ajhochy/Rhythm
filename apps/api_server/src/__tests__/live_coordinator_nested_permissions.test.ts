@@ -125,7 +125,17 @@ describe.skipIf(!enabled)('Coordinator native → async → native permission ce
       let env: Record<string, string> = cleanEnv();
       const server = createServer(async (req, res) => {
         try {
-          if (req.method !== 'POST' || !req.url?.endsWith('/chat/completions')) throw new Error('Unexpected model request');
+          const transport = { method: req.method, path: req.url };
+          (receipt.syntheticProviderRequests ??= []).push(transport);
+          if (receipt.syntheticProviderRequests.length > 45) throw new Error('Bounded synthetic transport ceiling exceeded');
+          if (req.method === 'GET' && req.url === '/v1/models') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ object: 'list', data: [{ id: 'test-model', object: 'model', owned_by: 'synthetic-fixture' }] }));
+            return;
+          }
+          if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+            throw new Error(`Unexpected synthetic model request: ${req.method} ${req.url}`);
+          }
           let raw = ''; for await (const chunk of req) raw += chunk.toString();
           const input = JSON.parse(raw);
           const messages = input.messages ?? [];
@@ -139,6 +149,7 @@ describe.skipIf(!enabled)('Coordinator native → async → native permission ce
           // These are invented fixture conversations only; no operator prompts are loaded.
           providerObservations.push({ role, step, toolResult: result, model: input.model });
           const names = (input.tools ?? []).map((tool: any) => tool.function?.name);
+          providerObservations.at(-1).toolNames = names;
           const useTool = (name: string, args: unknown, builtin = false) => names.includes(name)
             ? { name, args } : { name: 'mcp_dispatch', args: { family: builtin ? 'builtin' : 'mcp', action: 'execute', name, arguments: args } };
           let tool: ReturnType<typeof useTool> | undefined;
@@ -153,17 +164,30 @@ describe.skipIf(!enabled)('Coordinator native → async → native permission ce
             if (step === 0) tool = useTool('read', { filePath: note }, true);
             if (step === 1) {
               checks.actualFixtureReadOutcome = granted ? result.includes(marker) : /denied|reject|permission|not allowed/i.test(result) && !result.includes(marker);
-              tool = useTool('edit', { filePath: editFile, oldString: 'UNCHANGED', newString: 'CHANGED' }, true);
+              if (!names.includes('mcp_dispatch')) {
+                // A prohibited tool omitted from the actual provider surface
+                // cannot be attempted. Record that absence, never invent a result.
+                expect(names).toContain('read');
+                expect(names.filter((name: string) => ['edit', 'write', 'apply_patch', 'bash'].includes(name))).toEqual([]);
+                receipt.explorerMutatorSurface = { kind: 'surface_unavailable', toolNames: names,
+                  editAttempted: false, bashAttempted: false };
+                checks.editProhibited = true; checks.bashProhibited = true;
+                tool = useTool('read', { filePath: outside }, true);
+              } else {
+                receipt.explorerMutatorSurface = { kind: 'runtime_attempt', toolNames: names,
+                  editAttempted: true, bashAttempted: true };
+                tool = useTool('edit', { filePath: editFile, oldString: 'UNCHANGED', newString: 'CHANGED' }, true);
+              }
             }
-            if (step === 2) {
+            if (step === 2 && receipt.explorerMutatorSurface?.kind !== 'surface_unavailable') {
               checks.editProhibited = /denied|reject|permission|not allowed|not found|not available|unknown|authorized/i.test(result);
               tool = useTool('bash', { command: `touch '${bashFile}'`, description: 'Denied fixture write' }, true);
             }
-            if (step === 3) {
+            if (step === 3 && receipt.explorerMutatorSurface?.kind !== 'surface_unavailable') {
               checks.bashProhibited = /denied|reject|permission|not allowed|not found|not available|unknown|authorized/i.test(result);
               tool = useTool('read', { filePath: outside }, true);
             }
-            if (step === 4) {
+            if (step === 4 || (step === 2 && receipt.explorerMutatorSurface?.kind === 'surface_unavailable')) {
               checks.outsideReadDenied = /denied|reject|permission|not allowed/i.test(result) && !result.includes(forbiddenMarker);
               if (!checks.actualFixtureReadOutcome || !checks.editProhibited || !checks.bashProhibited || !checks.outsideReadDenied) throw new Error('Actual native tool results failed the permission outcomes');
               text = `EXPLORER_ACTUAL_RESULT_${nonce}: ${granted ? 'approved fixture read confirmed' : 'ungranted read denied'}; edit, bash and unapproved read prohibited.`;
@@ -210,9 +234,22 @@ describe.skipIf(!enabled)('Coordinator native → async → native permission ce
         const authPath = path.join(configDir, 'auth.json'); await writeFile(authPath, JSON.stringify({ test: { type: 'api', key: 'invented-fixture-key' } }));
         for (const file of [dbPath, configPath, authPath]) await chmod(file, 0o400); await chmod(configDir, 0o500);
         const immutableHashes = Object.fromEntries(await Promise.all([dbPath, configPath, authPath].map(async file => [file, hash(await readFile(file))])));
+        // Stock launcher alone invokes this adapter; only its exact owned API
+        // child gains the read-only native proof export opt-in.
+        const adapter = path.join(out, 'sandbox-node.py');
+        const serverPath = path.join(root, 'apps/api_server/dist/server.js');
+        await writeFile(adapter, '#!/usr/bin/python3 -B\nimport os,sys\n' +
+          `node=${JSON.stringify(process.execPath)};server=${JSON.stringify(serverPath)};sb=${JSON.stringify(sb)}\n` +
+          "if sys.argv[1:2]==[server]:\n" +
+          " if sys.argv[1:]!=[server,'--parent-pid=1','--rhythm-sandbox='+sb] or os.environ.get('DB_PATH')!=sb+'/rhythm.db' or os.environ.get('PORT')!='4198' or os.environ.get('RHYTHM_OPENCODE_ENGINE_PORT')!='4197' or os.environ.get('RHYTHM_MOBILE_GATEWAY_PORT')!='4199' or os.environ.get('HOME')!=sb+'/home' or os.environ.get('DB_CLIENT')!='sqlite' or os.environ.get('OPENCODE_DB')!='opencode-rhythm-sandbox.db': raise SystemExit('Owned sandbox proof adapter isolation check failed')\n" +
+          " os.environ['RHYTHM_MANAGED_CONTEXT_EXPORTS']='1'\n" +
+          "os.execv(node,[node,*sys.argv[1:]])\n");
+        await chmod(adapter, 0o500);
+        receipt.sandboxProofAdapter = { sha256: hash(await readFile(adapter)), optIns: ['RHYTHM_MANAGED_CONTEXT_EXPORTS=1'],
+          onlyExactOwnedApiInvocation: true, changesConsentOrPermissions: false };
         env = { ...cleanEnv(), HOME: fixtures, RHYTHM_APPROVED_FIXTURE_ROOT: fixtures, RHYTHM_LIVE_DB_PATH: dbPath,
           RHYTHM_SANDBOX_OPENCODE_CONFIG: configDir, RHYTHM_SANDBOX_DIR: sb, RHYTHM_SANDBOX_API_PORT: '4198', RHYTHM_SANDBOX_ENGINE_PORT: '4197', RHYTHM_SANDBOX_GATEWAY_PORT: '4199',
-          RHYTHM_SANDBOX_NODE_BIN: process.execPath, RHYTHM_SANDBOX_SKIP_ENGINE_BUILD: '1', DB_CLIENT: 'sqlite', RHYTHM_OPTIMIZER_MODE: 'shadow', OPENCODE_PURE: '1', OPENCODE_DISABLE_DEFAULT_PLUGINS: '1', RHYTHM_NUMBAT_MONITORING_DISABLED: '1' };
+          RHYTHM_SANDBOX_NODE_BIN: adapter, RHYTHM_SANDBOX_SKIP_ENGINE_BUILD: '1', DB_CLIENT: 'sqlite', RHYTHM_OPTIMIZER_MODE: 'shadow', OPENCODE_PURE: '1', OPENCODE_DISABLE_DEFAULT_PLUGINS: '1', RHYTHM_NUMBAT_MONITORING_DISABLED: '1' };
         sandboxAttempted = true;
         const up = await command(path.join(root, 'tools/dev/sandbox.sh'), ['up'], env, 240_000);
         await writeFile(path.join(out, 'sandbox-up.log'), up.output); expect(up.code).toBe(0);
@@ -276,9 +313,16 @@ describe.skipIf(!enabled)('Coordinator native → async → native permission ce
             }
           }
         })().catch(error => { if (!abortEvents.signal.aborted) providerError = error; });
-        const created = await request('/agent-sessions', { profileId: 'secretary', cwd, name: `Fixture nested ${nonce}`, permissionMode: 'plan', modelMode: 'fixed' });
+        const project = await request('/projects', { name: `Synthetic nested project ${nonce}`, cwd });
+        expect(project.status).toBe(201);
+        expect(project.body).toMatchObject({ cwd, archivedAt: null });
+        expect(typeof project.body.id).toBe('string');
+        receipt.fixtureProject = { id: project.body.id, cwd: project.body.cwd };
+        const created = await request('/agent-sessions', { profileId: 'secretary', cwd, projectId: project.body.id,
+          name: `Fixture nested ${nonce}`, permissionMode: 'plan', modelMode: 'fixed' });
         expect(created.status).toBe(201); const session = created.body;
         expect(session.sdkSessionId).toBeTruthy();
+        expect(query('SELECT owner_user_id,project_id FROM agent_sessions WHERE id=?', [session.id])).toEqual([{ owner_user_id: 1, project_id: project.body.id }]);
         const rootGrant = [{ permission: 'task', pattern: 'workflow-orchestrator', action: 'allow' }];
         const rootBefore = await request(`/session/${session.sdkSessionId}`, undefined, true, cwd);
         expect(rootBefore.status).toBe(200); expect(Array.isArray(rootBefore.body.permission)).toBe(true);
@@ -287,6 +331,11 @@ describe.skipIf(!enabled)('Coordinator native → async → native permission ce
         expect((await request(`/agent-sessions/${session.id}/prompt`, { prompt: 'NESTED_ROOT Execute the exact fixture Task → asynchronous Planning → native Explore chain. Treat dispatch acknowledgement separately from completion.' })).status).toBe(202);
         const planning = await until(async () => {
           if (providerError) throw providerError;
+          const rootState = query('SELECT status,status_message FROM agent_sessions WHERE id=?', [session.id])[0];
+          if (rootState?.status === 'error') {
+            receipt.actualRootError = { status: rootState.status, statusMessage: rootState.status_message };
+            throw new Error(`Actual fixture root failed before Planning: ${rootState.status_message}`);
+          }
           const rows = query('SELECT s.id,s.parent_session_id,s.sdk_session_id,s.cwd,s.permission_mode,s.approval_bypass_explicit,s.delegation_depth AS depth,d.id AS delegation_id FROM agent_sessions s JOIN agent_async_delegations d ON d.child_session_id=s.id WHERE s.agent_kind=?', ['planning-agent']);
           return rows.length === 1 && rows[0].sdk_session_id ? rows[0] : null;
         }, 80, 'No actual MCP asynchronous Planning child');
@@ -310,6 +359,16 @@ describe.skipIf(!enabled)('Coordinator native → async → native permission ce
         expect(chain.every(row => row.permission_mode === 'plan' && row.approval_bypass_explicit === 0)).toBe(true);
         for (let index = 1; index < chain.length; index++) expect(chain[index].parent_session_id).toBe(chain[index - 1].id);
         checks.canonicalPlanModeAtAllDepths = true;
+        const explorerDirectory = query('SELECT cwd FROM agent_sessions WHERE id=?', [chain[3].id])[0]?.cwd;
+        expect(typeof explorerDirectory).toBe('string'); expect(explorerDirectory.startsWith(sb + '/')).toBe(true);
+        const explorerSession = await request(`/session/${chain[3].sdk_session_id}`, undefined, true, explorerDirectory);
+        expect(explorerSession.status).toBe(200); expect(Array.isArray(explorerSession.body.permission)).toBe(true);
+        receipt.explorerSdkDenies = ['edit', 'bash'].map(permission => {
+          const rule = explorerSession.body.permission.findLast((item: any) => item.permission === permission || item.permission === '*');
+          expect(rule).toMatchObject({ pattern: '*', action: 'deny' });
+          return { permission, pattern: rule.pattern, action: rule.action };
+        });
+        checks.actualSdkMutatorDenies = true;
         expect((await request(`/agent-sessions/${session.id}/prompt`, { prompt: 'NESTED_VISIBILITY Call the real session-list tool with no arguments and report only current hierarchy metadata.' })).status).toBe(202);
         await until(async () => receipt.actualMcpVisibilityText ? true : null, 45, 'No actual signed MCP hierarchy response');
         // Parse the actual MCP text projection, rather than treating a model's

@@ -9,7 +9,7 @@
       "mode": "unit",
       "status": "local_regression_pass",
       "test_file": "apps/web/tests/gateway/sessions-gateway.spec.ts",
-      "reason": "Adapter RED/GREEN captured. Actual Copy button omitted snapshot hashes but exposed empty-block separators; root narrowed copy joining and added lifecycle-marker coverage to the existing real-button test. New frozen-source browser and combined qualification pending.",
+      "reason": "Adapter RED/GREEN and actual frozen C11 Copy button checks passed (external C1 and tracked E23c7, 1/1 each). Snapshot hash and empty-block separators are absent; combined and new signed candidate qualification remain pending.",
       "browser_test_file": "apps/web/tests/electron-e23-lifecycle.spec.ts"
     },
     {
@@ -42,7 +42,7 @@
       "text": "An env-gated live behavioral test on the approved stock sandbox drives the actual API and newly built fork through the native-task/async/native-task hierarchy, proves approved fixture reading is reachable at the third level and preserved denies remain enforced, and records exact-source output and sandbox cleanup.",
       "mode": "integration",
       "status": "UNVERIFIED",
-      "reason": "C10 two-case live attempt failed before startup while dereferencing a tracked dangling documentation symlink. Typed link/file inventory repair preserves source integrity checks; fresh exact-source execution pending.",
+      "reason": "C10\u2013C13 attempts and external recon are preserved. Actual C13 chain reached depth three but advertised zero leaf tools. C14 fixture records genuinely unavailable mutators, actual leaf SDK denies, and real granted/ungranted reads without fabricating tool results. Fresh exact-source sandbox execution remains pending.",
       "test_file": "apps/api_server/src/__tests__/live_coordinator_nested_permissions.test.ts"
     },
     {
@@ -61,13 +61,23 @@
       "status": "local_regression_pass",
       "test_file": "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
       "reason": "Genuine RED; 58 writer regressions and API typecheck passed. Actual sandbox projection assertion is prepared; real provider decisions remain unqualified."
+    },
+    {
+      "criterion_id": "coordinator-response-c8",
+      "text": "Default lazy native tools remain reachable when the dispatcher is denied or disabled: actual provider requests expose permitted builtins through the original eager pipeline while preserving dispatcher, edit, bash and directory denies. Native Explore can reach its approved read at depth three.",
+      "mode": "integration",
+      "status": "local_regression_pass",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/mcp_allowlist_e2e.test.ts",
+      "live_test_file": "apps/api_server/src/__tests__/live_coordinator_nested_permissions.test.ts",
+      "reason": "Actual clean C13 sandbox reached native Explore with zero advertised tools. Three real SessionPrompt/LLM provider-request tests failed before repair and passed after a narrow fallback; 24 MCP/native Task regressions and fork typecheck passed. Exact-source nested sandbox and combined qualification remain pending."
     }
   ],
   "stack": "typescript",
   "not_tested": [
     "coordinator-response-c5",
     "coordinator-response-c6",
-    "coordinator-response-c7"
+    "coordinator-response-c7",
+    "coordinator-response-c8"
   ],
   "limits": [
     "No global allow rules, automatic approval, ancestor human-marker copying, or taint-policy bypass are authorized by this repair.",

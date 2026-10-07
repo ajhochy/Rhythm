@@ -51,7 +51,7 @@ import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "@/tool/registry"
 import { Truncate } from "@/tool/truncate"
 import { Reference } from "../../src/reference/reference"
-import { TestInstance } from "../fixture/fixture"
+import { TestInstance, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { reply, TestLLMServer } from "../lib/llm-server"
 import { SyncEvent } from "@/sync"
@@ -999,6 +999,76 @@ it.instance(
   { git: true, config: cfg },
   30_000,
 )
+
+// The provider request is downstream of the real LLM permission filter. A
+// denied dispatcher must preserve access to allowed builtins without granting
+// the transport or changing the underlying read/edit/bash/directory policy.
+for (const fixture of [
+  { id: "c1", agent: "explore", dispatchDenied: false, userDisabled: false, reason: "native Explore wildcard deny" },
+  { id: "c2", agent: "build", dispatchDenied: true, userDisabled: false, reason: "explicit dispatcher permission deny" },
+  { id: "c3", agent: "build", dispatchDenied: false, userDisabled: true, reason: "per-message dispatcher tools false" },
+] as const) {
+  it.instance(
+    `Case K fallback ${fixture.id} — ${fixture.reason} retains allowed read and preserves denied capabilities`,
+    () =>
+      Effect.gen(function* () {
+        const { llm } = yield* useServerConfig(providerCfg)
+        const fs = yield* AppFileSystem.Service
+        const external = yield* tmpdirScoped()
+        const allowedFile = `${external}/approved/note.txt`
+        const outsideFile = `${external}/outside/note.txt`
+        yield* fs.writeWithDirs(allowedFile, "SYNTHETIC_ALLOWED_FALLBACK_READ")
+        yield* fs.writeWithDirs(outsideFile, "SYNTHETIC_FORBIDDEN_FALLBACK_READ")
+        const sessions = yield* Session.Service
+        const prompt = yield* SessionPrompt.Service
+        const permission: Permission.Ruleset = [
+          { permission: "read", pattern: "*", action: "allow" },
+          { permission: "external_directory", pattern: "*", action: "deny" },
+          { permission: "external_directory", pattern: `${external}/approved/*`, action: "allow" },
+          { permission: "edit", pattern: "*", action: "deny" },
+          { permission: "bash", pattern: "*", action: "deny" },
+          ...(fixture.dispatchDenied
+            ? [{ permission: "mcp_dispatch", pattern: "*", action: "deny" as const }]
+            : []),
+        ]
+        const session = yield* sessions.create({ title: `Case K fallback ${fixture.id}`, permission })
+        yield* prompt.prompt({
+          sessionID: session.id,
+          agent: fixture.agent,
+          noReply: true,
+          ...(fixture.userDisabled ? { tools: { mcp_dispatch: false } } : {}),
+          parts: [{ type: "text", text: "Read only the granted invented fixture reference." }],
+        })
+        // The legacy prompt tools map replaces session rules. Restore this
+        // fixture's complete policy while retaining its actual last-user false.
+        if (fixture.userDisabled) yield* sessions.setPermission({ sessionID: session.id, permission })
+        yield* llm.tool("read", { filePath: allowedFile })
+        yield* llm.tool("read", { filePath: outsideFile })
+        yield* llm.text("done")
+        yield* prompt.loop({ sessionID: session.id })
+
+        const inputs = yield* llm.inputs
+        const request = inputs.find((body) => Array.isArray(body.tools))
+        const offered = (request?.tools as { function?: { name?: string } }[] | undefined)
+          ?.map((entry) => entry.function?.name) ?? []
+        expect(offered).toContain("read")
+        for (const denied of ["mcp_dispatch", "edit", "write", "apply_patch", "bash"]) {
+          expect(offered).not.toContain(denied)
+        }
+        expect(offered.some((name) => name !== undefined && ALL_MCP_KEYS.has(name))).toBe(false)
+        const parts = (yield* MessageV2.filterCompactedEffect(session.id))
+          .flatMap((message) => message.parts)
+          .filter((part): part is MessageV2.ToolPart => part.type === "tool" && part.tool === "read")
+        expect(parts.map((part) => part.state.status)).toEqual(["completed", "error"])
+        expect((parts[0].state as MessageV2.ToolStateCompleted).output).toContain("SYNTHETIC_ALLOWED_FALLBACK_READ")
+        const deniedRead = parts[1].state as MessageV2.ToolStateError
+        expect(deniedRead.error).toMatch(/denied|reject|permission|not allowed/i)
+        expect(JSON.stringify(deniedRead)).not.toContain("SYNTHETIC_FORBIDDEN_FALLBACK_READ")
+      }),
+    { git: true, config: cfg },
+    30_000,
+  )
+}
 
 // Revocation during an awaited tool.execute.before plugin hook: authority must be
 // read at the underlying ask (after the hook), not captured before the await.

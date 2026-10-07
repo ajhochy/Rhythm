@@ -682,13 +682,23 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           return output
         })
 
-      // Hosted builtins are lazy unless `deferred === false` (the explicit
-      // compatibility opt-out). A legacy MCP `deferredServers` selection only
+      // Hosted builtins are lazy only while their dispatcher is usable. If the
+      // transport is denied, expose permitted builtins through their original
+      // eager definitions and keep the same final filter and execution checks.
+      // `deferred === false` is the explicit compatibility opt-out.
+      // A legacy MCP `deferredServers` selection only
       // shapes MCP behavior and is not a builtin opt-out. `invalid` stays eager: the
       // provider-call repair hook in llm.ts rewrites unknown/malformed calls to
       // toolName "invalid", which must resolve to a defined tool.
       const hostedAllowlist = input.session.mcpAllowlist
-      const deferHostedBuiltins = hostedAllowlist?.deferred !== false
+      const dispatcherDisabled = Permission.disabled(
+        [MCP_DISPATCH_TOOL_ID],
+        Permission.merge(input.agent.permission, input.session.permission ?? []),
+      )
+      const deferHostedBuiltins =
+        hostedAllowlist?.deferred !== false &&
+        input.tools?.[MCP_DISPATCH_TOOL_ID] !== false &&
+        !dispatcherDisabled.has(MCP_DISPATCH_TOOL_ID)
       const hostedItems = new Map<string, RegistryTool>()
       for (const item of yield* registry.tools(registryQuery(input.session))) {
         if (deferHostedBuiltins && item.id !== "invalid") {

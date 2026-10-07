@@ -6,6 +6,7 @@ pr: 1604
 issues: []
 status: unverified
 tags: [run, rhythm]
+index: "[[Rhythm]]"
 ---
 
 ## Files
@@ -77,3 +78,19 @@ Root cancelled C11's remaining PR gate to repair the fixture first: stages1–6 
 C12 `1622a88a0c772b1368744aaf102e237b917b558e` built the exact engine successfully, then both live cases reached real profile resync and stopped at an incorrect fixture scope expectation: unchanged startup `backfillObsidianReadScope` adds exactly `obsidian_simple_search`. No root session/grant/native permission event occurred; both teardown0 and all five preservation checks passed.
 
 The test now expects that exact existing read-only advertise key and its exact qualified registry name, keeping `servers: []` and prohibiting arbitrary additions. The fixture config contains only its owned loopback Rhythm MCP; no Obsidian MCP or normal vault/service is configured. Product backfill/parser/permissions are unchanged. Empty tool arrays were rejected as a fixture alternative because existing scope expansion would inherit all tools, which would broaden scope. Complete live behavior remains pending.
+
+### C13 actual nested execution and deferred-tool failure
+
+C13 `e012d55095aeba7e04587fe2f7b4f9129d5fcb8f` built successfully. The canonical live cases reached real profile projection, registry and root creation, then failed on an unsupported synthetic inventory request. Separate external prototypes preserved tracked C13 source and labeled their results `PROTOTYPE_HARNESS_RECON`: exact `GET /v1/models` inventory support; a real invented project identity; and a strictly owned stock-launcher Node adapter enabling only `RHYTHM_MANAGED_CONTEXT_EXPORTS=1` resolved fixture preflight gaps without weakening history admission. All sandbox teardowns and source/binary/normal-listener preservation checks passed.
+
+The actual root → native Workflow → real MCP asynchronous Planning → native Explore chain then reached depth three. Recorded provider requests exposed `mcp_dispatch` at the first three levels and **zero tools** at Explore. Default lazy builtin assembly hid `read` behind a dispatcher that Explore's wildcard deny removed in the final LLM filter. This is an observed product regression, not a model decision failure.
+
+Three new real SessionPrompt/LLM/provider-request tests failed before repair for native Explore, explicit dispatcher denial and per-message dispatcher disable. The narrow repair retains dispatcher denial and uses the original eager builtin definitions when that transport is unusable. It changes no permission rules or execution pipeline: every ask still reads current session permissions. All three regressions passed after repair, including actual granted read and forbidden directory rejection; the full MCP allowlist plus native Task regressions passed 24/24, and fork typecheck exited 0. GitNexus `SessionPrompt.resolveTools` impact was LOW with no indexed callers/processes; manual trace includes the prompt loop and native Task callers. Live exact-source acceptance remains pending.
+
+Two bounded real-model attempts produced no model output. A safely captured HTTP400 identified an obsolete plugin fallback client version in the replay's clean environment. The actual installed engine already overrides that version with public `ANTHROPIC_CLI_VERSION=2.1.281`; the installed Claude CLI reports 2.1.288. This is replay setup drift, not evidence of an installed provider failure. Original unsuccessful runner byte copies were lost during external diagnostic revision; their original hash manifest and failure receipt remain, and no result from them is qualified. New replay drivers are versioned and immutable. No credentials were printed/persisted, no account refresh or tool execution occurred, and real model decisions remain unverified.
+
+### C14 qualification candidate freeze
+
+Root reviewed the narrow eager fallback and independently authored three-case RED/GREEN fixture. The nested fixture now records `surface_unavailable` with `editAttempted: false` / `bashAttempted: false` when those capabilities are absent from actual provider definitions; it asserts real leaf SDK deny rules and still performs the real allowed/ungranted reference read and forbidden-directory read. No synthetic denial output is substituted. The original runtime-attempt branch runs only if the actual dispatcher is offered.
+
+Pre-freeze checks: `npx vitest run src/__tests__/live_coordinator_nested_permissions.test.ts` (API directory), exit 0 / two opt-in tests skipped; `npx tsc --noEmit` (API), exit 0; `git diff --check`, exit 0. GitNexus detects expected session prompt and fixture/docs changes with low risk and zero indexed affected processes; indexing coverage does not establish runtime correctness. C14 is an unqualified checkpoint for exact-source engine build and both canonical live cases, not a completion claim.

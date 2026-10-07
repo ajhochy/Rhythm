@@ -2,24 +2,24 @@
 
 ## Current focus
 
-Close exact C9 qualification for chat-bounded Coding Workflow and native Dayflow viewport behavior on `integration/2026-10-06-resume`, source `54888e924c5b31cb7700b6eb1f5da7c4c450e930`, apps tree `47f1828030f1b14c2175975e47e72a5796b0cb47`. C9 fixes CSS cascade specificity after the actual C8 signed app displayed a blank Dayflow surface.
+Repair user-reported Coordinator failures: copied lifecycle hashes, dropped local-day fields, nested permission loss, hidden child status, contradictory coding routing, and an observed native Explore tool-surface failure. The follow-up candidate is **unqualified and not installed**.
 
 ## Active branch / PR
 
-`integration/2026-10-06-resume` → draft PR #1604 against `main`. C9 repository, browser, formal live, signed-package, and actual native CUA qualification receipts are recorded. CI for final docs D will run after root pushes; human merge remains separate.
+Local `codex/coordinator-response-repair`, stacked after completed documentation head `d83ffaa4bf8ec87fefd3104ec685e2b6a1209b7b`. Draft PR #1604 uses remote `integration/2026-10-06-resume` against `main`; follow-up commits are not yet pushed. Human merge remains separate.
 
 ## In progress
 
-Root owns final docs D review/commit/push, PR CI, and guarded worktree cleanup. The signed C9 app remains running at Dayflow 1280×800 with the Timeline at top. TestFlight 1.0.9 build 21 is valid and in internal beta; no new mobile build is needed for this desktop-only cascade change.
+Root is freezing the next candidate after an actual third-level Explore request advertised zero tools. A narrow fallback now exposes permitted native tools directly when the dispatcher is denied. Complete repository, nested sandbox, formal workflow, signed-package and installed checks are pending.
 
 ## Risks / known issues
 
-Provider-semantic model behavior, a real human-native P256 approval fixture, physical phone testing, and the separate full native 16-screen matrix are unrun. CUA visual estimates are not direct private `NSRect` measurements. The C9 app is signed but not notarized. Do not describe PR CI as green until it runs on final docs D.
+Scripted model decisions qualify software plumbing only. Real-model replay has no successful result yet and is separate from installed history/full-toolset behavior. No global grants, automatic approvals, ancestor human-marker copying or taint bypass are authorized. The signed app is not notarized; physical phone and full native matrix proof remain unrun.
 
 ## Test status
 
-C9 issue gate 4/4, PR gate 22/22, chat browser 1/1, Dayflow/Sol browser 16/16, and formal live API/fork/MCP 2/2 passed. Native AppKit C1–C3 and signed native Dayflow C4 passed; package, signing, stable-copy, verifier, signed smokes, strict-origin checks, and normal-profile launch all passed. Formal model/ranking responses were synthetic. See `runs/2026-10-06-chat-bounded-workflow-final-qualification.md`.
+The running signed C9 source `54888e924c5b31cb7700b6eb1f5da7c4c450e930` passed its original 4+22 gates, browser/formal/native checks and final-D CI. Follow-up focused regressions/typechecks and the real Copy button pass; three newly authored real provider-request tests captured RED then GREEN, with 24 MCP/native Task regressions passing. C13's nested diagnostic reached all four depths but failed at Explore's tool surface. See `runs/2026-10-06-coordinator-response-repair.md`; do not infer a full follow-up pass from earlier evidence.
 
 ## Next step
 
-Root reviews and pushes final docs D, checks resulting PR CI, then executes only the reviewed owned-cleanup plan. Keep C8 failure evidence and the manual merge boundary intact.
+Freeze the repaired candidate, run exact-source nested grant/deny checks and formal workflow checks in the stock isolated sandbox, then complete the full gates. Qualify and install the signed candidate, resync the generated Secretary profile through the real API, push and watch exact-head CI, and archive only owned work.
