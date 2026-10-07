@@ -100,6 +100,34 @@ Measure responsiveness directly (`curl` the engine), not log silence.
 
 ---
 
+## 3b. Engine pinned by snapshot track() hashing a media directory
+
+**Symptom** — phone shows three dots forever; prompts never reach the engine;
+engine at 100% CPU with the gateway idle. Looks identical to #3 but is a
+different cause, and is triggered by *opening a chat*, not by mobile traffic.
+
+**Cause** — `track()` had a 2 MB per-file guard and **no aggregate budget**, so
+a directory of sub-limit files staged in full. Measured 2026-10-07 on a real
+session cwd: 483 files blocked as large, **5,590 files / 2.05 GB hashed on
+every track()**, pinning the main thread ~88 s.
+
+**Fix** — `2d4cfdaf`: aggregate byte budget, untracked bulk excluded
+smallest-first via the existing `sync()` exclusion path. Only untracked paths
+are excluded, so revert of edited (tracked) files is unaffected.
+
+**Check**
+```bash
+grep -E "\+[0-9]{4,}ms" ~/.local/share/opencode/log/<newest>.log   # expect none
+grep "aggregate budget" ~/.local/share/opencode/log/<newest>.log    # fires on large cwds
+```
+
+**Trap** — the session `cwd` matters more than anything about the chat. A chat
+rooted in a media/vault folder behaves completely differently from one in a
+code repo. Check `agent_sessions.cwd` before assuming the chat is the variable.
+
+**No prior art** — searched `docs/ai/` (223 files mention snapshot); none
+covered `track()` staging cost. This one was genuinely new.
+
 ## 4. Stale data shown with no error
 
 **Symptom** — app shows hours-old data and looks connected.
