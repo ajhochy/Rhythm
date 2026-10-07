@@ -19,15 +19,20 @@ main) is unchanged.
 
 ## Installed / running
 
-Diagnostic desktop build (`~/Documents/Codex/2026-10-07/diagnostic-build/Rhythm.app`)
-relaunched 2026-10-07 05:47Z with the identical captured env
-(`~/Documents/Codex/2026-10-07/scratch-durable/relaunch-desktop.sh`): engine
-`0.0.0-investigate/file-status-bound-202610062245` from the worktree dist via
-`RHYTHM_OPENCODE_BIN`, `BUN_INSPECT` on 9230. api_server still runs from the signed
-bundle. Simulator iPhone 17 Pro has the production app paired as "Rhythm iPhone"
-(device 20aeb51a…). AJ's phone will show one `.invalid` blip from the restart and
-must re-pair if its token was replicated against the old boot.
+Signed sign-only candidate from `investigate/mobile-transcript-regression` @ 8f9be4ab is
+running on AJ's normal profile: `~/Documents/Codex/2026-10-07/signed-desktop-build-investigate/signed-apps/8f9be4ab/Rhythm.app`
+(bundled engine `0.0.0-rhythm-8f9be4ab…`, api_server with the mirror bound, mobile contract
+`7d073feb…` = AJ's phone). Launch it with `~/Desktop/Open Rhythm (patched engine).command`
+(sets the normal profile; a bare Finder launch starts a signed-out default profile).
+Build recipe + receipts in that directory (`pipeline.sh`, `run-normal-package.py`, headers
+pinned at `~/Documents/Codex/2026-10-07/node-headers-22.23.0`). `/Applications/Rhythm.app` is
+still 0.18.67 (unfixed). Simulator iPhone 17 Pro paired as "Rhythm iPhone" (20aeb51a…).
 
+**Contract trap:** `integration/2026-10-07-combined` @ 42a0c299 reconciled the mobile
+contract fingerprint to `dbe19d8f…` (eb7baeef). A Mac built from it hard-blocks any phone
+app pinned at `7d073feb…` ("incompatible agent protocols") — verified on the simulator.
+Ship that Mac build only together with a TestFlight build from the same commit. That
+staged build exists at `~/Documents/Codex/2026-10-07/signed-desktop-build/signed-apps/42a0c299/Rhythm.app`.
 ## In progress
 
 - AJ's own phone smoke of PR #1607 (the only remaining check the simulator cannot do).
@@ -52,5 +57,6 @@ Live: file-status 0.21 s on the 3 GB dir (was 71.5 s); simulator rounds 1–3 pa
 
 ## Next step
 
-AJ smokes from his phone (open the Announcement Slides chat, send, see the reply).
-Then build a signed desktop candidate from integration @ 42a0c299 and un-park #1607.
+AJ smokes from his phone on the running 8f9be4ab build (open the Announcement Slides chat,
+send, see the reply). Decide: keep the Mac on the investigate lineage (phone-compatible), or
+ship integration @ 42a0c299 Mac + TestFlight together. PR #1607 stays parked until that call.
