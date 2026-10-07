@@ -14,6 +14,7 @@ import { RhythmAccountProvider } from '@/providers/rhythm-account-provider';
 import { AgentChatProvider } from '@/providers/agent-chat-provider';
 import { AppActivityProvider } from '@/providers/activity-provider';
 import { AppRhythmToolsProvider } from '@/providers/rhythm-tools-provider';
+import { CoordinatorConversationProvider } from '@/providers/coordinator-conversation-provider';
 import { mobileRuntimeVariant } from '@rhythm/mobile-runtime';
 
 export const unstable_settings = {
@@ -44,28 +45,30 @@ export default function RootLayout() {
       <RhythmAccountProvider>
         <PairedHostProvider>
           <OpencodeProvider>
-            <AppRhythmToolsProvider>
-              <AppActivityProvider>
-                <AgentChatProvider>
-                  <PaperProvider theme={paperTheme}>
-                    <ThemeProvider
-                      value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-                      <Stack>
-                        <Stack.Screen
-                          name="(tabs)"
-                          options={{ headerShown: false }}
-                        />
-                        <Stack.Screen
-                          name="pair"
-                          options={{ headerShown: false }}
-                        />
-                      </Stack>
-                      <StatusBar style="auto" />
-                    </ThemeProvider>
-                  </PaperProvider>
-                </AgentChatProvider>
-              </AppActivityProvider>
-            </AppRhythmToolsProvider>
+            <CoordinatorConversationProvider>
+              <AppRhythmToolsProvider>
+                <AppActivityProvider>
+                  <AgentChatProvider>
+                    <PaperProvider theme={paperTheme}>
+                      <ThemeProvider
+                        value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                        <Stack>
+                          <Stack.Screen
+                            name="(tabs)"
+                            options={{ headerShown: false }}
+                          />
+                          <Stack.Screen
+                            name="pair"
+                            options={{ headerShown: false }}
+                          />
+                        </Stack>
+                        <StatusBar style="auto" />
+                      </ThemeProvider>
+                    </PaperProvider>
+                  </AgentChatProvider>
+                </AppActivityProvider>
+              </AppRhythmToolsProvider>
+            </CoordinatorConversationProvider>
           </OpencodeProvider>
         </PairedHostProvider>
       </RhythmAccountProvider>

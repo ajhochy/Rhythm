@@ -659,19 +659,17 @@ describe("tool.task", () => {
           {
             permission: "bash",
             pattern: "*",
-            action: "allow",
+            action: "deny",
           },
           {
             permission: "read",
             pattern: "*",
-            action: "allow",
+            action: "deny",
           },
         ])
-        expect(seen?.tools).toEqual({
-          todowrite: false,
-          bash: false,
-          read: false,
-        })
+        // Restrictions live on the durable session; legacy tool toggles would
+        // replace that ruleset and discard inherited directory/edit policies.
+        expect(seen?.tools).toBeUndefined()
       }),
     {
       config: {

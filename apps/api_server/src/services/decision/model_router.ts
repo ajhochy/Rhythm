@@ -43,17 +43,43 @@ export const TIER_CHOICE_QUESTION: ChoiceQuestion<ModelTier> = {
   options: Object.fromEntries(TIER_LABELS.map((l) => [l.id, l.description])) as Record<ModelTier, string>,
 };
 
+const isUnit = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1;
+
+/** Measured elapsed time only; unknown/invalid stays null rather than becoming 0 or the timeout budget. */
+const measuredLatency = (n: unknown): number | null =>
+  typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null;
+
 /** Classify with one System One choice question, in the reranker's result shape. */
 async function classifyWithChoice(prompt: string, client: ChoiceClient): Promise<ClassifyResult<ModelTier>> {
   const r = await client.choose(prompt, TIER_CHOICE_QUESTION);
   if (r.status !== 'ok') return r;
-  const sorted = Object.values<number>(r.probabilities).sort((a, b) => b - a);
+  // Injected/custom clients must not bypass the parser's probability checks.
+  const malformed = { status: 'error', reason: 'malformed_response', latencyMs: r.latencyMs } as const;
+  const p = r.probabilities as unknown;
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return malformed;
+  // Canonical scores: only the three known tiers; extra keys never reach margin or the log.
+  const scores = {} as Record<ModelTier, number>;
+  let total = 0;
+  let winner = TIER_LABELS[0].id;
+  for (const { id } of TIER_LABELS) {
+    const v = (p as Record<string, unknown>)[id];
+    if (!isUnit(v)) return malformed;
+    scores[id] = v;
+    total += v;
+    if (v > scores[winner]) winner = id;
+  }
+  // A custom result is already normalized: reject other mass rather than manufacture confidence.
+  if (!Number.isFinite(total) || total <= 0 || Math.abs(total - 1) > 1e-6) return malformed;
+  if (r.choice !== winner || !isUnit(r.confidence) || Math.abs(r.confidence - scores[winner]) > 1e-6) {
+    return malformed;
+  }
+  const sorted = Object.values(scores).sort((a, b) => b - a);
   return {
     status: 'ok',
-    label: r.choice,
+    label: winner,
     confidence: r.confidence,
-    margin: sorted[0] - (sorted[1] ?? 0),
-    scores: r.probabilities,
+    margin: sorted[0] - sorted[1],
+    scores,
     latencyMs: r.latencyMs,
     model: r.model,
   };
@@ -115,9 +141,14 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
     const choiceClient =
       input.choiceClient ??
       (!input.client && settings.backend === 'systemone' ? getDefaultChoiceClient() : null);
-    const r = choiceClient
+    const raw = choiceClient
       ? await classifyWithChoice(input.prompt, choiceClient)
       : await classify(input.prompt, TIER_LABELS, input.client ? { client: input.client } : {});
+    // A nominal success with an unusable confidence/tier is never a decision or a fallback.
+    const r: ClassifyResult<ModelTier> =
+      raw.status === 'ok' && (!isUnit(raw.confidence) || !TIER_LABELS.some((l) => l.id === raw.label))
+        ? { status: 'error', reason: 'malformed_response', latencyMs: raw.latencyMs }
+        : raw;
     if (r.status !== 'ok') {
       recordDecision({
         feature: 'model_routing',
@@ -126,7 +157,7 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
         status: r.status,
         applied: false,
         baseline: input.baselineTier ?? null,
-        latencyMs: r.latencyMs,
+        latencyMs: measuredLatency(r.latencyMs),
         detail: { reason: r.reason, requestedSource: input.requestedSource },
       });
       return { tier: null, applied: false, mode, reason: r.status };
@@ -161,7 +192,7 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
       chosen: label,
       confidence: r.confidence,
       baseline: input.baselineTier ?? null,
-      latencyMs: r.latencyMs,
+      latencyMs: measuredLatency(r.latencyMs),
       model: r.model,
       query: input.prompt,
       detail: {

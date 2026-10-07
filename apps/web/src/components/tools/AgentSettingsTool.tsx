@@ -28,6 +28,52 @@ type LoadSection = 'accounts' | 'openai' | 'mcp' | 'providers';
 type ActionScope = 'accounts' | 'openai' | 'providers' | 'mcp' | 'runtime';
 type PendingAction = { scope: ActionScope; key: string };
 type RuntimeHealthState = { state: 'checking' | 'healthy' | 'failed' };
+type ManualWorkstreamsStatus = {
+  configured: boolean;
+  effective: {
+    source: 'preference' | 'environment_override' | 'adopted_runtime' | 'not_launched';
+    workstreamsEnabled: boolean | null;
+    managedContextExports: boolean | null;
+    enabled: boolean | null;
+  };
+  pendingRelaunch: boolean;
+};
+type ManualWorkstreamsBridge = {
+  getManualWorkstreams?(): Promise<ManualWorkstreamsStatus>;
+  setManualWorkstreams?(enabled: boolean): Promise<ManualWorkstreamsStatus>;
+  onStatusChange?(callback: (status: unknown) => void): (() => void) | undefined;
+};
+
+const manualWorkstreamsUnavailable: ManualWorkstreamsStatus = {
+  configured: false,
+  effective: { source: 'not_launched', workstreamsEnabled: null, managedContextExports: null, enabled: null },
+  pendingRelaunch: true,
+};
+
+function manualWorkstreamsBridge(): ManualWorkstreamsBridge | undefined {
+  return (window as Window & { rhythmShell?: { agentServer?: ManualWorkstreamsBridge } }).rhythmShell?.agentServer;
+}
+
+function manualWorkstreamsStatus(value: unknown): ManualWorkstreamsStatus {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return manualWorkstreamsUnavailable;
+  const record = value as Record<string, unknown>;
+  const effective = record.effective;
+  if (!effective || typeof effective !== 'object' || Array.isArray(effective)) return manualWorkstreamsUnavailable;
+  const launch = effective as Record<string, unknown>;
+  const source = launch.source;
+  if (!['preference', 'environment_override', 'adopted_runtime', 'not_launched'].includes(String(source))) return manualWorkstreamsUnavailable;
+  const optionalBoolean = (candidate: unknown) => candidate === true ? true : candidate === false ? false : null;
+  return {
+    configured: record.configured === true,
+    effective: {
+      source: source as ManualWorkstreamsStatus['effective']['source'],
+      workstreamsEnabled: optionalBoolean(launch.workstreamsEnabled),
+      managedContextExports: optionalBoolean(launch.managedContextExports),
+      enabled: optionalBoolean(launch.enabled),
+    },
+    pendingRelaunch: record.pendingRelaunch === true,
+  };
+}
 
 export type AgentSettingsFrameProps = {
   slug: string;
@@ -95,6 +141,48 @@ function BehaviorSettings({ enabled, onChange }: { enabled: boolean; onChange(va
       <input type="checkbox" role="switch" aria-label="Destructive-tool confirmation dialog" checked={enabled} onChange={(event) => onChange(event.target.checked)} />
     </label>
     <ScopeLabel>This device · Account scoped</ScopeLabel>
+  </section>;
+}
+
+function ManualWorkstreamsSettings({ value, loading, saving, available, error, onChange }: {
+  value: ManualWorkstreamsStatus;
+  loading: boolean;
+  saving: boolean;
+  available: boolean;
+  error: string;
+  onChange(enabled: boolean): void;
+}) {
+  const source = value.effective.source === 'environment_override' ? 'Explicit launch environment override'
+    : value.effective.source === 'adopted_runtime' ? 'Adopted runtime (not configured by Rhythm)'
+      : value.effective.source === 'not_launched' ? 'No owned local runtime launched yet'
+        : 'Saved device preference';
+  const effectiveState = value.effective.enabled === true
+    ? 'Enabled'
+    : value.effective.enabled === false
+      ? 'Off'
+      : 'Unavailable';
+  const effectiveReason = value.effective.enabled !== null
+    ? 'Observed from the current owned launch.'
+    : value.effective.source === 'adopted_runtime'
+      ? 'Rhythm does not control an adopted runtime.'
+      : 'No owned local launch has reported an effective state.';
+  return <section className="agent-settings-local-preference" aria-labelledby="manual-workstreams-label" data-testid="manual-workstreams-settings">
+    <label>
+      <span><strong id="manual-workstreams-label">Enable manual workstreams</strong><small>Applies only to the next normal local runtime that Rhythm itself launches.</small></span>
+      <input type="checkbox" role="switch" aria-label="Enable manual workstreams" checked={value.configured} disabled={loading || saving || !available} onChange={(event) => onChange(event.target.checked)} data-testid="manual-workstreams-toggle" />
+    </label>
+    <ScopeLabel>This device · Signed desktop app · Next owned launch</ScopeLabel>
+    <dl className="agent-settings-property-list">
+      <div><dt>Configured</dt><dd>{value.configured ? 'Enabled for the next owned launch' : 'Off'}</dd></div>
+      <div><dt>Effective state</dt><dd>{effectiveState}</dd></div>
+      <div><dt>State reason</dt><dd>{effectiveReason}</dd></div>
+      <div><dt>Source</dt><dd>{source}</dd></div>
+      <div><dt>Relaunch</dt><dd>{value.pendingRelaunch ? 'Saved for the next owned normal launch. Quit and reopen Rhythm when ready; the current runtime is unchanged.' : 'No preference relaunch is pending.'}</dd></div>
+    </dl>
+    <p>Saving never starts or restarts the runtime, creates a workstream, dispatches a worker, resumes work, or wakes a model.</p>
+    <p>Work remains Explicit Run next only. A selected read-only profile, budget authorization, and Pause controls are still required.</p>
+    {!available && <p className="agent-settings-runtime-owner-note">Manual workstreams can be configured only from the signed desktop app.</p>}
+    {error && <p role="alert">{error}</p>}
   </section>;
 }
 
@@ -405,6 +493,10 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const [runtimeActionError, setRuntimeActionError] = useState('');
   const [restartEngineConfirm, setRestartEngineConfirm] = useState(false);
   const [localRuntime, setLocalRuntime] = useState<{ available: boolean; ownership: 'electron' | 'external' | 'none'; owned: boolean; status: string; errorMessage?: string | null }>({ available: false, ownership: 'none', owned: false, status: 'checking' });
+  const [manualWorkstreams, setManualWorkstreams] = useState<ManualWorkstreamsStatus>(manualWorkstreamsUnavailable);
+  const [manualWorkstreamsLoading, setManualWorkstreamsLoading] = useState(true);
+  const [manualWorkstreamsSaving, setManualWorkstreamsSaving] = useState(false);
+  const [manualWorkstreamsError, setManualWorkstreamsError] = useState('');
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [actionNotices, setActionNotices] = useState<Partial<Record<ActionScope, string>>>({});
   const [removing, setRemoving] = useState<McpServer | null>(null);
@@ -768,6 +860,34 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     }
   };
   useEffect(() => { void loadRuntimeInfo(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const loadManualWorkstreams = async () => {
+    const bridge = manualWorkstreamsBridge();
+    if (!bridge?.getManualWorkstreams) {
+      setManualWorkstreams(manualWorkstreamsUnavailable);
+      setManualWorkstreamsLoading(false);
+      return;
+    }
+    setManualWorkstreamsLoading(true);
+    try {
+      setManualWorkstreams(manualWorkstreamsStatus(await bridge.getManualWorkstreams()));
+      setManualWorkstreamsError('');
+    } catch (err) {
+      setManualWorkstreamsError(err instanceof Error ? err.message : 'Manual workstreams preference could not be read.');
+    } finally {
+      setManualWorkstreamsLoading(false);
+    }
+  };
+  useEffect(() => {
+    let current = true;
+    const bridge = manualWorkstreamsBridge();
+    const load = async () => {
+      if (!current) return;
+      await loadManualWorkstreams();
+    };
+    void load();
+    const unsubscribe = bridge?.onStatusChange?.(() => { void load(); });
+    return () => { current = false; unsubscribe?.(); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const bridge = window.rhythmShell?.agentServer;
     if (!bridge) { setLocalRuntime({ available: false, ownership: 'none', owned: false, status: 'unavailable' }); return; }
@@ -780,6 +900,24 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     const unsubscribe = bridge.onStatusChange?.(update);
     return () => { current = false; unsubscribe?.(); };
   }, []);
+
+  const saveManualWorkstreams = async (enabled: boolean) => {
+    const bridge = manualWorkstreamsBridge();
+    if (!bridge?.setManualWorkstreams) {
+      setManualWorkstreamsError('Manual workstreams can be configured only from the signed desktop app.');
+      return;
+    }
+    setManualWorkstreamsSaving(true);
+    setManualWorkstreamsError('');
+    try {
+      setManualWorkstreams(manualWorkstreamsStatus(await bridge.setManualWorkstreams(enabled)));
+      setTrace({ method: 'IPC', route: 'rhythm:agent-server:manual-workstreams:set', detail: 'Manual workstreams preference saved for the next owned launch' });
+    } catch (err) {
+      setManualWorkstreamsError(err instanceof Error ? err.message : 'Manual workstreams preference could not be saved.');
+    } finally {
+      setManualWorkstreamsSaving(false);
+    }
+  };
 
   const reloadEngineConfig = async () => {
     setPendingAction({ scope: 'runtime', key: 'reload' }); setRuntimeActionError(''); setActionNotice('runtime', '');
@@ -1079,7 +1217,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       </span>
     </dd>;
   };
-  const runtimeInspector = () => <><SectionIntro scope="Desktop local">Rhythm uses a local API and OpenCode engine supplied by the trusted desktop host. Reload configuration first; restart only when reload cannot recover stale state.</SectionIntro><dl className="agent-settings-property-list"><div><dt>Local API</dt>{runtimeValue('api', 'Local API')}</div><div><dt>OpenCode engine</dt>{runtimeValue('engine', 'OpenCode engine')}</div><div><dt>Engine PID</dt><dd>{runtimeInfo?.engine?.pid ?? 'Unavailable'}</dd></div><div><dt>Boot ID</dt><dd>{runtimeInfo?.engine?.bootId ?? 'Unavailable'}</dd></div><div><dt>Version</dt><dd>{runtimeInfo?.engine?.version ?? 'Unavailable'}</dd></div><div><dt>Event bridge</dt><dd>{runtimeInfo?.engine ? runtimeInfo.engine.bridgeLive ? 'Live' : 'Unavailable' : 'Checking'}</dd></div><div><dt>Remote override</dt><dd>{runtimeInfo?.remoteOverride ?? 'Not set on this device'}</dd></div></dl>{runtimeInfoError && <p role="alert">{runtimeInfoError}</p>}<div className="agent-settings-actions"><button className="secondary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'api')} onClick={() => void runRuntimeCheck('api')} data-testid="agent-settings-check-api">{actionPending('runtime', 'api') ? 'Checking local API…' : 'Check local API'}</button><button className="secondary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'engine')} onClick={() => void runRuntimeCheck('engine')} data-testid="agent-settings-check-engine">{actionPending('runtime', 'engine') ? 'Checking OpenCode engine…' : 'Check OpenCode engine'}</button></div><div className="agent-settings-runtime-controls" data-testid="runtime-control-actions"><button className="primary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'reload')} onClick={() => void reloadEngineConfig()}>{actionPending('runtime', 'reload') ? 'Reloading…' : 'Reload engine config & skills'}</button><button className="secondary-button" type="button" disabled={actionPending('runtime')} onClick={() => setRestartEngineConfirm(true)}>Restart engine</button><button className="danger-button" type="button" disabled={actionPending('runtime') || !localRuntime.available || localRuntime.ownership === 'external'} onClick={() => void restartLocalRuntime()}>{localRuntime.status === 'failed' ? 'Retry local runtime' : 'Restart local runtime'}</button></div>{localRuntime.ownership === 'external' && <p className="agent-settings-runtime-owner-note">Restart unavailable: this runtime is owned by another app.</p>}{!localRuntime.available && <p className="agent-settings-runtime-owner-note">Restart unavailable outside the signed desktop app.</p>}{actionPending('runtime') && <p role="status">Updating the local runtime…</p>}{actionNotices.runtime && <p role="status">{actionNotices.runtime}</p>}{runtimeActionError && <p role="alert">{runtimeActionError}</p>}</>;
+  const runtimeInspector = () => <><SectionIntro scope="Desktop local">Rhythm uses a local API and OpenCode engine supplied by the trusted desktop host. Reload configuration first; restart only when reload cannot recover stale state.</SectionIntro><ManualWorkstreamsSettings value={manualWorkstreams} loading={manualWorkstreamsLoading} saving={manualWorkstreamsSaving} available={Boolean(manualWorkstreamsBridge()?.getManualWorkstreams && manualWorkstreamsBridge()?.setManualWorkstreams)} error={manualWorkstreamsError} onChange={(enabled) => void saveManualWorkstreams(enabled)} /><dl className="agent-settings-property-list"><div><dt>Local API</dt>{runtimeValue('api', 'Local API')}</div><div><dt>OpenCode engine</dt>{runtimeValue('engine', 'OpenCode engine')}</div><div><dt>Engine PID</dt><dd>{runtimeInfo?.engine?.pid ?? 'Unavailable'}</dd></div><div><dt>Boot ID</dt><dd>{runtimeInfo?.engine?.bootId ?? 'Unavailable'}</dd></div><div><dt>Version</dt><dd>{runtimeInfo?.engine?.version ?? 'Unavailable'}</dd></div><div><dt>Event bridge</dt><dd>{runtimeInfo?.engine ? runtimeInfo.engine.bridgeLive ? 'Live' : 'Unavailable' : 'Checking'}</dd></div><div><dt>Remote override</dt><dd>{runtimeInfo?.remoteOverride ?? 'Not set on this device'}</dd></div></dl>{runtimeInfoError && <p role="alert">{runtimeInfoError}</p>}<div className="agent-settings-actions"><button className="secondary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'api')} onClick={() => void runRuntimeCheck('api')} data-testid="agent-settings-check-api">{actionPending('runtime', 'api') ? 'Checking local API…' : 'Check local API'}</button><button className="secondary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'engine')} onClick={() => void runRuntimeCheck('engine')} data-testid="agent-settings-check-engine">{actionPending('runtime', 'engine') ? 'Checking OpenCode engine…' : 'Check OpenCode engine'}</button></div><div className="agent-settings-runtime-controls" data-testid="runtime-control-actions"><button className="primary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'reload')} onClick={() => void reloadEngineConfig()}>{actionPending('runtime', 'reload') ? 'Reloading…' : 'Reload engine config & skills'}</button><button className="secondary-button" type="button" disabled={actionPending('runtime')} onClick={() => setRestartEngineConfirm(true)}>Restart engine</button><button className="danger-button" type="button" disabled={actionPending('runtime') || !localRuntime.available || localRuntime.ownership === 'external'} onClick={() => void restartLocalRuntime()}>{localRuntime.status === 'failed' ? 'Retry local runtime' : 'Restart local runtime'}</button></div>{localRuntime.ownership === 'external' && <p className="agent-settings-runtime-owner-note">Restart unavailable: this runtime is owned by another app.</p>}{!localRuntime.available && <p className="agent-settings-runtime-owner-note">Restart unavailable outside the signed desktop app.</p>}{actionPending('runtime') && <p role="status">Updating the local runtime…</p>}{actionNotices.runtime && <p role="status">{actionNotices.runtime}</p>}{runtimeActionError && <p role="alert">{runtimeActionError}</p>}</>;
   // Column 2 lists servers (attention first); column 3 inspects one server or the add form.
   const mcpView = (): SettingsView => ({
     kind: 'list',

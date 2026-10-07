@@ -2421,6 +2421,17 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS workflow_run_id TEXT`);
   await pool.query(`ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS workflow_stage_execution_id TEXT`);
 
+  // SQLite parity: coordinator_conversation_json (coordinator_conversation_schema.ts)
+  // and the managed/dayflow nonreuse markers (managed_workstream_context_schema.ts
+  // SESSION_DEFINITIONS / DAYFLOW_SESSION_DEFINITIONS), CHECKs included.
+  await pool.query(`
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS coordinator_conversation_json TEXT NULL;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS managed_context_nonreuse_code TEXT CHECK(managed_context_nonreuse_code IS NULL OR managed_context_nonreuse_code IN ('dependency_conflict','dependency_overflow','manifest_malformed','binding_ambiguous','scope_mismatch','persistence_failure','unknown_manifest_version'));
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS managed_context_nonreuse_at TEXT CHECK(managed_context_nonreuse_at IS NULL OR length(managed_context_nonreuse_at) > 0);
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS dayflow_context_nonreuse_code TEXT CHECK(dayflow_context_nonreuse_code IS NULL OR dayflow_context_nonreuse_code IN ('dayflow_dependency_persistence_failure','dayflow_receiving_context_changed','dayflow_dependency_revalidation_failed','dayflow_manifest_malformed','dayflow_binding_ambiguous'));
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS dayflow_context_nonreuse_at TEXT CHECK(dayflow_context_nonreuse_at IS NULL OR length(dayflow_context_nonreuse_at) > 0);
+  `);
+
   // #1485 S3a-1 — durable recipe-workflow runs. Postgres twin of
   // migrations.ts; column set (including the '' item_key/item_id sentinel —
   // see migrations.ts for why NULL cannot be used there) MUST stay identical.

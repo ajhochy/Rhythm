@@ -1,6 +1,6 @@
 // Regression: a permissive asset resolver or preload bridge could expose files or Node APIs.
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { EventEmitter } from 'node:events';
 import { createContext, runInNewContext, SourceTextModule, SyntheticModule } from 'node:vm';
 import { tmpdir } from 'node:os';
@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process';
 import test from 'node:test';
 import {
   AGENT_SERVER_KEYS, AUTH_KEYS, BRIDGE_KEYS, COLONY_VIEW_KEYS, GATEWAY_KEYS,
-  HERMES_KEYS, HERMES_VIEW_KEYS, HUMAN_APPROVAL_KEYS, UPDATE_KEYS,
+  DAYFLOW_DESKTOP_KEYS, HERMES_KEYS, HERMES_VIEW_KEYS, HUMAN_APPROVAL_KEYS, UPDATE_KEYS,
 } from '../src/security-smoke-receipt.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -20,11 +20,14 @@ let smokeResult;
 let saveDialog = async () => ({ canceled: true });
 
 // Execute the real main module; replace only host boundaries, never its flag/lifecycle logic.
-// No Electron child, network, screenshot writes, timers, or real runtime ownership in this check.
+// No Electron child, network, screenshot writes, or real runtime ownership in this check.
 async function interactiveRuntime(argv, userData = '/fixture/interactive-user-data', selectDirectory = async () => ({ canceled: true, filePaths: [] }), autoQuit = true) {
   const calls = [], windows = [], handlers = new Map(), paths = new Map();
+  let reportWindowReady;
+  const windowReady = new Promise((ready) => { reportWindowReady = ready; });
   const processBoundary = Object.assign(new EventEmitter(), {
     argv, env: { RHYTHM_LIVE_API_URL: 'http://127.0.0.1:4098', RHYTHM_LIVE_ENGINE_URL: 'http://127.0.0.1:4097', ...(userData ? { RHYTHM_SHELL_USER_DATA: userData } : {}) },
+    resourcesPath: '/fixture/Resources', arch: 'arm64',
     cwd: () => '/fixture', stderr: { write: (message) => calls.push(message) },
   });
   const app = Object.assign(new EventEmitter(), {
@@ -41,18 +44,18 @@ async function interactiveRuntime(argv, userData = '/fixture/interactive-user-da
     async stopGracefully() { calls.push('stop'); }
     async stopForQuit() { calls.push('stop'); }
   }
-  class Window {
-    constructor(options) {
+  class Window extends EventEmitter {
+    constructor(options) { super();
       this.options = options; windows.push(this);
       this.webContents = Object.assign(new EventEmitter(), { mainFrame: { url: 'rhythm://app/index.html#/agents' }, isDestroyed: () => false, send() {}, setWindowOpenHandler() {}, executeJavaScript: async () => {} });
     }
     static fromWebContents(contents) { return windows.find((window) => window.webContents === contents) ?? null; }
     isDestroyed() { return false; }
-    async loadURL(url) { this.url = url; this.webContents.emit('did-finish-load'); }
+    async loadURL(url) { this.url = url; this.webContents.emit('did-finish-load'); reportWindowReady(); }
   }
   const file = new URL('../src/main.mjs', import.meta.url);
   const context = createContext({ process: processBoundary, URL, Response, console });
-  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
+  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.url = file.href; meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
     let values;
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal: async (url) => calls.push(['openExternal', url]) }, dialog: { showOpenDialog: selectDirectory, showSaveDialog: (...args) => saveDialog(...args), showErrorBox: () => calls.push('ownership-error'), showMessageBox: async () => { calls.push('migration'); return { response: 1 }; } } };
@@ -63,7 +66,13 @@ async function interactiveRuntime(argv, userData = '/fixture/interactive-user-da
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
   await module.evaluate();
-  await new Promise((done) => setImmediate(done));
+  let readinessTimeout;
+  try {
+    await Promise.race([
+      windowReady,
+      new Promise((_, reject) => { readinessTimeout = setTimeout(() => reject(new Error('Synthetic main window did not finish loading')), 2000); }),
+    ]);
+  } finally { clearTimeout(readinessTimeout); }
   if (autoQuit) {
     app.emit('before-quit', { preventDefault: () => calls.push('prevent-quit') });
     await new Promise((done) => setImmediate(done));
@@ -137,6 +146,24 @@ test('1555:electron-local-runtime-restart-ipc:5 preload exposes a frozen restart
   assert.deepEqual(calls, [['shell:select-directory']]);
 });
 
+test('Dayflow preload exposes exactly a frozen zero-payload capability bridge', async () => {
+  let bridge;
+  const calls = [];
+  runInNewContext(await readFile(resolve(shellRoot, 'src/preload.cjs'), 'utf8'), {
+    require: () => ({
+      contextBridge: { exposeInMainWorld: (_key, value) => { bridge = value; } },
+      ipcRenderer: { on() {}, send() {}, sendSync: () => 'https://example.invalid', invoke: async (...args) => { calls.push(args); return { status: 'unavailable', code: 'BRIDGE_UNAVAILABLE' }; } },
+    }),
+    process: { argv: [], env: {}, platform: 'darwin' },
+    window: { addEventListener() {}, dispatchEvent() {} },
+  });
+  assert.deepEqual(Object.keys(bridge.dayflowDesktop), DAYFLOW_DESKTOP_KEYS);
+  assert.equal(Object.isFrozen(bridge.dayflowDesktop), true);
+  await bridge.dayflowDesktop.getDayflowDesktopStatus({ ignored: true });
+  await bridge.dayflowDesktop.openDayflowDesktop(undefined, 'ignored');
+  assert.deepEqual(calls, [['dayflow-desktop:get-status'], ['dayflow-desktop:open']]);
+});
+
 test('task-safe-external-links-c2: preload exposes only openExternal to one IPC channel on bridge version 7', async () => {
   let bridge;
   const calls = [];
@@ -194,26 +221,33 @@ test('task-safe-external-links-c8: external dispatch rejects foreign sender, fra
   await new Promise((done) => setImmediate(done));
 });
 
-test('directory-picker: owned native dialog returns only the first path string or null', async () => {
-  let response;
-  const dialogs = [];
-  const runtime = await interactiveRuntime(['--interactive-smoke'], undefined, async (owner, options) => {
-    dialogs.push({ owner, options }); return response;
-  });
-  const owner = runtime.windows[0];
-  const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
-  const handler = runtime.handlers.get('shell:select-directory');
-  for (const [result, expected] of [
-    [{ canceled: false, filePaths: ['/Users/AJ/Project with spaces', '/second'], bookmarks: ['never exposed'] }, '/Users/AJ/Project with spaces'],
-    [{ canceled: true, filePaths: ['/discarded'] }, null],
-    [{ canceled: false, filePaths: [] }, null],
-    [{ canceled: false, filePaths: [''] }, null],
-    [{ canceled: false, filePaths: [123] }, '123'],
-  ]) {
-    response = result;
-    assert.equal(await handler(event), expected);
-    assert.equal(dialogs.at(-1).owner, owner);
-    assert.deepEqual(JSON.parse(JSON.stringify(dialogs.at(-1).options)), { properties: ['openDirectory', 'createDirectory'] });
+test('directory-picker: owned native dialog returns only a canonical existing directory or null', async () => {
+  const parent = await mkdtemp(resolve(tmpdir(), 'rhythm-directory-picker-'));
+  const dir = resolve(parent, 'workspace ');
+  await mkdir(dir);
+  try {
+    let response;
+    const dialogs = [];
+    const runtime = await interactiveRuntime(['--interactive-smoke'], undefined, async (owner, options) => {
+      dialogs.push({ owner, options }); return response;
+    });
+    const owner = runtime.windows[0];
+    const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
+    const handler = runtime.handlers.get('shell:select-directory');
+    for (const [result, expected] of [
+      [{ canceled: false, filePaths: [dir, '/second'], bookmarks: ['never exposed'] }, await realpath(dir)],
+      [{ canceled: true, filePaths: [dir] }, null],
+      [{ canceled: false, filePaths: [] }, null],
+      [{ canceled: false, filePaths: [''] }, null],
+      [{ canceled: false, filePaths: [123] }, null],
+    ]) {
+      response = result;
+      assert.equal(await handler(event), expected);
+      assert.equal(dialogs.at(-1).owner, owner);
+      assert.deepEqual(JSON.parse(JSON.stringify(dialogs.at(-1).options)), { properties: ['openDirectory', 'createDirectory'] });
+    }
+  } finally {
+    await rm(parent, { recursive: true, force: true });
   }
 });
 
@@ -235,6 +269,38 @@ test('directory-picker: foreign senders, frames, hosts and payloads cannot open 
   owner.isDestroyed = () => true;
   await assert.rejects(handler(event), /owner unavailable/);
   assert.equal(opened, 0);
+});
+
+test('directory-selection: owned host canonicalizes only the directory returned by the native picker', async () => {
+  const dir = await mkdtemp(resolve(tmpdir(), 'rhythm-directory-validation-'));
+  try {
+    const file = resolve(dir, 'not-a-directory.txt');
+    await writeFile(file, 'fixture', 'utf8');
+    let selected = dir;
+    let canceled = false;
+    const runtime = await interactiveRuntime(
+      ['--interactive-smoke'],
+      undefined,
+      async () => ({ canceled, filePaths: selected ? [selected] : [] }),
+    );
+    const owner = runtime.windows[0];
+    const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
+    const handler = runtime.handlers.get('shell:select-directory');
+
+    assert.equal(await handler(event), await realpath(dir));
+    selected = file;
+    assert.equal(await handler(event), null);
+    selected = resolve(dir, 'missing');
+    assert.equal(await handler(event), null);
+    canceled = true;
+    assert.equal(await handler(event), null);
+    await assert.rejects(handler(event, dir), /Invalid IPC payload/);
+    await assert.rejects(handler({ sender: {}, senderFrame: event.senderFrame }), /denied/);
+    runtime.app.emit('before-quit', { preventDefault() {} });
+    await new Promise((done) => setImmediate(done));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('save-file: owned document saves text only where the native dialog points, with a sanitized suggested name', async () => {

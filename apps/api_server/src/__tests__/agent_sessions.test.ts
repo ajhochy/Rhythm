@@ -1,5 +1,7 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import os from 'os';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { createApp } from '../app';
 import { runMigrations } from '../database/migrations';
@@ -556,6 +558,37 @@ describe('Agent Sessions API', () => {
     expect(res.status).toBe(201);
     const created = (await res.json()) as { cwd: string };
     expect(created.cwd).toBe('/some/path/~');
+  });
+
+  it('preserves an existing working directory whose canonical path ends in a space', async () => {
+    const parent = mkdtempSync(join(os.tmpdir(), 'rhythm-cwd-contract-'));
+    const cwd = join(parent, 'workspace ');
+    mkdirSync(cwd);
+
+    try {
+      const res = await fetch(`${baseUrl}/agent-sessions`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          agentId: 'claude-code',
+          cwd,
+          name: 'Trailing-space cwd',
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      const created = (await res.json()) as { id: string; cwd: string };
+      expect(created.cwd).toBe(cwd);
+      expect(new AgentSessionsRepository().findById(created.id)?.cwd).toBe(cwd);
+
+      const { opencodeClient } = await import('../services/opencode_engine');
+      const mockClient = opencodeClient as unknown as {
+        createSession: ReturnType<typeof vi.fn>;
+      };
+      expect(mockClient.createSession.mock.calls.at(-1)?.[1]).toBe(cwd);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
   });
 
   it('returns 400 on resume when the Opencode engine is not ready', async () => {

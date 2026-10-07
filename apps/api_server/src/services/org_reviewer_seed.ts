@@ -44,6 +44,7 @@ const V1_REVIEW_PERMISSIONS = {
 // an untouched copy of one of these is replaced by the current owned asset.
 const PRIOR_OWNED_SKILL_SHA256 = new Set<string>([
   'c3020dba37ccfec66961ac70903feb97cf418b6e1b0345a8af765a2166ce63e5', // v1, PR #1492
+  'ad2049e2a2f136553d47a0198db52ffeffe97bb81993cade2029f475cf22d3b7', // v2, exact R13 shipped asset
 ]);
 export const ORG_REVIEWER_ALLOWED_MCPS_JSON = JSON.stringify(REVIEW_MCPS);
 export const ORG_REVIEWER_ALLOWED_SKILLS_JSON = JSON.stringify(REVIEW_SKILLS);
@@ -77,8 +78,8 @@ function matchesJson(value: string | null, expected: unknown): boolean {
 function hasReviewerPolicy(config: AgentConfig, mcps: unknown = REVIEW_MCPS, permissions: unknown = REVIEW_PERMISSIONS): boolean {
   return config.isAgent && !config.isManager && !config.locked &&
     !config.imageGenerationEnabled && !config.autoApproveActions &&
-    config.modelProvider === 'openai' && config.modelId === 'gpt-5.6-sol' &&
-    config.schedulable === true && !config.sessionSelectable && config.ocAgent === null &&
+    config.schedulable === true &&
+    (config.ocAgent === null || config.ocAgent === ORG_REVIEWER_PROFILE_ID) &&
     matchesJson(config.allowedMcpsJson, mcps) &&
     matchesJson(config.allowedSkillsJson, REVIEW_SKILLS) &&
     matchesJson(config.corePermissionsJson, permissions) &&
@@ -88,8 +89,6 @@ function hasReviewerPolicy(config: AgentConfig, mcps: unknown = REVIEW_MCPS, per
 function hasReviewerTaskPolicy(task: AgentScheduledTask): boolean {
   return task.agentConfigId === ORG_REVIEWER_PROFILE_ID &&
     task.agentKind === 'opencode' &&
-    (task.modelProvider === null || task.modelProvider === 'openai') &&
-    (task.modelId === null || task.modelId === 'gpt-5.6-sol') &&
     matchesJson(task.allowedMcpsJson, REVIEW_MCPS) &&
     matchesJson(task.allowedSkillsJson, REVIEW_SKILLS);
 }

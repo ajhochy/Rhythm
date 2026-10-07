@@ -84,7 +84,7 @@ describe('Org Reviewer retirement and schedule reconciliation', () => {
     expect((await repo.listAllAsync()).filter(task => task.enabled)).toHaveLength(0);
   });
 
-  it('disables a reviewer task with widened scope or model override without rewriting it', async () => {
+  it('disables a reviewer task with widened scope without rewriting its model metadata', async () => {
     await seedOrgOptimizerTask();
     const task = (await repo.listAllAsync())[0];
     await repo.updateAsync(task.id, { allowedMcpsJson: '{}', modelProvider: 'anthropic', modelId: 'unexpected' });

@@ -15,6 +15,7 @@ const ENV_KEYS = [
   'AGENT_MEMORY_LINK_EXPANSION_ENABLED',
   'AGENT_MEMORY_INJECTION_ENABLED',
   'MEMORY_VAULT_PATH',
+  'MEMORY_VAULT_SUBDIR',
 ] as const;
 const savedEnv: Record<string, string | undefined> = {};
 
@@ -147,7 +148,8 @@ describe('memory_ranking rerank integration', () => {
     const preface = await buildMemoryPreface(QUERY, 1, { getRelevant });
     expect(preface.memoryIds).toEqual(['lex', 'weak']);
     expect(preface.items.every((i) => i.lane === 'fts')).toBe(true);
-    // pool call (wide) + the exact original lexical call
+    // Preserve the exact lexical/hybrid fallback semantics.
+    expect(getRelevant).toHaveBeenCalledWith(QUERY, 1, 20);
     expect(getRelevant).toHaveBeenCalledWith(QUERY, 1, 5);
     const [row] = listDecisions({ feature: 'memory_ranking' });
     expect(row).toMatchObject({ status, applied: false, chosen: null, baseline: 'lex,weak' });
@@ -202,6 +204,7 @@ describe('memory_ranking rerank integration', () => {
     setMode('on');
     process.env.AGENT_MEMORY_RETRIEVAL_MODE = 'hybrid';
     process.env.MEMORY_VAULT_PATH = '/tmp/rhythm-rerank-test-vault';
+    process.env.MEMORY_VAULT_SUBDIR = '';
     const client = fakeClient([['Teenagers', 0.9]]);
     setRerankClientForTests(client);
     const mine = mem({
@@ -229,5 +232,58 @@ describe('memory_ranking rerank integration', () => {
     expect(client.calls[0].documents.join('\n')).not.toContain('OTHER-USER');
     const [row] = listDecisions({ feature: 'memory_ranking' });
     expect(row).toMatchObject({ applied: true, chosen: 'eg-mine', baseline: '' });
+  });
+
+  it('uses a bounded native rank-only query while preserving the original FTS and reranker query', async () => {
+    setMode('on');
+    process.env.AGENT_MEMORY_RETRIEVAL_MODE = 'hybrid';
+    process.env.MEMORY_VAULT_PATH = '/tmp/rhythm-rerank-test-vault';
+    process.env.MEMORY_VAULT_SUBDIR = '';
+    const query = [
+      'Canonical announcement preference should identify the Sunday gathering in a clear first sentence.',
+      'Execution guardrails require owner filtering, canonical validation, and injectable memory handling.',
+      'Additional synthetic scheduling background makes this request intentionally long.',
+    ].join(' ');
+    const candidate = mem({
+      id: 'rank-only-announcement',
+      source: 'obsidian-memory',
+      sourceId: 'fact/announcement.md',
+      content: 'Canonical announcement preference leads with the Sunday gathering time.',
+    });
+    const client = fakeClient([['Canonical announcement', 0.92]]);
+    setRerankClientForTests(client);
+    const getRelevant = vi.fn().mockResolvedValue([]);
+    const nativeSearch = vi.fn().mockResolvedValue([{ file: candidate.sourceId, score: 0.03 }]);
+
+    const preface = await buildMemoryPreface(query, 1, {
+      getRelevant,
+      engraphClient: { search: nativeSearch },
+      linkRepository: {
+        searchAsync: async () => [],
+        findBySourceIdsAsync: async () => [candidate],
+      },
+    });
+
+    expect(getRelevant).toHaveBeenCalledWith(query, 1, 20);
+    expect(nativeSearch.mock.calls[0]?.[0]).not.toBe(query);
+    expect(nativeSearch.mock.calls[0]?.[0].length).toBeLessThanOrEqual(128);
+    expect(nativeSearch.mock.calls[0]?.[0]).toContain('canonical');
+    expect(nativeSearch.mock.calls[0]?.[0]).toContain('announcement');
+    expect(client.calls[0]?.query).toBe(query);
+    expect(preface.memoryIds).toEqual(['rank-only-announcement']);
+  });
+
+  it('Sol: decoded Dayflow candidates cannot consume the rerank pool before ordinary memory', async () => {
+    setMode('on');
+    const client = fakeClient([['ordinary youth group',0.95]]);
+    setRerankClientForTests(client);
+    const withheld = Array.from({length:16},(_,i) => mem({ id:`hidden-${i}`, content:'withheld activity', tagsJson:'["d\\u0061yflow"]' }));
+    const ordinary = mem({ id:'ordinary-late', content:'ordinary youth group meets Sunday evenings at six' });
+    const preface = await buildMemoryPreface(QUERY,1,{ topN:1, genericAdmission:true, getRelevant:async()=>[...withheld,ordinary] });
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0].documents).toHaveLength(1);
+    expect(client.calls[0].documents[0]).toContain('ordinary youth group');
+    expect(client.calls[0].documents.join(' ')).not.toContain('withheld activity');
+    expect(preface.memoryIds).toEqual(['ordinary-late']);
   });
 });

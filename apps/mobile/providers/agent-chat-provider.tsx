@@ -27,6 +27,32 @@ import {
   updateSessionTitle,
   type ProjectSessionCatalogEntry,
 } from '@/providers/services/session-service';
+import {
+  acknowledgeMobileGatewayWorkstreamUsage,
+  cancelMobileGatewayWorkstream,
+  configureMobileGatewayWorkstreamAutomation,
+  createMobileGatewayWorkstream,
+  disableMobileGatewayWorkstreamAutomation,
+  getMobileGatewayWorkstreamAutomation,
+  inspectMobileGatewayWorkstreamEvidence,
+  pauseMobileGatewayWorkstream,
+  reconcileMobileGatewayWorkstreamUnknown,
+  resumeMobileGatewayWorkstream,
+  reviseMobileGatewayWorkstream,
+  runMobileGatewayWorkstream,
+  listMobileGatewayWorkstreams,
+  verifyMobileGatewayWorkstreamCriteria,
+  waiveMobileGatewayWorkstreamCriteria,
+  waiveMobileGatewayWorkstreamCriterion,
+  type MobileWorkstream,
+  type MobileWorkstreamAutomation,
+  type MobileWorkstreamAutomationStatus,
+  type MobileWorkstreamCreate,
+  type MobileWorkstreamPatch,
+  type MobileWorkstreamRun,
+  type MobileWorkstreamEvidence,
+  type MobileWorkstreamStatus,
+} from '@/providers/services/workstreams-service';
 import type { ChatPreferences } from '@/providers/opencode-provider-types';
 
 const OFFLINE_CHAT_CACHE_KEY = 'rhythm.agent-chat.read-cache.v1';
@@ -61,6 +87,28 @@ interface AgentChatContextValue {
     sessionId: string,
   ) => Promise<ProjectSessionCatalogEntry>;
   deleteChat: (projectId: string, sessionId: string) => Promise<void>;
+  /** Durable coordinator state from the paired Mac; never synthesized offline. */
+  workstreams: MobileWorkstreamStatus[];
+  workstreamsProjectId: string | null;
+  isLoadingWorkstreams: boolean;
+  workstreamsError: string | null;
+  refreshWorkstreams: (projectId: string) => Promise<void>;
+  createWorkstream: (projectId: string, input: MobileWorkstreamCreate) => Promise<MobileWorkstream>;
+  reviseWorkstream: (projectId: string, workstreamId: string, input: MobileWorkstreamPatch) => Promise<MobileWorkstream>;
+  runWorkstream: (projectId: string, workstreamId: string, input: MobileWorkstreamRun) => Promise<MobileWorkstreamStatus>;
+  getWorkstreamAutomation: (projectId: string, workstreamId: string) => Promise<MobileWorkstreamAutomationStatus>;
+  configureWorkstreamAutomation: (projectId: string, workstreamId: string, input: MobileWorkstreamAutomation) => Promise<MobileWorkstreamAutomationStatus>;
+  disableWorkstreamAutomation: (projectId: string, workstreamId: string, input: { expectedRevision: number; planId: string }) => Promise<MobileWorkstreamAutomationStatus>;
+  pauseWorkstream: (projectId: string, workstreamId: string, expectedRevision: number) => Promise<MobileWorkstreamStatus>;
+  resumeWorkstream: (projectId: string, workstreamId: string, expectedRevision: number) => Promise<MobileWorkstreamStatus>;
+  cancelWorkstream: (projectId: string, workstreamId: string, input: { expectedRevision: number; jobId: string }) => Promise<MobileWorkstreamStatus>;
+  acknowledgeWorkstreamUsage: (projectId: string, workstreamId: string, input: { expectedRevision: number; jobId: string; accept: boolean }) => Promise<MobileWorkstreamStatus>;
+  reconcileWorkstreamUnknown: (projectId: string, workstreamId: string, input: { expectedRevision: number; jobId: string }) => Promise<MobileWorkstreamStatus>;
+  waiveWorkstreamCriterion: (projectId: string, workstreamId: string, input: { expectedRevision: number; jobId: string; criterionId: string }) => Promise<MobileWorkstreamStatus>;
+  waiveWorkstreamCriteria: (projectId: string, workstreamId: string, input: { expectedRevision: number; jobId: string; criterionIds: string[] }) => Promise<MobileWorkstreamStatus>;
+  workstreamEvidence: Record<string, MobileWorkstreamEvidence>;
+  inspectWorkstreamEvidence: (projectId: string, workstreamId: string, sourceId: string) => Promise<MobileWorkstreamEvidence>;
+  verifyWorkstreamCriteria: (projectId: string, workstreamId: string, input: { expectedRevision: number; jobId: string; sourceId: string; criterionIds: string[] }) => Promise<MobileWorkstreamStatus>;
 }
 
 const AgentChatContext = createContext<AgentChatContextValue | null>(null);
@@ -69,6 +117,12 @@ function safeError(error: unknown): string {
   return error instanceof Error
     ? error.message
     : 'Could not load chats from your paired Mac.';
+}
+
+function safeWorkstreamError(error: unknown): string {
+  return error instanceof Error
+    ? error.message
+    : 'Could not load workstreams from your paired Mac.';
 }
 
 function parseOfflineCache(raw: string | null): ProjectSessionCatalogEntry[] {
@@ -110,8 +164,14 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
   const [isLoading, setIsLoading] = useState(true);
   const [isOfflineCache, setIsOfflineCache] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [workstreams, setWorkstreams] = useState<MobileWorkstreamStatus[]>([]);
+  const [workstreamsProjectId, setWorkstreamsProjectId] = useState<string | null>(null);
+  const [isLoadingWorkstreams, setIsLoadingWorkstreams] = useState(false);
+  const [workstreamsError, setWorkstreamsError] = useState<string | null>(null);
+  const [workstreamEvidence, setWorkstreamEvidence] = useState<Record<string, MobileWorkstreamEvidence>>({});
   const mountedRef = useRef(true);
   const refreshGenerationRef = useRef(0);
+  const workstreamGenerationRef = useRef(0);
   const previousStreamStatusRef = useRef(eventStreamStatus);
   const lastSweepCompletedAtRef = useRef(0);
   const isOnline =
@@ -137,6 +197,12 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
     setSessions([]);
     setIsOfflineCache(false);
     setError(null);
+    workstreamGenerationRef.current += 1;
+    setWorkstreams([]);
+    setWorkstreamsProjectId(null);
+    setIsLoadingWorkstreams(false);
+    setWorkstreamsError(null);
+    setWorkstreamEvidence({});
     setIsLoading(true);
     void AsyncStorage.getItem(storageKey)
       .then((raw) => {
@@ -170,6 +236,237 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
   projectPathsRef.current = projectPaths;
   const storageKeyRef = useRef(storageKey);
   storageKeyRef.current = storageKey;
+  const pairedWorkstreamClientRef = useRef(pairedHost.client);
+  pairedWorkstreamClientRef.current = pairedHost.client;
+
+  const requireWorkstreamClient = useCallback(() => {
+    const client = pairedWorkstreamClientRef.current;
+    if (!client) {
+      throw new Error('Workstreams require a connected paired Mac.');
+    }
+    return client;
+  }, []);
+
+  const commitWorkstreamStatus = useCallback((projectId: string, next: MobileWorkstreamStatus) => {
+    setWorkstreamsProjectId(projectId);
+    setWorkstreams((current) => {
+      const existing = current.some((item) => item.workstream.id === next.workstream.id);
+      return existing
+        ? current.map((item) => item.workstream.id === next.workstream.id ? next : item)
+        : [next, ...current];
+    });
+  }, []);
+
+  const commitWorkstreamAutomation = useCallback((projectId: string, next: MobileWorkstreamAutomationStatus) => {
+    setWorkstreamsProjectId(projectId);
+    setWorkstreams((current) => current.map((item) => item.workstream.id === next.workstreamId
+      ? {
+        ...item,
+        workstream: {
+          ...item.workstream,
+          revision: next.revision,
+          automation: next.plan,
+        },
+      }
+      : item));
+  }, []);
+
+  // Workstream reads are user-initiated by the panel.  Unlike chat discovery,
+  // this provider deliberately has no reachability/timer refresh that could
+  // become a hidden status sweep or imply an engine wake.
+  const refreshWorkstreams = useCallback(async (projectId: string) => {
+    if (!isOnlineRef.current) {
+      const offline = 'Workstreams are unavailable offline. Reconnect to your paired Mac and refresh.';
+      setWorkstreamsError(offline);
+      throw new Error(offline);
+    }
+    const generation = ++workstreamGenerationRef.current;
+    setIsLoadingWorkstreams(true);
+    setWorkstreamsError(null);
+    try {
+      const page = await listMobileGatewayWorkstreams(requireWorkstreamClient(), projectId);
+      if (!mountedRef.current || generation !== workstreamGenerationRef.current) return;
+      setWorkstreamsProjectId(projectId);
+      setWorkstreams(page.items);
+    } catch (reason) {
+      if (mountedRef.current && generation === workstreamGenerationRef.current) {
+        setWorkstreamsError(safeWorkstreamError(reason));
+      }
+      throw reason;
+    } finally {
+      if (mountedRef.current && generation === workstreamGenerationRef.current) {
+        setIsLoadingWorkstreams(false);
+      }
+    }
+  }, [requireWorkstreamClient]);
+
+  const createWorkstream = useCallback(async (projectId: string, input: MobileWorkstreamCreate) => {
+    assertOnlineMutation(isOnlineRef.current);
+    return createMobileGatewayWorkstream(requireWorkstreamClient(), projectId, input);
+  }, [requireWorkstreamClient]);
+
+  const reviseWorkstream = useCallback(async (
+    projectId: string,
+    workstreamId: string,
+    input: MobileWorkstreamPatch,
+  ) => {
+    assertOnlineMutation(isOnlineRef.current);
+    return reviseMobileGatewayWorkstream(requireWorkstreamClient(), projectId, workstreamId, input);
+  }, [requireWorkstreamClient]);
+
+  const runWorkstream = useCallback(async (
+    projectId: string,
+    workstreamId: string,
+    input: MobileWorkstreamRun,
+  ) => {
+    assertOnlineMutation(isOnlineRef.current);
+    const next = await runMobileGatewayWorkstream(requireWorkstreamClient(), projectId, workstreamId, input);
+    commitWorkstreamStatus(projectId, next);
+    return next;
+  }, [commitWorkstreamStatus, requireWorkstreamClient]);
+
+  const getWorkstreamAutomation = useCallback(async (projectId: string, workstreamId: string) => {
+    assertOnlineMutation(isOnlineRef.current);
+    const next = await getMobileGatewayWorkstreamAutomation(requireWorkstreamClient(), projectId, workstreamId);
+    commitWorkstreamAutomation(projectId, next);
+    return next;
+  }, [commitWorkstreamAutomation, requireWorkstreamClient]);
+
+  const configureWorkstreamAutomation = useCallback(async (
+    projectId: string,
+    workstreamId: string,
+    input: MobileWorkstreamAutomation,
+  ) => {
+    assertOnlineMutation(isOnlineRef.current);
+    const next = await configureMobileGatewayWorkstreamAutomation(
+      requireWorkstreamClient(), projectId, workstreamId, input,
+    );
+    commitWorkstreamAutomation(projectId, next);
+    return next;
+  }, [commitWorkstreamAutomation, requireWorkstreamClient]);
+
+  const disableWorkstreamAutomation = useCallback(async (
+    projectId: string,
+    workstreamId: string,
+    input: { expectedRevision: number; planId: string },
+  ) => {
+    assertOnlineMutation(isOnlineRef.current);
+    const next = await disableMobileGatewayWorkstreamAutomation(
+      requireWorkstreamClient(), projectId, workstreamId, input,
+    );
+    commitWorkstreamAutomation(projectId, next);
+    return next;
+  }, [commitWorkstreamAutomation, requireWorkstreamClient]);
+
+  const pauseWorkstream = useCallback(async (
+    projectId: string,
+    workstreamId: string,
+    expectedRevision: number,
+  ) => {
+    assertOnlineMutation(isOnlineRef.current);
+    const next = await pauseMobileGatewayWorkstream(requireWorkstreamClient(), projectId, workstreamId, expectedRevision);
+    commitWorkstreamStatus(projectId, next);
+    return next;
+  }, [commitWorkstreamStatus, requireWorkstreamClient]);
+
+  const resumeWorkstream = useCallback(async (
+    projectId: string,
+    workstreamId: string,
+    expectedRevision: number,
+  ) => {
+    assertOnlineMutation(isOnlineRef.current);
+    const next = await resumeMobileGatewayWorkstream(requireWorkstreamClient(), projectId, workstreamId, expectedRevision);
+    commitWorkstreamStatus(projectId, next);
+    return next;
+  }, [commitWorkstreamStatus, requireWorkstreamClient]);
+
+  const cancelWorkstream = useCallback(async (
+    projectId: string,
+    workstreamId: string,
+    input: { expectedRevision: number; jobId: string },
+  ) => {
+    assertOnlineMutation(isOnlineRef.current);
+    const next = await cancelMobileGatewayWorkstream(requireWorkstreamClient(), projectId, workstreamId, input);
+    commitWorkstreamStatus(projectId, next);
+    return next;
+  }, [commitWorkstreamStatus, requireWorkstreamClient]);
+
+  const acknowledgeWorkstreamUsage = useCallback(async (
+    projectId: string,
+    workstreamId: string,
+    input: { expectedRevision: number; jobId: string; accept: boolean },
+  ) => {
+    assertOnlineMutation(isOnlineRef.current);
+    const next = await acknowledgeMobileGatewayWorkstreamUsage(requireWorkstreamClient(), projectId, workstreamId, input);
+    commitWorkstreamStatus(projectId, next);
+    return next;
+  }, [commitWorkstreamStatus, requireWorkstreamClient]);
+
+  const reconcileWorkstreamUnknown = useCallback(async (
+    projectId: string,
+    workstreamId: string,
+    input: { expectedRevision: number; jobId: string },
+  ) => {
+    assertOnlineMutation(isOnlineRef.current);
+    const next = await reconcileMobileGatewayWorkstreamUnknown(requireWorkstreamClient(), projectId, workstreamId, input);
+    commitWorkstreamStatus(projectId, next);
+    return next;
+  }, [commitWorkstreamStatus, requireWorkstreamClient]);
+
+  const waiveWorkstreamCriterion = useCallback(async (
+    projectId: string,
+    workstreamId: string,
+    input: { expectedRevision: number; jobId: string; criterionId: string },
+  ) => {
+    assertOnlineMutation(isOnlineRef.current);
+    const next = await waiveMobileGatewayWorkstreamCriterion(requireWorkstreamClient(), projectId, workstreamId, input);
+    commitWorkstreamStatus(projectId, next);
+    return next;
+  }, [commitWorkstreamStatus, requireWorkstreamClient]);
+
+  const waiveWorkstreamCriteria = useCallback(async (
+    projectId: string,
+    workstreamId: string,
+    input: { expectedRevision: number; jobId: string; criterionIds: string[] },
+  ) => {
+    assertOnlineMutation(isOnlineRef.current);
+    const next = await waiveMobileGatewayWorkstreamCriteria(
+      requireWorkstreamClient(), projectId, workstreamId, input,
+    );
+    commitWorkstreamStatus(projectId, next);
+    return next;
+  }, [commitWorkstreamStatus, requireWorkstreamClient]);
+
+  const inspectWorkstreamEvidence = useCallback(async (
+    projectId: string,
+    workstreamId: string,
+    sourceId: string,
+  ) => {
+    assertOnlineMutation(isOnlineRef.current);
+    const evidence = await inspectMobileGatewayWorkstreamEvidence(
+      requireWorkstreamClient(), projectId, workstreamId, sourceId,
+    );
+    if (mountedRef.current) {
+      setWorkstreamEvidence((current) => ({
+        ...current,
+        [`${workstreamId}:${sourceId}`]: evidence,
+      }));
+    }
+    return evidence;
+  }, [requireWorkstreamClient]);
+
+  const verifyWorkstreamCriteria = useCallback(async (
+    projectId: string,
+    workstreamId: string,
+    input: { expectedRevision: number; jobId: string; sourceId: string; criterionIds: string[] },
+  ) => {
+    assertOnlineMutation(isOnlineRef.current);
+    const next = await verifyMobileGatewayWorkstreamCriteria(
+      requireWorkstreamClient(), projectId, workstreamId, input,
+    );
+    commitWorkstreamStatus(projectId, next);
+    return next;
+  }, [commitWorkstreamStatus, requireWorkstreamClient]);
 
   const refresh = useCallback(async () => {
     if (!isOnlineRef.current) {
@@ -400,19 +697,61 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
     restoreChat,
     forkChat,
     deleteChat,
+    workstreams,
+    workstreamsProjectId,
+    isLoadingWorkstreams,
+    workstreamsError,
+    refreshWorkstreams,
+    createWorkstream,
+    reviseWorkstream,
+    runWorkstream,
+    getWorkstreamAutomation,
+    configureWorkstreamAutomation,
+    disableWorkstreamAutomation,
+    pauseWorkstream,
+    resumeWorkstream,
+    cancelWorkstream,
+    acknowledgeWorkstreamUsage,
+    reconcileWorkstreamUnknown,
+    waiveWorkstreamCriterion,
+    waiveWorkstreamCriteria,
+    workstreamEvidence,
+    inspectWorkstreamEvidence,
+    verifyWorkstreamCriteria,
   }), [
+    acknowledgeWorkstreamUsage,
     archiveChat,
+    cancelWorkstream,
     createChat,
+    createWorkstream,
+    configureWorkstreamAutomation,
     deleteChat,
+    disableWorkstreamAutomation,
     error,
     forkChat,
+    getWorkstreamAutomation,
     isLoading,
+    isLoadingWorkstreams,
     isOfflineCache,
     isOnline,
+    pauseWorkstream,
     refresh,
+    refreshWorkstreams,
+    reconcileWorkstreamUnknown,
     renameChat,
+    resumeWorkstream,
+    reviseWorkstream,
     restoreChat,
+    runWorkstream,
     sessions,
+    workstreams,
+    workstreamEvidence,
+    workstreamsError,
+    workstreamsProjectId,
+    waiveWorkstreamCriterion,
+    waiveWorkstreamCriteria,
+    inspectWorkstreamEvidence,
+    verifyWorkstreamCriteria,
   ]);
 
   return (

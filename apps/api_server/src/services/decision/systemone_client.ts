@@ -139,15 +139,10 @@ function parseAnswer<O extends string>(
     ? (answers as Record<string, unknown>)[QUESTION_ID]
     : undefined;
   if (!answer || typeof answer !== 'object') return 'missing_answer';
-  const { choice, probabilities } = answer as { choice?: unknown; probabilities?: unknown };
+  // The answer's `choice` label alone is never confidence evidence; the winner comes from the probabilities.
+  const { probabilities } = answer as { probabilities?: unknown };
   const probs = {} as Record<O, number>;
-  if (probabilities === undefined || probabilities === null) {
-    // Fallback only when the server sent no probabilities at all.
-    if (typeof choice !== 'string' || !(options as string[]).includes(choice)) return 'malformed_response';
-    for (const o of options) probs[o] = o === choice ? 1 : 0;
-    return { choice: choice as O, confidence: 1, probabilities: probs };
-  }
-  if (typeof probabilities !== 'object' || Array.isArray(probabilities)) return 'malformed_response';
+  if (!probabilities || typeof probabilities !== 'object' || Array.isArray(probabilities)) return 'malformed_response';
   let sum = 0;
   for (const o of options) {
     const p = (probabilities as Record<string, unknown>)[o];
@@ -155,12 +150,17 @@ function parseAnswer<O extends string>(
     probs[o] = p;
     sum += p;
   }
-  if (sum <= 0) return 'malformed_response';
+  // Finite entries can still overflow the sum (MAX_VALUE + MAX_VALUE).
+  if (!Number.isFinite(sum) || sum <= 0) return 'malformed_response';
   let top = options[0];
+  let total = 0;
   for (const o of options) {
     probs[o] /= sum;
+    if (!Number.isFinite(probs[o]) || probs[o] < 0 || probs[o] > 1) return 'malformed_response';
+    total += probs[o];
     if (probs[o] > probs[top]) top = o;
   }
+  if (Math.abs(total - 1) > 1e-6) return 'malformed_response';
   return { choice: top, confidence: probs[top], probabilities: probs };
 }
 

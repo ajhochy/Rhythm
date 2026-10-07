@@ -13,7 +13,7 @@ export const mcpHandlers = HttpApiBuilder.group(InstanceHttpApi, "mcp", (handler
     })
 
     const tools = Effect.fn("McpHttpApi.tools")(function* () {
-      return Object.keys(yield* mcp.tools())
+      return yield* (mcp.catalog ? mcp.catalog() : Effect.succeed([]))
     })
 
     const add = Effect.fn("McpHttpApi.add")(function* (ctx: { payload: typeof AddPayload.Type }) {

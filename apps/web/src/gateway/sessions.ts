@@ -231,7 +231,7 @@ export interface SessionGateway {
   projectLabels?(): Promise<AgentProject[]>;
   createProject?(input: { name: string; cwd: string }): Promise<AgentProject>;
   detail(localId: string): Promise<Session>;
-  create(input: { profileId: string; cwd: string; name: string; projectId?: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard'; taskId?: string; anthropicAccountId?: string }): Promise<Session>;
+  create(input: { profileId: string; cwd: string; name: string; projectId?: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard'; taskId?: string; taskTitle?: string; anthropicAccountId?: string }): Promise<Session>;
   // post-m1-phase-6 c1b/c2a: GET /:id/files/find-files?query&limit&type — returns relative paths.
   findFiles(localId: string, query: string, opts?: { limit?: number; type?: 'file' | 'directory' }): Promise<string[]>;
   // GET /:id/files/list?path — engine-shaped entries scoped to the session/worktree directory.
@@ -410,7 +410,21 @@ export type RichTranscriptMessage = TranscriptMessage & {
   cost?: number; tokens?: { input?: number; output?: number; reasoning?: number; cache?: { read?: number; write?: number } };
 };
 export const canonicalText = (value: unknown): string => typeof value === 'string' ? value : value === undefined ? '' : JSON.stringify(value, null, 2);
-export const blockSource = (block: RichTranscriptBlock): string => block.tool ? canonicalText(block.tool) : block.content;
+export const blockSource = (block: RichTranscriptBlock): string =>
+  block.kind === 'step-start' || block.kind === 'step-finish'
+    ? ''
+    : block.tool ? canonicalText(block.tool) : block.content;
+
+// A deferred builtin `task` execution: outer tool `mcp_dispatch` whose dispatcher input is
+// {family:'builtin', name:'task', action:'execute'|omitted}. Search/describe, MCP family, other
+// builtins and malformed input are not task executions.
+function isDeferredTaskExecution(raw: Record<string, unknown>, state: Record<string, unknown>): boolean {
+  if (raw.type !== 'tool' || raw.tool !== 'mcp_dispatch') return false;
+  const input = state.input;
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return false;
+  const dispatch = input as Record<string, unknown>;
+  return dispatch.family === 'builtin' && dispatch.name === 'task' && (dispatch.action === undefined || dispatch.action === 'execute');
+}
 
 export function mapPart(raw: Record<string, unknown>, id: string): RichTranscriptBlock {
   const state = record(raw.state);
@@ -427,10 +441,15 @@ export function mapPart(raw: Record<string, unknown>, id: string): RichTranscrip
     metadata: state.metadata && typeof state.metadata === 'object' ? record(state.metadata) : undefined,
     attachments: attachments.length ? attachments : undefined,
   } : undefined;
-  if (raw.type === 'tool' && raw.tool === 'task') {
-    const match = TASK_ID_PATTERN.exec(string(state.output));
+  const nativeTask = raw.type === 'tool' && raw.tool === 'task';
+  if (nativeTask || isDeferredTaskExecution(raw, state)) {
+    const outputId = TASK_ID_PATTERN.exec(string(state.output))?.[1];
+    // Deferred tasks keep the outer `mcp_dispatch` part; the real task still reports its child via
+    // metadata.sessionId and `task_id:` output. Two disagreeing ids link nothing rather than guess.
+    const metadataId = nativeTask ? '' : string(record(state.metadata).sessionId);
+    const childSessionId = nativeTask ? outputId : metadataId && outputId && metadataId !== outputId ? undefined : metadataId || outputId;
     const terminal = state.status === 'completed' || state.status === 'error';
-    return { id, kind: 'children', content: string(state.title, 'Child session'), meta: string(state.status), childSessionId: match?.[1], tool, terminal, streaming: !terminal };
+    return { id, kind: 'children', content: string(state.title, 'Child session'), meta: string(state.status), childSessionId, tool, terminal, streaming: !terminal };
   }
   // post-m1-phase-4 c2d: preserve every other canonical part type instead of collapsing it to
   // markdown. Field vocabulary from apps/api_server/src/services/opencode_stream_bridge.ts:1250-1339.
@@ -438,8 +457,8 @@ export function mapPart(raw: Record<string, unknown>, id: string): RichTranscrip
   if (raw.type === 'tool') {
     return { id, kind: 'tool', title: string(state.title, string(raw.tool, 'Tool')), content: canonicalText(state.output), meta: state.status === 'error' && record(state.metadata).interrupted === true ? 'Interrupted' : tool?.status, tool, terminal: state.status === 'completed' || state.status === 'error' };
   }
-  if (raw.type === 'step-start') return { id, kind: 'step-start', content: string(raw.snapshot) };
-  if (raw.type === 'step-finish') return { id, kind: 'step-finish', content: string(raw.snapshot), meta: string(raw.reason) };
+  if (raw.type === 'step-start') return { id, kind: 'step-start', content: '' };
+  if (raw.type === 'step-finish') return { id, kind: 'step-finish', content: '', meta: string(raw.reason) };
   if (raw.type === 'compaction') return { id, kind: 'compaction', content: raw.auto === true ? 'Context compacted automatically' : 'Context compacted' };
   if (raw.type === 'file') return { id, kind: 'file', title: string(raw.filename), content: string(raw.url), meta: string(raw.mime), artifactId: string(raw.artifactId) || undefined, artifactProject: string(raw.artifactProject) || undefined };
   if (raw.type === 'agent') { const source = record(raw.source); return { id, kind: 'agent', title: string(raw.name, 'Agent'), content: string(source.value) }; }

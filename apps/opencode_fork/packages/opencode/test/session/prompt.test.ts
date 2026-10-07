@@ -2,6 +2,7 @@ import { NodeFileSystem } from "@effect/platform-node"
 import { FetchHttpClient } from "effect/unstable/http"
 import { expect } from "bun:test"
 import { Cause, Deferred, Duration, Effect, Exit, Fiber, Layer } from "effect"
+import * as Stream from "effect/Stream"
 import path from "path"
 import { fileURLToPath, pathToFileURL } from "url"
 import { NamedError } from "@opencode-ai/core/util/error"
@@ -52,10 +53,16 @@ import { testEffect } from "../lib/effect"
 import { reply, TestLLMServer } from "../lib/llm-server"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { SessionEvent } from "@/v2/session-event"
 import { writeFile } from "fs/promises"
 import { existsSync } from "fs"
 
 void Log.init({ print: false })
+
+// Hosted builtins are lazy by default; this explicit historical `deferred: false`
+// compatibility opt-out keeps them directly advertised for tests whose subject is
+// the underlying builtin's own behavior.
+const eagerBuiltins = { servers: [], tools: [], deferred: false }
 
 const summary = Layer.succeed(
   SessionSummary.Service,
@@ -161,11 +168,13 @@ const promptRuntimeFlags = RuntimeFlags.layer({
   experimentalEventSystem: true,
   shellKillGraceMs: 0,
 } as Parameters<typeof RuntimeFlags.layer>[0])
-function makePromptLayer() {
+function makePromptLayer(input?: { sync?: Layer.Layer<SyncEvent.Service>; llm?: Layer.Layer<LLM.Service> }) {
+  const sync = input?.sync ?? SyncEvent.defaultLayer
+  const llm = input?.llm ?? LLM.defaultLayer
   const deps = Layer.mergeAll(
     Session.defaultLayer,
     Snapshot.defaultLayer,
-    LLM.defaultLayer,
+    llm,
     Env.defaultLayer,
     AgentSvc.defaultLayer,
     Command.defaultLayer,
@@ -177,7 +186,7 @@ function makePromptLayer() {
     mcp,
     AppFileSystem.defaultLayer,
     status,
-    SyncEvent.defaultLayer,
+    sync,
   ).pipe(Layer.provideMerge(infra))
   const question = Question.layer.pipe(Layer.provideMerge(deps))
   const todo = Todo.layer.pipe(Layer.provideMerge(deps))
@@ -224,6 +233,47 @@ function makePromptLayer() {
 }
 
 const it = testEffect(Layer.mergeAll(TestLLMServer.layer, makePromptLayer()).pipe(Layer.provide(summary)))
+
+const compactionBoundaryInputs: LLM.StreamInput[] = []
+const compactionBoundaryQueue: Stream.Stream<LLM.Event, never>[] = []
+let compactionBoundaryStarted: Deferred.Deferred<void> | undefined
+
+const compactionBoundaryLLM = Layer.succeed(
+  LLM.Service,
+  LLM.Service.of({
+    stream: (input) => {
+      compactionBoundaryInputs.push(input)
+      if (compactionBoundaryInputs.length === 1 && compactionBoundaryStarted) {
+        Deferred.doneUnsafe(compactionBoundaryStarted, Effect.void)
+      }
+      return compactionBoundaryQueue.shift() ?? Stream.empty
+    },
+  }),
+)
+
+const compactionBoundaryIt = testEffect(
+  makePromptLayer({
+    llm: compactionBoundaryLLM,
+    sync: Layer.effect(
+      SyncEvent.Service,
+      Effect.sync(() => {
+        let autoCompactions = 0
+        return SyncEvent.Service.of({
+          run: (definition) =>
+            Effect.sync(() => {
+              if (definition.type !== SessionEvent.Compaction.Started.Sync.type) return
+              autoCompactions++
+              if (autoCompactions > 1) throw new Error("pinned turn appended a second automatic compaction")
+            }),
+          replay: () => Effect.die("unexpected sync replay in compaction boundary test"),
+          replayAll: () => Effect.die("unexpected sync replayAll in compaction boundary test"),
+          remove: () => Effect.die("unexpected sync remove in compaction boundary test"),
+          claim: () => Effect.die("unexpected sync claim in compaction boundary test"),
+        })
+      }),
+    ),
+  }).pipe(Layer.provide(summary)),
+)
 const unix = process.platform !== "win32" ? it.instance : it.instance.skip
 const shellIt = testEffect(makePromptLayer().pipe(Layer.provide(summary)))
 const shellUnix = process.platform !== "win32" ? shellIt.instance : shellIt.instance.skip
@@ -273,6 +323,87 @@ function providerCfg(url: string) {
       },
     },
   }
+}
+
+function overflowProviderCfg(url: string) {
+  const config = providerCfg(url)
+  return {
+    ...config,
+    provider: {
+      ...config.provider,
+      test: {
+        ...config.provider.test,
+        models: {
+          ...config.provider.test.models,
+          "test-model": {
+            ...config.provider.test.models["test-model"],
+            limit: { context: 4, output: 1 },
+          },
+        },
+      },
+    },
+  }
+}
+
+function scriptedUsage(input: { input: number; output: number }) {
+  return {
+    inputTokens: input.input,
+    outputTokens: input.output,
+    totalTokens: input.input + input.output,
+    inputTokenDetails: {
+      noCacheTokens: undefined,
+      cacheReadTokens: undefined,
+      cacheWriteTokens: undefined,
+    },
+    outputTokenDetails: {
+      textTokens: undefined,
+      reasoningTokens: undefined,
+    },
+  }
+}
+
+function scriptedFinish(input: { finish: "stop" | "tool-calls"; usage: { input: number; output: number } }) {
+  const usage = scriptedUsage(input.usage)
+  const rawFinishReason = input.finish === "tool-calls" ? "tool_calls" : "stop"
+  return [
+    {
+      type: "finish-step",
+      finishReason: input.finish,
+      rawFinishReason,
+      response: { id: "res", modelId: "test-model", timestamp: new Date() },
+      providerMetadata: undefined,
+      usage,
+    } satisfies LLM.Event,
+    {
+      type: "finish",
+      finishReason: input.finish,
+      rawFinishReason,
+      totalUsage: usage,
+    } satisfies LLM.Event,
+  ]
+}
+
+function scriptedText(text: string, usage = { input: 1, output: 1 }) {
+  return Stream.make(
+    { type: "start" } satisfies LLM.Event,
+    { type: "text-start", id: "txt-0" } satisfies LLM.Event,
+    { type: "text-delta", id: "txt-0", text } satisfies LLM.Event,
+    { type: "text-end", id: "txt-0" } satisfies LLM.Event,
+    ...scriptedFinish({ finish: "stop", usage }),
+  )
+}
+
+function scriptedHeldTool(gate: Deferred.Deferred<void>) {
+  return Stream.concat(
+    Stream.make(
+      { type: "start" } satisfies LLM.Event,
+      { type: "tool-input-start", id: "call-1", toolName: "first" } satisfies LLM.Event,
+      { type: "tool-call", toolCallId: "call-1", toolName: "first", input: { value: "first" } } satisfies LLM.Event,
+    ),
+    Stream.fromEffect(Deferred.await(gate)).pipe(
+      Stream.flatMap(() => Stream.fromIterable(scriptedFinish({ finish: "tool-calls", usage: { input: 10, output: 1 } }))),
+    ),
+  )
 }
 
 const writeText = Effect.fn("test.writeText")(function* (file: string, text: string) {
@@ -500,7 +631,8 @@ const taskDescriptionSent = Effect.fn("test.taskDescriptionSent")(function* (
   }))
   const prompt = yield* SessionPrompt.Service
   const sessions = yield* Session.Service
-  const chat = yield* sessions.create({ title: "Pinned", permission })
+  // Eager compatibility opt-out: this asserts the directly advertised task tool.
+  const chat = yield* sessions.create({ title: "Pinned", permission, mcpAllowlist: eagerBuiltins })
   yield* prompt.prompt({
     sessionID: chat.id,
     agent: "manager",
@@ -561,7 +693,11 @@ it.instance(
       }))
       const prompt = yield* SessionPrompt.Service
       const sessions = yield* Session.Service
-      const chat = yield* sessions.create({ title: "Pinned", permission: interactiveTaskRules })
+      const chat = yield* sessions.create({
+        title: "Pinned",
+        permission: interactiveTaskRules,
+        mcpAllowlist: eagerBuiltins,
+      })
       yield* prompt.prompt({
         sessionID: chat.id,
         agent: "manager",
@@ -726,6 +862,99 @@ it.instance(
       }
     }),
   { git: true },
+)
+
+compactionBoundaryIt.instance(
+  "pinned prompt consumes its automatic compaction without admitting a queued user",
+  () =>
+    Effect.gen(function* () {
+      const { directory } = yield* TestInstance
+      const started = yield* Deferred.make<void>()
+      const gate = yield* Deferred.make<void>()
+      yield* writeConfig(directory, overflowProviderCfg("http://scripted.invalid/v1"))
+      yield* Effect.sync(() => {
+        compactionBoundaryInputs.length = 0
+        compactionBoundaryQueue.length = 0
+        compactionBoundaryStarted = started
+        compactionBoundaryQueue.push(
+          scriptedHeldTool(gate),
+          scriptedText("summary"),
+          scriptedText("continued"),
+        )
+      })
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({
+        title: "Pinned compaction boundary",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+
+      const first = yield* prompt
+        .prompt({
+          sessionID: chat.id,
+          agent: "build",
+          model: ref,
+          parts: [{ type: "text", text: "PRIMARY_OVERFLOW_TURN" }],
+        })
+        .pipe(Effect.forkChild)
+      yield* awaitWithTimeout(Deferred.await(started), "timed out waiting for the pinned provider turn")
+
+      const queuedID = MessageID.ascending()
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        messageID: queuedID,
+        agent: "build",
+        model: ref,
+        noReply: true,
+        parts: [{ type: "text", text: "QUEUED_AFTER_OVERFLOW" }],
+      })
+      yield* Deferred.succeed(gate, void 0)
+
+      const firstExit = yield* Fiber.await(first)
+      expect(Exit.isSuccess(firstExit)).toBe(true)
+      if (Exit.isSuccess(firstExit)) {
+        expect(firstExit.value.parts.some((part) => part.type === "text" && part.text === "continued")).toBe(true)
+      }
+
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      const marker = messages.find(
+        (message) => message.info.role === "user" && message.parts.some((part) => part.type === "compaction"),
+      )
+      const continuation = messages.find(
+        (message) =>
+          message.info.role === "user" &&
+          message.parts.some((part) => part.type === "text" && part.metadata?.compaction_continue === true),
+      )
+      const summary = messages.find(
+        (message) => message.info.role === "assistant" && message.info.summary === true,
+      )
+      const continued = messages.find(
+        (message) =>
+          message.info.role === "assistant" &&
+          message.parts.some((part) => part.type === "text" && part.text === "continued"),
+      )
+      const markers = messages.filter(
+        (message) => message.info.role === "user" && message.parts.some((part) => part.type === "compaction"),
+      )
+
+      expect(markers).toHaveLength(1)
+      expect(marker?.info.role).toBe("user")
+      expect(continuation?.info.role).toBe("user")
+      expect(summary?.info.role).toBe("assistant")
+      expect(continued?.info.role).toBe("assistant")
+      if (marker?.info.role === "user" && summary?.info.role === "assistant") {
+        expect(summary.info.parentID).toBe(marker.info.id)
+      }
+      if (continuation?.info.role === "user" && continued?.info.role === "assistant") {
+        expect(continued.info.parentID).toBe(continuation.info.id)
+      }
+
+      const inputs = compactionBoundaryInputs
+      expect(inputs.some((input) => JSON.stringify(input).includes("QUEUED_AFTER_OVERFLOW"))).toBe(false)
+      expect(messages.some((message) => message.info.role === "user" && message.info.id === queuedID)).toBe(true)
+    }),
+  { git: true },
+  5_000,
 )
 
 it.instance(
@@ -894,6 +1123,7 @@ it.instance(
       const chat = yield* sessions.create({
         title: "Pinned",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        mcpAllowlist: eagerBuiltins,
       })
       yield* llm.tool("task", {
         description: "inspect bug",
@@ -1619,6 +1849,9 @@ it.instance(
       if (Exit.isSuccess(ea) && Exit.isSuccess(eb)) {
         expect(ea.value.info.id).toBe(eb.value.info.id)
         expect(ea.value.info.role).toBe("assistant")
+        expect(Reflect.get(ea.value.info, "error")).toBeUndefined()
+        expect(Reflect.get(eb.value.info, "error")).toBeUndefined()
+        expect(ea.value.parts.some((part) => part.type === "text" && part.text === "done")).toBe(true)
       }
       expect(yield* llm.calls).toBe(1)
     }),
@@ -1744,6 +1977,7 @@ unix(
       const chat = yield* sessions.create({
         title: "Interrupted bash truncation",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        mcpAllowlist: eagerBuiltins,
       })
 
       yield* prompt.prompt({

@@ -1,5 +1,5 @@
 import { homedir } from 'os';
-import { join } from 'path';
+import { isAbsolute, join, relative, resolve, sep } from 'path';
 import { readFileSync, existsSync } from 'fs';
 import { createHmac, randomBytes } from 'node:crypto';
 import { promisify } from 'util';
@@ -24,13 +24,37 @@ import {
   ensureOmlxProviderConfig,
   detectAndUnloadCompetingOllamaModel,
 } from './local_omlx_provider';
-import { resolveWebsearchConfig } from '../config/env';
+import { env, resolveWebsearchConfig } from '../config/env';
 import {
   clearTrustedMcpVerifier,
   initializeTrustedMcpVerifier,
 } from '../security/trusted_mcp_call';
 import type { DispatchInput } from '../models/model_provenance';
+import { getDb } from '../database/db';
 import { ModelProvenanceRepository } from '../repositories/model_provenance_repository';
+import { isCoordinatorCallbackProvenance } from '../contracts/coordinator_callback_marker';
+import type { AuthContext } from '../middleware/auth_middleware';
+import type {
+  ManagedContextReference,
+  ManagedContextScope,
+  ManagedWorkstreamContextRepository,
+} from '../repositories/managed_workstream_context_repository';
+import { hasManagedSdkSessionHistory } from '../repositories/managed_workstream_context_repository';
+import { hasDayflowSdkSessionHistory } from '../repositories/dayflow_receiving_context_repository';
+import type { DayflowSdkHistoryGuard } from './dayflow_receiving_history_guard';
+import { CODING_WORKFLOW_DISPATCH_REASON } from '../contracts/coordinator_conversation_contract';
+import {
+  ENROLLMENT_REQUEST_BODY,
+  PROVIDER_ADMISSION_BOUNDS,
+  parseEnrollmentResponse,
+  parseProviderFrameExportText,
+  parseWorkflowEnrollmentResponse,
+  parseWorkflowProviderFrameExportText,
+  type ProviderPendingExport,
+  type ProviderUnavailableExport,
+  type WorkflowEnrollmentRequest,
+  type WorkflowProviderPendingExport,
+} from '../contracts/dayflow_provider_admission_contract';
 
 const modelProvenanceRepo = new ModelProvenanceRepository();
 
@@ -44,13 +68,132 @@ function beginDispatch(input?: DispatchInput): string | undefined {
   }
 }
 
-function settleDispatch(id: string | undefined, outcome: 'accepted' | 'rejected'): void {
+function settleDispatch(id: string | undefined, outcome: 'accepted' | 'rejected' | 'unknown'): void {
   if (!id) return;
   try {
     modelProvenanceRepo.setOutcome(id, outcome);
   } catch (err) {
     logger.warn('[OpencodeClientService] provenance outcome write failed (non-fatal):', err);
   }
+}
+
+type ManagedSdkSessionBoundary =
+  | 'fresh'
+  | 'managed_history'
+  | 'unavailable'
+  | 'outside_local_ledger_scope';
+
+/**
+ * Strict, read-only engine evidence for capacity admission.  Unlike the
+ * ordinary status/question/permission convenience wrappers, `available`
+ * means every transport returned a successful, schema-complete response.
+ * It contains identifiers only—never messages, history, capture, or result
+ * text—and exists solely to distinguish the engine's documented idle-map
+ * omission from a failed observation.
+ */
+export interface BoundSessionLifecycleInspection {
+  available: boolean;
+  knownSessionIds: string[];
+  statusBySessionId: Record<string, { type: string }>;
+  pendingQuestionSessionIds: string[];
+  pendingPermissionSessionIds: string[];
+}
+
+function completeSessionStatusMap(value: unknown): value is Record<string, { type: string }> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.entries(value).every(([id, status]) =>
+    id.length > 0 && !!status && typeof status === 'object' && !Array.isArray(status) &&
+    typeof (status as Record<string, unknown>).type === 'string',
+  );
+}
+
+function completeLifecycleSessionIds(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const ids: string[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+    const sessionID = (entry as Record<string, unknown>).sessionID;
+    if (typeof sessionID !== 'string' || sessionID.trim().length === 0) return null;
+    ids.push(sessionID);
+  }
+  return ids;
+}
+
+/**
+ * A managed enrollment is a permanent nonreuse boundary for an SDK session.
+ * This read is intentionally independent of the managed feature flag: turning
+ * the feature off later must not let ordinary SQLite chat replay retained
+ * managed history. In a non-SQLite deployment, this local ledger has no
+ * authority to classify a session as fresh or managed; ordinary hosted calls
+ * remain on their existing authorization and upstream-validation path, while
+ * an explicitly managed dispatch must separately require local SQLite.
+ */
+function managedSdkSessionBoundary(
+  sdkSessionId: string,
+  exceptDispatchId?: string,
+): ManagedSdkSessionBoundary {
+  if (env.dbClient !== 'sqlite') return 'outside_local_ledger_scope';
+  try {
+    return hasManagedSdkSessionHistory(getDb(), sdkSessionId, exceptDispatchId)
+      ? 'managed_history'
+      : 'fresh';
+  } catch {
+    return 'unavailable';
+  }
+}
+
+function managedSdkSessionBoundaryReason(
+  boundary: Extract<ManagedSdkSessionBoundary, 'managed_history' | 'unavailable'>,
+): string {
+  switch (boundary) {
+    case 'managed_history':
+      return 'persisted managed-worker history forbids reuse';
+    case 'unavailable':
+      return 'the local managed-session ledger is unavailable';
+  }
+}
+
+function ordinarySdkSessionMayUseHistory(
+  boundary: ManagedSdkSessionBoundary,
+): boundary is 'fresh' | 'outside_local_ledger_scope' {
+  return boundary === 'fresh' || boundary === 'outside_local_ledger_scope';
+}
+
+/**
+ * Explicit managed dispatch is only supported by the local SQLite ledger.
+ * Consult the actual deployment mode, rather than caller-supplied policy, so
+ * a managed request cannot relabel a PostgreSQL process as locally qualified.
+ */
+function assertManagedSdkSessionMayBeExposed(
+  sdkSessionId: string,
+  exceptDispatchId?: string,
+): void {
+  if (env.dbClient !== 'sqlite') {
+    throw new Error('managed SDK session requires local SQLite coordinator execution');
+  }
+  const boundary = managedSdkSessionBoundary(sdkSessionId, exceptDispatchId);
+  if (boundary === 'fresh') return;
+  if (boundary === 'managed_history' || boundary === 'unavailable') {
+    throw new Error(managedSdkSessionBoundaryReason(boundary));
+  }
+  throw new Error('managed SDK session requires local SQLite coordinator execution');
+}
+
+/**
+ * Session operations that infer from, mutate, or copy retained engine history
+ * share the permanent managed-session nonreuse boundary with prompt paths.
+ * The second call immediately adjacent to a native forward deliberately
+ * re-reads durable state after any intervening preparation.
+ */
+function assertOrdinarySdkSessionMayUseHistoryOperation(
+  sdkSessionId: string,
+  operation: string,
+): void {
+  const boundary = managedSdkSessionBoundary(sdkSessionId);
+  if (ordinarySdkSessionMayUseHistory(boundary)) return;
+  throw AppError.reconciliationRequired(
+    `${operation} is withheld because ${managedSdkSessionBoundaryReason(boundary)}`,
+  );
 }
 
 /**
@@ -621,6 +764,392 @@ export function augmentPathForOpencode(): void {
 
 type OpencodeServerHandle = { url: string; close(): void };
 
+/**
+ * Internal-only authority for the coordinator's already authenticated,
+ * persisted finite consent. It intentionally cannot carry a bearer or be
+ * decoded from an HTTP body. The coordinator creates this capability from an
+ * exact durable one-shot plan or conversation control/native binding, and this
+ * service invokes it at every managed prompt boundary.
+ */
+export interface PersistedManagedConsentAuthority {
+  readonly kind: 'one_shot_workstream' | 'finite_conversation_workstream';
+  readonly actorUserId: number;
+  validate(input: {
+    phase: 'prepare' | 'before_sdk' | 'sdk_exposure';
+    scope: Omit<ManagedContextScope, 'dispatchId' | 'sdkTurnId'>;
+    workerJobId: string | undefined;
+  }): boolean | Promise<boolean>;
+}
+
+export interface ManagedPromptDispatchContext {
+  /** Existing interactive managed path; unchanged when present. */
+  auth?: AuthContext;
+  /** Narrow saved-consent capability for exactly one coordinator worker. */
+  persistedConsent?: PersistedManagedConsentAuthority;
+  scope: Omit<ManagedContextScope, 'dispatchId' | 'sdkTurnId'>;
+  records: Pick<ManagedWorkstreamContextRepository, 'append' | 'enroll' | 'markUnsafe' | 'read'>;
+  policy: {
+    enabled(): boolean;
+    dbClient: 'sqlite' | 'postgres';
+    role: 'all' | 'local' | 'cloud' | 'relay';
+    currentHostEpoch(): string | null;
+  };
+  captureReady: boolean;
+  /** Required for the only supported managed child shape. */
+  workerJobId?: string;
+  /**
+   * Runs after the dispatch + managed enrollment are durable, but before the
+   * SDK prompt can leave this process.  The coordinator uses this to bind the
+   * minted engine anchor to its existing native-ledger row.
+   */
+  onPrepared?: (binding: {
+    scope: ManagedContextScope;
+    dispatchId: string;
+    sdkUserMessageId: string;
+  }) => void;
+  /** Identifier-only dependencies that must be durable before prompt exposure. */
+  initialReferences?: ManagedContextReference[];
+}
+
+/**
+ * Internal-only binding for one authenticated C2 foreground command.  It is
+ * deliberately narrower than managed worker authority: it cannot carry a
+ * tool, a workspace path, a permission rule, or a model override.  The
+ * composed server creates it from the durable command reservation and checks
+ * the live owner/root/project/profile binding again at every await boundary.
+ */
+export interface CoordinatorForegroundPromptDispatchContext {
+  readonly kind: 'coordinator_foreground_v1';
+  readonly actorUserId: number;
+  readonly localSessionId: string;
+  readonly sdkSessionId: string;
+  readonly projectId: string;
+  readonly profileId: string;
+  /** Durable C2 control epoch captured with the reserved command. */
+  readonly controlRevision: number;
+  readonly commandKey: string;
+  validate(input: {
+    phase: 'prepare' | 'before_sdk' | 'sdk_exposure';
+    dispatchId?: string;
+    sdkUserMessageId?: string;
+  }): boolean | Promise<boolean>;
+}
+
+/**
+ * Internal-only freshness hook for the exact child-completion callback. It is
+ * not authority and carries no capability: the completion service passes the
+ * recheck of the overlay it attached, and the client runs it after the LAST
+ * await before SDK exposure. Valid only with the exact callback provenance.
+ */
+export interface CoordinatorCallbackPromptDispatchContext {
+  readonly kind: 'coordinator_callback_v1';
+  validate(): boolean | Promise<boolean>;
+  /**
+   * Exact bound Coding Workflow callback only. When present the native anchor
+   * is minted even with no Dayflow receiver, its dispatch row is durable, and
+   * this synchronous hook must return true before any SDK exposure.
+   */
+  onPrepared?(binding: { dispatchId: string; sdkUserMessageId: string }): boolean;
+}
+
+function isCoordinatorForegroundPromptContext(
+  value: CoordinatorForegroundPromptDispatchContext | undefined,
+  sessionId: string,
+  provenance: DispatchInput | undefined,
+): value is CoordinatorForegroundPromptDispatchContext {
+  return Boolean(
+    value &&
+    value.kind === 'coordinator_foreground_v1' &&
+    Number.isSafeInteger(value.actorUserId) && value.actorUserId > 0 &&
+    typeof value.localSessionId === 'string' && value.localSessionId.length > 0 &&
+    typeof value.sdkSessionId === 'string' && value.sdkSessionId === sessionId &&
+    typeof value.projectId === 'string' && value.projectId.length > 0 &&
+    typeof value.profileId === 'string' && value.profileId.length > 0 &&
+    Number.isSafeInteger(value.controlRevision) && value.controlRevision > 0 &&
+    typeof value.commandKey === 'string' && value.commandKey.length > 0 &&
+    typeof value.validate === 'function' &&
+    provenance &&
+    provenance.sessionId === value.localSessionId &&
+    provenance.sdkSessionId === sessionId &&
+    provenance.origin === 'prompt_api' &&
+    provenance.requestedSource === 'session' &&
+    provenance.routeAuthed === true
+  );
+}
+
+/**
+ * Internal-only context for the ONE approved coordinator-goal retry wake. It is
+ * a distinct kind, never a promoted foreground/callback/managed context and
+ * never authority by itself: the client mints the request's native user-message
+ * id, persists the exact dispatch row with it before SDK exposure and puts the
+ * SAME id in the SDK body, so a later signed tool call can be joined to this
+ * request by identity instead of by heuristic late linkage. `validate` is the
+ * producer's SYNCHRONOUS current-fingerprint check (decision, action/digest,
+ * goal revision, root/profile/owner/project/SDK, taint, controls); it must not
+ * await and is invoked again immediately before the SDK call.
+ */
+export interface CoordinatorApprovalResumePromptDispatchContext {
+  readonly kind: 'coordinator_goal_approval_resume_v1' | 'coordinator_workflow_approval_resume_v1';
+  validate(): boolean;
+}
+
+/** Same literal shape the repository's consumer recomputes (53 chars, legal reason code). */
+const APPROVAL_RESUME_REASON_CODE = /^goal_approval_resume_[0-9a-f]{32}$/;
+
+function isCoordinatorApprovalResumePromptContext(
+  value: CoordinatorApprovalResumePromptDispatchContext | undefined,
+  sessionId: string,
+  provenance: DispatchInput | undefined,
+): value is CoordinatorApprovalResumePromptDispatchContext {
+  return Boolean(
+    value &&
+    (value.kind === 'coordinator_goal_approval_resume_v1' || value.kind === 'coordinator_workflow_approval_resume_v1') &&
+    typeof value.validate === 'function' &&
+    typeof sessionId === 'string' && sessionId.length > 0 &&
+    provenance &&
+    provenance.sdkSessionId === sessionId &&
+    provenance.origin === 'approval_continuation' &&
+    provenance.requestedSource === 'agent_config' &&
+    provenance.routeAuthed == null &&
+    typeof provenance.reasonCode === 'string' &&
+    (value.kind === 'coordinator_goal_approval_resume_v1'
+      ? APPROVAL_RESUME_REASON_CODE.test(provenance.reasonCode)
+      : /^workflow_approval_resume_[0-9a-f]{32}$/.test(provenance.reasonCode)),
+  );
+}
+
+/**
+ * Internal-only typed context for ONE Coding Workflow async child (G2 first
+ * adapter). It is a distinct kind, never promoted from a foreground, callback,
+ * managed or approval-resume context and never authority by itself: the client
+ * mints the real native user-message id, persists the exact dispatch row with it
+ * BEFORE the SDK request, hands that identity to `onPrepared` synchronously, and
+ * exports the delivery outcome. A thrown transport error is delivery `unknown`
+ * (the engine may have enqueued it), not `rejected`.
+ */
+export interface CodingWorkflowPromptDispatchContext {
+  readonly kind: 'coding_workflow_dispatch_v1';
+  validate(input: {
+    phase: 'prepare' | 'before_sdk' | 'sdk_exposure';
+    dispatchId?: string;
+    sdkUserMessageId?: string;
+  }): boolean | Promise<boolean>;
+  /** Synchronous freshness proof, run after the last await and immediately before the SDK call. */
+  isCurrent(): boolean;
+  /** Durable pre-SDK receipt. Returning anything but true holds the request. */
+  onPrepared?(binding: { dispatchId: string; sdkUserMessageId: string }): boolean;
+  /**
+   * The owning server has already made `onPrepared` durable.  This is the
+   * only await introduced between that receipt and SDK exposure: it installs
+   * the strict schema-2 native marker for the exact minted user anchor.  A
+   * false/throw is a closed refusal, never a fallback to an ordinary prompt.
+   */
+  enroll?(binding: { dispatchId: string; sdkUserMessageId: string }): Promise<boolean>;
+  /** Exactly once, only after the SDK request was attempted. */
+  onOutcome?(outcome: { delivery: 'accepted' | 'unknown' | 'rejected'; dispatchId: string; sdkUserMessageId: string }): void;
+}
+
+type CompleteCodingWorkflowPromptDispatchContext = CodingWorkflowPromptDispatchContext & Required<Pick<
+  CodingWorkflowPromptDispatchContext,
+  'onPrepared' | 'enroll' | 'onOutcome'
+>>;
+
+function isCodingWorkflowPromptContext(
+  value: CodingWorkflowPromptDispatchContext | undefined,
+  sessionId: string,
+  provenance: DispatchInput | undefined,
+): value is CompleteCodingWorkflowPromptDispatchContext {
+  return Boolean(
+    value &&
+    value.kind === 'coding_workflow_dispatch_v1' &&
+    typeof value.validate === 'function' && typeof value.isCurrent === 'function' &&
+    typeof value.onPrepared === 'function' && typeof value.enroll === 'function' && typeof value.onOutcome === 'function' &&
+    provenance &&
+    provenance.sdkSessionId === sessionId &&
+    provenance.sessionId !== undefined && provenance.sessionId !== sessionId &&
+    provenance.origin === 'delegation' &&
+    provenance.requestedSource === 'agent_config' &&
+    provenance.routeAuthed == null &&
+    provenance.reasonCode === CODING_WORKFLOW_DISPATCH_REASON,
+  );
+}
+
+/** A throwing validator is a refusal, never an exposure. */
+function approvalResumeIsCurrent(context: CoordinatorApprovalResumePromptDispatchContext): boolean {
+  try {
+    return context.validate() === true;
+  } catch {
+    return false;
+  }
+}
+
+async function coordinatorForegroundAuthorityIsCurrent(
+  context: CoordinatorForegroundPromptDispatchContext,
+  phase: 'prepare' | 'before_sdk' | 'sdk_exposure',
+  binding?: { dispatchId: string; sdkUserMessageId: string },
+): Promise<boolean> {
+  try {
+    return (await context.validate({ phase, ...binding })) === true;
+  } catch {
+    return false;
+  }
+}
+
+async function managedAuthorityIsCurrent(
+  managed: ManagedPromptDispatchContext,
+  scope: Omit<ManagedContextScope, 'dispatchId' | 'sdkTurnId'>,
+  phase: 'prepare' | 'before_sdk' | 'sdk_exposure',
+): Promise<boolean> {
+  // Never blend a saved capability with a bearer-backed path.  Either exact
+  // authority shape may authorize a worker, but no caller can weaken one by
+  // supplying a partial version of the other.
+  if (Boolean(managed.auth) === Boolean(managed.persistedConsent)) return false;
+  if (managed.auth) {
+    return !!managed.auth.sessionToken && managed.auth.user.id === scope.ownerUserId;
+  }
+  const consent = managed.persistedConsent;
+  if (
+    !consent || (consent.kind !== 'one_shot_workstream' && consent.kind !== 'finite_conversation_workstream') ||
+    !Number.isSafeInteger(consent.actorUserId) || consent.actorUserId !== scope.ownerUserId ||
+    scope.role !== 'worker' || !managed.workerJobId
+  ) return false;
+  try {
+    return (await consent.validate({ phase, scope, workerJobId: managed.workerJobId })) === true;
+  } catch {
+    return false;
+  }
+}
+
+interface CurrentManagedDispatchRow {
+  dispatch_id: string;
+  dispatch_session_id: string;
+  dispatch_sdk_session_id: string | null;
+  sdk_user_message_id: string | null;
+  route_authed: number | null;
+  outcome: string;
+  managed_context_schema_version: number | null;
+  managed_context_owner_user_id: number | null;
+  managed_context_project_id: string | null;
+  managed_context_workstream_id: string | null;
+  managed_context_workstream_revision: number | null;
+  managed_context_role: string | null;
+  managed_context_host_epoch: string | null;
+  managed_context_sdk_session_id: string | null;
+  managed_context_sdk_turn_id: string | null;
+  session_owner_user_id: number;
+  session_project_id: string;
+  session_sdk_session_id: string | null;
+  session_parent_session_id: string | null;
+  workstream_owner_user_id: number;
+  workstream_project_id: string;
+  workstream_state: string;
+  workstream_revision: number;
+}
+
+async function assertCurrentManagedPromptDispatch(
+  managed: ManagedPromptDispatchContext,
+  scope: ManagedContextScope,
+  sdkUserMessageId: string,
+  sdkSessionId: string,
+): Promise<void> {
+  const currentEpoch = managed.policy.currentHostEpoch();
+  if (
+    !managed.captureReady ||
+    !managed.policy.enabled() ||
+    managed.policy.dbClient !== 'sqlite' ||
+    (managed.policy.role !== 'local' && managed.policy.role !== 'all') ||
+    !(await managedAuthorityIsCurrent(managed, scope, 'before_sdk')) ||
+    (scope.role !== 'parent' && scope.role !== 'worker') ||
+    (scope.role === 'worker' && !managed.workerJobId) ||
+    scope.sdkTurnId !== null ||
+    scope.sdkSessionId !== sdkSessionId ||
+    !currentEpoch ||
+    scope.hostEpoch !== currentEpoch
+  ) throw new Error('managed prompt scope unavailable');
+
+  const rows = getDb().prepare(`SELECT
+    d.id AS dispatch_id, d.session_id AS dispatch_session_id,
+    d.sdk_session_id AS dispatch_sdk_session_id, d.sdk_user_message_id,
+    d.route_authed, d.outcome, d.managed_context_schema_version,
+    d.managed_context_owner_user_id, d.managed_context_project_id,
+    d.managed_context_workstream_id, d.managed_context_workstream_revision,
+    d.managed_context_role, d.managed_context_host_epoch,
+    d.managed_context_sdk_session_id, d.managed_context_sdk_turn_id,
+    s.owner_user_id AS session_owner_user_id, s.project_id AS session_project_id,
+    s.sdk_session_id AS session_sdk_session_id,
+    s.parent_session_id AS session_parent_session_id,
+    w.owner_user_id AS workstream_owner_user_id,
+    w.project_id AS workstream_project_id, w.state AS workstream_state,
+    w.revision AS workstream_revision
+    FROM agent_turn_dispatches d
+    JOIN agent_sessions s ON s.id=d.session_id
+    JOIN agent_workstreams w ON w.id=d.managed_context_workstream_id
+    WHERE d.id=? LIMIT 2`).all(scope.dispatchId) as CurrentManagedDispatchRow[];
+  if (rows.length !== 1) throw new Error('managed prompt scope unavailable');
+  const row = rows[0];
+  if (
+    row.dispatch_id !== scope.dispatchId ||
+    row.dispatch_session_id !== scope.sessionId ||
+    row.dispatch_sdk_session_id !== sdkSessionId ||
+    row.sdk_user_message_id !== sdkUserMessageId ||
+    row.route_authed !== 1 ||
+    row.outcome !== 'pending' ||
+    row.managed_context_schema_version !== 1 ||
+    row.managed_context_owner_user_id !== scope.ownerUserId ||
+    row.managed_context_project_id !== scope.projectId ||
+    row.managed_context_workstream_id !== scope.workstreamId ||
+    row.managed_context_workstream_revision !== scope.workstreamRevision ||
+    row.managed_context_role !== scope.role ||
+    row.managed_context_host_epoch !== scope.hostEpoch ||
+    row.managed_context_sdk_session_id !== scope.sdkSessionId ||
+    row.managed_context_sdk_turn_id !== null ||
+    row.session_owner_user_id !== scope.ownerUserId ||
+    row.session_project_id !== scope.projectId ||
+    row.session_sdk_session_id !== scope.sdkSessionId ||
+    (scope.role === 'parent' && row.session_parent_session_id !== null) ||
+    row.workstream_owner_user_id !== scope.ownerUserId ||
+    row.workstream_project_id !== scope.projectId ||
+    (row.workstream_state !== 'queued' && row.workstream_state !== 'running') ||
+    row.workstream_revision !== scope.workstreamRevision ||
+    managed.records.read(scope)?.state !== 'bound'
+  ) throw new Error('managed prompt scope unavailable');
+
+  if (scope.role === 'worker') {
+    const bound = getDb().prepare(`SELECT id FROM agent_bridge_jobs
+      WHERE id=? AND direction='rhythm_to_native' AND native_execution_kind='coordinator'
+        AND local_user_id=? AND workstream_id=? AND workstream_project_id=?
+        AND workstream_revision=? AND host_epoch=?
+        AND native_child_session_id=? AND native_child_sdk_session_id=?
+        AND native_dispatch_id=? AND native_sdk_user_message_id=?
+        AND state='running'
+      LIMIT 2`).all(
+      managed.workerJobId,
+      scope.ownerUserId,
+      scope.workstreamId,
+      scope.projectId,
+      scope.workstreamRevision,
+      scope.hostEpoch,
+      scope.sessionId,
+      sdkSessionId,
+      scope.dispatchId,
+      sdkUserMessageId,
+    ) as Array<{ id: string }>;
+    if (bound.length !== 1) throw new Error('managed prompt scope unavailable');
+  }
+}
+
+export interface ManagedActiveToolCall {
+  sdkSessionId: string;
+  assistantId: string;
+  userMessageId: string;
+  partId: string;
+  toolCallId: string;
+  toolKey: string;
+  agentName: string;
+  serverName: string;
+  toolName: string;
+}
+
 export interface OpencodeEngineIdentity {
   version: string;
   pid: number;
@@ -641,6 +1170,76 @@ export const INTERACTIVE_TASK_PERMISSION = [
   { permission: 'task', pattern: 'general', action: 'allow' },
 ] as const;
 
+/**
+ * The coordinator's worker policy is intentionally a session policy rather
+ * than a stored profile change.  Ordering matters: the engine uses the last
+ * matching rule, so the precise read grants follow the catch-all deny.
+ */
+export const MANAGED_READ_ONLY_PERMISSION = [
+  { permission: '*', pattern: '*', action: 'deny' },
+  // Generic filesystem reads cannot be tied to a declared reference or
+  // captured by the coordinator, so this minimum slice intentionally does
+  // not grant read/glob/grep.  The one qualified read surface below is
+  // captured before text reaches the model.
+  // The engine sees composed MCP keys; the uncomposed form keeps a direct
+  // engine/MCP integration from silently falling back to an approval prompt.
+  { permission: 'rhythm_search_memory', pattern: '*', action: 'allow' },
+  { permission: 'rhythm_rhythm_search_memory', pattern: '*', action: 'allow' },
+] as const;
+
+/**
+ * Narrow internal-only session rules for a finite coordinator execution
+ * authority. Ordinary callers cannot construct this through an HTTP payload.
+ */
+type FiniteExecutionPermissionRule = {
+  permission: 'edit' | 'write' | 'bash' | 'external_directory' | '*';
+  pattern: string;
+  action: 'allow' | 'ask' | 'deny';
+};
+
+function validFiniteExecutionWorkspacePattern(pattern: string, directory: string | undefined): boolean {
+  if (
+    typeof directory !== 'string' || !isAbsolute(directory) || directory === sep ||
+    resolve(directory) !== directory || isAbsolute(pattern) ||
+    pattern.startsWith('~') || pattern.includes('..') || pattern.includes('\\') || pattern.includes('://') ||
+    pattern !== relative(sep, resolve(sep, pattern))
+  ) return false;
+  const nativeWorkspaceRoot = relative(sep, directory);
+  if (
+    nativeWorkspaceRoot.length === 0 || nativeWorkspaceRoot === '..' ||
+    nativeWorkspaceRoot.startsWith(`..${sep}`) || isAbsolute(nativeWorkspaceRoot) ||
+    resolve(sep, nativeWorkspaceRoot) !== directory
+  ) return false;
+  const absolutePattern = resolve(sep, pattern);
+  const inside = relative(directory, absolutePattern);
+  return inside.length > 0 && inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside);
+}
+
+function validFiniteExecutionPermissionRules(
+  value: readonly FiniteExecutionPermissionRule[],
+  directory: string | undefined,
+): boolean {
+  const baseline = new Set(['*:deny', 'bash:deny', 'external_directory:deny']);
+  const seen = new Set<string>();
+  let usable = false;
+  for (const rule of value) {
+    if (!rule || typeof rule.pattern !== 'string' || rule.pattern.length === 0 || rule.pattern.length > 512) return false;
+    if (!['edit', 'write', 'bash', 'external_directory', '*'].includes(rule.permission)) return false;
+    if (!['allow', 'ask', 'deny'].includes(rule.action)) return false;
+    if (rule.permission === '*' || rule.permission === 'bash' || rule.permission === 'external_directory') {
+      if (rule.pattern !== '*' || rule.action !== 'deny') return false;
+      baseline.delete(`${rule.permission}:deny`);
+      continue;
+    }
+    if (!validFiniteExecutionWorkspacePattern(rule.pattern, directory)) return false;
+    const key = `${rule.permission}:${rule.pattern}:${rule.action}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    if (rule.action !== 'deny') usable = true;
+  }
+  return baseline.size === 0 && usable;
+}
+
 /** Same predicate as the async-delegation gate in agent_delegation_service.ts. */
 export function isInteractiveChatSession(
   session: Pick<AgentSession, 'category' | 'isSystem' | 'scheduledTaskId'> | null | undefined,
@@ -660,6 +1259,222 @@ export class OpencodeClientService {
   private providerSnapshotPending?: Promise<ProviderSnapshot>;
   /** Set to true by the shutdown handler before dispose() is called. */
   private _shuttingDown = false;
+  /** Installed only by the fully composed Dayflow server path. */
+  private dayflowSdkHistoryGuard: DayflowSdkHistoryGuard | null = null;
+
+  setDayflowSdkHistoryGuard(guard: DayflowSdkHistoryGuard | null): void {
+    this.dayflowSdkHistoryGuard = guard;
+  }
+
+  private async maybeMintDayflowPromptAnchor(
+    sdkSessionId: string,
+    directory: string | undefined,
+    provenance: DispatchInput | undefined,
+    existingAnchor?: string,
+  ): Promise<string | undefined> {
+    // A missing optional Dayflow composition must preserve ordinary chat. If
+    // it is composed but cannot mint a real engine anchor, the later tool call
+    // is unavailable rather than inferred from a session id.
+    if (!this.dayflowSdkHistoryGuard || provenance?.routeAuthed !== true) return undefined;
+    try {
+      if (!(await this.dayflowSdkHistoryGuard.shouldBindPrompt(sdkSessionId))) return undefined;
+      // A C2 foreground dispatch already minted its exact native user-message
+      // id. Reuse it so the Dayflow receiving manifest and C2 provenance bind
+      // one real user turn rather than creating an unrelated second anchor.
+      return existingAnchor ?? await this.mintPromptAnchor(sdkSessionId, directory) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Callback-only Dayflow anchor. `null` = no Dayflow receiver applies (no
+   * guard composed, or it declines this root): unchanged ordinary behavior.
+   * `'missing'` = a receiver applies but the engine could not mint the real
+   * native user-message id (or the check threw): the caller must refuse.
+   */
+  private async mintCallbackDayflowAnchor(
+    sdkSessionId: string,
+    directory: string | undefined,
+  ): Promise<string | null | 'missing'> {
+    if (!this.dayflowSdkHistoryGuard) return null;
+    try {
+      if (!(await this.dayflowSdkHistoryGuard.shouldBindPrompt(sdkSessionId))) return null;
+      return (await this.mintPromptAnchor(sdkSessionId, directory)) ?? 'missing';
+    } catch {
+      return 'missing';
+    }
+  }
+
+  /**
+   * One bounded read of the owned engine's pending provider frame (frozen C1
+   * export). Disabled exports, any HTTP/parse failure, an oversized body or a
+   * deadline overrun return null — never a synthetic frame. The caller proves
+   * the echo against its own request.
+   */
+  async getDayflowProviderFrame(
+    sdkSessionId: string,
+    requestNonce: string,
+    directory: string | undefined,
+    sourceAnchorIds: readonly string[] = [],
+  ): Promise<ProviderPendingExport | ProviderUnavailableExport | null> {
+    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' || !ownedUrl || !sdkSessionId || !requestNonce) return null;
+    if (sourceAnchorIds.length > PROVIDER_ADMISSION_BOUNDS.sourceAnchors) return null;
+    const params: string[] = [];
+    if (directory) params.push(`directory=${encodeURIComponent(directory)}`);
+    if (sourceAnchorIds.length > 0) params.push(`sourceAnchorIds=${encodeURIComponent(JSON.stringify(sourceAnchorIds))}`);
+    const query = params.length > 0 ? `?${params.join('&')}` : '';
+    try {
+      const response = await fetch(
+        `${ownedUrl}/session/${encodeURIComponent(sdkSessionId)}/rhythm-provider-frame/${encodeURIComponent(requestNonce)}${query}`,
+        {
+          headers: { Accept: 'application/json' },
+          redirect: 'error',
+          signal: AbortSignal.timeout(PROVIDER_ADMISSION_BOUNDS.exchangeDeadlineMs),
+        },
+      );
+      if (!response.ok) return null;
+      const parsed = parseProviderFrameExportText(await response.text());
+      return parsed.ok ? parsed.value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Same owned read-only native route as the C1 frame, but preserving the
+   * strict G2 wrapper when the SDK session carries a workflow marker. This is
+   * intentionally separate from the C1 consumer so an unexpected schema-2
+   * response cannot be mistaken for ordinary Dayflow history evidence.
+   */
+  async getWorkflowProviderFrame(
+    sdkSessionId: string,
+    requestNonce: string,
+    directory: string | undefined,
+    sourceAnchorIds: readonly string[] = [],
+  ): Promise<WorkflowProviderPendingExport | ProviderUnavailableExport | null> {
+    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' || !ownedUrl || !sdkSessionId || !requestNonce) return null;
+    if (sourceAnchorIds.length > PROVIDER_ADMISSION_BOUNDS.sourceAnchors) return null;
+    const params: string[] = [];
+    if (directory) params.push(`directory=${encodeURIComponent(directory)}`);
+    if (sourceAnchorIds.length > 0) params.push(`sourceAnchorIds=${encodeURIComponent(JSON.stringify(sourceAnchorIds))}`);
+    const query = params.length > 0 ? `?${params.join('&')}` : '';
+    try {
+      const response = await fetch(
+        `${ownedUrl}/session/${encodeURIComponent(sdkSessionId)}/rhythm-provider-frame/${encodeURIComponent(requestNonce)}${query}`,
+        {
+          headers: { Accept: 'application/json' },
+          redirect: 'error',
+          signal: AbortSignal.timeout(PROVIDER_ADMISSION_BOUNDS.exchangeDeadlineMs),
+        },
+      );
+      if (!response.ok) return null;
+      const parsed = parseWorkflowProviderFrameExportText(await response.text());
+      // A workflow caller must never downgrade a V2 marker to a V1 pending
+      // frame. V1 remains readable by the existing C1 consumer only.
+      return parsed.ok && parsed.value.schemaVersion === 2 ? parsed.value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Durable, idempotent, monotonic enrollment of an SDK in the owned engine's
+   * guard record (frozen C1 route). Returns the engine generation only after
+   * the exact echoed success; any other outcome is null (no body may follow).
+   */
+  async enrollDayflowGuard(
+    sdkSessionId: string,
+    directory: string | undefined,
+  ): Promise<{ engineGeneration: string } | null> {
+    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' || !ownedUrl || !sdkSessionId) return null;
+    const query = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const response = await fetch(
+        `${ownedUrl}/session/${encodeURIComponent(sdkSessionId)}/rhythm-dayflow-guard${query}`,
+        {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify(ENROLLMENT_REQUEST_BODY),
+          redirect: 'error',
+          signal: AbortSignal.timeout(PROVIDER_ADMISSION_BOUNDS.exchangeDeadlineMs),
+        },
+      );
+      if (!response.ok) return null;
+      const parsed = parseEnrollmentResponse(JSON.parse(await response.text()), sdkSessionId);
+      return parsed.ok ? { engineGeneration: parsed.value.engineGeneration } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Persist the private G2 marker before an SDK worker can expose a provider
+   * request. The engine echoes the exact binding/scope; any transport or
+   * parser failure remains an admission hold.
+   */
+  async enrollWorkflowProviderGuard(
+    sdkSessionId: string,
+    directory: string | undefined,
+    enrollment: WorkflowEnrollmentRequest,
+  ): Promise<{ engineGeneration: string } | null> {
+    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' || !ownedUrl || !sdkSessionId) return null;
+    const query = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const response = await fetch(
+        `${ownedUrl}/session/${encodeURIComponent(sdkSessionId)}/rhythm-dayflow-guard${query}`,
+        {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify(enrollment),
+          redirect: 'error',
+          signal: AbortSignal.timeout(PROVIDER_ADMISSION_BOUNDS.exchangeDeadlineMs),
+        },
+      );
+      if (!response.ok) return null;
+      const parsed = parseWorkflowEnrollmentResponse(JSON.parse(await response.text()), sdkSessionId, enrollment);
+      return parsed.ok ? { engineGeneration: parsed.value.engineGeneration } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async assertDayflowSdkHistoryMayBeReused(
+    sdkSessionId: string,
+    /** Only a typed current-root foreground/callback may load for a projected provider request. */
+    projectedLoad = false,
+  ): Promise<void> {
+    if (env.dbClient !== 'sqlite') return;
+    let hasHistory = false;
+    try {
+      hasHistory = hasDayflowSdkSessionHistory(getDb(), sdkSessionId);
+    } catch (error) {
+      // A pre-migration database has no Dayflow columns and therefore cannot
+      // contain a durable Dayflow dependency. Any other DB failure is unknown
+      // history and must block native SDK exposure.
+      if (error instanceof Error && /no such column: dayflow_context_/iu.test(error.message)) return;
+      throw AppError.reconciliationRequired(
+        'SDK history is withheld because Dayflow dependency state is unreadable',
+      );
+    }
+    if (!hasHistory) return;
+    const guard = this.dayflowSdkHistoryGuard;
+    if (guard && (await guard.revalidateBeforeSdk(sdkSessionId))) return;
+    // Raw history is NOT reusable here. A typed current-root foreground/callback
+    // may still enqueue into the owned engine so the native per-attempt provider
+    // guard can project it, but only when the guard itself proves a readable
+    // ledger and a durable native enrollment. This neither clears the sticky
+    // marker nor changes any stored history; raw-history operations keep the
+    // hold above.
+    if (projectedLoad && guard?.revalidateForProjectedLoad && (await guard.revalidateForProjectedLoad(sdkSessionId))) return;
+    throw AppError.reconciliationRequired(
+      'SDK history is withheld because retained Dayflow evidence is unavailable or changed',
+    );
+  }
 
   /**
    * Test-only seam (#765). The real SDK client is normally created inside
@@ -763,6 +1578,18 @@ export class OpencodeClientService {
 
   get isReady(): boolean {
     return this.status === 'ready';
+  }
+
+  /**
+   * A coordinator may use only the engine process this service actually owns.
+   * `isReady` intentionally remains a broad SDK status for existing callers
+   * and test seams; it is not sufficient evidence of ownership because a
+   * client can be marked ready before it has a spawned server handle.
+   */
+  get hasOwnedEngine(): boolean {
+    return this.status === 'ready' && this.client !== null &&
+      this.server !== null && typeof this.server.url === 'string' &&
+      this.server.url.length > 0;
   }
 
   /**
@@ -1484,6 +2311,16 @@ export class OpencodeClientService {
     // Interactive chat session (see isInteractiveChatSession): restrict the
     // engine task tool to explore/general. Headless callers omit it.
     interactive?: boolean,
+    // Persistent coordinator workers use a narrow, engine-enforced policy.
+    // This is deliberately trailing and optional so ordinary session callers
+    // retain their exact existing behavior.
+    managedReadOnly = false,
+    /**
+     * A server-derived finite execution scope. It is accepted only alongside
+     * default worker mode and an explicit deny baseline; ordinary callers omit
+     * it and retain their established session behavior.
+     */
+    finiteExecutionPermissions?: readonly FiniteExecutionPermissionRule[],
     // #1222 — root-cause of the discarded-error bug: every failure branch
     // below used to collapse to a bare `null`, so callers (AgentRunner in
     // particular) could only ever report the generic "failed to create
@@ -1529,12 +2366,14 @@ export class OpencodeClientService {
         // #884 — trim to Gemini's function-declaration cap when this session's
         // turn is routed to `google`. No-op for every other provider.
         const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId, toolCounts);
-        mcpAllowlist = capResult.allowlist;
+        // The cap may construct a fresh allowlist when it trims, so reassert
+        // the request-build default without changing the resolved grants.
+        mcpAllowlist = { ...capResult.allowlist, deferred: true };
         if (capResult.trimmed) {
           logger.warn(capResult.warning ?? '[GeminiToolCap] allowlist trimmed');
         }
         logger.info(
-          '[OpencodeClientService] createSession: mcpRole=%s allowlist servers=%s tools=%s',
+          '[OpencodeClientService] createSession: mcpRole=%s lazy=true allowlist servers=%s tools=%s',
           mcpRoleConfig.role,
           mcpAllowlist.servers.join(',') || '(none)',
           mcpAllowlist.tools.join(',') || '(none)',
@@ -1582,7 +2421,43 @@ export class OpencodeClientService {
       if (permissionMode === 'plan') {
         body.permission = [
           { permission: 'bash', pattern: '*', action: 'deny' },
-        ];
+];
+
+/**
+ * Narrow internal-only session rules for a finite coordinator execution
+ * authority.  This is intentionally structural rather than exported from the
+ * conversation layer: ordinary callers cannot select it through a route.
+ */
+type FiniteExecutionPermissionRule = {
+  permission: 'edit' | 'write' | 'bash' | 'external_directory' | '*';
+  pattern: string;
+  action: 'allow' | 'ask' | 'deny';
+};
+
+function validFiniteExecutionPermissionRules(
+  value: readonly FiniteExecutionPermissionRule[],
+  directory: string | undefined,
+): boolean {
+  const baseline = new Set(['*:deny', 'bash:deny', 'external_directory:deny']);
+  const seen = new Set<string>();
+  let usable = false;
+  for (const rule of value) {
+    if (!rule || typeof rule.pattern !== 'string' || rule.pattern.length === 0 || rule.pattern.length > 512) return false;
+    if (!['edit', 'write', 'bash', 'external_directory', '*'].includes(rule.permission)) return false;
+    if (!['allow', 'ask', 'deny'].includes(rule.action)) return false;
+    if (rule.permission === '*' || rule.permission === 'bash' || rule.permission === 'external_directory') {
+      if (rule.pattern !== '*' || rule.action !== 'deny') return false;
+      baseline.delete(`${rule.permission}:deny`);
+      continue;
+    }
+    if (!validFiniteExecutionWorkspacePattern(rule.pattern, directory)) return false;
+    const key = `${rule.permission}:${rule.pattern}:${rule.action}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    if (rule.action !== 'deny') usable = true;
+  }
+  return baseline.size === 0 && usable;
+}
       } else if (permissionMode === 'bypassPermissions') {
         // Keep read/edit/external_directory independent of SSE, but force bash
         // through the bridge where #878's hardline command blocklist runs.
@@ -1598,13 +2473,29 @@ export class OpencodeClientService {
           ...INTERACTIVE_TASK_PERMISSION,
         ];
       }
+      if (managedReadOnly) {
+        body.permission = [...MANAGED_READ_ONLY_PERMISSION];
+      }
+      if (finiteExecutionPermissions !== undefined) {
+        if (
+          managedReadOnly || permissionMode !== 'default' || interactive ||
+          !validFiniteExecutionPermissionRules(finiteExecutionPermissions, directory)
+        ) {
+          return { error: 'finite execution session scope is invalid or conflicts with worker policy' };
+        }
+        // The fork's supported Session.CreateInput permission field persists
+        // this exact ruleset on the child session. No caller-provided path or
+        // broad bypass policy is merged into it.
+        body.permission = finiteExecutionPermissions.map((rule) => ({ ...rule }));
+      }
       // #775 (skill-scope): pass the per-session skill allowlist on the create body.
       // The fork reads `skillAllowlist.skills` to scope the model's available skills.
-      if (skillAllowlist !== undefined) {
-        body.skillAllowlist = { skills: skillAllowlist };
+      const effectiveSkillAllowlist = managedReadOnly ? [] : skillAllowlist;
+      if (effectiveSkillAllowlist !== undefined) {
+        body.skillAllowlist = { skills: effectiveSkillAllowlist };
         logger.info(
           '[OpencodeClientService] createSession: skillAllowlist skills=%s',
-          skillAllowlist.join(',') || '(none)',
+          effectiveSkillAllowlist.join(',') || '(none)',
         );
       }
       const raw = await (this.client.session.create as (opts: {
@@ -1744,7 +2635,9 @@ export class OpencodeClientService {
           });
         }
         const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId, toolCounts);
-        mcpAllowlist = capResult.allowlist;
+        // Ranking/capping can return a fresh object. Preserve its narrowed
+        // grants while keeping lazy loading on for every supported provider.
+        mcpAllowlist = { ...capResult.allowlist, deferred: true };
         if (capResult.trimmed) {
           logger.warn(capResult.warning ?? '[GeminiToolCap] allowlist trimmed');
         }
@@ -2020,14 +2913,85 @@ export class OpencodeClientService {
     opts?: Record<string, unknown>,
     beforeDispatch?: () => Promise<void>,
     provenance?: DispatchInput,
+    managed?: ManagedPromptDispatchContext,
   ): Promise<{ info: import('@opencode-ai/sdk').Message; parts: Array<import('@opencode-ai/sdk').Part> } | null> {
     if (!this.client) return null;
+    let managedDispatchId: string | undefined;
+    let managedMessageID: string | undefined;
+    let dayflowMessageID: string | undefined;
+    let managedScope: ManagedContextScope | undefined;
+    if (managed) {
+      try {
+        // Refuse a second managed exposure before minting another anchor or
+        // appending another enrollment. The same check runs again immediately
+        // before the SDK call because callbacks below can await and mutate
+        // durable controls while this request is being prepared.
+        assertManagedSdkSessionMayBeExposed(sessionId);
+        const currentEpoch = managed.policy.currentHostEpoch();
+        if (
+          !managed.captureReady ||
+          !managed.policy.enabled() ||
+          managed.policy.dbClient !== 'sqlite' ||
+          (managed.policy.role !== 'local' && managed.policy.role !== 'all') ||
+          !(await managedAuthorityIsCurrent(managed, managed.scope, 'prepare')) ||
+          (managed.scope.role !== 'parent' && managed.scope.role !== 'worker') ||
+          (managed.scope.role === 'worker' && !managed.workerJobId) ||
+          managed.scope.sdkSessionId !== sessionId ||
+          !currentEpoch ||
+          managed.scope.hostEpoch !== currentEpoch ||
+          !provenance ||
+          provenance.sessionId !== managed.scope.sessionId ||
+          provenance.sdkSessionId !== sessionId
+        ) throw new Error('managed prompt scope unavailable');
+        managedMessageID = await this.mintManagedPromptAnchor(sessionId, directory) ?? undefined;
+        if (!managedMessageID) throw new Error('managed prompt anchor unavailable');
+        managedDispatchId = modelProvenanceRepo.insert({
+          ...provenance,
+          sessionId: managed.scope.sessionId,
+          sdkSessionId: sessionId,
+          sdkUserMessageId: managedMessageID,
+          routeAuthed: true,
+        }).id;
+        const scope: ManagedContextScope = {
+          ...managed.scope,
+          dispatchId: managedDispatchId,
+          sdkTurnId: null,
+        };
+        managedScope = scope;
+        managed.records.enroll({ schemaVersion: 1, ...scope });
+        managed.onPrepared?.({
+          scope,
+          dispatchId: managedDispatchId,
+          sdkUserMessageId: managedMessageID,
+        });
+        const sticky = managed.records.markUnsafe(scope, 'binding_ambiguous');
+        if (
+          sticky.outcome !== 'unsafe_recorded' ||
+          sticky.snapshot?.nonreuse?.code !== 'binding_ambiguous'
+        ) throw new Error('managed prompt nonreuse unavailable');
+        if (managed.initialReferences && managed.initialReferences.length > 0) {
+          const appended = managed.records.append({
+            schemaVersion: 1,
+            scope,
+            references: managed.initialReferences,
+          });
+          if (appended.outcome !== 'recorded' || !appended.snapshot) {
+            throw new Error('managed prompt dependency persistence unavailable');
+          }
+        }
+      } catch {
+        settleDispatch(managedDispatchId, 'rejected');
+        throw new Error('OpencodeClientService: managed prompt preparation failed — prompt not sent');
+      }
+    }
+    if (!managed) dayflowMessageID = await this.maybeMintDayflowPromptAnchor(sessionId, directory, provenance);
     const requestArgs = {
       path: { id: sessionId },
       body: {
         model,
         parts: [{ type: 'text' as const, text }],
         ...(opts ?? {}),
+        ...(managedMessageID ? { messageID: managedMessageID } : dayflowMessageID ? { messageID: dayflowMessageID } : {}),
       },
       ...(directory ? { query: { directory } } : {}),
     };
@@ -2035,13 +2999,57 @@ export class OpencodeClientService {
       try {
         await beforeDispatch();
       } catch {
+        settleDispatch(managedDispatchId, 'rejected');
         logger.error(
           `[OpencodeClientService] prompt beforeDispatch hook failed for session ${sessionId} — dispatch blocked, no SDK call made`,
         );
         throw new Error('OpencodeClientService: pre-dispatch hook failed — prompt not sent');
       }
     }
-    const dispatchId = beginDispatch(provenance);
+    if (managed) {
+      try {
+        if (!managedScope || !managedMessageID) throw new Error('managed prompt scope unavailable');
+        await assertCurrentManagedPromptDispatch(managed, managedScope, managedMessageID, sessionId);
+      } catch {
+        settleDispatch(managedDispatchId, 'rejected');
+        throw new Error('OpencodeClientService: managed prompt authority changed — prompt not sent');
+      }
+    }
+    const dispatchId = managedDispatchId ?? beginDispatch(dayflowMessageID && provenance
+      ? { ...provenance, sdkUserMessageId: dayflowMessageID }
+      : provenance);
+    // This is deliberately the last decision before the SDK call. It covers
+    // omitted managed context (ordinary callers), feature/policy drift, and a
+    // second managed request that reused a session after an awaited callback.
+    if (managed) {
+      try {
+        assertManagedSdkSessionMayBeExposed(sessionId, managedDispatchId);
+        if (!managedScope || !(await managedAuthorityIsCurrent(managed, managedScope, 'sdk_exposure'))) {
+          throw new Error('managed prompt scope unavailable');
+        }
+      } catch {
+        settleDispatch(dispatchId, 'rejected');
+        throw new Error('OpencodeClientService: managed SDK session reuse refused — prompt not sent');
+      }
+    } else {
+      const sessionBoundary = managedSdkSessionBoundary(sessionId);
+      if (!ordinarySdkSessionMayUseHistory(sessionBoundary)) {
+        settleDispatch(dispatchId, 'rejected');
+        logger.warn(
+          `[OpencodeClientService] prompt refused for SDK session ${sessionId}: ${managedSdkSessionBoundaryReason(sessionBoundary)}`,
+        );
+        return null;
+      }
+    }
+    // Dayflow evidence is retained independently of managed workstream
+    // enrollment. Recheck it on both ordinary and managed prompt paths just
+    // before the SDK call; a managed dispatch must not bypass its marker.
+    try {
+      await this.assertDayflowSdkHistoryMayBeReused(sessionId);
+    } catch {
+      settleDispatch(dispatchId, 'rejected');
+      return null;
+    }
     try {
       const raw = await this.client.session.prompt(requestArgs);
       if (raw.error || !raw.data) {
@@ -2083,8 +3091,165 @@ export class OpencodeClientService {
     parts?: Array<import('@opencode-ai/sdk').PartInput>,
     beforeDispatch?: () => Promise<void>,
     provenance?: DispatchInput,
+    managed?: ManagedPromptDispatchContext,
+    foreground?: CoordinatorForegroundPromptDispatchContext,
+    callback?: CoordinatorCallbackPromptDispatchContext,
+    approvalResume?: CoordinatorApprovalResumePromptDispatchContext,
+    codingWorkflow?: CodingWorkflowPromptDispatchContext,
   ): Promise<boolean> {
     if (!this.client) return false;
+    if (foreground && (managed || !isCoordinatorForegroundPromptContext(foreground, sessionId, provenance))) {
+      return false;
+    }
+    // Exclusive and strictly qualified: never combined with, or promoted from,
+    // the managed/foreground/callback contexts; any mismatch refuses this path.
+    if (approvalResume && (
+      managed || foreground || callback || codingWorkflow ||
+      !isCoordinatorApprovalResumePromptContext(approvalResume, sessionId, provenance)
+    )) {
+      return false;
+    }
+    // Same exclusivity for the Coding Workflow adapter: its own distinct kind,
+    // fixed provenance shape, and no other typed context alongside it.
+    if (codingWorkflow && (
+      managed || foreground || callback || approvalResume ||
+      !isCodingWorkflowPromptContext(codingWorkflow, sessionId, provenance)
+    )) {
+      return false;
+    }
+    if (callback && (
+      managed || foreground || callback.kind !== 'coordinator_callback_v1' ||
+      typeof callback.validate !== 'function' || !provenance ||
+      (callback.onPrepared !== undefined && typeof callback.onPrepared !== 'function') ||
+      provenance.sdkSessionId !== sessionId || provenance.routeAuthed != null ||
+      !isCoordinatorCallbackProvenance(provenance)
+    )) {
+      return false;
+    }
+    let managedDispatchId: string | undefined;
+    let managedMessageID: string | undefined;
+    let foregroundMessageID: string | undefined;
+    let dayflowMessageID: string | undefined;
+    let managedScope: ManagedContextScope | undefined;
+    if (managed) {
+      try {
+        // See prompt(): no managed SDK session may be exposed twice, even if
+        // a caller accidentally reaches this async path instead of prompt().
+        assertManagedSdkSessionMayBeExposed(sessionId);
+        const currentEpoch = managed.policy.currentHostEpoch();
+        if (
+          !managed.captureReady ||
+          !managed.policy.enabled() ||
+          managed.policy.dbClient !== 'sqlite' ||
+          (managed.policy.role !== 'local' && managed.policy.role !== 'all') ||
+          !(await managedAuthorityIsCurrent(managed, managed.scope, 'prepare')) ||
+          (managed.scope.role !== 'parent' && managed.scope.role !== 'worker') ||
+          (managed.scope.role === 'worker' && !managed.workerJobId) ||
+          managed.scope.sdkSessionId !== sessionId ||
+          !currentEpoch ||
+          managed.scope.hostEpoch !== currentEpoch ||
+          !provenance ||
+          provenance.sessionId !== managed.scope.sessionId ||
+          provenance.sdkSessionId !== sessionId
+        ) throw new Error('managed prompt scope unavailable');
+        managedMessageID = await this.mintManagedPromptAnchor(sessionId, directory) ?? undefined;
+        if (!managedMessageID) throw new Error('managed prompt anchor unavailable');
+        managedDispatchId = modelProvenanceRepo.insert({
+          ...provenance,
+          sessionId: managed.scope.sessionId,
+          sdkSessionId: sessionId,
+          sdkUserMessageId: managedMessageID,
+          routeAuthed: true,
+        }).id;
+        const scope: ManagedContextScope = {
+          ...managed.scope,
+          dispatchId: managedDispatchId,
+          sdkTurnId: null,
+        };
+        managedScope = scope;
+        managed.records.enroll({ schemaVersion: 1, ...scope });
+        managed.onPrepared?.({
+          scope,
+          dispatchId: managedDispatchId,
+          sdkUserMessageId: managedMessageID,
+        });
+        const sticky = managed.records.markUnsafe(scope, 'binding_ambiguous');
+        if (
+          sticky.outcome !== 'unsafe_recorded' ||
+          sticky.snapshot?.nonreuse?.code !== 'binding_ambiguous'
+        ) throw new Error('managed prompt nonreuse unavailable');
+        if (managed.initialReferences && managed.initialReferences.length > 0) {
+          const appended = managed.records.append({
+            schemaVersion: 1,
+            scope,
+            references: managed.initialReferences,
+          });
+          if (appended.outcome !== 'recorded' || !appended.snapshot) {
+            throw new Error('managed prompt dependency persistence unavailable');
+          }
+        }
+      } catch {
+        settleDispatch(managedDispatchId, 'rejected');
+        throw new Error('OpencodeClientService: managed prompt preparation failed — prompt not sent');
+      }
+    }
+    if (foreground) {
+      try {
+        if (!(await coordinatorForegroundAuthorityIsCurrent(foreground, 'prepare'))) {
+          return false;
+        }
+        // The fork generates this identifier; it becomes the exact persisted
+        // native user-message identity when the SDK accepts the request.
+        foregroundMessageID = await this.mintPromptAnchor(sessionId, directory) ?? undefined;
+        if (!foregroundMessageID) return false;
+      } catch {
+        return false;
+      }
+    }
+    let approvalMessageID: string | undefined;
+    if (approvalResume) {
+      try {
+        // Re-checked after the producer's preparation awaits, then after the mint await.
+        if (!approvalResumeIsCurrent(approvalResume)) return false;
+        approvalMessageID = await this.mintPromptAnchor(sessionId, directory) ?? undefined;
+        if (!approvalMessageID || !approvalResumeIsCurrent(approvalResume)) return false;
+      } catch {
+        return false;
+      }
+    }
+    let workflowMessageID: string | undefined;
+    if (codingWorkflow) {
+      try {
+        if ((await codingWorkflow.validate({ phase: 'prepare' })) !== true) return false;
+        // The engine generates this id; it becomes the exact persisted native
+        // user-message identity. No mint = no request (never a late heuristic link).
+        workflowMessageID = await this.mintPromptAnchor(sessionId, directory) ?? undefined;
+        if (!workflowMessageID) return false;
+      } catch {
+        return false;
+      }
+    }
+    if (callback && !managed && !foreground && !approvalResume) {
+      // The exact durable child callback has routeAuthed null, so the optional
+      // Dayflow anchor below never applies to it. When a Dayflow receiver is
+      // active for this root, its real native user-message id must exist
+      // before the SDK request: a missing anchor holds (the provider guard may
+      // not guess a binding from a later oldest-unlinked heuristic).
+      // A bound workflow callback always needs its real anchor (charged root
+      // turn), receiver or not; the same id also serves a Dayflow binding.
+      const anchor = callback.onPrepared
+        ? (await this.mintPromptAnchor(sessionId, directory).catch(() => null)) ?? 'missing'
+        : await this.mintCallbackDayflowAnchor(sessionId, directory);
+      if (anchor === 'missing') return false;
+      dayflowMessageID = anchor ?? undefined;
+    } else if (!managed && !approvalResume && !codingWorkflow) {
+      dayflowMessageID = await this.maybeMintDayflowPromptAnchor(
+        sessionId,
+        directory,
+        provenance,
+        foregroundMessageID,
+      );
+    }
     // OPC-M4-1: use the caller-supplied parts array when present; otherwise
     // fall back to a single text part so all existing call-sites are unchanged.
     const sdkParts: Array<import('@opencode-ai/sdk').PartInput> = parts && parts.length > 0
@@ -2096,6 +3261,7 @@ export class OpencodeClientService {
         model,
         parts: sdkParts,
         ...(opts ?? {}),
+        ...(managedMessageID ? { messageID: managedMessageID } : foregroundMessageID ? { messageID: foregroundMessageID } : approvalMessageID ? { messageID: approvalMessageID } : workflowMessageID ? { messageID: workflowMessageID } : dayflowMessageID ? { messageID: dayflowMessageID } : {}),
       },
       ...(directory ? { query: { directory } } : {}),
     };
@@ -2106,17 +3272,217 @@ export class OpencodeClientService {
       try {
         await beforeDispatch();
       } catch {
+        settleDispatch(managedDispatchId, 'rejected');
         logger.error(
           `[OpencodeClientService] promptAsync beforeDispatch hook failed for session ${sessionId} — dispatch blocked, no SDK call made`,
         );
         throw new Error('OpencodeClientService: pre-dispatch hook failed — prompt not sent');
       }
     }
-    const dispatchId = beginDispatch(provenance);
+    if (managed) {
+      try {
+        if (!managedScope || !managedMessageID) throw new Error('managed prompt scope unavailable');
+        await assertCurrentManagedPromptDispatch(managed, managedScope, managedMessageID, sessionId);
+      } catch {
+        settleDispatch(managedDispatchId, 'rejected');
+        throw new Error('OpencodeClientService: managed prompt authority changed — prompt not sent');
+      }
+    }
+    let dispatchId = managedDispatchId;
+    if (!dispatchId && foreground) {
+      try {
+        // Unlike optional provenance for ordinary legacy callers, C2's
+        // signed-tool receiver requires this exact local row before the SDK
+        // can append the user message. A write failure is a closed hold.
+        dispatchId = modelProvenanceRepo.insert({
+          ...provenance!,
+          sdkUserMessageId: foregroundMessageID!,
+        }).id;
+      } catch {
+        return false;
+      }
+      if (!(await coordinatorForegroundAuthorityIsCurrent(foreground, 'before_sdk', {
+        dispatchId,
+        sdkUserMessageId: foregroundMessageID!,
+      }))) {
+        settleDispatch(dispatchId, 'rejected');
+        return false;
+      }
+    }
+    if (!dispatchId && approvalResume) {
+      try {
+        // The exact row, with the SAME native user-message id the SDK body
+        // carries, is durable BEFORE exposure. Unlike optional provenance, a
+        // write failure here is a closed hold (the resume authority is joined
+        // to this row by identity, never by late linkage).
+        dispatchId = modelProvenanceRepo.insert({
+          ...provenance!,
+          sdkUserMessageId: approvalMessageID!,
+        }).id;
+      } catch {
+        return false;
+      }
+    }
+    if (!dispatchId && codingWorkflow) {
+      try {
+        // The exact row, carrying the SAME native user-message id the SDK body
+        // carries, is durable BEFORE exposure; a write failure is a closed hold.
+        dispatchId = modelProvenanceRepo.insert({
+          ...provenance!,
+          sdkUserMessageId: workflowMessageID!,
+        }).id;
+      } catch {
+        return false;
+      }
+      let prepared = false;
+      try {
+        prepared = (await codingWorkflow.validate({
+          phase: 'before_sdk', dispatchId, sdkUserMessageId: workflowMessageID!,
+        })) === true && codingWorkflow.onPrepared({ dispatchId, sdkUserMessageId: workflowMessageID! }) === true;
+      } catch {
+        prepared = false;
+      }
+      if (!prepared) {
+        settleDispatch(dispatchId, 'rejected');
+        try { codingWorkflow.onOutcome({ delivery: 'rejected', dispatchId, sdkUserMessageId: workflowMessageID! }); } catch { /* durable consumer holds */ }
+        return false;
+      }
+      // The durable prepared receipt is deliberately synchronous; marker
+      // enrollment is the one owned-client await after it.  Authority is not
+      // carried across that await: 'sdk_exposure' and isCurrent re-prove it.
+      let enrolled = false;
+      try {
+        enrolled = (await codingWorkflow.enroll({
+          dispatchId,
+          sdkUserMessageId: workflowMessageID!,
+        })) === true;
+      } catch {
+        enrolled = false;
+      }
+      if (!enrolled) {
+        settleDispatch(dispatchId, 'rejected');
+        try { codingWorkflow.onOutcome({ delivery: 'rejected', dispatchId, sdkUserMessageId: workflowMessageID! }); } catch { /* durable consumer holds */ }
+        return false;
+      }
+      // ponytail: no extra 'before_sdk' here — the existing awaited
+      // 'sdk_exposure' validate + synchronous isCurrent below already re-prove
+      // authority after this await, keeping the accepted phase sequence.
+    }
+    dispatchId ??= beginDispatch(dayflowMessageID && provenance
+      ? { ...provenance, sdkUserMessageId: dayflowMessageID }
+      : provenance);
+    if (callback?.onPrepared) {
+      // Durable pre-exposure receipt: no row/anchor or a refused hook = no SDK.
+      let prepared = false;
+      try {
+        prepared = Boolean(dispatchId && dayflowMessageID) &&
+          callback.onPrepared({ dispatchId: dispatchId!, sdkUserMessageId: dayflowMessageID! }) === true;
+      } catch {
+        prepared = false;
+      }
+      if (!prepared) {
+        settleDispatch(dispatchId, 'rejected');
+        return false;
+      }
+    }
+    // Keep this immediately adjacent to the SDK exposure; `beforeDispatch`
+    // and managed authority checks above may both have awaited.
+    if (managed) {
+      try {
+        assertManagedSdkSessionMayBeExposed(sessionId, managedDispatchId);
+        if (!managedScope || !(await managedAuthorityIsCurrent(managed, managedScope, 'sdk_exposure'))) {
+          throw new Error('managed prompt scope unavailable');
+        }
+      } catch {
+        settleDispatch(dispatchId, 'rejected');
+        throw new Error('OpencodeClientService: managed SDK session reuse refused — prompt not sent');
+      }
+    } else {
+      const sessionBoundary = managedSdkSessionBoundary(sessionId);
+      if (!ordinarySdkSessionMayUseHistory(sessionBoundary)) {
+        settleDispatch(dispatchId, 'rejected');
+        logger.warn(
+          `[OpencodeClientService] promptAsync refused for SDK session ${sessionId}: ${managedSdkSessionBoundaryReason(sessionBoundary)}`,
+        );
+        return false;
+      }
+    }
+    // See prompt(): retained Dayflow history is independent from managed
+    // enrollment and must close both SDK dispatch paths on a failed recheck.
+    try {
+      // Only the already-qualified typed foreground / exact callback contexts
+      // may enqueue for a projected provider request; managed, approval-resume
+      // and untyped calls keep the raw-history hold.
+      await this.assertDayflowSdkHistoryMayBeReused(sessionId, Boolean(foreground || callback));
+    } catch {
+      settleDispatch(dispatchId, 'rejected');
+      return false;
+    }
+    if (foreground && !(
+      await coordinatorForegroundAuthorityIsCurrent(foreground, 'sdk_exposure', {
+        dispatchId: dispatchId!,
+        sdkUserMessageId: foregroundMessageID!,
+      })
+    )) {
+      settleDispatch(dispatchId, 'rejected');
+      return false;
+    }
+    // Callback overlay freshness, synchronously after the last await above:
+    // a scope lost during any earlier await withholds the whole dispatch (it is
+    // re-prepared from current state on the next flush) instead of exposing a
+    // stale coordinator contract.
+    if (callback) {
+      let current = false;
+      try {
+        current = (await callback.validate()) === true;
+      } catch {
+        current = false;
+      }
+      if (!current) {
+        settleDispatch(dispatchId, 'rejected');
+        return false;
+      }
+    }
+    // Approval resume: the producer's synchronous fingerprint check, run AFTER
+    // the last awaited history/authority guard above. There is deliberately NO
+    // await between this check and the SDK invocation below (the call
+    // expression is evaluated before its result is awaited).
+    if (approvalResume && !approvalResumeIsCurrent(approvalResume)) {
+      settleDispatch(dispatchId, 'rejected');
+      return false;
+    }
+    // Coding Workflow: the async authority re-check at SDK exposure, then the
+    // synchronous freshness proof with NO await between it and the SDK call.
+    if (codingWorkflow) {
+      let current = false;
+      try {
+        current = (await codingWorkflow.validate({
+          phase: 'sdk_exposure', dispatchId: dispatchId!, sdkUserMessageId: workflowMessageID!,
+        })) === true;
+      } catch {
+        current = false;
+      }
+      if (current) {
+        try { current = codingWorkflow.isCurrent() === true; } catch { current = false; }
+      }
+      if (!current) {
+        settleDispatch(dispatchId, 'rejected');
+        return false;
+      }
+    }
+    const exportWorkflowOutcome = (delivery: 'accepted' | 'unknown' | 'rejected'): void => {
+      if (!codingWorkflow) return;
+      try {
+        codingWorkflow.onOutcome({ delivery, dispatchId: dispatchId!, sdkUserMessageId: workflowMessageID! });
+      } catch (err) {
+        logger.warn('[OpencodeClientService] coding workflow outcome export failed:', err);
+      }
+    };
     try {
       const raw = await this.client.session.promptAsync(requestArgs);
       if (raw.error) {
         settleDispatch(dispatchId, 'rejected');
+        exportWorkflowOutcome('rejected');
         logger.error(`[OpencodeClientService] promptAsync error for ${sessionId}:`, raw.error);
         return false;
       }
@@ -2136,20 +3502,27 @@ export class OpencodeClientService {
         // Back-compat for older/fake SDK transports that returned a body on
         // success. The generated fork client uses the 204 branch below.
         settleDispatch(dispatchId, 'accepted');
+        exportWorkflowOutcome('accepted');
         return true;
       }
       const httpStatus = raw.response?.status;
       if (httpStatus === 204) {
         settleDispatch(dispatchId, 'accepted');
+        exportWorkflowOutcome('accepted');
         return true;
       }
       settleDispatch(dispatchId, 'rejected');
+      exportWorkflowOutcome('rejected');
       logger.warn(
         `[OpencodeClientService] promptAsync silent no-op for ${sessionId}: SDK returned neither data nor error (model may not be supported; HTTP status=${httpStatus ?? 'unknown'})`,
       );
       return false;
     } catch (err) {
-      settleDispatch(dispatchId, 'rejected');
+      // A thrown transport error after the request left is NOT proof it was
+      // refused: the Coding Workflow adapter keeps it `unknown`. Every other
+      // caller keeps its existing rejected settlement.
+      settleDispatch(dispatchId, codingWorkflow ? 'unknown' : 'rejected');
+      exportWorkflowOutcome('unknown');
       logger.error(`[OpencodeClientService] promptAsync failed for session ${sessionId}:`, err);
       return false;
     }
@@ -2592,6 +3965,101 @@ export class OpencodeClientService {
   // below via {@link v2Client}. It constructs the exact same HTTP requests
   // the prior raw-fetch calls used, so this is a client-typing change only.
 
+  /** Mint one real engine MessageID for a managed request; unavailable by default. */
+  async mintManagedPromptAnchor(
+    sdkSessionId: string,
+    directory?: string,
+  ): Promise<string | null> {
+    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' || !ownedUrl || !sdkSessionId) return null;
+    const query = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const response = await fetch(
+        `${ownedUrl}/session/${encodeURIComponent(sdkSessionId)}/rhythm-prompt-anchor${query}`,
+        { method: 'POST', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(2_000) },
+      );
+      if (!response.ok) return null;
+      const value = await response.json() as Record<string, unknown>;
+      if (
+        Object.keys(value).length !== 1 ||
+        typeof value.messageID !== 'string' ||
+        value.messageID.length === 0 ||
+        value.messageID.length > 256
+      ) return null;
+      return value.messageID;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Generic name for the same engine-owned anchor; managed callers keep the
+   * legacy method above while ordinary Dayflow dispatches use this opt-in. */
+  async mintPromptAnchor(
+    sdkSessionId: string,
+    directory?: string,
+  ): Promise<string | null> {
+    return this.mintManagedPromptAnchor(sdkSessionId, directory);
+  }
+
+  /** Read one live runner-owned MCP call from this service's owned engine. */
+  async getManagedActiveToolCall(
+    sdkSessionId: string,
+    assistantId: string,
+    toolCallId: string,
+    directory?: string,
+  ): Promise<ManagedActiveToolCall | null> {
+    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    if (
+      process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' ||
+      !ownedUrl ||
+      !sdkSessionId ||
+      !assistantId ||
+      !toolCallId
+    ) return null;
+    const query = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const response = await fetch(
+        `${ownedUrl}/session/${encodeURIComponent(sdkSessionId)}/rhythm-active-tool/` +
+          `${encodeURIComponent(assistantId)}/${encodeURIComponent(toolCallId)}${query}`,
+        { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(2_000) },
+      );
+      if (!response.ok) return null;
+      const value = await response.json() as Record<string, unknown>;
+      const keys = [
+        'sdkSessionId', 'assistantId', 'userMessageId', 'partId', 'toolCallId',
+        'toolKey', 'agentName', 'serverName', 'toolName',
+      ] as const;
+      if (
+        Object.keys(value).length !== keys.length ||
+        keys.some((key) =>
+          typeof value[key] !== 'string' || value[key].length === 0 || value[key].length > 256)
+      ) return null;
+      return {
+        sdkSessionId: value.sdkSessionId as string,
+        assistantId: value.assistantId as string,
+        userMessageId: value.userMessageId as string,
+        partId: value.partId as string,
+        toolCallId: value.toolCallId as string,
+        toolKey: value.toolKey as string,
+        agentName: value.agentName as string,
+        serverName: value.serverName as string,
+        toolName: value.toolName as string,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Current server-owned tool inspection; no consumer/bridge-origin fallback. */
+  async getCurrentTrustedMcpToolCall(
+    sdkSessionId: string,
+    assistantId: string,
+    toolCallId: string,
+    directory?: string,
+  ): Promise<ManagedActiveToolCall | null> {
+    return this.getManagedActiveToolCall(sdkSessionId, assistantId, toolCallId, directory);
+  }
+
   /** Base URL of the spawned opencode server (falls back to the default port). */
   private get serverUrl(): string {
     return this.server?.url ?? 'http://127.0.0.1:4096';
@@ -2765,6 +4233,91 @@ export class OpencodeClientService {
     } catch (err) {
       logger.error('[OpencodeClientService] getSessionStatuses failed:', err);
       return {};
+    }
+  }
+
+  /**
+   * Strict read-only lifecycle inspection for already-bound SDK sessions.
+   *
+   * The engine removes idle sessions from `/session/status`, so an omitted map
+   * key can mean idle only after this method has independently confirmed that
+   * the exact SDK session still exists in the same directory and that all
+   * three current lifecycle reads succeeded with complete shapes. It is used
+   * only for bounded capacity admission and exact terminal-accounting
+   * reconciliation. Any HTTP,
+   * SDK, transport, or shape failure returns `available: false`; callers must
+   * retain occupancy rather than treating an empty fallback as success.
+   */
+  async inspectBoundSessionLifecycles(
+    sdkSessionIds: string[],
+    directory: string,
+  ): Promise<BoundSessionLifecycleInspection> {
+    const unavailable = (): BoundSessionLifecycleInspection => ({
+      available: false,
+      knownSessionIds: [],
+      statusBySessionId: {},
+      pendingQuestionSessionIds: [],
+      pendingPermissionSessionIds: [],
+    });
+    const sessionIds = [...new Set(sdkSessionIds)];
+    if (
+      !directory || sessionIds.length === 0 || sessionIds.length > 100 ||
+      sessionIds.some((id) => typeof id !== 'string' || id.trim().length === 0)
+    ) {
+      return unavailable();
+    }
+
+    const knownSessionIds = (await Promise.all(sessionIds.map(async (sdkSessionId) => {
+      try {
+        const session = await this.getSession(sdkSessionId);
+        return session?.id === sdkSessionId && session.directory === directory
+          ? sdkSessionId
+          : null;
+      } catch {
+        return null;
+      }
+    }))).filter((id): id is string => id !== null);
+    // A capacity admission never clears a partial batch.  A missing, wrong
+    // directory, or transport-failed metadata read is not proof that the
+    // corresponding child stopped occupying the shared engine; retain every
+    // row until the whole requested bound set is positively observable.
+    if (knownSessionIds.length !== sessionIds.length) return unavailable();
+
+    const query = `?directory=${encodeURIComponent(directory)}`;
+    try {
+      const questionsClient = await this.v2Client();
+      const [statusResponse, questionsResponse, permissionsResponse] = await Promise.all([
+        fetch(`${this.serverUrl}/session/status${query}`, {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.timeout(2_000),
+        }),
+        questionsClient.question.list({ directory }),
+        fetch(`${this.serverUrl}/permission${query}`, {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.timeout(2_000),
+        }),
+      ]);
+      if (!statusResponse.ok || questionsResponse.error || !permissionsResponse.ok) {
+        return unavailable();
+      }
+      const [statusPayload, permissionsPayload] = await Promise.all([
+        statusResponse.json() as Promise<unknown>,
+        permissionsResponse.json() as Promise<unknown>,
+      ]);
+      const questionSessionIds = completeLifecycleSessionIds(questionsResponse.data);
+      const permissionSessionIds = completeLifecycleSessionIds(permissionsPayload);
+      if (!completeSessionStatusMap(statusPayload) || !questionSessionIds || !permissionSessionIds) {
+        return unavailable();
+      }
+      return {
+        available: true,
+        knownSessionIds,
+        statusBySessionId: statusPayload,
+        pendingQuestionSessionIds: questionSessionIds,
+        pendingPermissionSessionIds: permissionSessionIds,
+      };
+    } catch {
+      return unavailable();
     }
   }
 
@@ -3052,9 +4605,12 @@ export class OpencodeClientService {
     directory?: string,
     model?: string,
   ): Promise<unknown> {
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session shell');
     const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
     const body: Record<string, unknown> = { command, agent };
     if (model) body.model = model;
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session shell');
+    await this.assertDayflowSdkHistoryMayBeReused(sdkId);
     const res = await fetch(`${this.serverUrl}/session/${encodeURIComponent(sdkId)}/shell${qs}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -3077,7 +4633,10 @@ export class OpencodeClientService {
     opts: { providerID: string; modelID: string; messageID: string },
     directory?: string,
   ): Promise<boolean> {
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session init');
     const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session init');
+    await this.assertDayflowSdkHistoryMayBeReused(sdkId);
     const res = await fetch(`${this.serverUrl}/session/${encodeURIComponent(sdkId)}/init${qs}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -3101,10 +4660,14 @@ export class OpencodeClientService {
     args: string,
   ): Promise<{ info: import('@opencode-ai/sdk').Message; parts: import('@opencode-ai/sdk').Part[] } | null> {
     const client = this.requireClient();
-    const raw = await client.session.command({
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session command');
+    const request = {
       path: { id: sdkId },
       body: { command, arguments: args },
-    });
+    };
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session command');
+    await this.assertDayflowSdkHistoryMayBeReused(sdkId);
+    const raw = await client.session.command(request);
     if (raw.error || !raw.data) {
       logger.error(`[OpencodeClientService] dispatchCommand error for ${sdkId}:`, raw.error);
       return null;
@@ -3117,11 +4680,16 @@ export class OpencodeClientService {
    *
    * Throws on SDK error or exception — never swallows to [].
    */
-  async listMessages(
+  /**
+   * Cursor-aware legacy message page. The generated SDK predates the engine's
+   * `before` query and response cursor header, so keep that narrow cast here
+   * instead of inventing a second engine route or silently truncating a turn.
+   */
+  async listMessagesPage(
     sdkId: string,
     directory?: string,
-    options: { limit?: number; caller?: string } = {},
-  ): Promise<import('@opencode-ai/sdk').SessionMessage[]> {
+    options: { limit?: number; before?: string; caller?: string } = {},
+  ): Promise<{ messages: import('@opencode-ai/sdk').SessionMessage[]; nextCursor: string | null }> {
     const client = this.requireClient();
     // #861 smoke fix: engine session reads are DIRECTORY-SCOPED — without
     // ?directory=<session cwd> the engine looks in its default instance and
@@ -3130,15 +4698,16 @@ export class OpencodeClientService {
     const startedAt = Date.now();
     const raw = await client.session.messages({
       path: { id: sdkId },
-      ...(directory || options.limit !== undefined
+      ...(directory || options.limit !== undefined || options.before !== undefined
         ? {
             query: {
               ...(directory ? { directory } : {}),
               ...(options.limit !== undefined ? { limit: options.limit } : {}),
+              ...(options.before !== undefined ? { before: options.before } : {}),
             },
           }
         : {}),
-    });
+    } as never);
     const elapsedMs = Date.now() - startedAt;
     const configuredThreshold = Number(process.env.RHYTHM_TRANSCRIPT_FETCH_WARN_MS);
     const warnThresholdMs = Number.isFinite(configuredThreshold) && configuredThreshold >= 0
@@ -3156,7 +4725,16 @@ export class OpencodeClientService {
         `listMessages failed for session ${sdkId}: ${JSON.stringify(raw.error)}`,
       );
     }
-    return raw.data ?? [];
+    const nextCursor = raw.response?.headers.get('x-next-cursor') ?? null;
+    return { messages: raw.data ?? [], nextCursor: nextCursor || null };
+  }
+
+  async listMessages(
+    sdkId: string,
+    directory?: string,
+    options: { limit?: number; caller?: string } = {},
+  ): Promise<import('@opencode-ai/sdk').SessionMessage[]> {
+    return (await this.listMessagesPage(sdkId, directory, options)).messages;
   }
 
   async readSessionMcpAppResource(
@@ -3309,15 +4887,19 @@ export class OpencodeClientService {
     directory?: string,
   ): Promise<boolean> {
     const client = this.requireClient();
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session summarize');
     // session.summarize REQUIRES providerID + modelID (the model used to write
     // the summary); omitting them errors with "expected string, received
     // undefined". It also needs `directory` — opencode scopes sessions per
     // directory, so without it summarize is a no-op (no compaction, no event).
-    const raw = await client.session.summarize({
+    const request = {
       path: { id: sdkId },
       body: { providerID: model.providerID, modelID: model.modelID },
       ...(directory ? { query: { directory } } : {}),
-    });
+    };
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session summarize');
+    await this.assertDayflowSdkHistoryMayBeReused(sdkId);
+    const raw = await client.session.summarize(request);
     if (raw.error) {
       throw new AppError(
         502,
@@ -3338,10 +4920,14 @@ export class OpencodeClientService {
     messageId?: string,
   ): Promise<import('@opencode-ai/sdk').Session | null> {
     const client = this.requireClient();
-    const raw = await client.session.fork({
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session fork');
+    const request = {
       path: { id: sdkId },
       body: messageId ? { messageID: messageId } : undefined,
-    });
+    };
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session fork');
+    await this.assertDayflowSdkHistoryMayBeReused(sdkId);
+    const raw = await client.session.fork(request);
     if (raw.error || !raw.data) {
       throw new AppError(
         502,
@@ -3378,13 +4964,85 @@ export class OpencodeClientService {
   }
 
   /**
+   * Strict direct-child read for exact accounting. Unlike {@link listChildren}, an
+   * absent/malformed body or any element without a usable id, parent and
+   * directory is `null` (never an authoritative empty list), and a transport
+   * or SDK error is also `null`.
+   */
+  async listChildrenStrict(
+    sdkId: string,
+    directory: string,
+  ): Promise<Array<{ id: string; parentID: string; directory: string }> | null> {
+    try {
+      const client = this.requireClient();
+      const raw = await client.session.children({
+        path: { id: sdkId },
+        query: { directory },
+      });
+      if (raw.error || !Array.isArray(raw.data)) return null;
+      const nodes: Array<{ id: string; parentID: string; directory: string }> = [];
+      for (const item of raw.data as unknown[]) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+        const record = item as Record<string, unknown>;
+        if (
+          typeof record.id !== 'string' || record.id.length === 0 ||
+          typeof record.parentID !== 'string' || record.parentID.length === 0 ||
+          typeof record.directory !== 'string' || record.directory.length === 0
+        ) return null;
+        nodes.push({ id: record.id, parentID: record.parentID, directory: record.directory });
+      }
+      return nodes;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Strict message page for exact accounting: a response error, an absent or
+   * non-array body, or any element without an `info` object carrying string
+   * id/role is `null` — never silently an empty page. Cursor semantics match
+   * {@link listMessagesPage}.
+   */
+  async listMessagesPageStrict(
+    sdkId: string,
+    directory: string,
+    options: { limit?: number; before?: string } = {},
+  ): Promise<{ messages: Array<{ info: Record<string, unknown>; parts?: unknown }>; nextCursor: string | null } | null> {
+    try {
+      const client = this.requireClient();
+      const raw = await client.session.messages({
+        path: { id: sdkId },
+        query: {
+          directory,
+          ...(options.limit !== undefined ? { limit: options.limit } : {}),
+          ...(options.before !== undefined ? { before: options.before } : {}),
+        },
+      } as never);
+      if (raw.error || !Array.isArray(raw.data)) return null;
+      const messages: Array<{ info: Record<string, unknown>; parts?: unknown }> = [];
+      for (const item of raw.data as unknown[]) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+        const info = (item as Record<string, unknown>).info;
+        if (!info || typeof info !== 'object' || Array.isArray(info)) return null;
+        const record = info as Record<string, unknown>;
+        if (typeof record.id !== 'string' || record.id.length === 0 || typeof record.role !== 'string') return null;
+        messages.push({ info: record, parts: (item as Record<string, unknown>).parts });
+      }
+      const nextCursor = raw.response?.headers?.get('x-next-cursor') ?? null;
+      return { messages, nextCursor: nextCursor || null };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * GET /mcp — status map for all MCP servers.
    *
    * Throws on SDK error or exception.
    */
-  async listMcp(): Promise<Record<string, import('@opencode-ai/sdk').McpStatusEntry>> {
+  async listMcp(directory?: string): Promise<Record<string, import('@opencode-ai/sdk').McpStatusEntry>> {
     const client = this.requireClient();
-    const raw = await client.mcp.status();
+    const raw = await client.mcp.status(directory ? { query: { directory } } : undefined);
     if (raw.error) {
       throw new AppError(
         502,
@@ -4007,6 +5665,32 @@ export class OpencodeClientService {
       );
     }
     return raw.data === true;
+  }
+
+  /** Existing local core only: exact workflow recovery must never install or enable an MCP. */
+  async reconnectConfiguredLocalRhythmMcp(): Promise<boolean> {
+    const { readFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const { homedir } = require('os') as typeof import('os');
+    const configPath = join(homedir(), '.config', 'opencode', 'opencode.json');
+    const read = (): string | null => {
+      if (this._removedPendingRestart.has('rhythm') || this.readMcpDeletions().has('rhythm')) return null;
+      const config = JSON.parse(readFileSync(configPath, 'utf8')).mcp?.rhythm;
+      if (!config || config.type !== 'local' || config.enabled === false || !Array.isArray(config.command) ||
+          config.command.length === 0 || config.command.some((value: unknown) => typeof value !== 'string' || !value.trim())) return null;
+      return JSON.stringify(config);
+    };
+    try {
+      const expected = read();
+      if (!expected) return false;
+      const status = (await this.listMcp()).rhythm?.status;
+      if (read() !== expected) return false;
+      if (status === 'configured') {
+        if (!(await this.reconnectMcp('rhythm')) || read() !== expected) return false;
+      } else if (status !== 'connected') return false;
+      const connected = (await this.listMcp()).rhythm?.status === 'connected';
+      return connected && read() === expected;
+    } catch { return false; }
   }
 
   /**

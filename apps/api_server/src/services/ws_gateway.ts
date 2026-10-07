@@ -10,9 +10,8 @@ import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { isInteractiveChatSession } from './opencode_client_service';
 import { bridgePty, ptyEngineUrl } from './pty_proxy';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
-import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
+import { prepareAutomaticMemoryPreface } from './automatic_memory_preface';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
-import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
 import { isAllowedLocalAgentSurfaceRequest } from '../middleware/local_agent_surface_guard';
 import { resolveLocalOrCloudBearer } from '../middleware/auth_middleware';
 import { resolveProfileScope } from './agent_profile_scope';
@@ -1022,34 +1021,13 @@ export async function handleInputFrame(
 
     // Automatic memory is owner-scoped from agent_sessions.owner_user_id.
     // Unknown/null owners remain fail-closed for user-owned rows.
-    if (isMemoryInjectionEnabled()) {
-      try {
-        const memPreface = await buildMemoryPreface(data, sessionOwnerUserId);
-        if (memPreface.text) {
-          transientSystemBlocks.push(memPreface.text);
-          console.log(
-            `[ws_gateway] session ${id}: injected ${memPreface.memoryIds.length} bounded memory excerpt(s) via hidden context (owner=${sessionOwnerUserId ?? 'unknown'})`,
-          );
-        }
-        // #862 — record provenance for THIS turn (overwrites the session's
-        // previous record) so the desktop app can render "Memories used in
-        // this reply: …", including the explicit "none" case when
-        // memoryIds is empty. Non-fatal: a recording failure must never
-        // block the turn.
-        try {
-          new AgentSessionMemoryProvenanceRepository().record(
-            id,
-            memPreface.memoryIds,
-            memPreface.notePaths,
-            memPreface.items,
-          );
-        } catch (err) {
-          console.error(`[ws_gateway] memory provenance record failed (non-fatal):`, err);
-        }
-      } catch (err) {
-        // Non-fatal — never block a turn on retrieval failure.
-        console.error(`[ws_gateway] memory preface build failed (non-fatal):`, err);
-      }
+    const memPreface = await prepareAutomaticMemoryPreface({
+      query: data,
+      sessionId: id,
+      ownerUserId: sessionOwnerUserId,
+    });
+    if (memPreface?.text) {
+      transientSystemBlocks.push(memPreface.text);
     }
 
     if (transientSystemBlocks.length > 0) {

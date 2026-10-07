@@ -19,6 +19,18 @@ import { createMcpAppExecutionGate } from "@/session/mcp-app-execution"
 import { filterMcpToolsByAllowlist } from "@/session/mcp_allowlist"
 import { Plugin } from "@/plugin"
 import { MessageID, PartID, SessionID } from "@/session/schema"
+import {
+  buildWorkflowGuardExport,
+  enrollGuard,
+  enrollWorkflowGuard,
+  lookupGuardFrame,
+  parseEnrollmentRequest,
+  parseWorkflowEnrollmentRequest,
+  parseWorkflowGuardExport,
+  parseSourceAnchorQuery,
+  resolveSourceProofs,
+} from "@/session/rhythm_provider_guard"
+import { Storage } from "@/storage/storage"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { Cause, Effect, Option, Schema, Scope } from "effect"
 import { createHash } from "node:crypto"
@@ -75,6 +87,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const summary = yield* SessionSummary.Service
     const bus = yield* Bus.Service
     const scope = yield* Scope.Scope
+    const storage = yield* Storage.Service
 
     const mapBusy = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | HttpApiError.BadRequest, R> =>
       effect.pipe(
@@ -174,6 +187,91 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       )
     })
 
+    const rhythmPromptAnchor = Effect.fn("SessionHttpApi.rhythmPromptAnchor")(function* (ctx: {
+      params: { sessionID: SessionID }
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== "1") {
+        return yield* notFound("Managed context exports are disabled")
+      }
+      return { messageID: MessageID.ascending() }
+    })
+
+    const rhythmActiveTool = Effect.fn("SessionHttpApi.rhythmActiveTool")(function* (ctx: {
+      params: { sessionID: SessionID; assistantID: MessageID; callID: string }
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== "1") {
+        return yield* notFound("Managed context exports are disabled")
+      }
+      const active = yield* runState.activeToolCall(ctx.params.sessionID, ctx.params.assistantID, ctx.params.callID)
+      if (!active) return yield* notFound("Active managed tool call not found")
+      if (!mcp.toolIdentity) return yield* notFound("Active managed MCP identity not found")
+      const identity = yield* mcp.toolIdentity(active.toolKey)
+      if (!identity) return yield* notFound("Active managed MCP identity not found")
+      return {
+        sdkSessionId: ctx.params.sessionID,
+        assistantId: active.assistantID,
+        userMessageId: active.userMessageID,
+        partId: active.partID,
+        toolCallId: active.toolCallID,
+        toolKey: active.toolKey,
+        agentName: active.agentName,
+        serverName: identity.serverName,
+        toolName: identity.toolName,
+      }
+    })
+
+    // Read-only export of one attempt-scoped pending provider frame (identities and
+    // digests only; no message/source text). Same disabled-by-default boundary as the
+    // other managed exports. Unavailable frames are explicit statuses, never synthetic.
+    const rhythmProviderFrame = Effect.fn("SessionHttpApi.rhythmProviderFrame")(function* (ctx: {
+      params: { sessionID: SessionID; requestNonce: string }
+      query: { sourceAnchorIds?: string }
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== "1") {
+        return yield* notFound("Managed context exports are disabled")
+      }
+      const anchors = parseSourceAnchorQuery(ctx.query.sourceAnchorIds)
+      if (!anchors.ok) return yield* new HttpApiError.BadRequest({})
+      const messages =
+        anchors.value.length > 0 && lookupGuardFrame(ctx.params.sessionID, ctx.params.requestNonce)
+          ? yield* SessionError.mapStorageNotFound(session.messages({ sessionID: ctx.params.sessionID }))
+          : []
+      const exported = buildWorkflowGuardExport(ctx.params.sessionID, ctx.params.requestNonce, anchors.value, (frame, ids) =>
+        resolveSourceProofs(messages, frame, ids),
+      )
+      // Never return an over-bound or malformed export as a successful proof.
+      const checked = parseWorkflowGuardExport(exported)
+      if (!checked.ok) return yield* new HttpApiError.BadRequest({})
+      return checked.value
+    })
+
+    // Durable, idempotent, monotonic enrollment. No disable operation; grants nothing.
+    const rhythmDayflowGuard = Effect.fn("SessionHttpApi.rhythmDayflowGuard")(function* (ctx: {
+      params: { sessionID: SessionID }
+      payload: unknown
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== "1") {
+        return yield* notFound("Managed context exports are disabled")
+      }
+      const v1 = parseEnrollmentRequest(ctx.payload)
+      if (v1.ok) {
+        return yield* enrollGuard(ctx.params.sessionID).pipe(
+          Effect.provideService(Storage.Service, storage),
+          Effect.catchCause(() => Effect.fail(new HttpApiError.BadRequest({}))),
+        )
+      }
+      const v2 = parseWorkflowEnrollmentRequest(ctx.payload)
+      if (!v2.ok) return yield* new HttpApiError.BadRequest({})
+      return yield* enrollWorkflowGuard(ctx.params.sessionID, v2.value).pipe(
+        Effect.provideService(Storage.Service, storage),
+        Effect.catchCause(() => Effect.fail(new HttpApiError.BadRequest({}))),
+      )
+    })
+
     const mcpAppResource = Effect.fn("SessionHttpApi.mcpAppResource")(function* (ctx: {
       params: { sessionID: SessionID; callID: string }
     }) {
@@ -190,11 +288,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       }
 
       const origin = part.state.mcpAppResource
-      const registry = yield* mcp.appTools()
-      const stillAdvertised = Object.values(registry).some(
-        (tool) => tool.client === origin.serverName && tool.ui.resourceUri === origin.resourceUri,
-      )
-      if (!stillAdvertised) return yield* new HttpApiError.BadRequest({})
+      if (!mcp.readAppResource) return yield* new HttpApiError.BadRequest({})
+      const persistedPart = { sessionID: part.sessionID, messageID: part.messageID, partID: part.id }
 
       const mode = process.env.RHYTHM_MCP_APPS_MODE
       return yield* Effect.tryPromise({
@@ -209,8 +304,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
               persistedOrigin: origin,
             },
             {
-              readResource: ({ serverName, resourceUri }) =>
-                Effect.runPromise(mcp.readResource(serverName, resourceUri)),
+              readResource: () => Effect.runPromise(mcp.readAppResource!(origin, persistedPart)),
             },
           ),
         catch: () => new HttpApiError.BadRequest({}),
@@ -235,13 +329,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         return yield* new HttpApiError.BadRequest({})
       }
       const origin = part.state.mcpAppResource
-      const registry = yield* mcp.appTools()
-      if (
-        !Object.values(registry).some(
-          (tool) => tool.client === origin.serverName && tool.ui.resourceUri === origin.resourceUri,
-        )
-      )
-        return yield* new HttpApiError.BadRequest({})
+      if (!mcp.readAppResource) return yield* new HttpApiError.BadRequest({})
+      const persistedPart = { sessionID: part.sessionID, messageID: part.messageID, partID: part.id }
 
       const resource = yield* Effect.tryPromise({
         try: () =>
@@ -255,8 +344,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
               persistedOrigin: origin,
             },
             {
-              readResource: ({ serverName, resourceUri }) =>
-                Effect.runPromise(mcp.readResource(serverName, resourceUri)),
+              readResource: () => Effect.runPromise(mcp.readAppResource!(origin, persistedPart)),
             },
           ),
         catch: () => new HttpApiError.BadRequest({}),
@@ -299,6 +387,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         return yield* new HttpApiError.BadRequest({})
       }
       const origin = part.state.mcpAppResource
+      const persistedPart = { sessionID: part.sessionID, messageID: part.messageID, partID: part.id }
       const agentName = current.agent ?? (yield* agentSvc.defaultAgent())
       const agent = yield* agentSvc.get(agentName)
       const options = MCP.withRhythmSecurityContext(
@@ -366,9 +455,15 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
                   }),
                 ),
               execute: (_tool, input) => {
-                if (!mcp.executeAppTool) return Promise.reject(new Error("app execution unavailable"))
+                if (!mcp.executeAppToolForOrigin) return Promise.reject(new Error("app execution unavailable"))
                 return Effect.runPromise(
-                  mcp.executeAppTool(ctx.payload.toolKey, input as Record<string, unknown>, options),
+                  mcp.executeAppToolForOrigin(
+                    origin,
+                    persistedPart,
+                    ctx.payload.toolKey,
+                    input as Record<string, unknown>,
+                    options,
+                  ),
                 )
               },
               after: (toolKey, input, result) =>
@@ -660,6 +755,10 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("diff", diff)
       .handle("messages", messages)
       .handle("message", message)
+      .handle("rhythmPromptAnchor", rhythmPromptAnchor)
+      .handle("rhythmActiveTool", rhythmActiveTool)
+      .handle("rhythmProviderFrame", rhythmProviderFrame)
+      .handle("rhythmDayflowGuard", rhythmDayflowGuard)
       .handle("mcpAppResource", mcpAppResource)
       .handle("mcpAppExecutionProof", mcpAppExecutionProof)
       .handle("mcpAppExecution", mcpAppExecution)

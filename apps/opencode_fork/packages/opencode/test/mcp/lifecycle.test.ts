@@ -1,5 +1,5 @@
 import { expect, mock, beforeEach } from "bun:test"
-import { Effect, Exit } from "effect"
+import { Effect, Exit, Fiber } from "effect"
 import type { MCP as MCPNS } from "../../src/mcp/index"
 import { testEffect } from "../lib/effect"
 
@@ -7,9 +7,11 @@ import { testEffect } from "../lib/effect"
 
 // Per-client state for controlling mock behavior
 interface MockClientState {
-  tools: Array<{ name: string; description?: string; inputSchema: object; outputSchema?: object }>
+  tools: Array<{ name: string; description?: string; inputSchema: object; outputSchema?: object; _meta?: object }>
   listToolsCalls: number
   requestCalls: number
+  toolCalls: number
+  resourceReads: number
   listToolsShouldFail: boolean
   listToolsError: string
   listPromptsShouldFail: boolean
@@ -27,6 +29,8 @@ let lastCreatedClientName: string | undefined
 let connectShouldFail = false
 let connectShouldHang = false
 let connectError = "Mock transport cannot connect"
+let holdToolCalls = false
+let releaseToolCall: (() => void) | undefined
 // Tracks how many Client instances were created (detects leaks)
 let clientCreateCount = 0
 // Tracks how many times transport.close() is called across all mock transports
@@ -40,6 +44,8 @@ function getOrCreateClientState(name?: string): MockClientState {
       tools: [{ name: "test_tool", description: "A test tool", inputSchema: { type: "object", properties: {} } }],
       listToolsCalls: 0,
       requestCalls: 0,
+      toolCalls: 0,
+      resourceReads: 0,
       listToolsShouldFail: false,
       listToolsError: "listTools failed",
       listPromptsShouldFail: false,
@@ -170,6 +176,17 @@ void mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
       return { resources: this._state?.resources ?? [] }
     }
 
+    async callTool() {
+      if (this._state) this._state.toolCalls++
+      if (holdToolCalls) await new Promise<void>((resolve) => (releaseToolCall = resolve))
+      return { content: [{ type: "text", text: "ok" }] }
+    }
+
+    async readResource({ uri }: { uri: string }) {
+      this._state.resourceReads++
+      return { contents: [{ uri, mimeType: "text/html;profile=mcp-app", text: "<main>fixture</main>" }] }
+    }
+
     async close() {
       if (this._state) this._state.closed = true
     }
@@ -182,12 +199,14 @@ beforeEach(() => {
   connectShouldFail = false
   connectShouldHang = false
   connectError = "Mock transport cannot connect"
+  holdToolCalls = false
+  releaseToolCall = undefined
   clientCreateCount = 0
   transportCloseCount = 0
 })
 
 // Import after mocks
-const { MCP } = await import("../../src/mcp/index")
+const { MCP, withRhythmSecurityContext } = await import("../../src/mcp/index")
 const { McpOAuthCallback } = await import("../../src/mcp/oauth-callback")
 
 const it = testEffect(MCP.defaultLayer)
@@ -197,9 +216,395 @@ function statusName(status: Record<string, MCPNS.Status> | MCPNS.Status, server:
   return status[server]?.status
 }
 
+function appToolState(name: string) {
+  lastCreatedClientName = name
+  const state = getOrCreateClientState(name)
+  state.capabilities = {
+    tools: {},
+    extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } },
+  }
+  state.tools = [
+    {
+      name: "test_tool",
+      inputSchema: { type: "object", properties: {} },
+      _meta: { ui: { resourceUri: "ui://app", visibility: ["model", "app"] } },
+    },
+  ]
+  return state
+}
+
+function appOptions(sessionID: string, callID: string) {
+  return withRhythmSecurityContext(
+    { toolCallId: callID, messages: [] },
+    { sdkSessionId: sessionID, turnId: "message", agentName: "agent", toolCallId: callID },
+  )
+}
+
+function appOrigin(sessionID: string, callID: string, expiresAt: string, partID = `part-${callID}`, cwd = "/tmp/a") {
+  return {
+    sessionID,
+    callID,
+    serverName: "app-server",
+    cwd,
+    resourceUri: "ui://app",
+    expiresAt,
+    part: { sessionID, messageID: "message", partID },
+  }
+}
+
 // ========================================================================
 // Test: tools() are cached after connect
 // ========================================================================
+
+it.instance(
+  "status, catalog, and an explicit empty allowlist never acquire configured MCP transports",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        expect((yield* mcp.status()).allowed.status).toBe("configured")
+        const catalog = mcp.catalog ? yield* mcp.catalog() : []
+        expect(catalog).toEqual([])
+        expect(clientCreateCount).toBe(0)
+
+        expect(Object.keys(yield* mcp.tools({ servers: [], tools: [] }))).toEqual([])
+        expect(clientCreateCount).toBe(0)
+      }),
+    ),
+  {
+    config: {
+      mcp: {
+        allowed: { type: "local", command: ["echo", "allowed"] },
+        denied: { type: "local", command: ["echo", "denied"] },
+      },
+    },
+  },
+)
+
+it.instance(
+  "an allowlisted server acquires only its own transport",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        const tools = yield* mcp.tools({ servers: ["allowed"], tools: [] })
+        expect(Object.keys(tools)).toEqual(["allowed_test_tool"])
+        expect(clientCreateCount).toBe(1)
+
+        expect(Object.keys(yield* mcp.tools({ servers: [], tools: [] }))).toEqual([])
+        expect(clientCreateCount).toBe(1)
+      }),
+    ),
+  {
+    config: {
+      mcp: {
+        allowed: { type: "local", command: ["echo", "allowed"] },
+        denied: { type: "local", command: ["echo", "denied"] },
+      },
+    },
+  },
+)
+
+it.instance(
+  "an explicit composed tool key acquires only its configured server",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        const tools = yield* mcp.tools({ servers: [], tools: ["allowed_test_tool"] })
+        expect(Object.keys(tools)).toEqual(["allowed_test_tool"])
+        expect(clientCreateCount).toBe(1)
+      }),
+    ),
+  {
+    config: {
+      mcp: {
+        allowed: { type: "local", command: ["echo", "allowed"] },
+        denied: { type: "local", command: ["echo", "denied"] },
+      },
+    },
+  },
+)
+
+it.instance(
+  "an advertised tool re-acquires its configured transport after idle grace",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        const prior = process.env.RHYTHM_MCP_IDLE_GRACE_MS
+        process.env.RHYTHM_MCP_IDLE_GRACE_MS = "0"
+        try {
+          const tool = (yield* mcp.tools({ servers: ["leased"], tools: [] }))["leased_test_tool"]
+          expect(tool?.execute).toBeDefined()
+          yield* Effect.promise(() => tool?.execute?.({}, { toolCallId: "lease", messages: [] }) ?? Promise.resolve())
+          yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 10)))
+          expect((yield* mcp.status()).leased.status).toBe("configured")
+          expect(clientStates.get("default")?.toolCalls).toBe(1)
+          expect(clientStates.get("default")?.closed).toBe(true)
+          expect(mcp.catalog ? yield* mcp.catalog() : []).toEqual(["leased_test_tool"])
+
+          yield* Effect.promise(() => tool?.execute?.({}, { toolCallId: "after-grace", messages: [] }) ?? Promise.resolve())
+          expect(clientCreateCount).toBe(2)
+          expect(clientStates.get("default")?.toolCalls).toBe(2)
+        } finally {
+          if (prior === undefined) delete process.env.RHYTHM_MCP_IDLE_GRACE_MS
+          else process.env.RHYTHM_MCP_IDLE_GRACE_MS = prior
+        }
+      }),
+    ),
+  { config: { mcp: { leased: { type: "local", command: ["echo", "leased"] } } } },
+)
+
+it.instance(
+  "concurrent discovery owners share one transport acquisition",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        yield* Effect.all(Array.from({ length: 12 }, () => mcp.tools({ servers: ["leased"], tools: [] })), {
+          concurrency: "unbounded",
+        })
+        expect(clientCreateCount).toBe(1)
+      }),
+    ),
+  { config: { mcp: { leased: { type: "local", command: ["echo", "leased"] } } } },
+)
+
+it.instance(
+  "replacement waits for an active leased tool call before closing its transport",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        lastCreatedClientName = "replace-active"
+        const firstState = getOrCreateClientState("replace-active")
+        yield* mcp.add("replace-active", { type: "local", command: ["echo", "first"] })
+        const tool = (yield* mcp.tools({ servers: ["replace-active"], tools: [] }))["replace-active_test_tool"]
+        expect(tool?.execute).toBeDefined()
+
+        holdToolCalls = true
+        const active = tool!.execute!({}, { toolCallId: "active", messages: [] })
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 0)))
+
+        clientStates.delete("replace-active")
+        const secondState = getOrCreateClientState("replace-active")
+        const replacement = yield* mcp
+          .add("replace-active", { type: "local", command: ["echo", "second"] })
+          .pipe(Effect.forkScoped)
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 0)))
+        expect(firstState.closed).toBe(false)
+
+        releaseToolCall?.()
+        yield* Effect.promise(() => active)
+        yield* Fiber.join(replacement)
+        expect(firstState.closed).toBe(true)
+        expect(secondState.closed).toBe(false)
+      }),
+    ),
+  { config: { mcp: {} } },
+)
+
+it.instance(
+  "App origins keep a stateful client through grace until the last sibling releases",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        const prior = process.env.RHYTHM_MCP_IDLE_GRACE_MS
+        const priorMode = process.env.RHYTHM_MCP_APPS_MODE
+        process.env.RHYTHM_MCP_IDLE_GRACE_MS = "0"
+        process.env.RHYTHM_MCP_APPS_MODE = "readonly"
+        try {
+          appToolState("app-server")
+          yield* mcp.add("app-server", { type: "local", command: ["echo", "app"] })
+          const expiresAt = new Date(Date.now() + 1_000).toISOString()
+          const tool = (yield* mcp.tools({ servers: ["app-server"], tools: [] }))["app-server_test_tool"]
+          if (mcp.retainAppOrigin && tool?.execute) {
+            for (const [callID, partID] of [
+              ["one", "part-one"],
+              ["two", "part-two"],
+            ]) {
+              yield* Effect.promise(() =>
+                tool.execute!(
+                  {},
+                  appOptions("s", callID),
+                ),
+              )
+              yield* mcp.retainAppOrigin(appOrigin("s", callID, expiresAt, partID))
+            }
+          }
+          yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 10)))
+          expect((yield* mcp.clients())["app-server"]).toBeDefined()
+          if (mcp.releaseAppOrigin) yield* mcp.releaseAppOrigin("s", "one")
+          expect((yield* mcp.clients())["app-server"]).toBeDefined()
+          if (mcp.releaseAppOrigin) yield* mcp.releaseAppOrigin("s", "two")
+          yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 10)))
+          expect((yield* mcp.clients())["app-server"]).toBeUndefined()
+        } finally {
+          if (prior === undefined) delete process.env.RHYTHM_MCP_IDLE_GRACE_MS
+          else process.env.RHYTHM_MCP_IDLE_GRACE_MS = prior
+          if (priorMode === undefined) delete process.env.RHYTHM_MCP_APPS_MODE
+          else process.env.RHYTHM_MCP_APPS_MODE = priorMode
+        }
+      }),
+    ),
+  { config: { mcp: {} } },
+)
+
+it.instance(
+  "an App origin transfers the producing client before delayed output processing releases its call lease",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        const priorGrace = process.env.RHYTHM_MCP_IDLE_GRACE_MS
+        const priorMode = process.env.RHYTHM_MCP_APPS_MODE
+        process.env.RHYTHM_MCP_IDLE_GRACE_MS = "0"
+        process.env.RHYTHM_MCP_APPS_MODE = "readonly"
+        try {
+          appToolState("app-server")
+          yield* mcp.add("app-server", { type: "local", command: ["echo", "app"] })
+          const tool = (yield* mcp.tools({ servers: ["app-server"], tools: [] }))["app-server_test_tool"]
+          yield* Effect.promise(() => tool!.execute!({}, appOptions("session", "origin")))
+          yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 20)))
+          yield* mcp.retainAppOrigin!(appOrigin("session", "origin", new Date(Date.now() + 1_000).toISOString()))
+          expect((yield* mcp.clients())["app-server"]).toBeDefined()
+        } finally {
+          if (priorGrace === undefined) delete process.env.RHYTHM_MCP_IDLE_GRACE_MS
+          else process.env.RHYTHM_MCP_IDLE_GRACE_MS = priorGrace
+          if (priorMode === undefined) delete process.env.RHYTHM_MCP_APPS_MODE
+          else process.env.RHYTHM_MCP_APPS_MODE = priorMode
+        }
+      }),
+    ),
+  { config: { mcp: {} } },
+)
+
+it.instance(
+  "an old App origin cannot pin a replacement generation",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        const priorGrace = process.env.RHYTHM_MCP_IDLE_GRACE_MS
+        const priorMode = process.env.RHYTHM_MCP_APPS_MODE
+        process.env.RHYTHM_MCP_IDLE_GRACE_MS = "0"
+        process.env.RHYTHM_MCP_APPS_MODE = "readonly"
+        try {
+          appToolState("app-server")
+          yield* mcp.add("app-server", { type: "local", command: ["echo", "old"] })
+          const oldTool = (yield* mcp.tools({ servers: ["app-server"], tools: [] }))["app-server_test_tool"]
+          yield* Effect.promise(() => oldTool!.execute!({}, appOptions("session", "old-origin")))
+
+          appToolState("app-server")
+          yield* mcp.add("app-server", { type: "local", command: ["echo", "new"] })
+          yield* mcp.retainAppOrigin!(appOrigin("session", "old-origin", new Date(Date.now() + 1_000).toISOString()))
+          const newTool = (yield* mcp.tools({ servers: ["app-server"], tools: [] }))["app-server_test_tool"]
+          yield* Effect.promise(() => newTool!.execute!({}, { toolCallId: "ordinary-new", messages: [] }))
+          yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 20)))
+          expect((yield* mcp.clients())["app-server"]).toBeUndefined()
+        } finally {
+          if (priorGrace === undefined) delete process.env.RHYTHM_MCP_IDLE_GRACE_MS
+          else process.env.RHYTHM_MCP_IDLE_GRACE_MS = priorGrace
+          if (priorMode === undefined) delete process.env.RHYTHM_MCP_APPS_MODE
+          else process.env.RHYTHM_MCP_APPS_MODE = priorMode
+        }
+      }),
+    ),
+  { config: { mcp: {} } },
+)
+
+it.instance(
+  "App resource and actions fail closed after the producing generation is replaced",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        const priorMode = process.env.RHYTHM_MCP_APPS_MODE
+        process.env.RHYTHM_MCP_APPS_MODE = "interactive"
+        try {
+          const origin = appOrigin("session", "origin", new Date(Date.now() + 1_000).toISOString())
+          const persisted = { sessionID: origin.sessionID, messageID: origin.part.messageID, partID: origin.part.partID }
+          const { part: _part, ...provenance } = origin
+
+          appToolState("app-server")
+          yield* mcp.add("app-server", { type: "local", command: ["echo", "first"] })
+          const tool = (yield* mcp.tools({ servers: ["app-server"], tools: [] }))["app-server_test_tool"]
+          yield* Effect.promise(() => tool!.execute!({}, appOptions("session", "origin")))
+          expect(yield* mcp.retainAppOrigin!(origin)).toBe(true)
+
+          clientStates.delete("app-server")
+          const second = appToolState("app-server")
+          yield* mcp.add("app-server", { type: "local", command: ["echo", "second"] })
+          expect(Exit.isFailure(yield* mcp.readAppResource!(provenance, persisted).pipe(Effect.exit))).toBe(true)
+          expect(
+            Exit.isFailure(
+              yield* mcp
+                .executeAppToolForOrigin!(provenance, persisted, "app-server_test_tool", {}, appOptions("session", "action"))
+                .pipe(Effect.exit),
+            ),
+          ).toBe(true)
+          expect(clientCreateCount).toBe(2)
+          expect(second.resourceReads).toBe(0)
+          expect(second.toolCalls).toBe(0)
+        } finally {
+          if (priorMode === undefined) delete process.env.RHYTHM_MCP_APPS_MODE
+          else process.env.RHYTHM_MCP_APPS_MODE = priorMode
+        }
+      }),
+    ),
+  { config: { mcp: {} } },
+)
+
+it.instance(
+  "removing credentials without an owned OAuth flow cannot cancel another flow's callback",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        const name = "other-directory-flow"
+        const state = "other-directory-state"
+        let outcome = "pending"
+        const callback = McpOAuthCallback.waitForCallback(state, name).then(
+          () => (outcome = "resolved"),
+          () => (outcome = "cancelled"),
+        )
+        try {
+          yield* mcp.removeAuth(name)
+          yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 10)))
+          expect(outcome).toBe("pending")
+        } finally {
+          McpOAuthCallback.cancelState(state)
+          yield* Effect.promise(() => callback)
+          yield* Effect.promise(() => McpOAuthCallback.stop())
+        }
+      }),
+    ),
+  { config: { mcp: {} } },
+)
+
+it.instance(
+  "an aborted App call cannot create a provisional owner after its late result",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        const priorGrace = process.env.RHYTHM_MCP_IDLE_GRACE_MS
+        const priorMode = process.env.RHYTHM_MCP_APPS_MODE
+        process.env.RHYTHM_MCP_IDLE_GRACE_MS = "0"
+        process.env.RHYTHM_MCP_APPS_MODE = "readonly"
+        try {
+          appToolState("app-server")
+          yield* mcp.add("app-server", { type: "local", command: ["echo", "app"] })
+          const tool = (yield* mcp.tools({ servers: ["app-server"], tools: [] }))["app-server_test_tool"]
+          const controller = new AbortController()
+          holdToolCalls = true
+          const call = tool!.execute!({}, { ...appOptions("cancelled-session", "late"), abortSignal: controller.signal })
+          yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 0)))
+          controller.abort()
+          releaseToolCall?.()
+          yield* Effect.promise(() => call)
+          yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 20)))
+          expect((yield* mcp.clients())["app-server"]).toBeUndefined()
+        } finally {
+          if (priorGrace === undefined) delete process.env.RHYTHM_MCP_IDLE_GRACE_MS
+          else process.env.RHYTHM_MCP_IDLE_GRACE_MS = priorGrace
+          if (priorMode === undefined) delete process.env.RHYTHM_MCP_APPS_MODE
+          else process.env.RHYTHM_MCP_APPS_MODE = priorMode
+        }
+      }),
+    ),
+  { config: { mcp: {} } },
+)
 
 it.instance(
   "tools() reuses cached tool definitions after connect",

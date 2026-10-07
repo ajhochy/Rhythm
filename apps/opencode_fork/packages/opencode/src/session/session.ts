@@ -39,6 +39,14 @@ import { Effect, Layer, Option, Context, Schema, Types } from "effect"
 import { NonNegativeInt, optionalOmitUndefined } from "@opencode-ai/core/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { rm as removeFs } from "fs/promises"
+import {
+  inheritWorkflowGuard,
+  workflowGuardFor,
+  canonicalJson,
+  sha256Hex,
+  type WorkflowManagerLineageRecord,
+  type WorkflowRootTurnRecord,
+} from "./rhythm_provider_guard"
 
 const log = Log.create({ service: "session" })
 
@@ -53,6 +61,47 @@ export function isDefaultTitle(title: string) {
   return new RegExp(
     `^(${parentTitlePrefix}|${childTitlePrefix})\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$`,
   ).test(title)
+}
+
+/**
+ * Synchronous, storage-backed projection used only by the G2 provider
+ * handoff. It intentionally includes the complete authority-relevant native
+ * session shape and explicit nulls, but no transcript/content/timestamps.
+ * It is a current-row proof, not a cache or a session lookup fallback.
+ */
+export function rhythmWorkflowLineageDigest(sessionID: SessionID): string | undefined {
+  try {
+    return Database.use((d) => {
+      const rows: Array<Record<string, unknown>> = []
+      const seen = new Set<string>()
+      let current: SessionID | undefined = sessionID
+      for (let depth = 0; current && depth < 6; depth++) {
+        if (seen.has(current)) return undefined
+        seen.add(current)
+        const row = d.select().from(SessionTable).where(eq(SessionTable.id, current)).get()
+        if (!row) return undefined
+        const info = fromRow(row)
+        rows.push({
+          id: info.id,
+          parentID: info.parentID ?? null,
+          projectID: info.projectID ?? null,
+          workspaceID: info.workspaceID ?? null,
+          directory: info.directory ?? null,
+          path: info.path ?? null,
+          agent: info.agent ?? null,
+          model: info.model ?? null,
+          permission: info.permission ?? null,
+          mcpAllowlist: info.mcpAllowlist ?? null,
+          skillAllowlist: info.skillAllowlist ?? null,
+        })
+        current = info.parentID
+      }
+      if (current) return undefined
+      return sha256Hex(canonicalJson(rows))
+    })
+  } catch {
+    return undefined
+  }
 }
 
 type SessionRow = typeof SessionTable.$inferSelect
@@ -558,6 +607,8 @@ export interface Interface {
     sessionID: SessionID,
     predicate: (msg: MessageV2.WithParts) => boolean,
   ) => Effect.Effect<Option.Option<MessageV2.WithParts>, NotFound>
+  /** Private durable G2 marker lookup, closed over Session's existing Storage. */
+  readonly workflowGuard: (sessionID: SessionID) => Effect.Effect<WorkflowManagerLineageRecord | WorkflowRootTurnRecord | undefined>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Session") {}
@@ -618,6 +669,17 @@ export const layer: Layer.Layer<
         },
       }
       log.info("created", result)
+
+      // G2 manager lineage is persisted before the child is observable.  A
+      // failed inheritance is intentionally fatal: publishing a child first
+      // would create a provider-capable escape before its accounting marker.
+      yield* inheritWorkflowGuard(input.parentID, result.id).pipe(
+        Effect.provideService(Storage.Service, storage),
+        // A storage/marker fault must fail the child creation before its
+        // Created event, but may not widen Session.create's public error type
+        // into a recoverable ordinary-child path.
+        Effect.orDie,
+      )
 
       yield* sync.run(Event.Created, { sessionID: result.id, info: result })
 
@@ -928,6 +990,13 @@ export const layer: Layer.Layer<
       return Option.none<MessageV2.WithParts>()
     })
 
+    const workflowGuard: Interface["workflowGuard"] = (sessionID) =>
+      workflowGuardFor(sessionID).pipe(
+        Effect.provideService(Storage.Service, storage),
+        // Unknown durable marker state is never reclassified as ordinary.
+        Effect.orDie,
+      )
+
     return Service.of({
       list,
       create,
@@ -953,6 +1022,7 @@ export const layer: Layer.Layer<
       getPart,
       updatePartDelta,
       findMessage,
+      workflowGuard,
     })
   }),
 )

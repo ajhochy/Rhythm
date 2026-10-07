@@ -17,7 +17,7 @@ const safeMarkdownUrl = dataModule(compile(new URL('../src/components/SafeMarkdo
   .replaceAll('"react/jsx-runtime"', `"${jsxUrl}"`)
   .replace("from 'react'", `from '${reactUrl}'`)
   .replace("from 'marked'", `from '${markedUrl}'`));
-const emptyStub = dataModule(`export const Icon=()=>null; export const Timestamp=()=>null; export const useFixtures=()=>({}); export const useGateway=()=>({}); export const useDecisionReply=()=>({}); export const usePendingDecisions=()=>({permissions:new Map(),questions:new Map()}); export const blockSource=()=>''; export const canonicalText=()=>''; export const useAuthUser=()=>null; export const readLocalUserPreferences=()=>({}); export const shouldEscalatePermission=()=>false; export const USER_PREFERENCES_CHANGED_EVENT='rhythm:user-preferences-changed'; export const FocusDialog=()=>null;`);
+const emptyStub = dataModule(`export const Icon=()=>null; export const Timestamp=()=>null; export const useFixtures=()=>({}); export const useGateway=()=>({}); export const useDecisionReply=()=>({}); export const usePendingDecisions=()=>({permissions:new Map(),questions:new Map()}); export const blockSource=()=>''; export const canonicalText=()=>''; export const sessionLabel=()=>''; export const useAuthUser=()=>null; export const readLocalUserPreferences=()=>({}); export const shouldEscalatePermission=()=>false; export const USER_PREFERENCES_CHANGED_EVENT='rhythm:user-preferences-changed'; export const FocusDialog=()=>null;`);
 const transcriptSource = compile(new URL('../src/components/Transcript.tsx', import.meta.url))
   .replaceAll('"react/jsx-runtime"', `"${jsxUrl}"`)
   .replace("import './Transcript.css';", '')
@@ -32,6 +32,7 @@ const transcriptSource = compile(new URL('../src/components/Transcript.tsx', imp
   .replace("from '../gateway/auth'", `from '${emptyStub}'`)
   .replace("from '../gateway/user-preferences'", `from '${emptyStub}'`)
   .replace("from './FocusDialog'", `from '${emptyStub}'`)
+  .replace("from './AttachmentThumbnail'", `from '${dataModule('export const AttachmentThumbnail=()=>null;')}'`)
   .replace('function MessageUsage(', 'export function MessageUsage(')
   .replace('function RichBlock(', 'export function RichBlock(');
 const renderer = await import(dataModule(transcriptSource));

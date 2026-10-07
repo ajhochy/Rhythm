@@ -32,6 +32,7 @@ import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { MemoryIndexService } from '../services/memory_index_service';
 import { rememberToVault } from '../services/memoryVaultWriteService';
 import { buildMemoryPreface } from '../services/memory_retrieval';
+import { setRerankClientForTests } from '../services/decision/decision_client';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -46,8 +47,15 @@ interface FakeEngraph {
   close: () => Promise<void>;
 }
 
+interface FakeEngraphHit {
+  file: string;
+  snippet?: string;
+  score?: number;
+  confidence?: number;
+}
+
 /** Loopback stand-in for `engraph serve --http`: POST /api/search → file hits. */
-function startFakeEngraph(files: () => string[], delayMs = 0): Promise<FakeEngraph> {
+function startFakeEngraph(hits: () => FakeEngraphHit[], delayMs = 0): Promise<FakeEngraph> {
   const requests: FakeEngraph['requests'] = [];
   const server = http.createServer((req, res) => {
     let body = '';
@@ -56,7 +64,7 @@ function startFakeEngraph(files: () => string[], delayMs = 0): Promise<FakeEngra
       requests.push(JSON.parse(body));
       setTimeout(() => {
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ results: files().map((file) => ({ file_path: file })) }));
+        res.end(JSON.stringify({ results: hits().map((hit) => ({ file_path: hit.file, ...hit })) }));
       }, delayMs);
     });
   });
@@ -89,6 +97,7 @@ const ENV_KEYS = [
   'ENGRAPH_MEMORY_VAULT_ROOT',
   'MEMORY_VAULT_PATH',
   'MEMORY_VAULT_SUBDIR',
+  'AGENT_DECISION_MEMORY_RANKING',
 ] as const;
 const savedEnv: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>> = {};
 
@@ -113,6 +122,7 @@ afterEach(async () => {
     else process.env[key] = savedEnv[key];
   }
   try { rmSync(vaultRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+  setRerankClientForTests(null);
 });
 
 async function seed(content: string): Promise<string> {
@@ -125,28 +135,30 @@ async function seed(content: string): Promise<string> {
   return row.sourceId;
 }
 
-describe('semantic memory retrieval E2E (steps 1–3)', () => {
-  it('E2E-1: default mode reaches a real Engraph service but zero-overlap semantic hits fail closed', async () => {
+describe('semantic memory retrieval E2E (native references)', () => {
+  it('E2E-1: default mode injects a bounded native paraphrase as untrusted reference evidence', async () => {
     const sourceId = await seed('Prefers ProPresenter lower-thirds during announcements');
-    engraph = await startFakeEngraph(() => [sourceId]);
+    engraph = await startFakeEngraph(() => [{
+      // Native root is already `<vault>/memory`; fixtures must be relative to
+      // that root, while sourceId remains canonical vault-root-relative.
+      file: sourceId.slice('memory/'.length),
+      snippet: 'Prefers ProPresenter lower-thirds during announcements',
+      confidence: 100,
+    }]);
     process.env.ENGRAPH_MEMORY_URL = engraph.url;
 
-    // No AGENT_MEMORY_RETRIEVAL_MODE set — hybrid must be the default.
-    // The query shares no significant words with the stored fact, so FTS
-    // cannot find it. P0: the semantic lane exposes no calibrated confidence
-    // (Engraph 1.7.2 returns only RRF rank) and the candidate has zero lexical
-    // overlap with the query, so automatic injection MUST fail closed — this
-    // exact shape (nearest-neighbor injection of an unrelated document) was
-    // the McDonald's-report production incident. The service is still
-    // consulted; the note stays reachable via explicit search.
+    // No mode/reranker configuration — native rank supplies bounded reference
+    // evidence only, never an asserted or calibrated fact.
     const preface = await buildMemoryPreface('what template do we use for sunday slides', null);
 
     expect(engraph.requests).toHaveLength(1);
     expect(engraph.requests[0]?.query).toContain('sunday slides');
-    expect(preface.text).toBe('');
-    expect(preface.memoryIds).toEqual([]);
-    const explicit = await repo.searchAsync('propresenter', undefined, 10);
-    expect(explicit.some((row) => row.sourceId === sourceId)).toBe(true);
+    expect(preface.memoryIds).toHaveLength(1);
+    expect(preface.text).toContain('Retrieved memory references');
+    expect(preface.text).toContain('UNTRUSTED EXTERNAL DATA');
+    expect(preface.text).toContain('Prefers ProPresenter lower-thirds');
+    expect(preface.text).toContain(`[${sourceId}]`);
+    expect(preface.items[0]).toMatchObject({ lane: 'semantic', confidence: null });
   });
 
   it('E2E-2: junk suppression keeps one-word coincidences out; pure FTS works with no Engraph at all', async () => {
@@ -175,5 +187,23 @@ describe('semantic memory retrieval E2E (steps 1–3)', () => {
 
     expect(elapsed).toBeLessThan(1_500); // budget 200ms + generous CI headroom, far below the 3s hang
     expect(preface.text).toContain('office admin');
+  });
+
+  it('E2E-4: native rank order reaches the agent as untrusted references without enabling the reranker', async () => {
+    const relevantSourceId = await seed('Teenagers gather in the fellowship hall after supper.');
+    const decoySourceId = await seed('Collector cups are stored in the supply closet.');
+    engraph = await startFakeEngraph(() => [
+      { file: decoySourceId.slice('memory/'.length), snippet: 'Collector cups are stored in the supply closet.', score: 0.9 },
+      { file: relevantSourceId.slice('memory/'.length), snippet: 'Teenagers gather in the fellowship hall after supper.', score: 0.1 },
+    ]);
+    process.env.ENGRAPH_MEMORY_URL = engraph.url;
+
+    const preface = await buildMemoryPreface('When and where does the youth group meet?', null);
+
+    expect(engraph.requests).toHaveLength(1);
+    expect(preface.memoryIds).toHaveLength(2);
+    expect(preface.text).toContain('Teenagers gather');
+    expect(preface.items.every((item) => item.confidence === null)).toBe(true);
+    expect(preface.items[0]).toMatchObject({ lane: 'semantic' });
   });
 });

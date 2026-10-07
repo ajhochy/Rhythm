@@ -559,7 +559,8 @@ it.instance(
       expect(description).toContain("rhythm_list_tasks")
       expect(description).toContain("rhythm_create_task")
       expect(description).toContain("rhythm_synthetic_000")
-      expect(description).toContain("rhythm_synthetic_604")
+      // The bootstrap catalog is byte-bounded; the tail is searchable, not listed.
+      expect(description).toContain("additional tools are searchable on demand")
       // And obsidian tools (out of the server-level allowlist) must be absent
       // from the catalog too — deferred mode must not silently widen scope.
       expect(description).not.toContain("obsidian_get_file")
@@ -587,9 +588,12 @@ overcapIt.instance(
       const { llm } = yield* useServerConfig(providerCfg)
       const sessions = yield* Session.Service
       const prompt = yield* SessionPrompt.Service
+      // Explicit compatibility opt-out (`deferred: false`): hosted builtins stay
+      // eager, so the oversized builtin list still reaches the final guard.
       const session = yield* sessions.create({
         title: "Issue 1468 S2 non-MCP overflow",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        mcpAllowlist: { servers: [], tools: [], deferred: false },
       })
       yield* addUserMessage(session.id, "do not send this over-cap request")
 
@@ -768,9 +772,11 @@ it.instance(
       )
       const sessions = yield* Session.Service
       const prompt = yield* SessionPrompt.Service
+      // Explicit eager compatibility opt-out: declarations are unchanged.
       const session = yield* sessions.create({
         title: "Issue 1468 S2 non-Google control",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        mcpAllowlist: { servers: ["rhythm", "obsidian"], tools: [], deferred: false },
       })
       const msg = yield* sessions.updateMessage({
         id: MessageID.ascending(),

@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "test": "npm run build && playwright test && playwright test --config tests/bucket-a-rendered-repair-playwright.config.ts && npm run test:electron-slices && npm run test:session-opening",
     "test:list": "playwright test --list && playwright test --config tests/bucket-a-rendered-repair-playwright.config.ts --list && npm run test:electron-slices -- --list && npm run test:session-opening -- --list",
+    "test:unit": "node --experimental-vm-modules --test --test-concurrency=1 tests/*.test.mjs",
     "test:session-opening": "playwright test --config tests/gateway/session-opening-playwright.config.ts",
     "test:electron-slices": "node tests/run-electron-slices.mjs",
     "test:external:chrome": "playwright test --config tests/external-host-playwright.config.ts",

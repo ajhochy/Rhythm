@@ -7,10 +7,23 @@ import { AgentConfigsRepository } from '../repositories/agent_configs_repository
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { asOpenCodeAgentId, asRhythmProfileId, type AgentKind } from '../models/agent_session';
 
-const { sessionMap, promptAsync, updateSessionAllowlist } = vi.hoisted(() => ({
+const {
+  sessionMap,
+  promptAsync,
+  updateSessionAllowlist,
+  updateSessionSkillAllowlist,
+  resolveModelForSessionTurnWithProvenance,
+  routeTurnForSession,
+} = vi.hoisted(() => ({
   sessionMap: new Map<string, string>(),
   promptAsync: vi.fn().mockResolvedValue(true),
   updateSessionAllowlist: vi.fn().mockResolvedValue(undefined),
+  updateSessionSkillAllowlist: vi.fn().mockResolvedValue(undefined),
+  resolveModelForSessionTurnWithProvenance: vi.fn().mockResolvedValue({
+    route: { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+    requestedSource: 'session_fixed', requestedTier: null, routeAuthed: true,
+  }),
+  routeTurnForSession: vi.fn().mockResolvedValue({ applied: false }),
 }));
 
 vi.mock('../services/opencode_engine', () => ({
@@ -19,17 +32,14 @@ vi.mock('../services/opencode_engine', () => ({
     isReady: true,
     promptAsync,
     updateSessionAllowlist,
-    updateSessionSkillAllowlist: vi.fn().mockResolvedValue(undefined),
+    updateSessionSkillAllowlist,
   },
 }));
 vi.mock('../services/agent_model_resolver', () => ({
-  resolveModelForSessionTurnWithProvenance: vi.fn().mockResolvedValue({
-    route: { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
-    requestedSource: 'session_fixed', requestedTier: null, routeAuthed: true,
-  }),
+  resolveModelForSessionTurnWithProvenance,
 }));
 vi.mock('../services/decision/turn_routing', () => ({
-  routeTurnForSession: vi.fn().mockResolvedValue({ applied: false }),
+  routeTurnForSession,
 }));
 
 import { handleInputFrame } from '../services/ws_gateway';
@@ -45,12 +55,25 @@ describe('installed chat WebSocket profile identity', () => {
     sessionMap.clear();
     promptAsync.mockClear();
     updateSessionAllowlist.mockClear();
+    updateSessionSkillAllowlist.mockClear();
+    resolveModelForSessionTurnWithProvenance.mockClear();
+    routeTurnForSession.mockClear();
     sent = [];
 
     const configs = new AgentConfigsRepository();
     configs.insert({ id: 'build', label: 'Disabled built-in', icon: 'robot', enabled: false, ocAgent: 'build' });
-    configs.insert({ id: 'bound-profile', label: 'Bound', icon: 'robot', enabled: true, ocAgent: 'build', systemPrompt: 'BOUND PROFILE', allowedMcpsJson: '[]' });
-    configs.insert({ id: 'selected-profile', label: 'Selected', icon: 'robot', enabled: true, ocAgent: 'build', systemPrompt: 'SELECTED PROFILE', allowedMcpsJson: '[]' });
+    configs.insert({
+      id: 'bound-profile', label: 'Bound', icon: 'robot', enabled: true, ocAgent: 'build',
+      systemPrompt: 'BOUND PROFILE',
+      allowedMcpsJson: JSON.stringify({ rhythm: ['rhythm_list_tasks'] }),
+      allowedSkillsJson: JSON.stringify(['bound-task-skill']),
+    });
+    configs.insert({
+      id: 'selected-profile', label: 'Selected', icon: 'robot', enabled: true, ocAgent: 'build',
+      systemPrompt: 'SELECTED PROFILE',
+      allowedMcpsJson: JSON.stringify({ rhythm: ['rhythm_get_task_dependencies'] }),
+      allowedSkillsJson: JSON.stringify(['selected-task-skill']),
+    });
     configs.insert({ id: 'selected-plan', label: 'Selected plan', icon: 'robot', enabled: true, ocAgent: 'plan', systemPrompt: 'SELECTED PLAN', allowedMcpsJson: '[]' });
     configs.insert({ id: 'blocked-profile', label: 'Blocked', icon: 'robot', enabled: false, ocAgent: 'build' });
     configs.insert({ id: 'locked-profile', label: 'Locked', icon: 'robot', enabled: true, ocAgent: 'build' });
@@ -76,7 +99,19 @@ describe('installed chat WebSocket profile identity', () => {
     expect(sent.filter((frame) => frame.type === 'error')).toEqual([]);
     expect(promptAsync).toHaveBeenCalledOnce();
     expect(promptAsync.mock.calls[0]?.[4]).toMatchObject({ agent: 'build', system: 'BOUND PROFILE' });
-    expect(updateSessionAllowlist.mock.calls[0]?.[1]).toMatchObject({ role: 'bound-profile' });
+    expect(promptAsync.mock.calls[0]?.[4]).not.toHaveProperty('permissionMode');
+    expect(resolveModelForSessionTurnWithProvenance).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: 'bound-profile' }),
+    );
+    expect(routeTurnForSession).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: 'bound-profile' }),
+    );
+    expect(updateSessionAllowlist.mock.calls[0]?.[1]).toMatchObject({
+      role: 'bound-profile',
+      mcpServers: { rhythm: { allowedTools: ['rhythm_list_tasks'] } },
+    });
+    expect(updateSessionSkillAllowlist).toHaveBeenCalledWith('sdk-installed-profile', ['bound-task-skill']);
+    expect(new AgentSessionsRepository().findById(sessionId)?.permissionMode).toBe('default');
   });
 
   it('uses an explicitly selected enabled profile, not its shared engine alias', async () => {
@@ -84,7 +119,17 @@ describe('installed chat WebSocket profile identity', () => {
     expect(sent.filter((frame) => frame.type === 'error')).toEqual([]);
     expect(promptAsync).toHaveBeenCalledOnce();
     expect(promptAsync.mock.calls[0]?.[4]).toMatchObject({ agent: 'build', system: 'SELECTED PROFILE' });
-    expect(updateSessionAllowlist.mock.calls[0]?.[1]).toMatchObject({ role: 'selected-profile' });
+    expect(resolveModelForSessionTurnWithProvenance).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: 'selected-profile' }),
+    );
+    expect(routeTurnForSession).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: 'selected-profile' }),
+    );
+    expect(updateSessionAllowlist.mock.calls[0]?.[1]).toMatchObject({
+      role: 'selected-profile',
+      mcpServers: { rhythm: { allowedTools: ['rhythm_get_task_dependencies'] } },
+    });
+    expect(updateSessionSkillAllowlist).toHaveBeenCalledWith('sdk-installed-profile', ['selected-task-skill']);
   });
 
   it('preserves an explicit engine mode change when the matching profile ID is supplied', async () => {
@@ -129,6 +174,14 @@ describe('installed chat WebSocket profile identity', () => {
   it('rejects an unknown explicitly selected profile before dispatch', async () => {
     await send({ profileId: 'missing-profile', agent: 'build' });
     expect(sent).toContainEqual(expect.objectContaining({ type: 'error', id: sessionId }));
+    expect(promptAsync).not.toHaveBeenCalled();
+  });
+
+  it('rejects a blank explicit profile ID before dispatch', async () => {
+    await send({ profileId: '   ', agent: 'build' });
+    expect(sent).toContainEqual(expect.objectContaining({
+      type: 'error', id: sessionId, message: expect.stringContaining('invalid'),
+    }));
     expect(promptAsync).not.toHaveBeenCalled();
   });
 
