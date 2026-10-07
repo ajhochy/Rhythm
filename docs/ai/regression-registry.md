@@ -128,6 +128,30 @@ code repo. Check `agent_sessions.cwd` before assuming the chat is the variable.
 **No prior art** — searched `docs/ai/` (223 files mention snapshot); none
 covered `track()` staging cost. This one was genuinely new.
 
+## 3c. Engine pinned by File.status reading every untracked file
+
+**Symptom** — identical to #3/#3b from the phone: three dots forever, then an instant
+"network error" (`paired-mac.invalid`). Triggered by *connecting* to a chat whose cwd
+has large untracked files, not by sending.
+
+**Cause** — `File.status` read every `git ls-files --others` file in full and split on
+newlines to count lines. Measured 2026-10-07: 1,842 untracked files / 3.0 GB (2.9 GB
+.png) → **71.5 s per `GET /file/status`**, 97% of CPU in native UTF-8 `decode`. Mobile
+calls `file.status()` on every connect.
+
+**Fix** — `d69ad22e`: skip non-text mimes, 1 MiB per-file cap, 64 MiB aggregate budget.
+Same commit stops the engine watching `$HOME` (654 legacy sessions rooted there).
+
+**Check**
+```bash
+curl -s -o /dev/null -w '%{time_total}\n' "http://127.0.0.1:4096/file/status?directory=<cwd with big untracked media>"
+# must be well under 1 s; 71.5 s before the fix
+```
+
+**Trap** — the JSC profile showed only `decode` under `readFile` because Effect's
+runLoop flattens the stack; the caller was found by listing every `readFileString`
+site in the engine and matching the second hot frame (`stringSplitFast`).
+
 ## 4. Stale data shown with no error
 
 **Symptom** — app shows hours-old data and looks connected.
