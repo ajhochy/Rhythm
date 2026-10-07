@@ -53,6 +53,7 @@ import {
   readMirrorSessionList,
   readMirrorTranscript,
 } from './mobile_mirror_reads';
+import { boundMirrorTranscript } from './mobile_transcript_bounds';
 import {
   resolveProfileIdForOpenCodeAgent,
   safeMobileSessionProfileState,
@@ -1074,12 +1075,16 @@ export class MobileOpenCodeProxy {
           : {}),
       });
       if (messages === null) return null;
+      // A mirror-served page skips the engine, so it skips the engine's byte
+      // bound too. Apply the same ceiling here or `mirrorResponse` rejects an
+      // oversized page outright and the seed is undeliverable again.
+      const boundedMessages = boundMirrorTranscript(messages);
       // Reuse the live path's shaping so mirror-served parts get exactly the
       // same host-path and secret scrubbing. `session.messages` shaping never
       // consults the engine, so the fetcher must never be called.
       const safeValue = await shapeMobileOpenCodeResponse(
         operation,
-        messages,
+        boundedMessages,
         // Scrub against the session's authoritative directory (a worktree may
         // differ from the project root), exactly as the live path does.
         requestProject,
