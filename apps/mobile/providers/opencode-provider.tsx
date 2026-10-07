@@ -4469,6 +4469,24 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     pairedHostClient,
   ]);
 
+  // A session is only "working" while we can still hear from the engine.
+  // `session.status` is sticky: the engine emits busy, and if it then becomes
+  // unresponsive it never emits idle, so the phone kept animating a typing
+  // indicator for a turn that was already dead — measured 2026-10-07, three
+  // dots forever against an engine that never received the prompt. When the
+  // event stream is not connected we do not know a session is busy, so stop
+  // claiming it is.
+  useEffect(() => {
+    if (eventStreamStatus === 'connected' || eventStreamStatus === 'connecting') return;
+    setSessionStatuses((current) => {
+      const stale = Object.keys(current).filter((id) => current[id]?.type !== 'idle');
+      if (stale.length === 0) return current;
+      const next = { ...current };
+      for (const id of stale) next[id] = { type: 'idle' };
+      return next;
+    });
+  }, [eventStreamStatus]);
+
   const currentMessages = useMemo(
     () => (currentSessionId ? messagesBySession[currentSessionId] || [] : []),
     [currentSessionId, messagesBySession],
