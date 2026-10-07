@@ -437,6 +437,44 @@ describe('dedicated primary Rhythm conversation resolution', () => {
     expect(calls).toBe(1);
   });
 
+  it('captures an evidence-first planning request exactly, replays it once, and leaves near-misses as foreground chat', async () => {
+    db = database();
+    const allowed = new Map([[7, new Set(['project-a'])]]);
+    const repository = new CoordinatorConversationsRepository(db, () => now);
+    expect(repository.designatePrimaryOwnerRoot({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' }))
+      .toMatchObject({ kind: 'found', conversation: { controlRevision: 1 } });
+    let calls = 0;
+    const coordinator = service(repository, db, allowed, {
+      context: { assemble: async () => qualifiedContext() } as never,
+      foreground: { send: async () => { calls += 1; return { kind: 'accepted' }; } },
+    });
+    const evidenceFirst = {
+      sessionId: 'chat-a', projectId: 'project-a', expectedControlRevision: 1,
+      commandKey: 'evidence-first-goal',
+      message: 'First read the qualified synthetic Dayflow evidence and current managed memory reference. Then propose, without starting work, a bounded workflow to implement a fixture-only task-summary function.',
+    };
+    await expect(coordinator.receiveMessage(auth, evidenceFirst)).resolves.toMatchObject({
+      kind: 'foreground_accepted',
+      conversation: {
+        controlRevision: 2,
+        goals: [expect.objectContaining({ objective: evidenceFirst.message, state: 'captured', linkedWorkstreamId: null })],
+      },
+    });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM agent_async_delegations').get()).toEqual({ count: 0 });
+    await expect(coordinator.receiveMessage(auth, evidenceFirst)).resolves.toMatchObject({ kind: 'foreground_accepted' });
+    expect(calls).toBe(1);
+
+    await expect(coordinator.receiveMessage(auth, {
+      sessionId: 'chat-a', projectId: 'project-a', expectedControlRevision: 2,
+      commandKey: 'evidence-first-near-miss',
+      message: 'First read the evidence. Then summarize the current status.',
+    })).resolves.toMatchObject({
+      kind: 'foreground_accepted',
+      conversation: { controlRevision: 2, goals: [expect.objectContaining({ objective: evidenceFirst.message })] },
+    });
+    expect(calls).toBe(2);
+  });
+
   it('starts one captured goal through the existing Coding Workflow, replays no child, and admits only its exact completion callback for status', async () => {
     db = database();
     const allowed = new Map([[7, new Set(['project-a'])]]);

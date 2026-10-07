@@ -1,5 +1,8 @@
 export const config = {
-    ccVersion: "2.1.112",
+    // Anthropic rejects the Opus 5.5 OAuth route below Claude Code 2.1.280.
+    // Match the current upstream plugin config; this is the declared plugin
+    // compatibility floor, not a per-run header override.
+    ccVersion: "2.1.280",
     baseBetas: [
         "claude-code-20250219",
         "oauth-2025-04-20",

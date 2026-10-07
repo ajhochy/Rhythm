@@ -1,0 +1,26 @@
+{
+  "target": "workflow-orchestrator",
+  "source": {
+    "sha256": "605394cfdae5aab82997a28bd06c9a5a79b3e996f2293766cf9673e34d65d791",
+    "path": "~/.config/opencode/skills/workflow-orchestrator/SKILL.md"
+  },
+  "candidate": {
+    "sha256": "82e69ad3850e7e4cd80c2f2c8200b58bffa5d132a52b0e11eab1d643f7ea67a1"
+  },
+  "apply": {
+    "method": "PUT",
+    "path": "/opencode/skills/workflow-orchestrator",
+    "body": {
+      "description": "copy the current listed description",
+      "content": "the freshly read patched Markdown body after stripping the SKILL.md frontmatter"
+    },
+    "omit": [
+      "tags"
+    ],
+    "precondition": "GET /opencode/skills/workflow-orchestrator/content must hash to source.sha256; this API has no compare-and-swap"
+  },
+  "scope": {
+    "activeCodingAgentProfile": "already contains the feature-scope policy; no profile repair is proposed",
+    "environment": "parent-owned isolated sandbox only; never an installed-app or live service"
+  }
+}

@@ -51,8 +51,14 @@ so we vendor + surgically modify rather than reimplement.
      calls `markAccountsExhausted()` instead, so api_server can hand the turn
      to the next tier in the cross-provider fallback chain. This plugin never
      invokes another provider itself; only same-provider retry (6) does that.
+- `dist/model-config.js` — `ccVersion` is updated from the vendored 1.5.3
+  value (`2.1.112`) to the `2.1.280` compatibility floor in upstream v2.2.1.
+  Source: [`src/model-config.ts` at `v2.2.1`](https://github.com/griffinmartin/opencode-claude-auth/blob/v2.2.1/src/model-config.ts),
+  commit `8aad811a4da3813ab3985063e656fed582909780`, SHA-256
+  `948a2d48d32b7a2ae084a140c8ae1e9eccbd67f4b1aaa13de3b17c45c47aaef7`.
+  The rest of the vendored beta and model configuration remains unchanged.
 
 Everything else (`dist/transforms.js`, `dist/betas.js`, `dist/credentials.js`,
-`dist/keychain.js`, `dist/logger.js`, `dist/signing.js`, `dist/model-config.js`,
+`dist/keychain.js`, `dist/logger.js`, `dist/signing.js`,
 `dist/plugin-config.js`, entry `opencode-claude-auth.js`) is untouched upstream
 code.

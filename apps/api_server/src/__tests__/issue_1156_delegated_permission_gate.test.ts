@@ -119,6 +119,10 @@ function pendingAskFrames() {
     .filter((f) => f.type === 'permission.asked');
 }
 
+async function flushAutomaticPermissionReplies(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 describe('#1156 — delegated subagent permission gate', () => {
   let bridge: OpencodeStreamBridge;
   let repo: AgentSessionsRepository;
@@ -143,7 +147,7 @@ describe('#1156 — delegated subagent permission gate', () => {
   }
 
   // c1 — delegated child auto-accepts a non-allowlisted, non-blocklisted tool.
-  it('c1: a delegated child session (parentSessionId set) auto-accepts', () => {
+  it('c1: a delegated child session (parentSessionId set) auto-accepts', async () => {
     const parent = repo.insert({
       agentKind: 'claude-code',
       taskId: null,
@@ -176,8 +180,86 @@ describe('#1156 — delegated subagent permission gate', () => {
       CHILD_SDK_SESSION_ID,
     );
     expect(rejectCalls().length).toBe(0);
+    await flushAutomaticPermissionReplies();
     expect(resolvedFrames('accept').length).toBe(1);
     expect(pendingAskFrames().length).toBe(0);
+  });
+
+  it('c1b: a global-stream child ask replies through the event directory, not stale persisted cwd', () => {
+    const parent = repo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: '/persisted/project',
+      name: 'parent session',
+      projectId: null,
+    });
+    repo.setSdkSessionId(parent.id, PARENT_SDK_SESSION_ID);
+    sessionMap.set(parent.id, PARENT_SDK_SESSION_ID);
+
+    const child = repo.upsertChildSession(
+      CHILD_SDK_SESSION_ID,
+      PARENT_SDK_SESSION_ID,
+      'delegated task (@specialist subagent)',
+      '/persisted/project',
+    );
+    expect(child).not.toBeNull();
+    sessionMap.set(child!.id, CHILD_SDK_SESSION_ID);
+
+    relay({
+      ...permissionEvent(CHILD_SDK_SESSION_ID, 'glob', 'perm-c1b'),
+      __directory: '/engine/worktree',
+    });
+
+    expect(replyToPermissionSpy).toHaveBeenCalledWith(
+      'perm-c1b',
+      'once',
+      undefined,
+      '/engine/worktree',
+      CHILD_SDK_SESSION_ID,
+    );
+  });
+
+  it('c1c: missing or invalid global-stream directory retains the legacy persisted-CWD fallback', () => {
+    const parent = repo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: '/persisted/project',
+      name: 'parent session',
+      projectId: null,
+    });
+    repo.setSdkSessionId(parent.id, PARENT_SDK_SESSION_ID);
+    sessionMap.set(parent.id, PARENT_SDK_SESSION_ID);
+    const child = repo.upsertChildSession(
+      CHILD_SDK_SESSION_ID,
+      PARENT_SDK_SESSION_ID,
+      'delegated task (@specialist subagent)',
+      '/persisted/project',
+    );
+    expect(child).not.toBeNull();
+    sessionMap.set(child!.id, CHILD_SDK_SESSION_ID);
+
+    relay(permissionEvent(CHILD_SDK_SESSION_ID, 'glob', 'perm-c1c-missing'));
+    relay({
+      ...permissionEvent(CHILD_SDK_SESSION_ID, 'glob', 'perm-c1c-invalid'),
+      __directory: '',
+    });
+
+    expect(replyToPermissionSpy).toHaveBeenCalledWith(
+      'perm-c1c-missing',
+      'once',
+      undefined,
+      '/persisted/project',
+      CHILD_SDK_SESSION_ID,
+    );
+    expect(replyToPermissionSpy).toHaveBeenCalledWith(
+      'perm-c1c-invalid',
+      'once',
+      undefined,
+      '/persisted/project',
+      CHILD_SDK_SESSION_ID,
+    );
   });
 
   // c2 — absence of a row is not evidence that the session is delegated.
@@ -206,7 +288,7 @@ describe('#1156 — delegated subagent permission gate', () => {
   });
 
   // c3 — hardline blocklist deny still wins on a delegated child.
-  it('c3: a hardline-blocklisted bash command on a child is still denied', () => {
+  it('c3: a hardline-blocklisted bash command on a child is still denied', async () => {
     const parent = repo.insert({
       agentKind: 'claude-code',
       taskId: null,
@@ -227,19 +309,28 @@ describe('#1156 — delegated subagent permission gate', () => {
     expect(child).not.toBeNull();
     sessionMap.set(child!.id, CHILD_SDK_SESSION_ID);
 
-    relay(
-      permissionEvent(CHILD_SDK_SESSION_ID, 'bash', 'perm-c3', {
+    relay({
+      ...permissionEvent(CHILD_SDK_SESSION_ID, 'bash', 'perm-c3', {
         command: 'rm -rf /',
       }),
-    );
+      __directory: '/engine/hard-deny-worktree',
+    });
 
     expect(acceptCalls().length).toBe(0);
     expect(rejectCalls().length).toBe(1);
+    expect(replyToPermissionSpy).toHaveBeenCalledWith(
+      'perm-c3',
+      'reject',
+      expect.any(String),
+      '/engine/hard-deny-worktree',
+      CHILD_SDK_SESSION_ID,
+    );
+    await flushAutomaticPermissionReplies();
     expect(resolvedFrames('deny').length).toBe(1);
   });
 
   // c4 — plan-mode auto-deny still wins on a delegated child.
-  it('c4: a child session explicitly in plan mode still auto-denies', () => {
+  it('c4: a child session explicitly in plan mode still auto-denies', async () => {
     const parent = repo.insert({
       agentKind: 'claude-code',
       taskId: null,
@@ -261,7 +352,10 @@ describe('#1156 — delegated subagent permission gate', () => {
     repo.updatePermissionMode(child!.id, 'plan');
     sessionMap.set(child!.id, CHILD_SDK_SESSION_ID);
 
-    relay(permissionEvent(CHILD_SDK_SESSION_ID, 'glob', 'perm-c4'));
+    relay({
+      ...permissionEvent(CHILD_SDK_SESSION_ID, 'glob', 'perm-c4'),
+      __directory: '/engine/plan-worktree',
+    });
 
     expect(acceptCalls().length).toBe(0);
     expect(rejectCalls().length).toBe(1);
@@ -269,9 +363,10 @@ describe('#1156 — delegated subagent permission gate', () => {
       'perm-c4',
       'reject',
       expect.stringContaining('plan mode'),
-      expect.anything(),
+      '/engine/plan-worktree',
       CHILD_SDK_SESSION_ID,
     );
+    await flushAutomaticPermissionReplies();
     expect(resolvedFrames('deny').length).toBe(1);
   });
 
@@ -291,11 +386,19 @@ describe('#1156 — delegated subagent permission gate', () => {
     expect(session.permissionMode).toBe('default');
     sessionMap.set(session.id, PARENT_SDK_SESSION_ID);
 
-    relay(permissionEvent(PARENT_SDK_SESSION_ID, 'glob', 'perm-c5'));
+    relay({
+      ...permissionEvent(PARENT_SDK_SESSION_ID, 'glob', 'perm-c5'),
+      __directory: '/engine/interactive-worktree',
+    });
 
     expect(acceptCalls().length).toBe(0);
     expect(rejectCalls().length).toBe(0);
     expect(replyToPermissionSpy).not.toHaveBeenCalled();
-    expect(pendingAskFrames().length).toBe(1);
+    expect(pendingAskFrames()).toEqual([
+      expect.objectContaining({
+        permissionID: 'perm-c5',
+        directory: '/engine/interactive-worktree',
+      }),
+    ]);
   });
 });

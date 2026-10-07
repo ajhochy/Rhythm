@@ -245,6 +245,32 @@ describe('#739 — Scheduler AgentRunner wiring', () => {
     envSpy.mockRestore();
   });
 
+  it('records a structured engine assistant APIError as an infra-config error, never completed_no_op', async () => {
+    const envSpy = vi.spyOn(env, 'agentLocal', 'get').mockReturnValue(true);
+    mockFindDueAsync.mockResolvedValue([makeDueTask()]);
+    mockRun.mockResolvedValue({
+      sessionId: 'sdk-sess-1',
+      result: '',
+      status: 'error',
+      error: 'Engine assistant APIError: provider request failed',
+      failureCategory: 'infra_config',
+    });
+
+    const cronTask = startAgentSchedulerJob();
+    cronTask?.stop();
+    await cronTask?.boot;
+
+    const errorUpdate = mockUpdateNextRunAsync.mock.calls.find(
+      (call) => call[3] === 'error',
+    );
+    expect(errorUpdate?.[4]).toBe(
+      '[infra_config] Engine assistant APIError: provider request failed',
+    );
+    expect(mockUpdateNextRunAsync.mock.calls.some((call) => call[3] === 'completed_no_op')).toBe(false);
+
+    envSpy.mockRestore();
+  });
+
   // ── D. No tasks → no calls ────────────────────────────────────────────────
 
   it('does not call AgentRunner or insertScheduledTrigger when no tasks are due', async () => {

@@ -1,0 +1,14 @@
+--- a/workflow-orchestrator/SKILL.md
++++ b/workflow-orchestrator/SKILL.md
+@@ -31 +31 @@
+-3. **Plan/spec (optional)** — `planning-agent` only for ambiguous or nontrivial work; `issue-writer` only when GitHub-ready issues are wanted. Trivial, well-specified changes skip straight to dispatch. For nontrivial work the planning stage is **design-first**: planning-agent presents 2–3 approaches with trade-offs and gets AJ's approval on the design **before** decomposing into the issue table. No implementation dispatch until the design section is approved.
++3. **Plan/spec (optional)** — `planning-agent` only for ambiguous or nontrivial work; `issue-writer` only when GitHub-ready issues are wanted. Trivial, well-specified changes skip straight to dispatch. For nontrivial work without a durable approved-scope record, the planning stage is **design-first**: planning-agent presents 2–3 approaches with trade-offs and gets AJ's approval on the design **before** decomposing into the issue table. A durable approved-scope record for the same task, repository/branch, and objective supplies that decision; preserve it rather than reopening unchanged scope.
+@@ -95,0 +96,8 @@
++## Approved-scope handoff
++
++When an authorized feature is dispatched, preserve one durable approved-scope record in the plan or run note: task identity; repository and branch; objective; allowed work; exclusions; authorization evidence; and resolved decisions. Give the exact record to every `coding-agent` handoff and every resume of that same task. It covers necessary internal implementation details, exported symbols, routes, additive fields, tests, and bounded run/contract artifacts for the feature. It is not a per-symbol allowlist and never transfers to another task, repository, branch, or objective.
++
++Consolidate GitNexus HIGH/CRITICAL findings into one impact, test, and review report. That rating informs review and verification; it does not create a new approval request by itself when the work remains in the approved feature scope. Do not reopen an unchanged authorized decision after a resume or manufacture an expiry. Ask for a new human decision only for material scope expansion, a newly discovered consequential risk outside the record, or a separately restricted operation.
++
++Classify each hold as a host tool-permission denial, a workflow rule, or a new scope/risk decision. Host permission modes, including explicit bypass, do not create workflow scope or override exclusions. Keep merge, deployment, destructive recovery, credential access, and live-hardware operations separately restricted unless expressly authorized.
++

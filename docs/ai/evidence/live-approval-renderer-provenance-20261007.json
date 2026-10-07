@@ -1,0 +1,44 @@
+{
+  "observedAt": "2026-10-07",
+  "scope": "read-only renderer and ancestry provenance",
+  "installedCandidate": {
+    "snapshotCommit": "237f54db60bb0f58f42e8f0fbce3b1069a70c652",
+    "bundle": "/Users/ajhochhalter/Documents/Codex/2026-10-07/signed-desktop-build-mega/signed-apps/237f54db/Rhythm.app",
+    "packageReceipt": "/Users/ajhochhalter/Documents/Codex/2026-10-07/signed-desktop-build-mega/package-receipt.json",
+    "packageCommand": "node scripts/package-mac.mjs",
+    "packageExitCode": 0,
+    "signed": true,
+    "rendererIndex": "Contents/Resources/app/web/dist/index.html",
+    "rendererAsset": "Contents/Resources/app/web/dist/assets/index-rlf22oSW.js",
+    "rendererAssetSha256": "e291f5a0927875f9c25ee90ab950060efb01e548ac881bc952125fae7ca37714"
+  },
+  "ancestry": {
+    "c17": "f637276267081b491da56c0696416eb257600ae8",
+    "c17IsAncestorOfInstalled": true,
+    "approvalQueueRefreshCommit": "c3961b02c1c89f21b474b284ec97b5db12d62ca6",
+    "approvalQueueRefreshIsAncestorOfInstalled": true,
+    "approvalQueueRefreshIsNotAncestorOfC17": true
+  },
+  "rendererMarkers": {
+    "present": [
+      "Pending approvals could not be refreshed",
+      "Refresh approvals",
+      "approval-queue-status",
+      "Approval queue needs attention; showing last known pending cards"
+    ],
+    "absent": [
+      "Pending approvals could not be loaded"
+    ]
+  },
+  "sourceComparison": {
+    "flutterApprovalRendererAndApiRouteBlobsC17ToInstalled": "unchanged",
+    "webTranscriptBlobC17ToInstalled": "changed",
+    "webShellStoreAndApprovalGatewayBlobsC17ToInstalled": "unchanged"
+  },
+  "conclusion": "The signed 237f candidate embeds the c3961b queue refresh/error presentation, so no stale-renderer or C17-versus-installed approval-delivery regression is proven.",
+  "limitations": [
+    "An earlier UI observation was discarded because it targeted a different app copy.",
+    "No correct-candidate UI interaction or approval decision was performed.",
+    "A healthy API and engine do not prove approval queue access: the GET route requires authenticated human access and the human-approval capability."
+  ]
+}

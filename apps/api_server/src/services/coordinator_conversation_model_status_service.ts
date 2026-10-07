@@ -140,7 +140,7 @@ export class CoordinatorConversationModelStatusService {
   }
 
   async proposeWorkflow(auth: AuthContext | undefined, body: unknown) {
-    const held = () => ({ schemaVersion: 1 as const, status: 'held' as const, text: 'Bounded Coding Workflow proposal is held; check the current captured goal, indexed reference and plan-root scope.' });
+    const held = () => ({ schemaVersion: 1 as const, status: 'held' as const, text: 'Bounded Coding Workflow proposal is a workflow precondition hold; the generic response does not identify its cause. Do not infer a configuration fault or recommend changing settings or starting a new chat based solely on it. Check the current captured goal, indexed reference, and plan-root scope.' });
     try {
       const envelope = trustedEnvelope(body);
       if (!auth || !envelope) return held();
@@ -187,6 +187,7 @@ export class CoordinatorConversationModelStatusService {
           `${estimate.totalSoftTokens.toLocaleString('en-US')} soft tokens total (input/output/reasoning/cache; no hard output cap); ` +
           `${estimate.workerWallSeconds} seconds per worker; ${estimate.outerTurns} checked outer turns.\n` +
           `Expiry allowance: ${estimate.expirySeconds} seconds from proposal, absolute deadline ${candidate.expiresAt}; approval does not extend it.\n` +
+          'Checked outcome: selected reference current plus an independently reviewed cited summary; code changes and tests are not verified by this workflow.\n' +
           `Estimate rationale: ${estimate.rationale}`;
         approval = getDb().transaction(() => {
           if (!resolved.isCurrent!() || JSON.stringify(this.dependencies.conversations.boundedWorkflowSelection(auth, binding, candidate.goalId)) !== JSON.stringify(current)) {

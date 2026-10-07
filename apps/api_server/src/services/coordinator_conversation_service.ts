@@ -397,12 +397,18 @@ export function ordinaryForegroundGoalCandidate(message: string): string | null 
   const directAction = new RegExp(`^(?:please\\s+)?${verbs}`, 'i');
   const explicitDelegation = new RegExp(`^(?:i|we)\\s+(?:need|want)\\s+you\\s+to\\s+${verbs}`, 'i');
   const politeActionQuestion = new RegExp(`^(?:can|could|would)\\s+you\\s+${verbs}`, 'i');
+  // Evidence-first planning is still a literal user goal, not model inference:
+  // require an anchored imperative and a sentence/newline/semicolon boundary
+  // before an explicitly planning-only next clause. This creates no authority.
+  const evidenceFirstPlanning = /^first(?:\s*,\s*|\s+)(?:read|review|inspect|check)\b[\s\S]*?(?:[.;]|\r?\n)\s*then\s+(?:please\s+)?(?:propose|plan|prepare)\b/i;
   if (
     exact.length === 0 || exact.length > MAX_COORDINATOR_GOAL_CHARS ||
     (exact.endsWith('?') && !politeActionQuestion.test(exact)) || deterministicStatusRequest(exact) ||
     /^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks?|thank\s+you|ok(?:ay)?|yes|no|sure|great|cool)[.!?\s]*$/i.test(exact)
   ) return null;
-  return directAction.test(exact) || explicitDelegation.test(exact) || politeActionQuestion.test(exact) ? exact : null;
+  return directAction.test(exact) || explicitDelegation.test(exact) || politeActionQuestion.test(exact) || evidenceFirstPlanning.test(exact)
+    ? exact
+    : null;
 }
 
 function foregroundGoalCommandKey(requestScope: CoordinatorConversationScope, commandKey: string): string {
@@ -702,7 +708,7 @@ export class CoordinatorConversationService {
     goalSelector: string, linkedWorkstreamId?: string) {
     const currentScope = this.currentActorScope(actor, input);
     const current = currentScope ? this.repository.get(currentScope) : null;
-    const selected = this.currentRootSelection(actor, input);
+    const selected = this.currentWorkflowRootSelection(actor, input);
     if (!this.dependencies.codingWorkflow || !this.dependencies.jobs?.bindCoordinatorWorkflowPrepared ||
         !this.dependencies.jobs.recordCoordinatorWorkflowDelivery || !this.c2Enabled() || !current || current.kind !== 'found' || !current.conversation.primaryOwnerRoot ||
         !selected || selected.session.sdkSessionId !== input.sdkSessionId || selected.session.permissionMode !== 'plan' ||
@@ -1505,10 +1511,10 @@ export class CoordinatorConversationService {
       return { kind: 'planning_authority_unavailable', conversation: initial };
     }
     const ownerUserId = actor.user.id;
-    let selected = this.currentRootSelection(actor, request);
+    let selected = this.currentWorkflowRootSelection(actor, request);
     if (!selected) return { kind: 'planning_authority_unavailable', conversation: initial };
     if (!selected.session.sdkSessionId) {
-      const initialized = await this.ensureManagedSelection(actor, request, selected);
+      const initialized = await this.ensureManagedSelection(actor, request, selected, selected.session.modelMode === 'fixed');
       if (!initialized) return { kind: 'planning_authority_unavailable', conversation: initial };
       selected = initialized;
     }
@@ -1620,7 +1626,7 @@ export class CoordinatorConversationService {
     if (workflowAuthorization && !authorize) return { kind: 'planning_authority_unavailable', conversation };
     // All synchronous reads occur after the final native reproof await.
     const afterRead = this.repository.get(scope(ownerUserId, request));
-    const afterSelected = this.currentRootSelection(actor, request);
+    const afterSelected = this.currentWorkflowRootSelection(actor, request);
     const afterWorkstream = this.dependencies.workstreams.find(ownerUserId, request.projectId, workstreamId);
     if (
       afterRead.kind !== 'found' || afterRead.conversation.controlRevision !== conversation.controlRevision ||
@@ -1709,7 +1715,7 @@ export class CoordinatorConversationService {
     const latest = this.repository.get(scope(ownerUserId, request));
     const latestAuthority = latest.kind === 'found' ? this.authorityForId(latest.conversation, authorizationId) : null;
     const latestWorkstream = this.dependencies.workstreams.find(ownerUserId, request.projectId, workstreamId);
-    const latestSelection = this.currentManagedSelection(actor, request);
+    const latestSelection = this.currentWorkflowManagedSelection(actor, request);
     if (
       latest.kind !== 'found' || !latestAuthority || latestAuthority.purpose !== 'workflow' ||
       !latestWorkstream || latestWorkstream.state !== 'ready' || !latestSelection ||
@@ -1990,7 +1996,7 @@ export class CoordinatorConversationService {
     const workstream = authority
       ? this.dependencies.workstreams.find(ownerUserId, projectId, authority.workstreamId)
       : null;
-    const selection = this.currentInternalManagedSelection(ownerUserId, { sessionId: rootSessionId, projectId });
+    const selection = this.currentWorkflowInternalManagedSelection(ownerUserId, { sessionId: rootSessionId, projectId });
     if (
       !authority || authority.purpose !== 'workflow' || !authority.workflow || !workstream || !selection ||
       authorization.workstreamId !== authority.workstreamId || authorization.goalId !== authority.goalId ||
@@ -2414,7 +2420,7 @@ export class CoordinatorConversationService {
       const workstream = authority
         ? this.dependencies.workstreams!.find(input.ownerUserId, input.projectId, authority.workstreamId)
         : null;
-      const selection = this.currentInternalManagedSelection(input.ownerUserId, request);
+      const selection = this.currentWorkflowInternalManagedSelection(input.ownerUserId, request);
       return { conversation, authority, goal, workstream, selection };
     };
     const initial = read();
@@ -2536,10 +2542,17 @@ export class CoordinatorConversationService {
       if (!this.c2Enabled() || !this.currentOwnerProjectAuthorized(conversation.ownerUserId, conversation.projectId)) continue;
       const request = { sessionId: conversation.sessionId, projectId: conversation.projectId };
       const current = this.repository.get({ ...request, ownerUserId: conversation.ownerUserId });
-      const selected = this.currentInternalManagedSelection(conversation.ownerUserId, request);
-      if (current.kind !== 'found' || current.conversation.id !== conversation.id || !selected) continue;
+      // Generic finite reconciliation retains strict profile-default selection.
+      // A signed Coding Workflow may retain only an existing fixed parent
+      // session model; auto rows still use the profile default below.
+      const strictSelection = this.currentInternalManagedSelection(conversation.ownerUserId, request);
+      if (current.kind !== 'found' || current.conversation.id !== conversation.id) continue;
       for (const authority of current.conversation.continuations) {
         if (authority.status !== 'consumed' || authority.consumedTurns < 1 || authority.consumedTurns > authority.maxTurns) continue;
+        const selection = authority.purpose === 'workflow'
+          ? this.currentWorkflowInternalManagedSelection(conversation.ownerUserId, request)
+          : strictSelection;
+        if (!selection) continue;
         const goal = current.conversation.goals.find((candidate) => candidate.id === authority.goalId);
         const workstream = this.dependencies.workstreams!.find(
           conversation.ownerUserId,
@@ -2568,7 +2581,7 @@ export class CoordinatorConversationService {
         }
         if (
           !goal || !workstream || !workstream.lastJobId ||
-          !this.authorityStillCurrent(current.conversation, authority, selected, workstream)
+          !this.authorityStillCurrent(current.conversation, authority, selection, workstream)
         ) continue;
         const job = this.dependencies.jobs!.getNativeForWorkstream({
           localUserId: conversation.ownerUserId,
@@ -2927,10 +2940,15 @@ export class CoordinatorConversationService {
     const workstream = authority
       ? this.dependencies.workstreams!.find(input.ownerUserId, input.conversation.projectId, authority.workstreamId)
       : null;
-    const selection = this.currentInternalManagedSelection(input.ownerUserId, {
-      sessionId: input.conversation.sessionId,
-      projectId: input.conversation.projectId,
-    });
+    const selection = input.authority.purpose === 'workflow'
+      ? this.currentWorkflowInternalManagedSelection(input.ownerUserId, {
+        sessionId: input.conversation.sessionId,
+        projectId: input.conversation.projectId,
+      })
+      : this.currentInternalManagedSelection(input.ownerUserId, {
+        sessionId: input.conversation.sessionId,
+        projectId: input.conversation.projectId,
+      });
     return Boolean(
       authority && goal && workstream && selection &&
       authority.authorizationId === input.authority.authorizationId &&
@@ -2973,10 +2991,15 @@ export class CoordinatorConversationService {
     });
     if (current.kind !== 'found' || current.conversation.id !== input.conversation.id) return false;
     const authority = this.authorityForId(current.conversation, input.authority.authorizationId);
-    const selection = this.currentInternalManagedSelection(input.ownerUserId, {
-      sessionId: input.conversation.sessionId,
-      projectId: input.conversation.projectId,
-    });
+    const selection = input.authority.purpose === 'workflow'
+      ? this.currentWorkflowInternalManagedSelection(input.ownerUserId, {
+        sessionId: input.conversation.sessionId,
+        projectId: input.conversation.projectId,
+      })
+      : this.currentInternalManagedSelection(input.ownerUserId, {
+        sessionId: input.conversation.sessionId,
+        projectId: input.conversation.projectId,
+      });
     const workstream = authority
       ? this.dependencies.workstreams!.find(input.ownerUserId, input.conversation.projectId, authority.workstreamId)
       : null;
@@ -3035,10 +3058,15 @@ export class CoordinatorConversationService {
       return false;
     }
     const afterAuthority = this.authorityForId(after.conversation, authority.authorizationId);
-    const afterSelection = this.currentInternalManagedSelection(input.ownerUserId, {
-      sessionId: input.conversation.sessionId,
-      projectId: input.conversation.projectId,
-    });
+    const afterSelection = input.authority.purpose === 'workflow'
+      ? this.currentWorkflowInternalManagedSelection(input.ownerUserId, {
+        sessionId: input.conversation.sessionId,
+        projectId: input.conversation.projectId,
+      })
+      : this.currentInternalManagedSelection(input.ownerUserId, {
+        sessionId: input.conversation.sessionId,
+        projectId: input.conversation.projectId,
+      });
     const afterWorkstream = afterAuthority
       ? this.dependencies.workstreams!.find(input.ownerUserId, input.conversation.projectId, afterAuthority.workstreamId)
       : null;
@@ -3832,11 +3860,12 @@ export class CoordinatorConversationService {
       !profile || agentConfigExecutionBlockReason(profile) || !profile.isAgent || profile.locked === true ||
       !profile.modelProvider || !profile.modelId
     ) return null;
-    // Only the ordinary foreground/status/resolve paths (`allowSessionModel`)
-    // carry an authorized SESSION model that differs from the profile default.
+    // Only ordinary foreground/status/resolve paths (`allowSessionModel`)
+    // carry a stored SESSION model generally. The signed bounded Coding
+    // Workflow narrows that to a fixed session override through its own helper.
     // The model choice never changes the profile's prompt/tool/grant scope,
-    // which stays selected by `session.profileId`. Finite/managed/goal paths
-    // keep the strict profile-equality proof.
+    // which stays selected by `session.profileId`. Other finite, managed, and
+    // goal paths keep the strict profile-equality proof.
     if (session.modelMode === 'fixed') {
       if (!session.providerId || !session.modelId) return null;
       if (!allowSessionModel &&
@@ -3929,7 +3958,7 @@ export class CoordinatorConversationService {
     const workstream = authority
       ? this.dependencies.workstreams.find(input.ownerUserId, input.request.projectId, authority.workstreamId)
       : null;
-    const selection = this.currentInternalManagedSelection(input.ownerUserId, input.request);
+    const selection = this.currentWorkflowInternalManagedSelection(input.ownerUserId, input.request);
     const job = authority
       ? this.dependencies.jobs.getNativeForWorkstream({
         localUserId: input.ownerUserId, workstreamId: authority.workstreamId, jobId: input.jobId,
@@ -4013,6 +4042,37 @@ export class CoordinatorConversationService {
       binding.workflowBinding.expiresAt === expiresAt &&
       binding.owner.rootSdkSessionId === binding.delegation.nativeParentSdkSessionId &&
       binding.owner.rootSdkSessionId !== binding.delegation.managerSdkSessionId;
+  }
+
+  /** Bounded workflow permits a persisted fixed root override, never an auto-session override. */
+  private currentWorkflowRootSelection(
+    actor: AuthContext,
+    request: CoordinatorConversationOpenRequest,
+  ): ManagedSelection | null {
+    const sessionSelection = this.currentRootSelection(actor, request, true);
+    if (!sessionSelection || sessionSelection.session.modelMode === 'fixed') return sessionSelection;
+    return this.currentRootSelection(actor, request);
+  }
+
+  private currentWorkflowManagedSelection(
+    actor: AuthContext,
+    request: CoordinatorConversationOpenRequest,
+  ): ManagedSelection | null {
+    const selected = this.currentWorkflowRootSelection(actor, request);
+    return selected?.session.sdkSessionId ? selected : null;
+  }
+
+  /** Server-only counterpart of the fixed-only workflow root selection. */
+  private currentWorkflowInternalManagedSelection(
+    ownerUserId: number,
+    request: CoordinatorConversationOpenRequest,
+  ): ManagedSelection | null {
+    if (!this.currentOwnerProjectAuthorized(ownerUserId, request.projectId)) return null;
+    const sessionSelection = this.currentServerRootSelection(ownerUserId, request, true);
+    const selected = !sessionSelection || sessionSelection.session.modelMode === 'fixed'
+      ? sessionSelection
+      : this.currentServerRootSelection(ownerUserId, request);
+    return selected?.session.sdkSessionId ? selected : null;
   }
 
   private currentManagedSelection(

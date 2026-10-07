@@ -63,6 +63,26 @@ describe('direct goal capture classifier', () => {
     ]) expect(ordinaryForegroundGoalCandidate(`  ${message}  `)).toBe(message);
   });
 
+  it('captures explicit evidence-first planning requests with exact authored text', () => {
+    for (const message of [
+      'First read the qualified synthetic Dayflow evidence and current managed memory reference. Then propose, without starting work, a bounded workflow to implement a fixture-only task-summary function.',
+      'First, review the selected reference; Then please plan one focused implementation and test.',
+      'First inspect the current evidence\nThen prepare a bounded proposal for review.',
+    ]) expect(ordinaryForegroundGoalCandidate(`  ${message}  `)).toBe(message);
+  });
+
+  it('keeps non-imperative or incomplete evidence-first language as chat', () => {
+    for (const message of [
+      '"First read the evidence. Then propose a bounded workflow."',
+      'The user said first read the evidence. Then propose a bounded workflow.',
+      'If you first read the evidence, then propose a bounded workflow.',
+      'First read the evidence. Then propose a bounded workflow?',
+      'First read the evidence. Then summarize the current status.',
+      'First read the evidence and tell me what is happening.',
+      'Firstread the evidence. Then propose a bounded workflow.',
+    ]) expect(ordinaryForegroundGoalCandidate(message)).toBeNull();
+  });
+
   it('keeps questions, status requests, explanations and greetings as chat', () => {
     for (const message of [
       'How do I fix the login bug?',

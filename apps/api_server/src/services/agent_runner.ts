@@ -288,6 +288,42 @@ function _extractText(parts: ReadonlyArray<{ type: string }> | undefined): strin
     .trim();
 }
 
+interface StructuredAssistantError {
+  message: string;
+  failureCategory: AgentRunFailureCategory;
+}
+
+/**
+ * An engine prompt can acknowledge with an assistant-shaped provider error.
+ * Read provider text only long enough to classify it; never persist or log it.
+ * Provider errors are transport/configuration failures, never teacher-retryable
+ * model-quality evidence.
+ */
+function _structuredAssistantError(info: unknown): StructuredAssistantError | null {
+  const error = (info as { error?: unknown } | null | undefined)?.error;
+  if (!error) return null;
+
+  const record = typeof error === 'object' && error !== null
+    ? error as { name?: unknown; data?: unknown }
+    : null;
+  const rawName = typeof record?.name === 'string' ? record.name : '';
+  const rawData = record?.data as { message?: unknown } | null | undefined;
+  const rawMessage = rawData && typeof rawData === 'object' && typeof rawData.message === 'string'
+    ? rawData.message
+    : typeof error === 'string'
+      ? error
+      : '';
+  const classified = classifyAgentRunFailure({ error: `${rawName} ${rawMessage}` });
+  const failureCategory = classified.category === 'model_quality'
+    ? 'infra_config'
+    : classified.category;
+  const safeName = rawName === 'APIError' ? 'APIError' : 'provider error';
+  return {
+    message: `Engine assistant ${safeName}: provider request failed`,
+    failureCategory,
+  };
+}
+
 /**
  * C1 (2026-08-03 config-doctor track C, daily-dev-summary abort): a run that
  * times out mid-retry must not erase a good result a sub-agent already
@@ -1775,6 +1811,24 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         status: 'error',
         error:
           'AgentRunner: model produced no output — check the agent profile model (provider/modelId) is valid and the provider is authenticated',
+      };
+    }
+
+    const assistantError = _structuredAssistantError(response.info);
+    if (assistantError) {
+      logger.error(`[AgentRunner] prompt returned assistant error: ${assistantError.message}`);
+      _markSessionError(
+        rhythmSessionId,
+        assistantError.message,
+        false,
+        resolvedRunEpisodeId ?? undefined,
+      );
+      return {
+        sessionId: rhythmSessionId ?? sessionId,
+        result: '',
+        status: 'error',
+        error: assistantError.message,
+        failureCategory: assistantError.failureCategory,
       };
     }
 
