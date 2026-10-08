@@ -353,7 +353,7 @@ export class DayflowProviderAdmissionService {
       // A known manager/descendant row is not itself retained Dayflow evidence.
       // Its current owned root/project join must still be exact; ambiguous,
       // foreground and unsafe receivers cannot use this ordinary path.
-      if (lookup.kind === 'ambiguous' || lookup.kind === 'unbound_scheduled' || (lookup.kind === 'found' && (
+      if (lookup.kind === 'ambiguous' || lookup.kind === 'unbound_system' || (lookup.kind === 'found' && (
         lookup.scope.ownerUserId !== auth.user.id || lookup.scope.rootChat || lookup.scope.unsafeCode !== null ||
         lookup.scope.sdkSessionId !== request.request.sdkSessionId || root?.kind !== 'found' ||
         root.scope.ownerUserId !== auth.user.id || !root.scope.rootChat || root.scope.unsafeCode !== null ||
@@ -435,7 +435,7 @@ export class DayflowProviderAdmissionService {
     }
     const lookup = records.lookupProviderSession(request.sdkSessionId);
     if (lookup.kind === 'ambiguous') return this.hold(request, 'history_ambiguous');
-    if (lookup.kind === 'unbound_scheduled') {
+    if (lookup.kind === 'unbound_system') {
       const scheduled = lookup.session;
       if (scheduled.ownerUserId !== null && scheduled.ownerUserId !== auth.user.id) {
         return this.hold(request, 'receiver_changed');
@@ -451,7 +451,7 @@ export class DayflowProviderAdmissionService {
       });
       FINALIZERS.set(ordinary, () => {
         const current = records.lookupProviderSession(request.sdkSessionId);
-        if (current.kind !== 'unbound_scheduled' || current.session.sessionId !== scheduled.sessionId ||
+        if (current.kind !== 'unbound_system' || current.session.sessionId !== scheduled.sessionId ||
             current.session.scheduledTaskId !== scheduled.scheduledTaskId ||
             current.session.directory !== scheduled.directory ||
             current.session.ownerUserId !== scheduled.ownerUserId || current.session.projectId !== scheduled.projectId ||

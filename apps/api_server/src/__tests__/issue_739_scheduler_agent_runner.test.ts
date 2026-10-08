@@ -10,6 +10,8 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
+const { mockRecordRunHistory } = vi.hoisted(() => ({ mockRecordRunHistory: vi.fn().mockResolvedValue(undefined) }));
+
 // ── Hoist mock fns so factories can reference them ────────────────────────────
 
 const {
@@ -64,7 +66,7 @@ vi.mock('../repositories/agent_scheduled_tasks_repository', () => ({
 // raw getDb().prepare(...).run(mockDbRun) path this file's assertions key on.
 vi.mock('../repositories/agent_scheduled_task_runs_repository', () => ({
   AgentScheduledTaskRunsRepository: class {
-    create = vi.fn().mockResolvedValue(undefined);
+    create = mockRecordRunHistory;
   },
 }));
 
@@ -147,6 +149,21 @@ describe('#739 — Scheduler AgentRunner wiring', () => {
   });
 
   // ── B. AGENT_LOCAL false → use insertScheduledTrigger, not AgentRunner ─────
+
+  it('preserves bounded Dayflow guard reason in task last_error and run history', async () => {
+    vi.spyOn(env, 'agentLocal', 'get').mockReturnValue(true);
+    mockFindDueAsync.mockResolvedValueOnce([makeDueTask()]).mockResolvedValue([]);
+    const reason = 'AgentRunner: Dayflow provider guard held this request (history_ambiguous)';
+    mockRun.mockResolvedValue({ sessionId: 'session-1', result: '', status: 'error', error: reason });
+    const task = startAgentSchedulerJob();
+    task?.stop();
+    await task?.boot;
+    await vi.waitFor(() => expect(mockRecordRunHistory).toHaveBeenCalled());
+    expect(mockUpdateNextRunAsync.mock.calls.find(call => call[3] === 'error')?.[4]).toBe(`[infra_config] ${reason}`);
+    expect(mockRecordRunHistory).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'error', error: `[infra_config] ${reason}`, rootSessionId: 'session-1',
+    }));
+  });
 
   it('with AGENT_LOCAL=false: calls insertScheduledTrigger and does NOT call AgentRunner.run', async () => {
     const envSpy = vi.spyOn(env, 'agentLocal', 'get').mockReturnValue(false);
