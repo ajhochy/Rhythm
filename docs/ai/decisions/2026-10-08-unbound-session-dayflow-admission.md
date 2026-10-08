@@ -19,12 +19,18 @@ non-receiver.
 
 ## Decision
 
-- A single well-formed row missing owner and/or project is `unbound`. It is admitted as
-  ordinary only if no Dayflow evidence is retained for it (any `dayflow_context_*`
-  dispatch column or a non-reuse marker) and any known owner matches the caller; the
-  decision is re-checked at final exposure.
-- Retained evidence on a non-receiver holds `history_ambiguous` (corrupt; never cleared
-  or repaired here). A known foreign owner holds `receiver_changed`. Malformed values and
+Mega (`ac056260`, from the #1610 line) already admits ownerless scheduled ROOT sessions on
+a zero-history path. This branch widens that same path instead of adding a second one:
+
+- A single well-formed row missing owner and/or project is `unbound_system` when it is a
+  system AgentRunner session (`is_system=1`, category `scheduled` or `self_improvement`,
+  root or child), not archived, unmarked, with a well-formed scheduled task id when present
+  and no retained Dayflow evidence (any `dayflow_context_*` dispatch column). It is
+  admitted as ordinary only if any known owner matches the caller; the decision is
+  re-checked at final exposure.
+- Interactive or other-category rows without a binding, marked rows and rows carrying
+  evidence stay `ambiguous` -> `history_ambiguous` (corrupt; never cleared or repaired
+  here). A known foreign owner holds `receiver_changed`. Malformed values, a null id and
   duplicate rows stay `ambiguous`. Owned sessions keep the existing `found` path.
 - The Coordinator workflow path does not admit unbound rows.
 - No projects or owners are invented; production rows are not patched.
@@ -34,8 +40,10 @@ non-receiver.
 
 ## Alternatives
 
-- Special-case `category='scheduled'` roots (draft PR #1610): misses scheduled children
-  and self-improvement runs, which fail the same way.
+- Scheduled roots only (#1610 line, now on mega): leaves scheduled children and the
+  self-improvement runs held (61 of 72 failures since the 2026-10-07 build).
+- Any well-formed ownerless row (this branch's first draft): also admits interactive rows
+  that lost their binding; holding those is the safer default.
 - Clear or backfill markers/owners in production: hides the problem and invents
   authority.
 - Remove the provider guard for Rhythm-managed calls: drops the protection for real

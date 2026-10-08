@@ -10,15 +10,19 @@ tags: [run, rhythm]
 
 # Scheduled Dayflow regression, memory relevance, Kev + OpenAI Decisions shadow routing
 
-Base: `origin/mega/2026-09-29-consolidation` @ `3f5f4e9c`, which contains the deployed signed
-build `237f54db`. Draft PR #1610 (older base, scheduled-root special case) was not reused.
+Base: `origin/mega/2026-09-29-consolidation`, first `3f5f4e9c` (contains the deployed signed
+build `237f54db`), then rebased onto `ac056260` after mega integrated the #1610-line
+scheduled-root admission; the Dayflow change now widens that path to all system AgentRunner
+sessions instead of adding a parallel one.
 The original checkout (18705742, dirty) was not touched. Private prompts, transcripts and
 per-turn judgements stay in the operator's private audit folder; this record holds aggregates.
 
 ## Files
 
-- Dayflow admission: `dayflow_receiving_context_repository.ts` (`unbound` lookup),
-  `dayflow_receiving_history_guard.ts`, `agent_runner.ts` (guard reason, generic memory fence).
+- Dayflow admission: `dayflow_receiving_context_repository.ts` (`unbound_system` lookup,
+  null-id guard), `dayflow_receiving_history_guard.ts` (kind rename only), `agent_runner.ts`
+  (guard reason, generic memory fence); real `scheduled_task_id` column added to the
+  `coding_workflow_provider_receiving_session.test.ts` fixture (its lookup errored on mega).
   Decision: `decisions/2026-10-08-unbound-session-dayflow-admission.md`.
 - Memory: `memory_retrieval.ts`, `automatic_memory_preface.ts`,
   `agent_session_messages_repository.ts`, new `agent_memory_turn_receipts_repository.ts`,
