@@ -46,6 +46,7 @@ const baseRouterConfig = (): Body => ({
   jev: { baseUrl: 'https://api.typesafe.ai', model: 'jev-latest', hasApiKey: false },
   custom: { baseUrl: '', model: '', scoreScale: 'auto', hasApiKey: false },
   systemone: { baseUrl: 'http://127.0.0.1:8009', model: 'kev-latest', hasApiKey: false },
+  openaiDecisions: { baseUrl: 'https://api.openai.com', model: 'gpt-6-luna', hasApiKey: false },
   timeoutMs: 1500, remoteDataConsent: false,
   features: { model_routing: 'default', tool_ranking: 'default', memory_ranking: 'off', capacity_routing: 'default' },
   lockedByEnv: ['tool_ranking'],
@@ -105,7 +106,7 @@ async function setup(page: Page, opts: { modelMode?: 'auto' | 'fixed' | undefine
       if (state.putError) return json({ error: 'consent_required', message: state.putError.message }, state.putError.status);
       const next = state.routerConfig;
       next.backend = body.backend ?? next.backend;
-      for (const key of ['local', 'jev', 'custom', 'systemone']) if (body[key]) { const { apiKey, ...rest } = body[key]; Object.assign(next[key], rest); if (apiKey !== undefined) next[key].hasApiKey = apiKey !== ''; }
+      for (const key of ['local', 'jev', 'custom', 'systemone', 'openaiDecisions']) if (body[key]) { const { apiKey, ...rest } = body[key]; Object.assign(next[key], rest); if (apiKey !== undefined) next[key].hasApiKey = apiKey !== ''; }
       if (body.remoteDataConsent !== undefined) next.remoteDataConsent = body.remoteDataConsent;
       if (body.features) Object.assign(next.features, body.features);
       if (next.catalog && next.catalog.models.length && (body.tiers || body.tierOverrides || body.excludedModels)) {
@@ -133,6 +134,9 @@ async function setup(page: Page, opts: { modelMode?: 'auto' | 'fixed' | undefine
     if (path === '/agent-decisions/config/test') {
       state.routerTests.push(request.postDataJSON() as Body);
       if (state.testFails) return json({ ok: false, message: 'connection refused' });
+      if ((request.postDataJSON() as Body).backend === 'openai_decisions') {
+        return json({ ok: true, backend: 'openai_decisions', model: 'gpt-6-luna', latencyMs: 330, tier: 'standard', score: 0.6, probabilities: { cheap: 0.2, standard: 0.6, frontier: 0.2 } });
+      }
       if ((request.postDataJSON() as Body).backend === 'systemone') {
         return json({ ok: true, backend: 'systemone', model: 'kev-4b', latencyMs: 345, tier: 'cheap', probabilities: { cheap: 0.9, standard: 0.08, frontier: 0.02 }, ranked: [{ text: 'cheap', score: 0.9 }, { text: 'standard', score: 0.08 }, { text: 'frontier', score: 0.02 }] });
       }
@@ -491,4 +495,42 @@ test('router:B5 System One: loopback needs no consent, remote does; key is write
   await expect(page.getByTestId('router-notice')).toBeVisible();
   expect(state.routerPuts.at(-1)).toMatchObject({ backend: 'systemone', remoteDataConsent: true, timeoutMs: 1000, systemone: { baseUrl: 'https://api.typesafe.ai', apiKey: 'sk-kev' } });
   await expect(page.getByTestId('router-systemone-key-saved')).toHaveText('Key saved');
+});
+
+test('router:B7 OpenAI Decisions backend: keyboard select, write-only key, consent-gated save, read-back and test', async ({ page }) => {
+  const state = await setup(page);
+  await openRouterSettings(page);
+  const radio = page.getByTestId('router-backend-openai_decisions');
+  await expect(radio).toBeVisible();
+  await radio.focus();
+  await page.keyboard.press('Space');
+  await expect(radio).toBeChecked();
+  await expect(radio).toBeFocused();
+  await expect(page.getByTestId('router-openaiDecisions-url')).toHaveValue('https://api.openai.com');
+  await expect(page.getByTestId('router-openaiDecisions-model')).toHaveValue('gpt-6-luna');
+  await expect(page.getByTestId('router-openaiDecisions-key')).toHaveAttribute('type', 'password');
+  await expect(page.getByTestId('router-settings').getByText('never memories')).toBeVisible();
+  await expect(page.getByTestId('router-save')).toBeDisabled();
+  await expect(page.getByTestId('router-consent-hint')).toBeVisible();
+  await page.getByTestId('router-openaiDecisions-key').fill('synthetic-decisions-key');
+  await page.getByTestId('router-consent').check();
+  await page.getByTestId('router-feature-model_routing').selectOption('shadow');
+  await page.screenshot({ path: test.info().outputPath('router-openai-decisions.png'), fullPage: true });
+  await page.getByTestId('router-save').click();
+  await expect(page.getByTestId('router-notice')).toHaveText('Router settings saved');
+  expect(state.routerPuts[0]).toMatchObject({
+    backend: 'openai_decisions', remoteDataConsent: true,
+    openaiDecisions: { baseUrl: 'https://api.openai.com', model: 'gpt-6-luna', apiKey: 'synthetic-decisions-key' },
+  });
+  expect(state.routerPuts[0].features.model_routing).toBe('shadow');
+  await expect(page.getByTestId('router-openaiDecisions-key-saved')).toHaveText('Key saved');
+  await expect(page.getByTestId('router-openaiDecisions-key')).toHaveValue('');
+  await page.getByTestId('router-test').click();
+  await expect(page.getByTestId('router-test-tier')).toHaveText('standard');
+  expect(state.routerTests[0].backend).toBe('openai_decisions');
+  expect(JSON.stringify(state.routerTests[0])).not.toContain('synthetic-decisions-key');
+  await page.getByTestId('router-timeout').fill('1200');
+  await page.getByTestId('router-save').click();
+  await expect.poll(() => state.routerPuts.length).toBe(2);
+  expect(state.routerPuts[1].openaiDecisions).not.toHaveProperty('apiKey');
 });

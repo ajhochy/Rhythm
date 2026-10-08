@@ -3,7 +3,7 @@ date: 2026-10-08
 repo: rhythm
 branch: fix/scheduled-dayflow-memory-router-20261008
 pr: draft (see branch)
-issues: [1609]
+issues: []
 status: draft-pr-ready-for-manual-smoke
 tags: [run, rhythm]
 ---
