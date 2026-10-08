@@ -27,13 +27,18 @@ function text(message) {
     return '';
   }).join('').trim();
 }
-function sendToolCall(response, id, command, description) {
+// Rhythm sessions expose built-in tools either directly (`bash`) or behind `mcp_dispatch`.
+function sendToolCall(response, id, command, description, offered) {
+  const direct = offered.includes('bash') || !offered.includes('mcp_dispatch');
+  const name = direct ? 'bash' : 'mcp_dispatch';
+  const args = direct ? { command, description }
+    : { action: 'execute', family: 'builtin', name: 'bash', arguments: { command, description } };
   response.write(`data: ${JSON.stringify(chunk({ role: 'assistant' }))}\n\n`);
   response.write(`data: ${JSON.stringify(chunk({ tool_calls: [{
-    index: 0, id, type: 'function', function: { name: 'bash', arguments: '' },
+    index: 0, id, type: 'function', function: { name, arguments: '' },
   }] }))}\n\n`);
   response.write(`data: ${JSON.stringify(chunk({ tool_calls: [{
-    index: 0, function: { arguments: JSON.stringify({ command, description }) },
+    index: 0, function: { arguments: JSON.stringify(args) },
   }] }))}\n\n`);
   response.write(`data: ${JSON.stringify(chunk({}, 'tool_calls'))}\n\n`);
   response.end('data: [DONE]\n\n');
@@ -83,7 +88,7 @@ const server = http.createServer(async (request, response) => {
   response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
   if ((action === 'PWD' || action === 'WRITE') && currentResults.length === 0) {
     sendToolCall(response, `call-sdmr-${tag}`, action === 'PWD' ? 'pwd' : `touch ${path}`,
-      action === 'PWD' ? 'print working directory' : 'write marker');
+      action === 'PWD' ? 'print working directory' : 'write marker', requests.at(-1).toolNames);
   } else if (action === 'PWD') {
     sendText(response, `SDMR_DONE ${tag} ${text(currentResults.at(-1)).split(/\r?\n/)[0]}`);
   } else if (action === 'WRITE') {

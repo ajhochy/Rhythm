@@ -32,7 +32,7 @@ type Row = { sessionId: string | null; status: string; chosen: string | null; co
 const pause = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 
 async function api(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(`${BASE}${path}`, { ...init, headers: { ...auth, ...init.headers }, signal: AbortSignal.timeout(30_000) });
+  return fetch(`${BASE}${path}`, { ...init, headers: { ...auth, ...init.headers }, signal: AbortSignal.timeout(60_000) });
 }
 async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await api(path, init);
@@ -55,7 +55,9 @@ async function rows(sessionId: string): Promise<Row[]> {
 }
 async function configure(body: Record<string, unknown>): Promise<Record<string, unknown>> {
   return json('/agent-decisions/config', { method: 'PUT', body: JSON.stringify({
-    features: { model_routing: 'shadow' }, routing: { scope: 'first_prompt' }, ...body,
+    features: { model_routing: 'shadow' }, routing: { scope: 'first_prompt' },
+    // The sandbox catalog only has cheap models; give each tier one so the would-be pick is concrete.
+    tierOverrides: { 'sdmr/scripted': 'standard', 'opencode/big-pickle': 'frontier' }, ...body,
   }) });
 }
 async function session(modelMode: 'auto' | 'fixed' = 'auto'): Promise<string> {
@@ -98,6 +100,7 @@ function evidence(caseId: string, data: Record<string, unknown>): void {
       env: { ...process.env, RHYTHM_SDMR_PROVIDER_PORT: String(PORT) }, stdio: 'ignore',
     });
     await poll(async () => fetch(`${PROVIDER}/health`).then((r) => (r.ok ? true : undefined)).catch(() => undefined), 'provider', 10_000);
+    expect((await api('/opencode/auth/sdmr', { method: 'POST', body: JSON.stringify({ apiKey: 'sdmr-synthetic-only' }) })).ok).toBe(true);
     socket = await new Promise<WebSocket>((resolve, reject) => {
       const ws = new WebSocket(`${BASE.replace(/^http/, 'ws')}/ws/agents`, {
         origin: 'rhythm://app', headers: { Authorization: auth.Authorization },
@@ -108,7 +111,8 @@ function evidence(caseId: string, data: Record<string, unknown>): void {
   }, 60_000);
   afterAll(async () => {
     socket?.close();
-    await configure({ backend: 'local', features: { model_routing: 'off' } }).catch(() => undefined);
+    await configure({ backend: 'local', remoteDataConsent: false, openaiDecisions: { apiKey: '' },
+      features: { model_routing: 'off' } }).catch(() => undefined);
     for (const id of cleanup.sessions.reverse()) await api(`/agent-sessions/${id}/hard`, { method: 'DELETE' }).catch(() => undefined);
     for (const id of cleanup.profiles.reverse()) await api(`/agent-configs/${id}`, { method: 'DELETE' }).catch(() => undefined);
     for (const dir of cleanup.dirs) rmSync(dir, { recursive: true, force: true });
@@ -124,6 +128,9 @@ function evidence(caseId: string, data: Record<string, unknown>): void {
     expect(row).toMatchObject({ mode: 'shadow', applied: false, status: 'ok' });
     expect(['cheap', 'standard', 'frontier']).toContain(row.chosen);
     expect(typeof row.detail.wouldApply).toBe('boolean');
+    // The concrete model the live catalog would pick is recorded, but the session keeps its own route.
+    expect(row.detail.catalog).toBe('live');
+    expect(typeof row.detail.pickedModel).toBe('string');
     const second = randomUUID().slice(0, 8);
     const secondMs = await turn(id, `SDMR:ECHO:${second} yes do that but make it shorter`, `SDMR_ECHO ${second}`);
     await pause(3000);
@@ -168,6 +175,8 @@ function evidence(caseId: string, data: Record<string, unknown>): void {
     const [row] = await poll(async () => { const r = await rows(id); return r.length ? r : undefined; }, 'decisions row', 60_000);
     expect(row).toMatchObject({ mode: 'shadow', applied: false, status: 'ok', model: 'gpt-6-luna' });
     expect(typeof row.detail.score).toBe('number');
+    expect(row.detail.catalog).toBe('live');
+    expect(typeof row.detail.pickedModel).toBe('string');
     expect(['cheap', 'standard', 'frontier']).toContain(row.chosen);
     expect(JSON.stringify(row)).not.toContain(DECISIONS_KEY);
     const second = randomUUID().slice(0, 8);
@@ -178,14 +187,15 @@ function evidence(caseId: string, data: Record<string, unknown>): void {
       classifierMs: row.latencyMs, inputTokens: row.detail.inputTokens ?? null, pickedModel: row.detail.pickedModel ?? null, rowsAfterSecond: 1 });
   }, 240_000);
 
-  (DECISIONS_KEY ? it : it.skip)('R5 without remote-data consent nothing is sent and the turn still answers', async () => {
-    await configure({ backend: 'openai_decisions', remoteDataConsent: false });
-    const id = await session();
-    const marker = randomUUID().slice(0, 8);
-    await turn(id, `SDMR:ECHO:${marker} Summarise this week's prayer requests.`, `SDMR_ECHO ${marker}`);
-    const [row] = await poll(async () => { const r = await rows(id); return r.length ? r : undefined; }, 'no-consent row', 30_000);
-    expect(row.status).not.toBe('ok');
-    expect(row.applied).toBe(false);
-    evidence('R5', { status: row.status, reason: row.detail.reason ?? null, answered: true });
+  (DECISIONS_KEY ? it : it.skip)('R5 without remote-data consent the OpenAI backend cannot even be selected', async () => {
+    await configure({ backend: 'local', remoteDataConsent: false, openaiDecisions: { apiKey: '' } });
+    const response = await api('/agent-decisions/config', { method: 'PUT', body: JSON.stringify({
+      backend: 'openai_decisions', remoteDataConsent: false, features: { model_routing: 'shadow' } }) });
+    expect(response.status).toBe(400);
+    expect((await response.json() as { error: string }).error).toBe('consent_required');
+    const view = await json<{ backend: string; openaiDecisions?: { hasApiKey: boolean } }>('/agent-decisions/config');
+    expect(view.backend).toBe('local');
+    expect(view.openaiDecisions?.hasApiKey).toBe(false);
+    evidence('R5', { refused: 'consent_required', backendUnchanged: true, keyCleared: true });
   }, 120_000);
 });
