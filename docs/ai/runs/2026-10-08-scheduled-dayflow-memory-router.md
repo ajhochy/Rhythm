@@ -75,8 +75,12 @@ Unit/type (apps/api_server unless noted):
   (mitigated: round-trip tests for every existing backend with/without keys).
 
 Live behavioral (tools/dev/sandbox.sh, synthetic fixture `sandbox_fixture.mjs` + scripted
-loopback provider; API 4398, engine 4397, gateway 4399; live 4001/4002/4096 untouched;
-source `2910a315` + test-only follow-ups):
+loopback provider; API 4398, engine 4397, gateway 4399; live 4001/4002/4096 untouched).
+First on `2910a315` (pre-rebase), then again on the final rebased source `d7df02cd`: S1, S2,
+S4, S5 passed (S3 skip); R2-R5 passed; R1 timed out once on Kev's first call after idling
+(recorded `timeout`, turn still answered in 0.5 s) and passed on rerun with Kev warm. After
+the rebase S4/S5 first failed because an owned chat with no project was held
+`history_ambiguous` (also true of the deployed build); fixed in `d7df02cd`.
 
 ```bash
 export RHYTHM_APPROVED_FIXTURE_ROOT=/private/tmp/sdmr-fixture-20261008 \
@@ -109,6 +113,15 @@ tools/dev/sandbox.sh down
 
 Installed app: NOT tested. The installed `/Applications`/signed 237f build still has the
 regression; nothing here was deployed or swapped in.
+
+Independent verification gate (sandboxed, HEAD c731cf49 pre-rebase): API tsc 0; decision 325
+passed; Dayflow/memory/runner 813 passed; live 4 + skip; web typecheck/build 0, web unit 81/81;
+detect-changes 0 affected processes. Verdict FAIL on evidence only: no browser proof of the
+new router setting (now `router:B7`, 6/6 router settings browser tests pass in Chrome) and a
+missing issue contract (the run was wrongly tagged #1609; no issue applies). Full-suite
+better-sqlite3 version failure and 5 `composer-model` browser failures reproduce on base.
+Post-rebase on `d7df02cd`: API tsc 0, 96 files / 1,196 tests (pre-fix) and Dayflow 372 tests
+(post-fix) passed, web typecheck 0.
 
 ## Evaluation (private detail in the audit folder)
 
