@@ -310,7 +310,7 @@ function bodyFree(value: unknown): boolean {
     // per-owner isolation is covered by unit tests, so ownership is recorded, not asserted.
     await evidence('S4', 'answered', {
       interactiveOwnerOne: true, ordinaryMemoryPresent: true, dayflowFenced: true, resumeAnswered: true, provenanceBodyFree: true,
-      memoryOwner: ownerOne ? 'user_1' : 'instance_wide',
+      memoryOwnedByUser1: ownerOne,
     });
   }, 240_000);
 
