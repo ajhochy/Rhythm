@@ -518,11 +518,16 @@ export class OpencodeStreamBridge {
     return true;
   }
 
-  /** Start one automatic engine reply, retrying on a later poll if it fails. */
+  /**
+   * Start one automatic engine reply. The optional callback records only the
+   * acknowledged wire outcome; policy classification remains local and a
+   * later recovery read may retry a failed reply.
+   */
   private beginPermissionReply(
     localSessionId: string,
     permissionId: string,
     reply: () => Promise<boolean>,
+    onAcknowledged?: () => void,
   ): boolean {
     const key = `${localSessionId}:${permissionId}`;
     if (
@@ -537,11 +542,18 @@ export class OpencodeStreamBridge {
         if (ok && !this.stoppedSessions.has(localSessionId)) {
           this.pendingPermissions.delete(key);
           this.repliedPermissions.add(key);
+          onAcknowledged?.();
+        } else if (!ok) {
+          logger.warn(
+            `[OpencodeStreamBridge] Automatic permission reply was not acknowledged ` +
+              `(session=${localSessionId}, permission=${permissionId})`,
+          );
         }
       })
-      .catch((err) => {
+      .catch(() => {
         logger.warn(
-          `[OpencodeStreamBridge] Automatic permission reply failed (session=${localSessionId}, permission=${permissionId}): ${String(err)}`,
+          `[OpencodeStreamBridge] Automatic permission reply threw ` +
+            `(session=${localSessionId}, permission=${permissionId})`,
         );
       })
       .finally(() => {
@@ -597,15 +609,16 @@ export class OpencodeStreamBridge {
           `Tool '${toolName}' is not in this session's allowlist.`,
           dir,
           sdkSessionId,
-        ));
+        ), () => {
+          broadcast({
+            v: 1,
+            type: 'permission.resolved',
+            sessionId: localSessionId,
+            permissionId,
+            decision: 'deny',
+          });
+        });
       if (!started) return;
-      broadcast({
-        v: 1,
-        type: 'permission.resolved',
-        sessionId: localSessionId,
-        permissionId,
-        decision: 'deny',
-      });
       this.broadcastToolDenied(localSessionId, localSessionId, toolName);
       return;
     }
@@ -663,15 +676,16 @@ export class OpencodeStreamBridge {
               `Command blocked: ${classification.detail} (reason: ${classification.reason})`,
               dir,
               sdkSessionId,
-            ));
+            ), () => {
+              broadcast({
+                v: 1,
+                type: 'permission.resolved',
+                sessionId: localSessionId,
+                permissionId,
+                decision: 'deny',
+              });
+            });
           if (!started) return;
-          broadcast({
-            v: 1,
-            type: 'permission.resolved',
-            sessionId: localSessionId,
-            permissionId,
-            decision: 'deny',
-          });
           broadcast({
             v: 1,
             type: 'tool.denied',
@@ -736,15 +750,16 @@ export class OpencodeStreamBridge {
             : undefined,
           dir,
           sdkSessionId,
-        ));
+        ), () => {
+          broadcast({
+            v: 1,
+            type: 'permission.resolved',
+            sessionId: localSessionId,
+            permissionId,
+            decision,
+          });
+        });
       if (!started) return;
-      broadcast({
-        v: 1,
-        type: 'permission.resolved',
-        sessionId: localSessionId,
-        permissionId,
-        decision,
-      });
       if (shouldAutoAccept && toolName.toLowerCase() === 'glob') {
         this.armGlobWatchdog(localSessionId, sdkSessionId, dir);
       }
@@ -2700,10 +2715,20 @@ export class OpencodeStreamBridge {
       case 'permission.asked':
       case 'permission.updated': {
         if (!localSessionId) break;
+        // The global SSE transport annotates its unwrapped engine event with
+        // the authoritative instance directory. Permission requests are
+        // scoped to that instance, so replying through a persisted session CWD
+        // can legitimately return 404 after a worktree/cwd change. Legacy
+        // per-directory streams carry no annotation and retain the persisted
+        // CWD fallback inside decidePermission.
+        const eventDirectory = (event as { __directory?: unknown }).__directory;
         this.decidePermission(
           localSessionId,
           opencodeSessionId ?? '',
           event.properties as PermissionRequest,
+          typeof eventDirectory === 'string' && eventDirectory.length > 0
+            ? eventDirectory
+            : undefined,
         );
         break;
       }

@@ -43,6 +43,25 @@ export interface DayflowProviderSessionScope {
   unsafeCode: string | null;
 }
 
+/**
+ * A scheduler-created SDK session with no local ownership/project binding.
+ * This is intentionally not a receiving scope: it may only take the
+ * zero-Dayflow-history ordinary admission path.
+ */
+export interface DayflowUnboundScheduledSession {
+  sessionId: string;
+  scheduledTaskId: string;
+  directory: string;
+  ownerUserId: number | null;
+  projectId: string | null;
+}
+
+export type DayflowProviderSessionLookup =
+  | { kind: 'none' }
+  | { kind: 'ambiguous' }
+  | { kind: 'unbound_scheduled'; session: DayflowUnboundScheduledSession }
+  | { kind: 'found'; scope: DayflowProviderSessionScope };
+
 /** The typed receiver of one actual native user message (never a fabricated tool identity). */
 export type DayflowProviderReceiver =
   | { kind: 'foreground'; dispatchId: string; sdkUserMessageId: string }
@@ -453,22 +472,47 @@ export class DayflowReceivingContextRepository {
    * reported, not hidden). `none` = no such session; `ambiguous` = several rows
    * or a malformed one — never silently treated as "no session".
    */
-  lookupProviderSession(sdkSessionId: string): { kind: 'none' } | { kind: 'ambiguous' } | { kind: 'found'; scope: DayflowProviderSessionScope } {
+  lookupProviderSession(sdkSessionId: string): DayflowProviderSessionLookup {
     try {
       const rows = this.db.prepare(`SELECT id, owner_user_id, project_id, parent_session_id, cwd, is_system,
-        category, archived_at, profile_id, dayflow_context_nonreuse_code, dayflow_context_nonreuse_at
+        category, archived_at, profile_id, scheduled_task_id, dayflow_context_nonreuse_code, dayflow_context_nonreuse_at
         FROM agent_sessions WHERE sdk_session_id=? LIMIT 2`).all(sdkSessionId) as Array<{
         id: string; owner_user_id: number | null; project_id: string | null; parent_session_id: string | null;
         cwd: string | null; is_system: number; category: string; archived_at: string | null;
-        profile_id: string | null; dayflow_context_nonreuse_code: string | null;
+        profile_id: string | null; scheduled_task_id: string | null; dayflow_context_nonreuse_code: string | null;
         dayflow_context_nonreuse_at: string | null;
       }>;
       if (rows.length === 0) return { kind: 'none' };
       if (rows.length !== 1) return { kind: 'ambiguous' };
       const row = rows[0];
-      if (!Number.isSafeInteger(row.owner_user_id) || (row.owner_user_id as number) <= 0 ||
-          !row.project_id || !ID.test(row.project_id) || typeof row.cwd !== 'string' || row.cwd.length === 0 ||
+      const validOwner = row.owner_user_id === null ||
+        (Number.isSafeInteger(row.owner_user_id) && (row.owner_user_id as number) > 0);
+      const validProject = row.project_id === null || (typeof row.project_id === 'string' && ID.test(row.project_id));
+      if (!validOwner || !validProject || typeof row.cwd !== 'string' || row.cwd.length === 0 ||
           row.cwd.length > 4096 || !ID.test(row.id) || !ID.test(sdkSessionId)) return { kind: 'ambiguous' };
+
+      const unboundScheduled =
+        (row.owner_user_id === null || row.project_id === null) &&
+        typeof row.scheduled_task_id === 'string' && ID.test(row.scheduled_task_id) &&
+        row.parent_session_id === null && row.is_system === 1 && row.category === 'scheduled' &&
+        row.archived_at === null &&
+        row.dayflow_context_nonreuse_code === null && row.dayflow_context_nonreuse_at === null;
+      if (unboundScheduled && typeof row.scheduled_task_id === 'string') {
+        const retained = this.db.prepare(`SELECT id FROM agent_turn_dispatches
+          WHERE (session_id=? OR sdk_session_id=? OR dayflow_context_sdk_session_id=?)
+            AND (dayflow_context_schema_version IS NOT NULL OR dayflow_context_owner_user_id IS NOT NULL OR
+              dayflow_context_project_id IS NOT NULL OR dayflow_context_sdk_session_id IS NOT NULL OR
+              dayflow_context_sdk_turn_id IS NOT NULL OR dayflow_context_manifest_json IS NOT NULL OR
+              dayflow_context_manifest_revision IS NOT NULL OR dayflow_context_recorded_at IS NOT NULL)
+          LIMIT 1`).all(row.id, sdkSessionId, sdkSessionId) as Array<{ id: string }>;
+        if (retained.length === 0) {
+          return { kind: 'unbound_scheduled', session: {
+            sessionId: row.id, scheduledTaskId: row.scheduled_task_id, directory: row.cwd,
+            ownerUserId: row.owner_user_id, projectId: row.project_id,
+          } };
+        }
+      }
+      if (row.owner_user_id === null || row.project_id === null) return { kind: 'ambiguous' };
       return {
         kind: 'found',
         scope: {

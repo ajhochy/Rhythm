@@ -89,6 +89,10 @@ function pendingAskFrames() {
     .filter((f) => f.type === 'permission.asked');
 }
 
+function nextAutomaticReplyTick(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe('interactive async child permission requests', () => {
   let bridge: OpencodeStreamBridge;
   let repo: AgentSessionsRepository;
@@ -129,12 +133,13 @@ describe('interactive async child permission requests', () => {
     expect(rejectCalls()).toHaveLength(0);
     expect(pendingAskFrames()).toHaveLength(1);
   });
-  it.each(['echo harmless-permission-probe', 'git push origin main'])('denies plan-mode bash %s with no executed approval', (command) => {
+  it.each(['echo harmless-permission-probe', 'git push origin main'])('denies plan-mode bash %s with no executed approval', async (command) => {
     child('plan');
     ask('bash', { command });
     expect(acceptCalls()).toHaveLength(0);
     expect(rejectCalls()).toHaveLength(1);
     expect(pendingAskFrames()).toHaveLength(0);
+    await nextAutomaticReplyTick();
     expect(resolvedFrames('deny')).toHaveLength(1);
   });
   it('preserves acceptEdits for edit requests', () => {
