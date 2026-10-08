@@ -96,7 +96,7 @@ describe('memory injection reads the derived index (#805)', () => {
       { memoryDir, index },
     );
 
-    const preface = await buildMemoryPreface('how does facilities reservation work', null);
+    const preface = await buildMemoryPreface('how does facilities reservation calendar work', null);
     expect(preface.text).toContain('## Retrieved memory references');
     expect(preface.text).toContain('<<<UNTRUSTED_EXTERNAL_CONTENT>>>');
     expect(preface.text).toContain('The facilities reservation calendar uses Postgres.');

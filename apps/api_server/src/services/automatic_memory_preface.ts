@@ -1,7 +1,10 @@
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
+import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
+import { AgentMemoryTurnReceiptsRepository } from '../repositories/agent_memory_turn_receipts_repository';
 import {
   buildMemoryPreface,
   isMemoryInjectionEnabled,
+  resolveAutomaticMemoryQuery,
   type MemoryPreface,
 } from './memory_retrieval';
 import type { AgentMemory } from '../repositories/agent_memory_repository';
@@ -32,17 +35,41 @@ export async function prepareAutomaticMemoryPreface(input: {
   sessionId: string;
   ownerUserId: number | null | undefined;
 }): Promise<MemoryPreface | null> {
-  if (!isMemoryInjectionEnabled()) return null;
-
+  const startedAt = Date.now();
+  const enabled = isMemoryInjectionEnabled();
+  let priorUserTexts: string[] = [];
+  if (enabled) {
+    try {
+      priorUserTexts = new AgentSessionMessagesRepository().listRecentInputTexts(input.sessionId, 8);
+      const currentIndex = priorUserTexts.indexOf(input.query);
+      if (currentIndex >= 0) priorUserTexts.splice(currentIndex, 1);
+    } catch {
+      // Missing/unavailable transcript is no prior, never a prompt failure.
+    }
+  }
   let preface: MemoryPreface;
   try {
     preface = await buildMemoryPreface(input.query, input.ownerUserId, {
+      enabled,
+      priorUserTexts,
       // The function stays as the final defense; `genericAdmission` makes the
       // same policy decide membership BEFORE each lane's shortlist/budget.
       automaticAdmission: isAutomaticMemoryAdmissionAllowed,
       genericAdmission: true,
     });
   } catch {
+    preface = { text: '', memoryIds: [], notePaths: [], items: [],
+      semanticStatus: 'backend_unavailable', semanticHitCount: 0,
+      queryMode: resolveAutomaticMemoryQuery(input.query, priorUserTexts).mode,
+      candidates: [], decision: 'error' };
+  }
+  preface.latencyMs = Date.now() - startedAt;
+  try {
+    new AgentMemoryTurnReceiptsRepository().append(input.sessionId, preface);
+  } catch {
+    // Diagnostic writes must never block authorized prompt dispatch.
+  }
+  if (!enabled || preface.decision === 'error') {
     return null;
   }
 

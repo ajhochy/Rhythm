@@ -136,7 +136,7 @@ async function seed(content: string): Promise<string> {
 }
 
 describe('semantic memory retrieval E2E (native references)', () => {
-  it('E2E-1: default mode injects a bounded native paraphrase as untrusted reference evidence', async () => {
+  it('E2E-1: default mode withholds a native paraphrase without displayed content-token evidence', async () => {
     const sourceId = await seed('Prefers ProPresenter lower-thirds during announcements');
     engraph = await startFakeEngraph(() => [{
       // Native root is already `<vault>/memory`; fixtures must be relative to
@@ -153,12 +153,9 @@ describe('semantic memory retrieval E2E (native references)', () => {
 
     expect(engraph.requests).toHaveLength(1);
     expect(engraph.requests[0]?.query).toContain('sunday slides');
-    expect(preface.memoryIds).toHaveLength(1);
-    expect(preface.text).toContain('Retrieved memory references');
-    expect(preface.text).toContain('UNTRUSTED EXTERNAL DATA');
-    expect(preface.text).toContain('Prefers ProPresenter lower-thirds');
-    expect(preface.text).toContain(`[${sourceId}]`);
-    expect(preface.items[0]).toMatchObject({ lane: 'semantic', confidence: null });
+    expect(preface.memoryIds).toHaveLength(0);
+    expect(preface.text).toBe('');
+    expect(preface.candidates?.[0]).toMatchObject({ lane: 'semantic', admitted: false, reason: 'insufficient_overlap' });
   });
 
   it('E2E-2: junk suppression keeps one-word coincidences out; pure FTS works with no Engraph at all', async () => {
@@ -189,7 +186,7 @@ describe('semantic memory retrieval E2E (native references)', () => {
     expect(preface.text).toContain('office admin');
   });
 
-  it('E2E-4: native rank order reaches the agent as untrusted references without enabling the reranker', async () => {
+  it('E2E-4: native rank cannot inject either unrelated displayed reference', async () => {
     const relevantSourceId = await seed('Teenagers gather in the fellowship hall after supper.');
     const decoySourceId = await seed('Collector cups are stored in the supply closet.');
     engraph = await startFakeEngraph(() => [
@@ -201,9 +198,9 @@ describe('semantic memory retrieval E2E (native references)', () => {
     const preface = await buildMemoryPreface('When and where does the youth group meet?', null);
 
     expect(engraph.requests).toHaveLength(1);
-    expect(preface.memoryIds).toHaveLength(2);
-    expect(preface.text).toContain('Teenagers gather');
-    expect(preface.items.every((item) => item.confidence === null)).toBe(true);
-    expect(preface.items[0]).toMatchObject({ lane: 'semantic' });
+    expect(preface.memoryIds).toHaveLength(0);
+    expect(preface.text).toBe('');
+    expect(preface.candidates).toHaveLength(2);
+    expect(preface.candidates?.every(item => item.reason === 'insufficient_overlap')).toBe(true);
   });
 });
