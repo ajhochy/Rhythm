@@ -13,3 +13,7 @@ Risk: historical missing approval-card cause remains unresolved; manual/reconnec
 Next: human review/manual smoke of mega draft; no main merge/install/restart authorized here. See runs/2026-10-08-scoped-dayflow-approval-mega-integration.md.
 
 Companion scheduled_task_id fixture correction copied exactly from30f51138 after CI exposed the omitted test schema update. Production files unchanged. Previous ac056260 CI:4 success;desktop download failure,2 unrelated mobile test failures,and1 API fixture failure. New exact-head CI followed separately. See runs/2026-10-08-dayflow-fixture-integration-correction.md.
+
+## Branch fix/scheduled-dayflow-memory-router-20261008 (draft PR onto mega, 2026-10-08)
+
+On top of mega 8c003765: widens the scheduled zero-history Dayflow admission to every system AgentRunner session and to owned chats left unassigned to a project (scheduled children and self-improvement runs were still held `history_ambiguous`: 61 of 72 failures since the 2026-10-07 build); automatic memory admitted only on the text actually injected, with follow-up evidence and per-turn body-free receipts; shadow routing non-blocking, once per session, concrete would-be pick, no uncertain frontier downgrade; new `openai_decisions` router backend (Shadow only). Kev runs as a launchd service on 127.0.0.1:8009. Sandbox live suites pass on production source identical to d7df02cd; installed app not tested; routing stays Shadow. Separate and unaddressed: `nfl_mcp` required-MCP scheduled failure. Record: runs/2026-10-08-scheduled-dayflow-memory-router.md.
