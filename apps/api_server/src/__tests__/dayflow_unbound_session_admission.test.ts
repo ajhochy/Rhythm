@@ -45,12 +45,15 @@ describe('Slice A: structurally unbound Dayflow sessions', () => {
     ['self_improvement', "UPDATE agent_sessions SET category='self_improvement', scheduled_task_id=NULL"],
     ['owned without project', `UPDATE agent_sessions SET owner_user_id=${OWNER}`],
     ['project without owner', `UPDATE agent_sessions SET project_id='${PROJECT}'`],
+    // The app allows chats left unassigned to a project; they cannot receive Dayflow either.
+    ['owned unassigned interactive chat', `UPDATE agent_sessions SET owner_user_id=${OWNER}, is_system=0, category='chat', scheduled_task_id=NULL`],
+    ['owned unassigned interactive child', `UPDATE agent_sessions SET owner_user_id=${OWNER}, is_system=0, category='chat', scheduled_task_id=NULL, parent_session_id='parent-1'`],
   ])('admits clean %s as ordinary, not history_ambiguous', async (_name, mutation) => {
     const f = fixture(); f.db.exec(mutation);
     const row = f.db.prepare('SELECT owner_user_id, project_id FROM agent_sessions').get() as any;
     expect(row.owner_user_id === null || row.project_id === null).toBe(true);
     const task = (f.db.prepare('SELECT scheduled_task_id AS t FROM agent_sessions').get() as any).t;
-    expect(f.records.lookupProviderSession(SDK)).toEqual({ kind: 'unbound_system', session: {
+    expect(f.records.lookupProviderSession(SDK)).toEqual({ kind: 'unbound', session: {
       sessionId: ROOT, scheduledTaskId: task, ownerUserId: row.owner_user_id, projectId: row.project_id, directory: '/safe/project',
     } });
     expect(f.records.providerSessionScope(SDK)).toBeNull();
@@ -63,8 +66,11 @@ describe('Slice A: structurally unbound Dayflow sessions', () => {
     expect(result.response.basisDigest).toBe(absent.response.basisDigest);
   });
 
-  it('holds a foreign owner without project as receiver_changed', async () => {
-    const f = fixture(); f.db.exec('UPDATE agent_sessions SET owner_user_id=8');
+  it.each([
+    ['system run', 'UPDATE agent_sessions SET owner_user_id=8'],
+    ['unassigned interactive chat', "UPDATE agent_sessions SET owner_user_id=8, is_system=0, category='chat', scheduled_task_id=NULL"],
+  ])('holds a foreign owner without project as receiver_changed (%s)', async (_name, mutation) => {
+    const f = fixture(); f.db.exec(mutation);
     expect((await prepare(f)).response).toMatchObject({ decision: 'hold', reason: 'receiver_changed', rawHistoryReusable: false });
   });
 
@@ -102,7 +108,8 @@ describe('Slice A: structurally unbound Dayflow sessions', () => {
     ['null id', 'UPDATE agent_sessions SET id=NULL'],
     ['duplicate SDK rows', 'INSERT INTO agent_sessions SELECT * FROM agent_sessions'],
     // Only system AgentRunner sessions may run unbound; anything else without a binding stays held.
-    ['interactive (non-system) row', "UPDATE agent_sessions SET is_system=0, category='chat'"],
+    ['ownerless interactive row', "UPDATE agent_sessions SET is_system=0, category='chat', scheduled_task_id=NULL"],
+    ['interactive row naming a scheduled task', `UPDATE agent_sessions SET owner_user_id=${OWNER}, is_system=0, category='chat'`],
     ['other system category', "UPDATE agent_sessions SET category='research'"],
     ['archived system row', "UPDATE agent_sessions SET archived_at='2026-10-08T00:00:00Z'"],
     ['malformed scheduled task id', "UPDATE agent_sessions SET scheduled_task_id='bad task!'"],
@@ -142,7 +149,7 @@ describe('Slice A: structurally unbound Dayflow sessions', () => {
 
   it('keeps Coordinator workflow unbound admission closed as receiver_changed', async () => {
     const f = fixture();
-    expect(f.records.lookupProviderSession(SDK)).toMatchObject({ kind: 'unbound_system' });
+    expect(f.records.lookupProviderSession(SDK)).toMatchObject({ kind: 'unbound' });
     const binding = { schemaVersion: 1, jobId: 'job-1', rootSdkSessionId: 'sdk-root', managerSdkSessionId: SDK, expiresAt: new Date().toISOString() };
     const scope = { kind: 'manager_lineage' };
     const frame = { schemaVersion: 2, kind: 'coordinator_workflow_provider_frame', binding, scope,

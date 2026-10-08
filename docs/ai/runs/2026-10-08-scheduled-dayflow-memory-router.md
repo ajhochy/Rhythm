@@ -19,7 +19,7 @@ per-turn judgements stay in the operator's private audit folder; this record hol
 
 ## Files
 
-- Dayflow admission: `dayflow_receiving_context_repository.ts` (`unbound_system` lookup,
+- Dayflow admission: `dayflow_receiving_context_repository.ts` (`unbound` lookup for system runs and owned unassigned chats,
   null-id guard), `dayflow_receiving_history_guard.ts` (kind rename only), `agent_runner.ts`
   (guard reason, generic memory fence); real `scheduled_task_id` column added to the
   `coding_workflow_provider_receiving_session.test.ts` fixture (its lookup errored on mega).
