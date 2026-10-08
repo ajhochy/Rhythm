@@ -6,7 +6,7 @@ import {
   getDecisionTimeoutMs,
 } from '../../config/env';
 import { resolveEndpoint, validateEndpointUrl } from '../custom_provider_service';
-import { DEFAULT_LOCAL_TIMEOUT_MS, loadDecisionSettings } from './decision_settings';
+import { DEFAULT_LOCAL_TIMEOUT_MS, loadDecisionSettings, type DecisionBackend } from './decision_settings';
 
 export type RerankResult =
   | { status: 'ok'; scores: number[]; latencyMs: number; model: string }
@@ -346,7 +346,7 @@ export class JevRerankClient implements RerankClient {
 }
 
 export interface ResolvedRouterConfig {
-  backend: 'local' | 'jev' | 'custom' | 'systemone';
+  backend: DecisionBackend;
   baseUrl: string;
   model: string;
   scoreScale: DecisionScoreScale;
@@ -391,10 +391,10 @@ export function buildRerankClientFromSettings(): RerankClient {
       consent: settings.remoteDataConsent,
     });
   }
-  if (backend === 'systemone') {
-    // Kev only routes models. Tool and memory ranking stay on the local
+  if (backend === 'systemone' || backend === 'openai_decisions') {
+    // Choice/score backends only route models. Tool and memory ranking stay on the local
     // loopback reranker (HttpRerankClient refuses anything else), so memory
-    // text never reaches the System One backend.
+    // text never reaches the classification backend.
     return new HttpRerankClient({
       baseUrl: settings.local.baseUrl,
       model: settings.local.model,
@@ -422,7 +422,7 @@ export function getDefaultRerankClient(): RerankClient {
   const s = loadDecisionSettings();
   const signature = JSON.stringify([
     s.backend, s.remoteDataConsent, s.jev.apiKey, getDecisionBaseUrl(), getDecisionModel(),
-    s.custom.apiKey, s.backend === 'systemone' ? s.local : null,
+    s.custom.apiKey, s.backend === 'systemone' || s.backend === 'openai_decisions' ? s.local : null,
   ]);
   if (!defaultClient || defaultClient.signature !== signature) {
     defaultClient = { signature, client: buildRerankClientFromSettings() };

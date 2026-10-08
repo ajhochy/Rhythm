@@ -11,8 +11,9 @@ import {
   type ResolvedRouterConfig,
 } from './decision_client';
 import { rankCandidates } from './decision_engine';
-import { TIER_CHOICE_QUESTION } from './model_router';
+import { TIER_CHOICE_QUESTION, TIER_SCORE_QUESTION, tierForDecisionScore } from './model_router';
 import { SystemOneClient } from './systemone_client';
+import { OpenAIDecisionsClient } from './openai_decisions_client';
 import { getCatalogForSettings, resetModelCatalogCache } from './model_catalog';
 import {
   DECISION_FEATURE_KEYS,
@@ -70,6 +71,7 @@ export function buildConfigView(settings: DecisionSettings = loadDecisionSetting
       model: settings.systemone.model,
       hasApiKey: settings.systemone.apiKey !== '',
     },
+    openaiDecisions: { baseUrl: settings.openaiDecisions.baseUrl, model: settings.openaiDecisions.model, hasApiKey: settings.openaiDecisions.apiKey !== '' },
     timeoutMs: settings.timeoutMs ?? defaultTimeoutFor(settings.backend),
     remoteDataConsent: settings.remoteDataConsent,
     features: { ...settings.features },
@@ -132,7 +134,7 @@ export async function buildConfigViewWithCatalog(settings: DecisionSettings = lo
 
 /** Effective config for `settings`, applying env overrides like the env getters. */
 export function resolveConfig(settings: DecisionSettings): ResolvedRouterConfig {
-  const section = settings[settings.backend];
+  const section = settings.backend === 'openai_decisions' ? settings.openaiDecisions : settings[settings.backend];
   const envScale = (process.env.AGENT_DECISION_SCORE_SCALE ?? '').trim().toLowerCase();
   const scale = SCALES.includes(envScale)
     ? (envScale as ResolvedRouterConfig['scoreScale'])
@@ -148,7 +150,7 @@ export function resolveConfig(settings: DecisionSettings): ResolvedRouterConfig 
       envPositive('AGENT_DECISION_TIMEOUT_MS')
       ?? settings.timeoutMs
       ?? defaultTimeoutFor(settings.backend),
-    apiKey: settings.backend === 'local' ? '' : settings[settings.backend].apiKey,
+    apiKey: settings.backend === 'local' ? '' : settings.backend === 'openai_decisions' ? settings.openaiDecisions.apiKey : settings[settings.backend].apiKey,
     consent: settings.remoteDataConsent,
   };
 }
@@ -169,8 +171,8 @@ function checkUrl(kind: DecisionSettings['backend'], value: unknown): string {
   if (kind === 'jev' && endpoint.protocol !== 'https:') {
     bad('invalid_url', 'The Jev backend requires an https URL.');
   }
-  if (kind === 'systemone' && endpoint.protocol !== 'https:' && !isLoopbackHost(endpoint.hostname)) {
-    bad('invalid_url', 'System One needs a loopback http URL (local Kev) or an https URL.');
+  if ((kind === 'systemone' || kind === 'openai_decisions') && endpoint.protocol !== 'https:' && !isLoopbackHost(endpoint.hostname)) {
+    bad('invalid_url', 'This backend needs a loopback http URL or an https URL.');
   }
   return url.trim();
 }
@@ -195,8 +197,8 @@ export function mergeConfig(base: DecisionSettings, body: unknown): DecisionSett
   if (!isObj(body)) return bad('invalid_body', 'Expected a JSON object.');
   const next = normaliseDecisionSettings(JSON.parse(JSON.stringify(base)));
   if (body.backend !== undefined) {
-    if (!['local', 'jev', 'custom', 'systemone'].includes(body.backend as string)) {
-      bad('invalid_backend', 'backend must be local, jev, custom or systemone.');
+    if (!['local', 'jev', 'custom', 'systemone', 'openai_decisions'].includes(body.backend as string)) {
+      bad('invalid_backend', 'backend must be local, jev, custom, systemone or openai_decisions.');
     }
     next.backend = body.backend as DecisionSettings['backend'];
   }
@@ -228,6 +230,13 @@ export function mergeConfig(base: DecisionSettings, body: unknown): DecisionSett
     if (o.baseUrl !== undefined) next.systemone.baseUrl = checkUrl('systemone', o.baseUrl) || next.systemone.baseUrl;
     if (o.model !== undefined) next.systemone.model = checkText('systemone.model', o.model) || next.systemone.model;
     if (o.apiKey !== undefined) next.systemone.apiKey = checkKey(o.apiKey);
+  }
+  if (body.openaiDecisions !== undefined) {
+    if (!isObj(body.openaiDecisions)) bad('invalid_body', 'openaiDecisions must be an object.');
+    const o = body.openaiDecisions as Record<string, unknown>;
+    if (o.baseUrl !== undefined) next.openaiDecisions.baseUrl = checkUrl('openai_decisions', o.baseUrl) || next.openaiDecisions.baseUrl;
+    if (o.model !== undefined) next.openaiDecisions.model = checkText('openaiDecisions.model', o.model) || next.openaiDecisions.model;
+    if (o.apiKey !== undefined) next.openaiDecisions.apiKey = checkKey(o.apiKey);
   }
   if (body.timeoutMs !== undefined) {
     const t = body.timeoutMs;
@@ -337,6 +346,7 @@ function checkModelId(field: string, id: unknown): void {
 /** Jev, and custom/systemone over anything but loopback, sends prompts off-device. */
 function assertConsent(s: DecisionSettings): void {
   if (s.remoteDataConsent) return;
+  if (s.backend === 'openai_decisions') bad('consent_required', 'OpenAI Decisions sends prompts to OpenAI. Enable remoteDataConsent first.');
   if (s.backend === 'jev') {
     bad('consent_required', 'Jev is a hosted service: prompts and memory text leave this device. Enable remoteDataConsent first.');
   }
@@ -380,6 +390,13 @@ export async function testConfig(draft: unknown) {
   const merged = mergeConfig(loadDecisionSettings(), draft ?? {});
   const cfg = resolveConfig(merged);
   if (cfg.backend === 'systemone') return testSystemOne(cfg);
+  if (cfg.backend === 'openai_decisions') {
+    const r = await new OpenAIDecisionsClient(cfg).score(SYSTEMONE_SAMPLE, TIER_SCORE_QUESTION);
+    if (r.status !== 'ok') return { ok: false, backend: cfg.backend, model: cfg.model, latencyMs: r.latencyMs, ranked: [], message: r.reason };
+    return { ok: true, backend: cfg.backend, model: r.model, latencyMs: r.latencyMs, prompt: SYSTEMONE_SAMPLE,
+      tier: tierForDecisionScore(r.score), score: r.score, confidence: r.apiConfidence, levelProbabilities: r.levelProbabilities,
+      ranked: Object.entries(r.levelProbabilities).map(([text, score]) => ({ text, score })).sort((a, b) => b.score - a.score) };
+  }
   const client = buildRerankClient({ ...cfg, timeoutMs: Math.max(cfg.timeoutMs, 3000) });
   const result = await rankCandidates(
     SAMPLE_QUERY,

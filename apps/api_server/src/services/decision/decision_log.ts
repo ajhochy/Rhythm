@@ -59,6 +59,7 @@ export interface DecisionSummary {
   agreementRate: number | null;
   latencyMs: { mean: number | null; p50: number | null; p95: number | null };
   calibration: CalibrationBin[];
+  openaiDecisions?: { tiers: { cheap: number; standard: number; frontier: number }; estimatedUsd: number };
 }
 
 const PREVIEW_CHARS = 160;
@@ -76,6 +77,18 @@ function warnOnce(err: unknown): void {
   if (warned) return;
   warned = true;
   logger.warn(`[Decision] decision log unavailable: ${String(err)}`);
+}
+
+/** Shadow first-prompt guard; unavailable logs must not prevent classification. */
+export function hasDecisionForSession(feature: DecisionFeature, sessionId: string): boolean {
+  if (isPostgres()) return false;
+  try {
+    return !!getDb()
+      .prepare('SELECT 1 FROM agent_decision_log WHERE feature = ? AND session_id = ? LIMIT 1')
+      .get(feature, sessionId);
+  } catch {
+    return false;
+  }
 }
 
 export function recordDecision(entry: DecisionLogEntry): void {
@@ -231,14 +244,14 @@ export function summarizeDecisions(
     }
     const rows = getDb()
       .prepare(
-        `SELECT feature, status, applied, chosen, confidence, baseline, latency_ms
+        `SELECT feature, status, applied, chosen, confidence, baseline, latency_ms, detail_json
            FROM agent_decision_log
            ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
           ORDER BY feature`,
       )
       .all(...params) as Pick<
       RawRow,
-      'feature' | 'status' | 'applied' | 'chosen' | 'confidence' | 'baseline' | 'latency_ms'
+      'feature' | 'status' | 'applied' | 'chosen' | 'confidence' | 'baseline' | 'latency_ms' | 'detail_json'
     >[];
 
     const byFeature = new Map<string, typeof rows>();
@@ -277,6 +290,13 @@ export function summarizeDecisions(
         };
       });
 
+      const openaiDecisions = { tiers: { cheap: 0, standard: 0, frontier: 0 }, estimatedUsd: 0 };
+      if (feature === 'model_routing') for (const row of list) {
+        const detail = parseDetail(row.detail_json);
+        if (detail.backend !== 'openai_decisions') continue;
+        if (row.chosen === 'cheap' || row.chosen === 'standard' || row.chosen === 'frontier') openaiDecisions.tiers[row.chosen]++;
+        if (typeof detail.estimatedUsd === 'number' && Number.isFinite(detail.estimatedUsd) && detail.estimatedUsd >= 0) openaiDecisions.estimatedUsd += detail.estimatedUsd;
+      }
       return {
         feature,
         total: list.length,
@@ -290,6 +310,7 @@ export function summarizeDecisions(
           p95: percentile(latencies, 0.95),
         },
         calibration,
+        ...(feature === 'model_routing' ? { openaiDecisions } : {}),
       };
     });
   } catch (err) {
