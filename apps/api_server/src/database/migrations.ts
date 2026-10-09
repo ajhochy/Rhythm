@@ -2520,6 +2520,25 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`ALTER TABLE agent_configs ADD COLUMN model_tier_hint TEXT`);
   }
 
+  // SQLite-only body-free automatic memory receipts; bounded by the writer.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_memory_turn_receipts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      query_mode TEXT,
+      decision TEXT CHECK(decision IN ('injected','none_relevant','abstained','disabled','error')),
+      semantic_status TEXT,
+      semantic_hit_count INTEGER,
+      candidates_json TEXT,
+      injected_count INTEGER,
+      injected_chars INTEGER,
+      latency_ms INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_turn_receipts_session_id
+      ON agent_memory_turn_receipts(session_id, id);
+  `);
+
   // #862 — agent_session_memory_provenance: "Memories used in this reply".
   //
   // One row per session_id, OVERWRITTEN on every turn (not an append-only

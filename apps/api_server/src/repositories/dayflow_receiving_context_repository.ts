@@ -44,22 +44,27 @@ export interface DayflowProviderSessionScope {
 }
 
 /**
- * A scheduler-created SDK session with no local ownership/project binding.
- * This is intentionally not a receiving scope: it may only take the
- * zero-Dayflow-history ordinary admission path.
+ * A session that can never receive Dayflow because it lacks an owner AND
+ * project binding: a system AgentRunner run (scheduled root/child or
+ * self-improvement, owner optional) or an owned interactive chat left
+ * unassigned to a project. Intentionally not a receiving scope: it may only take
+ * the zero-Dayflow-history ordinary admission path, for its own owner.
  */
-export interface DayflowUnboundScheduledSession {
+export interface DayflowUnboundSession {
   sessionId: string;
-  scheduledTaskId: string;
+  scheduledTaskId: string | null;
   directory: string;
   ownerUserId: number | null;
   projectId: string | null;
 }
 
+/** System AgentRunner categories that may run without an owner/project binding. */
+const UNBOUND_SYSTEM_CATEGORIES = new Set(['scheduled', 'self_improvement']);
+
 export type DayflowProviderSessionLookup =
   | { kind: 'none' }
   | { kind: 'ambiguous' }
-  | { kind: 'unbound_scheduled'; session: DayflowUnboundScheduledSession }
+  | { kind: 'unbound'; session: DayflowUnboundSession }
   | { kind: 'found'; scope: DayflowProviderSessionScope };
 
 /** The typed receiver of one actual native user message (never a fabricated tool identity). */
@@ -489,15 +494,22 @@ export class DayflowReceivingContextRepository {
         (Number.isSafeInteger(row.owner_user_id) && (row.owner_user_id as number) > 0);
       const validProject = row.project_id === null || (typeof row.project_id === 'string' && ID.test(row.project_id));
       if (!validOwner || !validProject || typeof row.cwd !== 'string' || row.cwd.length === 0 ||
-          row.cwd.length > 4096 || !ID.test(row.id) || !ID.test(sdkSessionId)) return { kind: 'ambiguous' };
+          // typeof first: RegExp#test coerces null to the string 'null', which matches ID.
+          row.cwd.length > 4096 || typeof row.id !== 'string' || !ID.test(row.id) || !ID.test(sdkSessionId)) return { kind: 'ambiguous' };
 
-      const unboundScheduled =
-        (row.owner_user_id === null || row.project_id === null) &&
-        typeof row.scheduled_task_id === 'string' && ID.test(row.scheduled_task_id) &&
-        row.parent_session_id === null && row.is_system === 1 && row.category === 'scheduled' &&
+      // System runs (scheduled roots, their children, self-improvement) may lack an
+      // owner; an interactive chat needs its owner and may only lack a project.
+      // A present scheduled task id must be well formed. Ownerless interactive,
+      // other-category, archived or marked rows without a binding stay ambiguous.
+      const unboundShape =
+        (row.is_system === 1 && UNBOUND_SYSTEM_CATEGORIES.has(row.category)) ||
+        (row.is_system === 0 && row.category === 'chat' && row.owner_user_id !== null && row.scheduled_task_id === null);
+      const unbound =
+        (row.owner_user_id === null || row.project_id === null) && unboundShape &&
+        (row.scheduled_task_id === null || (typeof row.scheduled_task_id === 'string' && ID.test(row.scheduled_task_id))) &&
         row.archived_at === null &&
         row.dayflow_context_nonreuse_code === null && row.dayflow_context_nonreuse_at === null;
-      if (unboundScheduled && typeof row.scheduled_task_id === 'string') {
+      if (unbound) {
         const retained = this.db.prepare(`SELECT id FROM agent_turn_dispatches
           WHERE (session_id=? OR sdk_session_id=? OR dayflow_context_sdk_session_id=?)
             AND (dayflow_context_schema_version IS NOT NULL OR dayflow_context_owner_user_id IS NOT NULL OR
@@ -506,7 +518,7 @@ export class DayflowReceivingContextRepository {
               dayflow_context_manifest_revision IS NOT NULL OR dayflow_context_recorded_at IS NOT NULL)
           LIMIT 1`).all(row.id, sdkSessionId, sdkSessionId) as Array<{ id: string }>;
         if (retained.length === 0) {
-          return { kind: 'unbound_scheduled', session: {
+          return { kind: 'unbound', session: {
             sessionId: row.id, scheduledTaskId: row.scheduled_task_id, directory: row.cwd,
             ownerUserId: row.owner_user_id, projectId: row.project_id,
           } };

@@ -91,7 +91,7 @@ export type CustomProviderInput = { providerId: string; name: string; baseURL: s
 export type CustomProviderTestResult = { ok: true; providerId: string; modelCount: number; models: Array<{ id: string; name: string }> };
 export type SessionSettings = { modelMode?: 'auto' | 'fixed'; name?: string; profileId?: string | null; providerId?: string | null; modelId?: string | null; thinkingBudget?: number | null; permissionMode?: string; fastMode?: boolean; anthropicAccountId?: string; openaiAccountId?: string };
 export type RouterPick = { providerId: string; modelId: string; source: string };
-export type RouterBackend = 'local' | 'jev' | 'custom' | 'systemone';
+export type RouterBackend = 'local' | 'jev' | 'custom' | 'systemone' | 'openai_decisions';
 export type RouterFeatureMode = 'default' | 'off' | 'shadow' | 'on';
 export type RouterFeatureKey = 'model_routing' | 'tool_ranking' | 'memory_ranking' | 'capacity_routing';
 export type RouterScoreScale = 'auto' | 'probability' | 'logit';
@@ -117,6 +117,7 @@ export type RouterConfig = {
   custom: { baseUrl: string; model: string; scoreScale: RouterScoreScale; hasApiKey: boolean };
   /** Absent on servers that predate the System One backend. */
   systemone?: { baseUrl: string; model: string; hasApiKey: boolean };
+  openaiDecisions?: { baseUrl: string; model: string; hasApiKey: boolean };
   timeoutMs: number;
   remoteDataConsent: boolean;
   features: Record<RouterFeatureKey, RouterFeatureMode>;
@@ -132,6 +133,7 @@ export type RouterConfigInput = {
   jev?: { baseUrl?: string; model?: string; apiKey?: string };
   custom?: Partial<Omit<RouterConfig['custom'], 'hasApiKey'>> & { apiKey?: string };
   systemone?: { baseUrl?: string; model?: string; apiKey?: string };
+  openaiDecisions?: { baseUrl?: string; model?: string; apiKey?: string };
   timeoutMs?: number;
   remoteDataConsent?: boolean;
   features?: Partial<Record<RouterFeatureKey, RouterFeatureMode>>;

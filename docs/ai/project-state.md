@@ -1,25 +1,19 @@
 # Rhythm current state
 
-## Current focus
+Focus: scoped Dayflow and automatic permission repairs integrated onto existing mega/2026-09-29-consolidation (draft PR1598).
 
-Scoped Dayflow and automatic permission repairs integrated; correct the two remaining mobile CI failures without resuming Coordinator architecture work.
+Included: scheduled zero-history ordinary admission with ownership/history/finalizer safeguards; authoritative event-directory automatic permission replies and acknowledgement-only resolved events. Existing mega provider-error handling retained.
 
-## Active branch / PR
+Excluded/recoverable: PR1610 Coordinator proposal/model/inventory changes, Workflow instruction candidate and unproven handoff harness. Original source branch/PR/external patch preserved. No later successful handoff proof found.
 
-mega/2026-09-29-consolidation · draft PR1598. Prior scoped integration ac056260 and companion scheduled-task test fixture correction 8c003765 remain included. Mobile production correction is 95bc1572. Test-only streaming settlement follow-up is the commit containing this snapshot.
+Test status: API typecheck/build;48 focused tests after the companion fixture correction; actual fork build; live permission transport regression and live scheduled Dayflow transport test all exited0. Repo-wide wrapper blocked by Flutter cache restriction and restricted local binds; no full-suite PASS claim. Fresh remote head/CI checked after push.
 
-## In progress
+Risk: historical missing approval-card cause remains unresolved; manual/reconnect stale-CWD path not covered. No installed-runtime qualification.
 
-Push the streaming test follow-up and follow exact-head CI to terminal. Normal app/backend remain untouched.
+Next: human review/manual smoke of mega draft; no main merge/install/restart authorized here. See runs/2026-10-08-scoped-dayflow-approval-mega-integration.md.
 
-## Risks / known issues
+Companion scheduled_task_id fixture correction copied exactly from30f51138 after CI exposed the omitted test schema update. Production files unchanged. Previous ac056260 CI:4 success;desktop download failure,2 unrelated mobile test failures,and1 API fixture failure. New exact-head CI followed separately. See runs/2026-10-08-dayflow-fixture-integration-correction.md.
 
-PR1610 proposal/model/inventory changes, Workflow instruction candidate and unproven handoff harness remain excluded/recoverable. Historical missing approval-card cause and provider-semantic handoff proof remain unresolved. No installed-runtime or physical-phone qualification claimed.
+## Branch fix/scheduled-dayflow-memory-router-20261008 (draft PR onto mega, 2026-10-08)
 
-## Test status
-
-Prior 8c003765 CI: six checks succeeded (including server 8308 tests and desktop); mobile alone failed two tests. Mobile correction reproduced both failures, then passed 11 focused tests, all 535 CI Jest tests across 68 suites, 12 tools-service tests, lint/typecheck/static suite and full foundation with real web build and 79 browser tests (2 existing environment-gated skips). Synthetic SSE-idle effect removed; callback harness dependencies restored. GitNexus scope low risk. Repo-wide wrappers and installed-client smoke are not claimed. Remote 95bc1572 reached terminal: six checks succeeded, mobile alone failed the streaming race. Its foundation passed; original failures passed; one streaming assertion raced the separately settled status (534 passed, 1 failed). Test-only follow-up keeps both assertions within the same original one-second wait. Follow-up CI-mode parallel Jest passed all 535 tests, static suite/tools tests and fresh web export passed. Final exact-head remote CI pending at commit time.
-
-## Next step
-
-Read exact-head remote CI receipt, then human review/manual smoke of the existing draft. No main merge, installation, TestFlight or normal-runtime restart. See runs/2026-10-08-mobile-ci-fixes.md, runs/2026-10-09-mobile-streaming-test-settlement.md and the dated external Codex receipts.
+On top of mega 8c003765: widens the scheduled zero-history Dayflow admission to every system AgentRunner session and to owned chats left unassigned to a project (scheduled children and self-improvement runs were still held `history_ambiguous`: 61 of 72 failures since the 2026-10-07 build); automatic memory admitted only on the text actually injected, with follow-up evidence and per-turn body-free receipts; shadow routing non-blocking, once per session, concrete would-be pick, no uncertain frontier downgrade; new `openai_decisions` router backend (Shadow only). Kev runs as a launchd service on 127.0.0.1:8009. Sandbox live suites pass on production source identical to d7df02cd; routing ON proven live in a sandbox with stand-in models (quick -> cheap, hard -> frontier applied on the first turn); installed app not tested; routing stays Shadow. Separate and unaddressed: `nfl_mcp` required-MCP scheduled failure. Record: runs/2026-10-08-scheduled-dayflow-memory-router.md.

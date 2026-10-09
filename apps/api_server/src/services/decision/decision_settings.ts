@@ -9,7 +9,7 @@ import { dirname, join } from 'path';
  * (applied in config/env.ts): explicit env var > saved setting > default.
  * This module deliberately has no dependency on config/env (env imports it).
  */
-export type DecisionBackend = 'local' | 'jev' | 'custom' | 'systemone';
+export type DecisionBackend = 'local' | 'jev' | 'custom' | 'systemone' | 'openai_decisions';
 export type LowConfidenceTier = 'keep' | 'standard';
 export type DecisionScoreScaleSetting = 'auto' | 'probability' | 'logit';
 export type DecisionFeatureSetting = 'default' | 'off' | 'shadow' | 'on';
@@ -41,6 +41,7 @@ export interface DecisionSettings {
   custom: { baseUrl: string; model: string; scoreScale: DecisionScoreScaleSetting; apiKey: string };
   /** Jev-compatible `/v1/systemone` (local Kev, or hosted Jev at https://api.typesafe.ai). */
   systemone: { baseUrl: string; model: string; apiKey: string };
+  openaiDecisions: { baseUrl: string; model: string; apiKey: string };
   /** null = not set by the user (400ms local, 1000ms systemone, 1500ms jev/custom). */
   timeoutMs: number | null;
   remoteDataConsent: boolean;
@@ -75,7 +76,7 @@ export const DEFAULT_ROUTING_MIN_CONFIDENCE = 0.55;
 /** Default per-call budget for a backend when timeoutMs is unset. */
 export function defaultTimeoutFor(backend: DecisionBackend): number {
   if (backend === 'local') return DEFAULT_LOCAL_TIMEOUT_MS;
-  if (backend === 'systemone') return DEFAULT_SYSTEMONE_TIMEOUT_MS;
+  if (backend === 'systemone' || backend === 'openai_decisions') return DEFAULT_SYSTEMONE_TIMEOUT_MS;
   return DEFAULT_REMOTE_TIMEOUT_MS;
 }
 
@@ -92,6 +93,7 @@ export function defaultDecisionSettings(): DecisionSettings {
     jev: { baseUrl: 'https://api.typesafe.ai', model: 'jev-latest', apiKey: '' },
     custom: { baseUrl: '', model: '', scoreScale: 'auto', apiKey: '' },
     systemone: { baseUrl: 'http://127.0.0.1:8009', model: 'kev-latest', apiKey: '' },
+    openaiDecisions: { baseUrl: 'https://api.openai.com', model: 'gpt-6-luna', apiKey: '' },
     timeoutMs: null,
     remoteDataConsent: false,
     features: {
@@ -135,10 +137,11 @@ export function normaliseDecisionSettings(raw: unknown): DecisionSettings {
   const jev = asObj(r.jev);
   const custom = asObj(r.custom);
   const systemone = asObj(r.systemone);
+  const openaiDecisions = asObj(r.openaiDecisions);
   const features = asObj(r.features);
   const out: DecisionSettings = {
     version: 1,
-    backend: r.backend === 'jev' || r.backend === 'custom' || r.backend === 'systemone' ? r.backend : 'local',
+    backend: r.backend === 'jev' || r.backend === 'custom' || r.backend === 'systemone' || r.backend === 'openai_decisions' ? r.backend : 'local',
     local: {
       baseUrl: asStr(local.baseUrl, d.local.baseUrl) || d.local.baseUrl,
       model: asStr(local.model, d.local.model) || d.local.model,
@@ -159,6 +162,11 @@ export function normaliseDecisionSettings(raw: unknown): DecisionSettings {
       baseUrl: asStr(systemone.baseUrl, d.systemone.baseUrl) || d.systemone.baseUrl,
       model: asStr(systemone.model, d.systemone.model) || d.systemone.model,
       apiKey: asStr(systemone.apiKey, ''),
+    },
+    openaiDecisions: {
+      baseUrl: asStr(openaiDecisions.baseUrl, d.openaiDecisions.baseUrl) || d.openaiDecisions.baseUrl,
+      model: asStr(openaiDecisions.model, d.openaiDecisions.model) || d.openaiDecisions.model,
+      apiKey: asStr(openaiDecisions.apiKey, ''),
     },
     timeoutMs:
       typeof r.timeoutMs === 'number' && Number.isInteger(r.timeoutMs) && r.timeoutMs > 0
@@ -286,5 +294,5 @@ export function decisionLockedByEnv(): string[] {
 
 /** The settings section for the active backend (baseUrl/model). */
 export function activeBackendSection(s: DecisionSettings): { baseUrl: string; model: string } {
-  return s[s.backend];
+  return s.backend === 'openai_decisions' ? s.openaiDecisions : s[s.backend];
 }

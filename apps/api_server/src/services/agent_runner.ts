@@ -39,6 +39,7 @@ import {
 } from './agent_run_failure_classification';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
 import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
+import { isAutomaticMemoryAdmissionAllowed } from './automatic_memory_preface';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
 import type { MemoryProvenanceItem } from '../repositories/agent_session_memory_provenance_repository';
@@ -1145,7 +1146,9 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   } | null = null;
   if (isMemoryInjectionEnabled() && shouldInjectMemoryPreface(opts)) {
     try {
-      const memPreface = await buildMemoryPreface(prompt, ownerUserId ?? null);
+      const memPreface = await buildMemoryPreface(prompt, ownerUserId ?? null, {
+        automaticAdmission: isAutomaticMemoryAdmissionAllowed, genericAdmission: true,
+      });
       if (memPreface.text) {
         transientSystemBlocks.unshift(memPreface.text);
         logger.info(
@@ -1810,8 +1813,15 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
                 ? 'AgentRunner: model provider denied the request (HTTP 403) — check the account and model permissions'
                 : 'AgentRunner: model provider failed the request — check the account and model settings';
           break;
-        default:
-          reason = 'AgentRunner: engine turn failed — check the session and model settings';
+        default: {
+          const message = data && typeof data === 'object' && 'message' in data ? data.message : null;
+          const guardHold = typeof message === 'string'
+            ? /^Dayflow provider guard held this request \(([a-z_]{1,40})\)\.?$/.exec(message)
+            : null;
+          reason = guardHold
+            ? `AgentRunner: Dayflow provider guard held this request (${guardHold[1]})`
+            : 'AgentRunner: engine turn failed — check the session and model settings';
+        }
       }
       logger.warn(
         `[AgentRunner] assistant turn failed (${providerError.name}, status=${typeof statusCode === 'number' ? statusCode : 'unknown'})`,

@@ -26,7 +26,7 @@ export type ChoiceResult<O extends string = string> =
       /** Model the server says it served, else the configured one. */
       model: string;
     }
-  | { status: 'disabled' | 'timeout' | 'error'; reason: string; latencyMs: number };
+  | { status: 'disabled' | 'timeout' | 'error'; reason: string; latencyMs: number; cause?: string };
 
 export interface ChoiceClient {
   choose<O extends string>(
@@ -124,7 +124,11 @@ export class SystemOneClient implements ChoiceClient {
       if (name === 'TimeoutError' || name === 'AbortError') {
         return { status: 'timeout', reason: `timeout_${timeoutMs}ms`, latencyMs: elapsed() };
       }
-      return { status: 'error', reason: 'request_failed', latencyMs: elapsed() };
+      // Whitelist codes only: exception messages may contain URLs or request bodies.
+      const error = err as { code?: unknown; cause?: { code?: unknown } } | null;
+      const code = error?.code ?? error?.cause?.code ?? name;
+      const cause = code === 'ECONNREFUSED' || code === 'ENOTFOUND' || code === 'ETIMEDOUT' ? code : 'unknown';
+      return { status: 'error', reason: 'request_failed', latencyMs: elapsed(), cause };
     }
   }
 }

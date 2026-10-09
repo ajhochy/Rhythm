@@ -47,6 +47,8 @@ import { updateConfig, buildConfigView, DecisionConfigError } from '../services/
 import { resetDecisionSettingsCacheForTests } from '../services/decision/decision_settings';
 import { routeMobilePromptBody } from '../services/decision/mobile_prompt_routing';
 import { MobileOpenCodeProxy } from '../services/mobile_opencode_proxy';
+import { listDecisions } from '../services/decision/decision_log';
+import { waitForShadowRoutingForTests } from '../services/decision/model_router';
 
 const ENV = [
   'RHYTHM_DECISION_ROUTER_FILE', 'AGENT_DECISION_MODEL_ROUTING', 'AGENT_DECISION_CAPACITY_ROUTING',
@@ -141,7 +143,8 @@ beforeEach(() => {
   });
   PROJECT = { id: project.id, root: project.cwd };
 });
-afterEach(() => {
+afterEach(async () => {
+  await waitForShadowRoutingForTests();
   for (const k of ENV) {
     if (saved[k] === undefined) delete process.env[k];
     else process.env[k] = saved[k];
@@ -219,12 +222,20 @@ describe('mobile proxy routing', () => {
 
   it('shadow mode: body untouched apart from the stored model, nothing persisted', async () => {
     process.env.AGENT_DECISION_MODEL_ROUTING = 'shadow';
-    setRerankClientForTests(fakeClient([0.02, 0.05, 0.95]).client);
+    const { client, rerank } = fakeClient([0.02, 0.05, 0.95]);
+    setRerankClientForTests(client);
     mobileSession('ses-1');
+    const before = new AgentSessionsRepository().findBySdkSessionId('ses-1');
     const { prompts, send } = makeProxy();
     await send('ses-1', { model: SONNET });
-    expect(modelOf(prompts[0])).toEqual(SONNET);
-    expect(new AgentSessionsRepository().findBySdkSessionId('ses-1')!.routerDecidedAt).toBeNull();
+    await send('ses-1', { model: SONNET });
+    await waitForShadowRoutingForTests();
+    expect(prompts.map(modelOf)).toEqual([SONNET, SONNET]);
+    expect(rerank).toHaveBeenCalledTimes(1);
+    expect(new AgentSessionsRepository().findBySdkSessionId('ses-1')).toEqual(before);
+    const rows = listDecisions({ feature: 'model_routing' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].detail).toMatchObject({ wouldApply: true, catalog: 'static', pickedModel: 'anthropic/claude-opus-4-7', catalogLatencyMs: expect.any(Number) });
   });
 
   it('any failure forwards the original body unchanged', async () => {

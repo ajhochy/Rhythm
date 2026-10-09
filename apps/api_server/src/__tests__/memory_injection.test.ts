@@ -166,7 +166,7 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
     expect(preface.text).not.toContain('Budget approvals go through the elder board');
     expect(preface.memoryIds).toEqual(['mem-a']);
     expect(preface.text).toBe(expectedPreface([
-      '- The senior pastor meeting schedule prefers Tuesday meetings [memory]',
+      '- The senior pastor meeting schedule prefers Tuesday meetings [memory] (fact)',
     ]));
   });
 
@@ -185,14 +185,14 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
 
   it('no matches → empty preface', async () => {
     const fakeGetRelevant = vi.fn().mockResolvedValue([]);
-    const preface = await buildMemoryPreface('q', 1, { getRelevant: fakeGetRelevant });
+    const preface = await buildMemoryPreface('synthetic substantive query', 1, { getRelevant: fakeGetRelevant });
     expect(preface.text).toBe('');
     expect(preface.memoryIds).toEqual([]);
   });
 
   it('retrieval throwing → empty preface (never-throws backstop)', async () => {
     const fakeGetRelevant = vi.fn().mockRejectedValue(new Error('db down'));
-    const preface = await buildMemoryPreface('q', 1, { getRelevant: fakeGetRelevant });
+    const preface = await buildMemoryPreface('synthetic substantive query', 1, { getRelevant: fakeGetRelevant });
     expect(preface.text).toBe('');
     expect(preface.memoryIds).toEqual([]);
   });
@@ -204,9 +204,9 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
       mem({ id: 'live', content: 'Current detail' }),
     ]);
 
-    await expect(buildMemoryPreface('current detail', 1, { getRelevant: fakeGetRelevant }))
+    await expect(buildMemoryPreface('current detail review', 1, { getRelevant: fakeGetRelevant }))
       .resolves.toMatchObject({
-        text: expectedPreface(['- Current detail [memory]']),
+        text: expectedPreface(['- Current detail [memory] (fact)']),
         memoryIds: ['live'],
         notePaths: [null],
       });
@@ -225,14 +225,14 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
       findBySourceIdsAsync: vi.fn(),
     };
 
-    const preface = await buildMemoryPreface('direct detail', 1, {
+    const preface = await buildMemoryPreface('direct detail review', 1, {
       getRelevant: vi.fn().mockResolvedValue([direct]),
       linkRepository,
       memoryDir: '/vault/memory',
     });
 
     expect(preface).toMatchObject({
-      text: expectedPreface(['- Direct detail. [memory/fact/direct.md]']),
+      text: expectedPreface(['- Direct detail. [memory/fact/direct.md] (fact)']),
       memoryIds: ['direct'],
       notePaths: ['memory/fact/direct.md'],
     });
@@ -424,7 +424,7 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
     };
     const memoryDir = memoryDirWithNotes(sourceIds);
 
-    const preface = await buildMemoryPreface('linked content', 1, {
+    const preface = await buildMemoryPreface('linked content review', 1, {
       topN: 2,
       getRelevant: vi.fn().mockResolvedValue([direct]),
       linkRepository,
@@ -655,7 +655,7 @@ describe('memory injection — buildMemoryPreface is transient (never persists)'
     const writeSpy = vi.spyOn(writer, 'writeAgentProfileFile');
 
     // Query shares exact FTS tokens with the stored content ("worship", "team").
-    const preface = await buildMemoryPreface('what does the worship team do', 5);
+    const preface = await buildMemoryPreface('what does the worship team rehearsal involve', 5);
     expect(preface.text).toContain('The worship team rehearses Thursdays at 7pm');
     expect(preface.memoryIds).toContain(created.id);
 

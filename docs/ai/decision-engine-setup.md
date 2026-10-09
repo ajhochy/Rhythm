@@ -247,10 +247,70 @@ git clone https://github.com/jaredpalmer/kev.git && cd kev && uv sync --extra se
 uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009
 ```
 
+**Run it as a login service (AJ's Mac, 2026-10-08).** Checkout `~/.local/share/kev/kev`
+(upstream `main`), venv from `uv sync --extra serve`, model pinned to the cached snapshot
+`jaredpalmer/kev-4b@139fdd94f1b6a6ad80cc15e08fcb99cac885a101` (Qwen3.5-4B-Base + LoRA, mlx,
+bf16) with `HF_HUB_OFFLINE=1`, bound to `127.0.0.1:8009` only. The launch agent is
+`~/Library/LaunchAgents/com.ajhochhalter.kev.plist` (RunAtLoad, restart on crash, logs in
+`~/Library/Logs/kev/`). Inspect the port before starting; never kill an unrelated listener.
+
+```bash
+lsof -nP -iTCP:8009 -sTCP:LISTEN                                          # must be empty or Kev
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ajhochhalter.kev.plist   # start
+launchctl print gui/$(id -u)/com.ajhochhalter.kev | grep -E 'state|pid'  # status
+curl -s http://127.0.0.1:8009/v1/models | head -c 300                     # health + model identity
+tail -f ~/Library/Logs/kev/kev.err.log                                    # logs
+launchctl bootout gui/$(id -u)/com.ajhochhalter.kev                       # stop (stays stopped)
+```
+
+Measured through Rhythm's own classifier code on 34 real first prompts (2026-10-08): first call
+after startup 4.5 s; warm p50 ~405 ms, p90 ~700 ms; long prompts 1.4-8 s; the first calls after
+about an hour idle stalled >15 s. At the default 1000 ms timeout about half of one cold run timed
+out. Confident (>=0.55) on 12/34, correct on 10 of those. Across 74 hand-labelled first prompts
+(two sets, one judge) Kev with the 0.55 -> standard rule was right on 50/74 versus 46/74 for
+"always standard" and sent 14 tasks to too small a tier. This is not enablement evidence: keep
+model routing in **shadow**.
+
 **Choose the backend**: Providers settings → Router model → *System One (Kev / Jev)* (Electron or
 mobile), or `PUT /agent-decisions/config {"backend":"systemone"}`. Defaults: base URL
 `http://127.0.0.1:8009`, model `kev-latest`, no key, timeout 1000 ms. Press **Test connection**:
 it classifies "What tasks are due today?" and shows the tier, probabilities and latency.
+
+## OpenAI Decisions (GPT-6 Luna) for model routing
+
+Backend `openai_decisions` asks OpenAI's [Decisions API](https://developers.openai.com/api/docs/guides/decisions)
+(`POST /v1/decisions`, model `gpt-6-luna`) ONE ordered `score` question per first prompt:
+`quick` / `everyday` / `hard` (constant `TIER_SCORE_QUESTION` in `model_router.ts`). The returned
+expected level maps to a tier: below 0.15 -> cheap, above 0.95 -> frontier, otherwise standard.
+The band already absorbs uncertainty, so this backend skips the `minConfidence` /
+low-confidence fallback (the API's own `confidence` is logged only); a confident cheap answer
+may therefore move a frontier baseline down once routing is On. Tools and memories stay on the
+local reranker: memory text never goes to OpenAI.
+
+Why this shape: the guide recommends `score` for ordered options and observable,
+distinct level criteria. On 74 hand-labelled real first prompts (two sets, one judge, 2-fold
+cross-validation) the single score question beat a `choice` question, a four-size scale, adding
+the agent name, and a longer criteria list; it was right on 55-56/74 with 2-6 too-small picks,
+versus 50/74 and 14 for Kev and 46/74 for "always standard". Answers were bit-identical on
+repeat runs; latency p50 ~330 ms, max <0.8 s; ~300 input tokens per decision (about $0.03 per
+1,000). The level wording was written after seeing first-set failures, so treat the accuracy as
+an upper estimate; the thresholds are calibration values for this user's prompts.
+
+Select it (sandbox or app) with a write-only key and explicit consent: every routed first prompt
+is sent to OpenAI.
+
+```json
+PUT /agent-decisions/config
+{ "backend": "openai_decisions", "remoteDataConsent": true, "timeoutMs": 1000,
+  "openaiDecisions": { "baseUrl": "https://api.openai.com", "model": "gpt-6-luna", "apiKey": "<key>" },
+  "features": { "model_routing": "shadow" }, "routing": { "scope": "first_prompt" } }
+```
+
+Rows carry `detail.score`, `detail.levelProbabilities`, `detail.thresholds`,
+`detail.inputTokens` and `detail.estimatedUsd`; `GET /agent-decisions` sums the estimated cost.
+Without a key or consent nothing is sent and the turn is unchanged (`no_api_key`,
+`remote_consent_required`). Electron: Providers settings -> Router model -> *OpenAI Decisions
+(GPT-6 Luna)*.
 
 **Hosted Jev** is the same backend with base URL `https://api.typesafe.ai`, model `jev-latest` and
 an API key. A loopback `http` URL needs no consent; anything else must be `https` and needs
@@ -294,7 +354,13 @@ Auto (router) session. It applies to desktop and mobile alike.
 | `every_prompt` | Routes every prompt and stores nothing (the original behaviour). |
 
 Shadow mode computes and logs the decision (the decision log detail carries `scope` and `wouldApply`)
-but persists nothing. The capacity layer still runs on every prompt in all scopes. Choosing Auto again
+but persists nothing. Since 2026-10-08 shadow never delays the turn: classification, the would-be
+catalog pick (`detail.catalog`, `detail.pickedModel`, `detail.catalogLatencyMs`) and the log write
+run in the background, and with `first_prompt` a session that already has a model-routing row is
+not classified again (`reason: shadow_continuation`). An unsure answer under the `standard`
+low-confidence policy never lowers a frontier baseline (`detail.lowConfidence: kept_baseline`).
+A failed System One request records a body-free `detail.cause` (`ECONNREFUSED`, `ENOTFOUND`,
+`ETIMEDOUT` or `unknown`). The capacity layer still runs on every prompt in all scopes. Choosing Auto again
 in the model picker (`PATCH {modelMode:'auto'}`) clears `router_decided_at`, so the next prompt is routed
 again. Sessions expose `routerDecidedAt`. Both fields are in `GET/PUT /agent-decisions/config` as
 `routing: { scope, escalateMinConfidence }` (400 `invalid_routing_scope` / `invalid_confidence`) and are
