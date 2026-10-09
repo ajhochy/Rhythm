@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import ts from 'typescript';
 import { shouldKeepSessionSafetyPoll } from '@/providers/opencode-provider-selectors';
+import { summarizeError } from '@/lib/transport/api-error';
 
 // Execute production callback bodies, including the previously mirrored guard.
 // No provider network/native lifecycle or new scheduler is started here.
@@ -70,7 +71,8 @@ describe('Sol C4 actual read-completion guard', () => {
     const g = guard();
     class OfflineError extends Error {}
     const trackMacOffline = execute(initializer('trackMacOffline'), { MacOfflineError: OfflineError, pairedHostClient: null, setMacPresence: jest.fn(), deriveMacPresence: () => 'offline' });
-    const settleBackgroundRead = execute(initializer('settleBackgroundRead'), { trackMacOffline });
+    const setBackgroundReadError = jest.fn();
+    const settleBackgroundRead = execute(initializer('settleBackgroundRead'), { trackMacOffline, setBackgroundReadError, summarizeError });
     let tick!: () => void;
     const noop = async () => undefined;
     const arm = (refreshSessions: () => Promise<unknown>) => execute(effectNode!.getText(ast), {
@@ -81,6 +83,7 @@ describe('Sol C4 actual read-completion guard', () => {
     tick();
     await flush();
     expect(g.calls).toEqual([]);
+    expect(setBackgroundReadError).toHaveBeenCalledWith('read rejected');
     cleanup();
     let release!: () => void;
     const held = new Promise<void>((done) => { release = done; });
@@ -94,6 +97,7 @@ describe('Sol C4 actual read-completion guard', () => {
     tick();
     await flush();
     expect(g.calls).toEqual([{ projectId: 'project-a' }]);
+    expect(setBackgroundReadError).toHaveBeenLastCalledWith(undefined);
     cleanup();
   });
 

@@ -255,8 +255,10 @@ describe('ST-1 provider streaming performance', () => {
     await waitFor(() => expect(mockMessagesGets).toBeGreaterThanOrEqual(1));
     expect(latest?.currentTranscript[0]?.text).toBe('streamed reply');
     mockAuthoritativeText = 'authoritative final';
-    await waitFor(() => expect(latest?.currentTranscript[0]?.text).toBe('authoritative final'), { timeout: 1000 });
-    expect(latest?.completionSyncStatus).toBeUndefined();
+    await waitFor(() => {
+      expect(latest?.currentTranscript[0]?.text).toBe('authoritative final');
+      expect(latest?.completionSyncStatus).toBeUndefined();
+    }, { timeout: 1000 });
     expect(latest?.currentMessages.map((record) => record.info.id)).toEqual([MESSAGE]);
   });
 
