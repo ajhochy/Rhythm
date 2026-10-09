@@ -111,6 +111,25 @@ tools/dev/sandbox.sh down
 | R4 OpenAI Decisions (shadow) | once per session; frontier (score 1.17-1.43), 295 input tokens, 0.34-0.99 s, would-pick `opencode/big-pickle`; key absent from GET, rows and logs |
 | R5 no consent | selecting the backend refused `consent_required`; key cleared |
 
+Routing ON, live (separate sandbox on `c900cfa5`, fixture `/private/tmp/sdmr-fixture-on-20261008`
+with three local stand-in models `sdmr/scripted-cheap|scripted|scripted-frontier`, one per tier;
+backend `openai_decisions` with a real key; scope `first_prompt`; non-sdmr models excluded so no
+real model was called; `router_on_apply_live_e2e.test.ts`, 6/6 passed). The scripted provider
+recorded the model id each engine request was sent with:
+
+| Case | Decisions score -> tier | Model on first turn | Session model | Follow-up |
+|---|---|---|---|---|
+| O1 "What is 15 percent of 80?" | 0.01 -> cheap (903 ms) | scripted-cheap | scripted-cheap | scripted-cheap, not reclassified |
+| O2 volunteer email | 0.42 -> standard (248 ms) | scripted (= baseline) | scripted | scripted |
+| O3 calendar-sync architecture | 1.53 -> frontier (287 ms) | scripted-frontier | scripted-frontier | scripted-frontier |
+| O5 same hard prompt, fixed session | not classified | scripted | - | - |
+| O6 classifier unreachable | request_failed | scripted (baseline) | not persisted | - |
+
+First turns including the Decisions call took 0.8-1.5 s. Afterwards the sandbox router
+settings were back to off with the key cleared; no key in logs or sandbox files. The first
+Decisions call took 903 ms, close to the 1,000 ms default timeout (a timeout leaves the
+baseline). Not tested: real paid models, or the installed app.
+
 Installed app: NOT tested. The installed `/Applications`/signed 237f build still has the
 regression; nothing here was deployed or swapped in.
 
