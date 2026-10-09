@@ -3,12 +3,23 @@ import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { FixtureProvider } from './store';
 import { composeGateway } from './gateway';
+import { ensureRhythmMcp } from './gateway/mcp';
 import { GatewayProvider } from './gateway/context';
 import { AuthUserProvider, GoogleSignIn, type AuthLoginResponse, type AuthUser, type DesktopAuthBridge } from './gateway/auth';
 import './styles.css';
 
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 const environment = (import.meta as ImportMeta & { env: Record<string, string | undefined> }).env;
+type DayflowDesktopStatus =
+  | { status: 'ready'; version: string; build: string; identifier: string }
+  | { status: 'unavailable'; code: string }
+  | { status: 'unsupported'; code: string };
+
+interface DayflowDesktopBridge {
+  getDayflowDesktopStatus(): Promise<DayflowDesktopStatus>;
+  openDayflowDesktop(): Promise<DayflowDesktopStatus>;
+}
+
 declare global {
   interface Window {
     rhythmShell?: {
@@ -18,6 +29,7 @@ declare global {
         productionApiBase?: string;
       };
       auth?: DesktopAuthBridge;
+      dayflowDesktop?: DayflowDesktopBridge;
       agentServer?: {
         status(): Promise<{ status: string; ownership?: 'electron' | 'external' | 'none'; owned: boolean; errorMessage?: string | null }>;
         onStatusChange?(callback: (status: { status: string; ownership?: 'electron' | 'external' | 'none'; owned: boolean; errorMessage?: string | null }) => void): () => void;
@@ -86,7 +98,9 @@ try {
       ));
     } else {
       const onAuthenticated = (login: AuthLoginResponse) => {
-        try { renderGateway(login.sessionToken, login.user); } catch (error) { renderStartupError(error); }
+        try { renderGateway(login.sessionToken, login.user); } catch (error) { renderStartupError(error); return; }
+        void ensureRhythmMcp(apiBase, productionApiBase, login.sessionToken)
+          .catch((error) => console.warn('[rhythm-mcp] ensure failed', error));
       };
       const renderSignIn = () => root.render(<React.StrictMode><GoogleSignIn auth={runtimeGateway?.auth} onAuthenticated={onAuthenticated} /></React.StrictMode>);
       const restore = runtimeGateway?.auth?.currentSession;

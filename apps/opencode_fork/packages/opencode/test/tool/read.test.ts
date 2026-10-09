@@ -21,6 +21,7 @@ import { Filesystem } from "@/util/filesystem"
 import { disposeAllInstances, provideInstance, TestInstance, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { Reference } from "@/reference/reference"
+import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js"
 
 const FIXTURES_DIR = path.join(import.meta.dir, "fixtures")
 
@@ -149,6 +150,45 @@ const asks = () => {
     },
   }
 }
+
+// A1 regression: a real XLSX must be consumed by Read, not refused as opaque binary.
+// Fixture generation only: ZIP writer does not replace the production reader.
+describe("A1 selected workbook Read acceptance", () => {
+  it.live("preserves sheet order, addresses, typed values, blanks and cached formulas", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const entries: Record<string, string> = {
+        "[Content_Types].xml": '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
+        "_rels/.rels": '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+        "xl/workbook.xml": '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Summary-A1" sheetId="1" r:id="rId1"/><sheet name="Details-A1" sheetId="2" r:id="rId2"/></sheets></workbook>',
+        "xl/_rels/workbook.xml.rels": '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/></Relationships>',
+        "xl/worksheets/sheet1.xml": '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:C3"/><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>synthetic-workbook-marker</t></is></c></row><row r="2"><c r="A2" t="n"><v>17</v></c><c r="B2"/><c r="C2" t="n"><f>A2*2</f><v>34</v></c></row><row r="3"><c r="A3" t="b"><v>1</v></c></row></sheetData></worksheet>',
+        "xl/worksheets/sheet2.xml": '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:A1"/><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>second-sheet-marker</t></is></c></row></sheetData></worksheet>',
+      }
+      const bytes = yield* Effect.promise(async () => {
+        const writer = new ZipWriter(new Uint8ArrayWriter())
+        for (const [name, xml] of Object.entries(entries)) {
+          await writer.add(name, new Uint8ArrayReader(new TextEncoder().encode(xml)), { level: 0 })
+        }
+        return writer.close()
+      })
+      yield* put(path.join(dir, "synthetic.xlsx"), bytes)
+      const exit = yield* exec(dir, { filePath: path.join(dir, "synthetic.xlsx") }).pipe(Effect.exit)
+      expect(Exit.isSuccess(exit)).toBe(true)
+      if (!Exit.isSuccess(exit)) return
+      const result = exit.value
+      expect(result.output.indexOf("Summary-A1")).toBeGreaterThanOrEqual(0)
+      expect(result.output.indexOf("Details-A1")).toBeGreaterThan(result.output.indexOf("Summary-A1"))
+      for (const value of ["A1", "A2", "B2", "C2", "A3", "17", "34", "A2*2", "synthetic-workbook-marker", "second-sheet-marker"]) {
+        expect(result.output).toContain(value)
+      }
+      expect(result.output).toMatch(/blank/i)
+      expect(result.output).toMatch(/boolean/i)
+      expect(result.output).toMatch(/cached/i)
+      expect(result.output).not.toContain("Cannot read binary file")
+    }),
+  )
+})
 
 describe("tool.read external_directory permission", () => {
   it.live("allows reading absolute path inside project directory", () =>

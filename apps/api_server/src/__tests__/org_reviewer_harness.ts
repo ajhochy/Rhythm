@@ -13,6 +13,8 @@ export const ENGINE = process.env.RHYTHM_LIVE_ENGINE_URL ?? 'http://127.0.0.1:40
 export const REVIEWER = 'org-reviewer';
 export const READ = 'rhythm_read_org_review_context';
 export const SUBMIT = 'rhythm_submit_org_review_proposal';
+export const SESSION = 'rhythm_read_org_review_session';
+export const CATALOG = 'rhythm_read_org_review_catalog';
 export type Json = Record<string, any>;
 export type Evidence = { sessionId: string; messageId: string; quote: string };
 
@@ -229,8 +231,8 @@ export class ReviewerHarness {
     }
     return { token, userId: identity.user.id };
   }
-  async transcript(profile: Json, text: string, ownerToken?: string): Promise<Evidence> {
-    const session = await this.session(profile.id, `${this.marker} failure evidence`, ownerToken);
+  async transcript(profile: Json, text: string, ownerToken?: string, existing?: Json): Promise<Evidence> {
+    const session = existing ?? await this.session(profile.id, `${this.marker} failure evidence`, ownerToken);
     this.nextText = text;
     await this.prompt(session, 'Report the observed outcome of this sanitized fixture execution.');
     return poll(async () => {

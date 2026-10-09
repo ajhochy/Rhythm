@@ -31,7 +31,11 @@ import {
 import {
   getMobileOpenCodeOwnershipRepository,
 } from '../services/mobile_opencode_ownership_runtime';
-import { shapeMobileOpenCodeResponse } from '../services/mobile_opencode_security';
+import { CoordinatorConversationsRepository } from '../repositories/coordinator_conversations_repository';
+import {
+  shapeMobileOpenCodeResponse,
+  shapeRelayCoordinatorChanged,
+} from '../services/mobile_opencode_security';
 import { MobileSseProxy } from '../services/mobile_sse_proxy';
 import {
   MacOfflineError,
@@ -428,6 +432,28 @@ export function createRelayGatewayRouter(
             const active = getMobilePairingService().authenticateDevice(token);
             return active !== null && active.id === deviceId;
           },
+          // Relay-only canonical change hint qualifier. The relay has no
+          // project row/root, so it reproves the device (id/token/user/host),
+          // the authenticated uplink provenance and the mirrored primary root.
+          relayHintQualifier: (parsed) => shapeRelayCoordinatorChanged(parsed, project, {
+            attached: {
+              id: deviceId,
+              userId: req.mobileDevice!.userId,
+              hostId: req.mobileDevice!.hostId,
+            },
+            currentDevice: () => {
+              const current = getMobilePairingService().authenticateDevice(token);
+              return current
+                ? { id: current.id, userId: current.userId, hostId: current.hostId }
+                : null;
+            },
+            envelopeOrigin: (envelope) => uplink.envelopeOrigin(envelope),
+            mirrorOrigin: (localSessionId) => uplink.mirrorOrigin(localSessionId),
+            currentOrigin: () => uplink.currentOrigin(),
+            isHostOnline: (hostId, userId) => uplink.isHostOnline(hostId, userId),
+            mirroredRoot: (localSessionId) =>
+              new CoordinatorConversationsRepository(getDb()).findMirroredPrimaryRoot(localSessionId),
+          }),
         });
       } catch (error) {
         if (res.headersSent) {

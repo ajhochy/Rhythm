@@ -3,7 +3,7 @@ import { FIXED_NOW, seedDiff, seedFiles, seedProfiles, seedSessions, seedTodos }
 import { useGateway } from './gateway/context';
 import type { GatewayMode } from './gateway';
 import { SessionGatewayError, toSessionViewModel, createGenerationGuard, type ProfileMutation, type RichTranscriptMessage, type SessionSocket, type SessionWireEvent, type IdentityProfile, type ModelChoice, type AccountChoice, type SessionSettings, type TurnOverride } from './gateway/sessions';
-import { applyTranscriptEvent, emptyTranscript, mergeTranscriptPage, type TranscriptPageOptions, type TranscriptState } from './gateway/transcript-reducer';
+import { mergeCachedTranscriptPage, reduceCachedTranscriptEvent, type TranscriptPageOptions, type TranscriptState } from './gateway/transcript-reducer';
 import { useAuthUser } from './gateway/auth';
 import type { DomainNotification } from './gateway/notifications';
 import type { MessageThread } from './gateway/messages';
@@ -14,6 +14,10 @@ import { agentSessionLinkFromHash } from './agentSessionLink';
 import { addPermission, addQuestion, clearPendingDecisions, getSnapshot, rehydrateDecisions, removeDecision, subscribe } from './pending-decisions';
 import { emitAgentNotification } from './agentNotifications';
 import type { ComposerAttachment, DemoState, FixtureFile, InspectorTab, Profile, Session, SessionScope, Theme, TodoItem, TranscriptMessage } from './types';
+
+// Keep the gateway's specific reason (e.g. 'Authentication required') in the toast.
+const failureMessage = (prefix: string, error: unknown) =>
+  error instanceof Error && error.message ? `${prefix}: ${error.message}` : prefix;
 
 // c4c: a live agent push notification — apps/api_server/src/controllers/notifications_agent_controller.ts:6-32.
 // Kept in a separate bucket from `DomainNotification` rows: its `id` is a WS-broadcast integer from
@@ -107,6 +111,11 @@ interface FixtureContextValue {
   // post-m1-phase-7 c4d: pending human-gated approvals surfaced as actionable cards in the
   // Notifications bell (same GET /agent-approvals?status=pending boundary Review Queue reads).
   pendingApprovals: PendingApproval[];
+  approvalError: string;
+  approvalsLoading: boolean;
+  approvalsUpdatedAt: number | null;
+  decidingApprovalIds: string[];
+  refreshPendingApprovals(): Promise<void>;
   decideApproval(id: string, status: 'approved' | 'rejected'): Promise<void>;
   isCompletionArmed(sessionId: string, messageId: string): boolean;
   toggleCompletionArm(sessionId: string, messageId: string): void;
@@ -299,7 +308,17 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const childViewRequestRef = useRef(0);
   const [notifications, setNotifications] = useState<DomainNotification[]>([]);
   const [pushNotifications, setPushNotifications] = useState<PushNotification[]>([]);
-  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
+  const [approvalState, setApprovalState] = useState({ gateway, rows: [] as PendingApproval[], error: '', decisionError: '', loading: live, updatedAt: null as number | null, deciding: [] as string[] });
+  const pendingApprovals = approvalState.gateway === gateway ? approvalState.rows : [];
+  const approvalError = approvalState.gateway === gateway ? approvalState.decisionError || approvalState.error : '';
+  const approvalsLoading = approvalState.gateway !== gateway || approvalState.loading;
+  const approvalsUpdatedAt = approvalState.gateway === gateway ? approvalState.updatedAt : null;
+  const decidingApprovalIds = approvalState.gateway === gateway ? approvalState.deciding : [];
+  const approvalRefreshRef = useRef<((force?: boolean) => Promise<void>) | null>(null);
+  const approvalContextRef = useRef<{ gateway: typeof gateway; generation: number; deciding: Set<string>; inFlight: Promise<void> | null; queued: boolean } | null>(null);
+  const currentApprovalGateway = useRef(gateway);
+  currentApprovalGateway.current = gateway;
+  const refreshPendingApprovals = useCallback(async () => { await approvalRefreshRef.current?.(true); }, []);
   const pushSeenIdsRef = useRef(new Set<number>());
   const sessionSocketRef = useRef<SessionSocket | null>(null);
   const armedCompletions = useRef(new Map<string, Set<string>>());
@@ -339,6 +358,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
 
   const selected = sessions.find((session) => session.id === selectedId) ?? (live ? emptyLiveSession() : sessions[0]) ?? emptyLiveSession();
   const pendingSessionRef = useRef(selected);
+  const decisionRehydrateAbortRef = useRef<AbortController | null>(null);
   pendingSessionRef.current = selected;
   useEffect(() => {
     clearPendingDecisions();
@@ -374,7 +394,18 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     childViewRequestRef.current++;
     childStack.current = [];
     setLiveChildView(null);
-    if (live && selected.id) void rehydrateDecisions(gateway, selected).catch(() => setLiveSessionError('Pending decisions could not be loaded'));
+    decisionRehydrateAbortRef.current?.abort();
+    const controller = new AbortController();
+    decisionRehydrateAbortRef.current = controller;
+    if (live && selected.id) {
+      void rehydrateDecisions(gateway, selected, controller.signal).catch(() => {
+        if (!controller.signal.aborted) setLiveSessionError('Pending decisions could not be loaded');
+      });
+    }
+    return () => {
+      controller.abort();
+      if (decisionRehydrateAbortRef.current === controller) decisionRehydrateAbortRef.current = null;
+    };
   }, [gateway, live, accountId, selected.id, selected.sdkSessionId, selected.cwd]);
   const notify = (message: string) => setToast((current) => ({ message, id: current.id + 1 }));
   const setTheme = (next: Theme) => { setThemeState(next); persistTheme(next); };
@@ -432,22 +463,19 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   }, [live, selectedId]);
 
   const mergeSessionTranscript = (session: Session, page: RichTranscriptMessage[], options: TranscriptPageOptions): TranscriptState => {
-    const stored = transcriptStatesRef.current.get(session.id) ?? emptyTranscript();
-    const seeded = mergeTranscriptPage(stored, session.messages as RichTranscriptMessage[], {
-      mode: 'merge', hasMore: session.transcriptHasMore ?? false, nextCursor: session.transcriptCursor,
-    });
-    const next = mergeTranscriptPage(seeded, page, options);
-    transcriptStatesRef.current.set(session.id, next);
-    return next;
+    return mergeCachedTranscriptPage(transcriptStatesRef.current, session.id, {
+      messages: session.messages as RichTranscriptMessage[],
+      hasMore: session.transcriptHasMore,
+      nextCursor: session.transcriptCursor,
+    }, page, options);
   };
 
   const reduceSessionTranscript = (session: Session, event: SessionWireEvent): TranscriptState => {
-    const seeded = mergeSessionTranscript(session, [], {
-      mode: 'merge', hasMore: session.transcriptHasMore ?? false, nextCursor: session.transcriptCursor,
-    });
-    const next = applyTranscriptEvent(seeded, event);
-    transcriptStatesRef.current.set(session.id, next);
-    return next;
+    return reduceCachedTranscriptEvent(transcriptStatesRef.current, session.id, {
+      messages: session.messages as RichTranscriptMessage[],
+      hasMore: session.transcriptHasMore,
+      nextCursor: session.transcriptCursor,
+    }, event);
   };
 
   const replaceLiveSession = (incoming: Session, options: { transcriptMode?: 'merge' | 'replace'; boundary?: { revertedMessageId?: string } } = {}) => {
@@ -735,6 +763,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
           pushSeenIdsRef.current.add(push.id);
           const { id, title, body } = push as { id: number; title: string; body: string };
           setPushNotifications((current) => [{ id, title, body }, ...current]);
+          emitAgentNotification({ v: 1, type: 'push', id, title, body }, live);
         }
       }
     };
@@ -757,12 +786,18 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     const onReconnect = () => {
       if (!active) return;
       const id = selectedIdRef.current;
-      if (id) { sessionSocketRef.current?.send({ v: 1, type: 'session.subscribe', id }); rehydratePendingPermission(id); }
+      if (id) {
+        sessionSocketRef.current?.send({ v: 1, type: 'session.subscribe', id });
+        if (pendingSessionRef.current.id === id && pendingSessionRef.current.sdkSessionId) rehydratePendingPermission(id);
+      }
       void requestReconcile().catch(onError);
     };
     sessionSocketRef.current = sessionGateway.connect(onEvent, onError, () => {
       onReconnect();
-      void rehydrateDecisions(gateway, pendingSessionRef.current).catch(onError);
+      const session = pendingSessionRef.current;
+      void rehydrateDecisions(gateway, session).catch(() => {
+        if (active && selectedIdRef.current === session.id && pendingSessionRef.current.sdkSessionId === session.sdkSessionId) onError();
+      });
     });
     // The hash listener above is installed before main flushes a pre-ready native click.
     emitAgentNotification({ v: 1, type: 'ready' }, live);
@@ -792,7 +827,15 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       rememberLiveSelection(chosen);
       if (chosen) {
         const detail = await sessionGateway.detail(chosen);
-        if (active) setSessions((current) => current.map((session) => session.id === chosen ? hydrateWorkingState(detail, session) : session));
+        if (active) setSessions((current) => current.map((session) => {
+          if (session.id !== chosen) return session;
+          // This initial detail can resolve after a WS frame. Merge it through the same
+          // explicit REST boundary so it fills an absent cache without clobbering live text.
+          const transcript = mergeSessionTranscript(session, detail.messages as RichTranscriptMessage[], {
+            mode: 'merge', hasMore: detail.transcriptHasMore ?? false, nextCursor: detail.transcriptCursor,
+          });
+          return { ...hydrateWorkingState(detail, session), messages: transcript.messages };
+        }));
         rehydratePendingPermission(chosen);
       }
     }).catch(onError).finally(() => { if (active) setLoading(false); });
@@ -818,9 +861,15 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!live) return;
     let active = true;
+    // Poll runs on mount, every 60s and on every focus: toast a given failure once until a success resets it.
+    let lastFailure: string | null = null;
     const refresh = () => void gateway.domains.notifications!.list()
-      .then((rows) => { if (active) setNotifications(rows); })
-      .catch(() => { if (active) notify('Notifications could not be loaded'); });
+      .then((rows) => { lastFailure = null; if (active) setNotifications(rows); })
+      .catch((error: unknown) => {
+        const message = failureMessage('Notifications could not be loaded', error);
+        if (active && message !== lastFailure) notify(message);
+        lastFailure = message;
+      });
     refresh();
     const timer = window.setInterval(refresh, 60_000);
     window.addEventListener('focus', refresh);
@@ -828,18 +877,40 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gateway, live]);
 
-  // c4d: hydrate the shared pending-approval boundary once on mount — same read Review Queue
-  // (LiveReviewTool) uses, so an approval raised against any session shows up here too.
-  // Array.isArray guards a harness/host that doesn't recognize the route and falls through to a
-  // generic `{ok:true}` shape — ApprovalGateway.listPending() doesn't validate its own JSON parse,
-  // so an un-array-shaped body must degrade to [] here rather than reach pendingApprovals.map(...).
+  // One queue snapshot is shared by the bell and transcript; failed reads retain the last cards.
   useEffect(() => {
     if (!live) return;
     let active = true;
-    void gateway.domains.approvals!.listPending()
-      .then((rows) => { if (active) setPendingApprovals(Array.isArray(rows) ? rows : []); })
-      .catch(() => { if (active) notify('Pending approvals could not be loaded'); });
-    return () => { active = false; };
+    const context = { gateway, generation: 0, deciding: new Set<string>(), inFlight: null as Promise<void> | null, queued: false };
+    approvalContextRef.current = context;
+    setApprovalState({ gateway, rows: [], error: '', decisionError: '', loading: true, updatedAt: null, deciding: [] });
+    const refresh = async (force = false): Promise<void> => {
+      if (context.inFlight) {
+        if (force) { context.queued = true; ++context.generation; }
+        await context.inFlight;
+        if (context.queued && active && currentApprovalGateway.current === gateway) { context.queued = false; return refresh(); }
+        return;
+      }
+      const generation = ++context.generation;
+      const current = () => active && currentApprovalGateway.current === gateway && generation === context.generation;
+      setApprovalState((state) => state.gateway === gateway ? { ...state, loading: true } : state);
+      const request = (async () => {
+        try {
+          const rows = await gateway.domains.approvals!.listPending();
+          if (current()) setApprovalState((state) => ({ ...state, gateway, rows, error: '', loading: false, updatedAt: Date.now() }));
+        } catch (error) {
+          if (current()) setApprovalState((state) => ({ ...state, error: failureMessage('Pending approvals could not be refreshed', error), loading: false }));
+        }
+      })();
+      context.inFlight = request;
+      try { await request; } finally { if (context.inFlight === request) context.inFlight = null; }
+    };
+    approvalRefreshRef.current = refresh;
+    const visibleRefresh = () => { if (document.visibilityState === 'visible') void refresh(); };
+    void refresh();
+    const timer = window.setInterval(visibleRefresh, 5_000);
+    window.addEventListener('focus', visibleRefresh); window.addEventListener('online', visibleRefresh); window.addEventListener('pageshow', visibleRefresh); document.addEventListener('visibilitychange', visibleRefresh);
+    return () => { active = false; approvalRefreshRef.current = null; approvalContextRef.current = null; window.clearInterval(timer); window.removeEventListener('focus', visibleRefresh); window.removeEventListener('online', visibleRefresh); window.removeEventListener('pageshow', visibleRefresh); document.removeEventListener('visibilitychange', visibleRefresh); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gateway, live]);
 
@@ -849,8 +920,20 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   // with a live server's HUMAN_APPROVAL_PUBLIC_KEY/HUMAN_APPROVAL_CAPABILITY_SHA256.
   const decideApproval = async (id: string, status: 'approved' | 'rejected') => {
     if (!live) return;
+    const context = approvalContextRef.current;
+    if (!context || context.gateway !== gateway || context.deciding.has(id)) return;
     const approval = pendingApprovals.find((item) => item.id === id);
     if (!approval) return;
+    if (approval.securityAction === 'coordinator.workflow.start') {
+      const native = (window as Window & { rhythmShell?: { humanApproval?: { signDecision?: unknown } } }).rhythmShell?.humanApproval;
+      if (typeof native?.signDecision !== 'function' || !approval.payloadDigest?.trim()) {
+        setApprovalState((state) => ({ ...state, decisionError: 'Native signer unavailable. Reopen the signed Rhythm desktop chat to decide this workflow proposal.' }));
+        return;
+      }
+    }
+    if (!approval.decisionNonce?.trim()) { setApprovalState((state) => ({ ...state, decisionError: 'This legacy approval cannot be signed. Ask the agent to request approval again.' })); return; }
+    const current = () => approvalContextRef.current === context && currentApprovalGateway.current === gateway;
+    context.deciding.add(id); setApprovalState((state) => ({ ...state, deciding: [...context.deciding] }));
     try {
       const material = await signApprovalDecision({
         approvalId: id,
@@ -858,13 +941,20 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
         decisionNonce: approval.decisionNonce,
         payloadDigest: approval.payloadDigest,
       });
+      if (!current()) return;
       await gateway.domains.approvals!.decide(id, status, material);
-      setPendingApprovals((current) => current.filter((item) => item.id !== id));
+      if (!current()) return;
+      ++context.generation;
+      setApprovalState((state) => ({ ...state, decisionError: '', rows: state.rows.filter((item) => item.id !== id) }));
       notify(`Approval ${status}`);
       // c4d: focus only the originating owned session, never a different one.
       if (approval.sessionId) await selectLiveSession(approval.sessionId);
+      if (current()) await refreshPendingApprovals();
     } catch (error) {
-      notify(error instanceof ApprovalGatewayError ? error.message : 'Decision could not be sent');
+      if (current()) setApprovalState((state) => ({ ...state, decisionError: error instanceof ApprovalGatewayError ? error.message : 'Native decision could not be sent. Open the signed Rhythm desktop queue and retry.' }));
+    } finally {
+      context.deciding.delete(id);
+      if (current()) setApprovalState((state) => ({ ...state, deciding: [...context.deciding] }));
     }
   };
 
@@ -945,22 +1035,28 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     const trimmed = input.trim();
     if (!selected.id || (!trimmed && attachments.length === 0)) return;
     const messageId = `local-user-${Date.now()}`;
-    setSessions((current) => current.map((session) => session.id === selected.id ? {
-      ...session,
-      status: 'working',
-      messages: [...session.messages, {
-        id: messageId, role: 'user', createdAt: new Date().toISOString(),
-        blocks: [{ id: `${messageId}-text`, kind: 'markdown', content: trimmed || 'Attached file context.' }],
-        attachments: structuredClone(attachments),
-      }],
-      pendingAttachments: [],
-    } : session));
+    const optimisticMessage: RichTranscriptMessage = {
+      id: messageId, role: 'user', createdAt: new Date().toISOString(),
+      blocks: [{ id: `${messageId}-text`, kind: 'markdown', content: trimmed || 'Attached file context.' }],
+      attachments: structuredClone(attachments),
+    };
+    setSessions((current) => current.map((session) => {
+      if (session.id !== selected.id) return session;
+      // Keep the reducer cache current at the only live optimistic-write boundary. A later
+      // WS confirmation can still alias this row without rehydrating every historical row.
+      const transcript = mergeSessionTranscript(session, [optimisticMessage], {
+        mode: 'merge', hasMore: session.transcriptHasMore ?? false, nextCursor: session.transcriptCursor,
+      });
+      return { ...session, status: 'working', messages: transcript.messages, pendingAttachments: [] };
+    }));
     const override = turnOverrides.current[selected.id] ?? {};
     delete turnOverrides.current[selected.id];
     setOverrideVersion(v => v + 1);
     const turnProfile = profiles.find(profile => profile.id === override.profileId && profile.enabled && profile.selectable);
     const agent = turnProfile ? turnProfile.ocAgent || turnProfile.id : undefined;
-    const modelOverride = override.modelOverride ?? (selected.providerId && selected.modelId
+    // Auto (router) sessions never echo the stored model back as an override — that would
+    // pin the turn; only an explicitly staged turn-only model is sent.
+    const modelOverride = override.modelOverride ?? (selected.modelMode !== 'auto' && selected.providerId && selected.modelId
       ? { providerId: selected.providerId, modelId: selected.modelId }
       : undefined);
     // c2e: real attachments travel as canonical `parts` (resolved text content / file data:
@@ -1301,7 +1397,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   };
 
   const notificationUnreadCount = notifications.length + pushNotifications.length;
-  const value = useMemo<FixtureContextValue>(() => ({ prepareLiveSession, startFreshSession, reconnectLiveSession, models, accounts, openaiAccounts, catalogError, refreshModels, refreshCatalog, turnOverride: turnOverrides.current[selectedId] ?? {}, stageTurnOverride, saveSessionSettings, sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, liveMessageThreads, setLiveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, decideApproval, isCompletionArmed, toggleCompletionArm }), [models, accounts, openaiAccounts, catalogError, refreshModels, refreshCatalog, overrideVersion, sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, liveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals, armedKeys]);
+  const value = useMemo<FixtureContextValue>(() => ({ prepareLiveSession, startFreshSession, reconnectLiveSession, models, accounts, openaiAccounts, catalogError, refreshModels, refreshCatalog, turnOverride: turnOverrides.current[selectedId] ?? {}, stageTurnOverride, saveSessionSettings, sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, liveMessageThreads, setLiveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, approvalError, approvalsLoading, approvalsUpdatedAt, decidingApprovalIds, refreshPendingApprovals, decideApproval, isCompletionArmed, toggleCompletionArm }), [models, accounts, openaiAccounts, catalogError, refreshModels, refreshCatalog, overrideVersion, sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, liveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals, approvalState, refreshPendingApprovals, armedKeys]);
   return <FixtureContext.Provider value={value}>{children}</FixtureContext.Provider>;
 }
 

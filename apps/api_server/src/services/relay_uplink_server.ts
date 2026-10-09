@@ -18,7 +18,8 @@ import {
 } from '../repositories/mobile_devices_repository';
 import { MobileCloudIdentityService } from './mobile_cloud_identity_service';
 import { getMobilePairingService } from './mobile_gateway_runtime';
-import { OpencodeEventHub } from './opencode_event_hub';
+import { CoordinatorConversationsRepository } from '../repositories/coordinator_conversations_repository';
+import { coordinatorChangedEnvelope, OpencodeEventHub } from './opencode_event_hub';
 import { logger } from '../utils/logger';
 import {
   parseUplinkFrame,
@@ -56,7 +57,22 @@ interface UplinkConnection {
   rechecking: boolean;
   helloReceived: boolean;
   hostId: string | null;
+  /** Internal, unforgeable per-connection identity; never serialized or read from a payload. */
+  readonly generation: symbol;
 }
+
+/**
+ * Authenticated provenance of a hint/mirror row: the validated hello host, the
+ * authenticated uplink user and the connection generation that produced it.
+ */
+export interface RelayOrigin {
+  readonly hostId: string;
+  readonly userId: number;
+  readonly generation: symbol;
+}
+
+/** Bound on remembered mirrored-root origins (one per qualifying primary root). */
+const MAX_MIRROR_ORIGINS = 256;
 
 interface RelayPtyConnection {
   phone: WebSocket;
@@ -296,6 +312,13 @@ export class RelayUplinkServer {
   private macOnline = false;
   private appliedSinceAck = 0;
   private readonly resyncedCallbacks = new Set<() => void>();
+  // Origin of each hub envelope, keyed by the SAME object the hub queues, so it
+  // survives queue/drain without adding any serialized key or protocol field.
+  private readonly envelopeOrigins = new WeakMap<object, RelayOrigin>();
+  // Origin of the currently qualifying mirrored primary root rows, recorded
+  // only after a successful authenticated agent_sessions apply. Never derived
+  // from persisted rows or resync markers.
+  private readonly mirrorOrigins = new Map<string, RelayOrigin>();
 
   constructor(options: RelayUplinkServerOptions = {}) {
     this.bearerValidator = options.bearerValidator ?? defaultBearerValidator;
@@ -598,6 +621,7 @@ export class RelayUplinkServer {
       rechecking: false,
       helloReceived: false,
       hostId: null,
+      generation: Symbol('relay-uplink-generation'),
     };
     this.connections.add(connection);
     connection.recheckTimer = setInterval(() => {
@@ -667,6 +691,9 @@ export class RelayUplinkServer {
         this.active = connection;
         this.setOffline();
         this.active = connection;
+        // A new authenticated connection (host switch or reconnect) never
+        // inherits earlier mirror provenance.
+        this.mirrorOrigins.clear();
         this.health = frame.health;
         this.stampUplink();
         socket.send(serializeUplinkFrame({
@@ -677,14 +704,73 @@ export class RelayUplinkServer {
         return;
       }
       if (this.active !== connection) return;
-      this.handleFrame(frame);
+      this.handleFrame(frame, connection);
     });
     const disconnected = () => this.disconnect(connection);
     socket.once('close', disconnected);
     socket.once('error', disconnected);
   }
 
-  private handleFrame(frame: UplinkFrame): void {
+  private originOf(connection: UplinkConnection): RelayOrigin | null {
+    return connection.hostId === null
+      ? null
+      : {
+        hostId: connection.hostId,
+        userId: connection.authenticatedUserId,
+        generation: connection.generation,
+      };
+  }
+
+  /** Origin the authenticated uplink stamped on this exact hub envelope object, if any. */
+  envelopeOrigin(envelope: unknown): RelayOrigin | null {
+    return typeof envelope === 'object' && envelope !== null
+      ? this.envelopeOrigins.get(envelope) ?? null
+      : null;
+  }
+
+  /** Origin recorded when this mirrored root row was last successfully applied, if still current. */
+  mirrorOrigin(localSessionId: string): RelayOrigin | null {
+    return this.mirrorOrigins.get(localSessionId) ?? null;
+  }
+
+  /** The currently active authenticated connection's origin. */
+  currentOrigin(): RelayOrigin | null {
+    return this.active ? this.originOf(this.active) : null;
+  }
+
+  /**
+   * Runs only after `applyReplicationRow` returned true (its SQLite transaction
+   * has committed). Records origin for a still-qualifying mirrored primary
+   * root and mints a fresh body-free recovery hint stamped with that origin;
+   * any delete/disqualification forgets the origin. No backlog, no retry.
+   */
+  private afterAgentSessionsApplied(frame: ReplRowFrame, connection: UplinkConnection): void {
+    if (frame.tbl !== 'agent_sessions') return;
+    if (frame.op === 'delete') {
+      this.mirrorOrigins.delete(frame.pk);
+      return;
+    }
+    const origin = this.originOf(connection);
+    const root = new CoordinatorConversationsRepository().findMirroredPrimaryRoot(frame.pk);
+    if (!root || !origin || root.ownerUserId !== origin.userId) {
+      this.mirrorOrigins.delete(frame.pk);
+      return;
+    }
+    if (!this.mirrorOrigins.has(frame.pk) && this.mirrorOrigins.size >= MAX_MIRROR_ORIGINS) {
+      const oldest = this.mirrorOrigins.keys().next().value;
+      if (oldest !== undefined) this.mirrorOrigins.delete(oldest);
+    }
+    this.mirrorOrigins.set(frame.pk, origin);
+    const envelope = coordinatorChangedEnvelope({
+      projectId: root.projectId,
+      conversationId: root.conversationId,
+      localSessionId: root.localSessionId,
+    });
+    this.envelopeOrigins.set(envelope, origin);
+    this.hub.publish(envelope);
+  }
+
+  private handleFrame(frame: UplinkFrame, connection: UplinkConnection): void {
     if (frame.ch === 'pty') {
       const connection = this.ptyConnections.get(frame.id);
       if (!connection || connection.uplink !== this.active?.socket) return;
@@ -745,6 +831,10 @@ export class RelayUplinkServer {
       return;
     }
     if (frame.ch === 'events' && frame.t === 'env') {
+      const origin = this.originOf(connection);
+      if (origin && typeof frame.envelope === 'object' && frame.envelope !== null) {
+        this.envelopeOrigins.set(frame.envelope, origin);
+      }
       this.hub.publish(frame.envelope);
       return;
     }
@@ -761,6 +851,7 @@ export class RelayUplinkServer {
         if (applyReplicationRow(frame)) {
           this.appliedSinceAck += 1;
           if (this.appliedSinceAck >= 100) this.sendAck();
+          this.afterAgentSessionsApplied(frame, connection);
         }
       } catch {
         // Reject malformed or inapplicable rows without dropping the uplink.
@@ -818,6 +909,7 @@ export class RelayUplinkServer {
     this.connections.delete(connection);
     if (this.active !== connection) return;
     this.active = null;
+    this.mirrorOrigins.clear();
     this.setOffline();
   }
 

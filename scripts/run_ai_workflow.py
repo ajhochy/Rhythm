@@ -42,6 +42,8 @@ API_DIR = REPO_ROOT / "apps" / "api_server"
 MCP_DIR = REPO_ROOT / "apps" / "mcp_server"
 FORK_DIR = REPO_ROOT / "apps" / "opencode_fork" / "packages" / "opencode"
 MOBILE_DIR = REPO_ROOT / "apps" / "mobile"
+WEB_DIR = REPO_ROOT / "apps" / "web"
+ELECTRON_DIR = REPO_ROOT / "apps" / "electron"
 
 
 # ---------------------------------------------------------------------------
@@ -119,8 +121,8 @@ class Check:
 ISSUE_CHECKS: list[Check] = [
     Check("flutter analyze (no fatal infos)", FLUTTER_DIR, ["flutter", "analyze", "--no-fatal-infos"]),
     Check("dart format (--set-exit-if-changed)", FLUTTER_DIR, ["dart", "format", "--set-exit-if-changed", "."]),
-    Check("api_server tsc --noEmit", API_DIR, ["npx", "--no-install", "tsc", "--noEmit"]),
-    Check("mcp_server tsc --noEmit", MCP_DIR, ["npx", "--no-install", "tsc", "--noEmit"]),
+    Check("api_server tsc --noEmit", API_DIR, ["node", "node_modules/typescript/bin/tsc", "--noEmit"]),
+    Check("mcp_server tsc --noEmit", MCP_DIR, ["node", "node_modules/typescript/bin/tsc", "--noEmit"]),
 ]
 
 PR_CHECKS: list[Check] = ISSUE_CHECKS + [
@@ -152,6 +154,15 @@ MOBILE_PR_CHECKS: list[Check] = [
     Check("mobile contract", MOBILE_DIR, ["npm", "run", "contract:check", "--silent"]),
     Check("mobile fake-server self-test", MOBILE_DIR, ["npm", "run", "test:fake-server:self", "--silent"]),
     Check("mobile web e2e", MOBILE_DIR, ["npm", "run", "test:e2e:web", "--silent"]),
+    Check("mobile jest CI suite", MOBILE_DIR, ["npm", "run", "test:jest:ci", "--silent"]),
+    Check("mobile tools service", MOBILE_DIR, ["npm", "run", "test:tools-service:1173", "--silent"]),
+]
+
+DESKTOP_WEB_PR_CHECKS: list[Check] = [
+    Check("desktop web unit tests", WEB_DIR, ["npm", "run", "test:unit", "--silent"]),
+    Check("desktop web build", WEB_DIR, ["npm", "run", "build", "--silent"]),
+    Check("electron typecheck", ELECTRON_DIR, ["npm", "run", "typecheck", "--silent"]),
+    Check("electron unit tests", ELECTRON_DIR, ["npm", "test", "--silent"]),
 ]
 
 
@@ -173,7 +184,7 @@ def cmd_checks(args: argparse.Namespace) -> int:
     if args.level == "issue":
         checks = ISSUE_CHECKS
     elif args.level == "pr":
-        checks = PR_CHECKS + (MOBILE_PR_CHECKS if (MOBILE_DIR / "package.json").exists() else [])
+        checks = PR_CHECKS + (MOBILE_PR_CHECKS if (MOBILE_DIR / "package.json").exists() else []) + DESKTOP_WEB_PR_CHECKS
     elif args.level == "smoke":
         print("Smoke is manual. See docs/testing/manual-smoke.md.")
         return 0

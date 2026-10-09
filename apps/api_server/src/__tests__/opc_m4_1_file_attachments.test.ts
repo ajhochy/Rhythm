@@ -267,4 +267,24 @@ describe('issue-700-c1: session.input FilePart forwarding contracts', () => {
     expect(sent.id).toBe(session.id);
     expect(sent.message).toMatch(/too large|size limit|exceeds/i);
   });
+
+  it('A1 rejects a combined parts frame above 20 MiB before forwarding any attachment', async () => {
+    const session = sessionsRepo.insert({
+      agentKind: 'claude-code', taskId: null, taskTitle: null,
+      cwd: os.homedir(), name: 'CombinedAttachmentLimit',
+    });
+    sessionMap.set(session.id, 'sdk-combined-attachment-limit');
+    const dataUri = `data:image/png;base64,${'A'.repeat(7 * 1024 * 1024)}`;
+    const ws = makeFakeWs();
+    await handleInputFrame(ws, {
+      v: 1, type: 'session.input', id: session.id,
+      parts: [1, 2, 3].map((n) => ({ type: 'file', mime: 'image/png', filename: `file-${n}.png`, url: dataUri })),
+    });
+
+    expect(promptAsyncSpy).not.toHaveBeenCalled();
+    expect(wsSendMock).toHaveBeenCalledWith(expect.stringContaining('combined'));
+    const frame = JSON.parse(wsSendMock.mock.calls[0][0] as string) as { type: string; id: string; message: string };
+    expect(frame).toMatchObject({ type: 'error', id: session.id });
+    expect(frame.message).toMatch(/20 MiB.*limit/i);
+  });
 });

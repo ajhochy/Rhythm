@@ -6,7 +6,7 @@ test.skip(process.env.RHYTHM_ISSUE_1559_CONTRACT !== '1', 'Run with the issue-15
 
 // Profiles left Agent Settings (edited in the Profiles tool); OpenAI accounts took its load slot.
 const paths = ['/opencode/auth/openai/accounts', '/opencode/auth/accounts', '/opencode/mcp', '/opencode/auth'];
-const names = ['Accounts', 'Models', 'MCP servers', 'Auto-promotion', 'Behavior', 'Keybindings', 'Runtime / OpenCode server'];
+const names = ['Accounts', 'Models', 'Model routing', 'MCP servers', 'Auto-promotion', 'Behavior', 'Keybindings', 'Runtime / OpenCode server'];
 
 async function openSettings(page: Page, failed: Set<string>, override?: (route: Route, path: string, count: number) => Promise<boolean>) {
   const counts: Record<string, number> = Object.fromEntries(paths.map((path) => [path, 0]));
@@ -66,13 +66,12 @@ async function selectSection(page: Page, name: string) {
 
 async function rowsRemainAccessible(page: Page) {
   const list = await showSectionList(page);
-  await expect(list.getByRole('option')).toHaveCount(7);
+  await expect(list.getByRole('option')).toHaveCount(names.length);
   for (const name of names) await expect(list.getByRole('option', { name, exact: true })).toBeVisible();
   await list.getByRole('option', { name: 'Runtime / OpenCode server' }).focus();
   await page.keyboard.press('Home');
   await expect(list.getByRole('option', { name: 'Accounts' })).toBeFocused();
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('ArrowDown');
+  for (let i = 0; i < names.indexOf('MCP servers'); i++) await page.keyboard.press('ArrowDown');
   await expect(list.getByRole('option', { name: 'MCP servers' })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('list-inspector-detail')).toContainText('MCP servers provide tools');

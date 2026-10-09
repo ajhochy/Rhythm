@@ -1,0 +1,53 @@
+{
+  "name": "fork-shell-queued-loop",
+  "authorization": "AJ reopened investigation on 2026-09-30; separate compatibility criterion, not another cleanup repair",
+  "base": "4f915540f700bbb403728ef8e01e0b5e02baf94f",
+  "status": "WAIVED",
+  "verification_exception": "WAIVED: AJ explicitly accepts the isolated run3 shell completion resumes queued loop callers assertion failure (prompt.test.ts:1523, expected llm.calls 1, received 0) as a documented verification exception for the original cleanup draft PR. Cause remains UNKNOWN; no session fix, proven flaky diagnosis, assertion weakening, or blanket full-suite success is claimed. Historical FAIL and all reruns remain evidence, not erased.",
+  "exception_approval": {
+    "approver": "AJ",
+    "date": "2026-09-30",
+    "reply": "Yes",
+    "question": "explicitly accept this isolated failure as a documented verification exception, have the verifier assess that exception, and proceed with the cleanup draft PR.",
+    "informed_context": "Cause unknown; no session fix made. Approval authorizes the original draft PR, not merge, leftover cleanup, or further code repair."
+  },
+  "exception_assessment": "Accepted as a narrow risk acceptance, not diagnostic proof. Subsequent identical-environment 3 focused/tree and 2 full/tree assertion results, and bounded instrumented 20 branch +20 exact-base results, are retained. Instrumentation removed; both prompt tests match exact base blob 1d4af371507a67b49b4080b288182b8965e12ca1. Fresh integrated scope/CI evidence is assessed separately in the cleanup contract.",
+  "local_draft_assessment": {
+    "date": "2026-10-01",
+    "status": "PASS-local",
+    "scope": "Original cleanup draft PR only; compatibility status remains WAIVED, original run3 FAIL and unknown cause preserved. No bug-fixed/flaky/all-tests-green claim.",
+    "evidence": "Fresh exact branch/HEAD, unchanged product/session/SDK/manifest/lockfile/CI diff and restored prompt hash reviewed; prior paired focused/full and instrumented receipts reused. Hub supplied exact-worktree GitNexus ALL: LOW,2 symbols,0 processes,4 tracked files, with index/dynamic-loading caveats. No runtime rerun.",
+    "remaining": "Triggered platform SDK generation/artifact diff, server smoke/optimizer/disposable PG are justified not_tested/CIpending in cleanup contract under hub's proportional classification; not waived, not passed. Human review follows draft; merge_ready=false."
+  },
+  "criterion_resolution": [
+    "WAIVED: explaining the original failure/root cause is not achieved; AJ knowingly accepts that uncertainty for this draft PR only.",
+    "pass: original six queued-loop assertions retained; successful diagnostic samples observe the real queue sequence and one LLM request, not proof of the failed schedule.",
+    "pass: no durable test/product edits, weakened assertions, new skips, arbitrary delays, or failure-erasing retries.",
+    "pass: bounded paired focused/full and instrumented receipts retained in the run note.",
+    "not_tested: synchronization fix and after-fix checks are inapplicable because no justified fix was made.",
+    "not_tested: production proposal/edits are inapplicable; root cause unknown and no production edits authorized.",
+    "pass: existing cleanup changes and all accumulated roots preserved."
+  ],
+  "diagnostic_attempt": 1,
+  "diagnostic_outcome": "BLOCKED: original failure not reproduced in20 branch +20 exact-base instrumented focused runs; one earlier diagnostic-harness API error retained separately; temporary instrumentation removed from both trees, no deterministic repair justified.",
+  "diagnostic_receipt": "/Users/ajhochhalter/.local/share/opencode/tool-output/tool_0f57d3ed0001VeQ7ssVntnC0t2",
+  "instrumentation_removed_blob": "1d4af371507a67b49b4080b288182b8965e12ca1 (HEAD, branch and exact-base prompt.test.ts match)",
+  "diagnostic_criterion": "Temporary test-only observation captures shell Fiber exit, assistant error/text/finish, actual Runner queue states/order and LLM stub entry; run up to 20 focused samples per tree in an identical new synthetic sandbox, stop on failure, remove instrumentation if unreproduced, and never infer a fix from green reruns.",
+  "diagnostic_waiver": "WAIVED: diagnostic-only instrumentation changes no intended behavior; verification is: unchanged queued-loop assertions, paired bounded stress receipts, instrumentation removal, and sandbox teardown.",
+  "criteria": [
+    "Explain the original queued-loop failure with observable synchronization or engine evidence, not successful reruns alone",
+    "Preserve shell completion resuming both queued callers, identical assistant result, and exactly one LLM call",
+    "No assertion weakening, skips, arbitrary delays, or retries that erase original FAIL",
+    "Compare bounded focused and full session samples on branch and exact base with identical isolated environment",
+    "If justified, apply one minimal deterministic test synchronization fix and verify focused repeats, full sessions, and fork typecheck",
+    "Report production root cause and minimum proposal before production edits; new HIGH/CRITICAL impact needs informed approval",
+    "Leave all existing cleanup repairs and accumulated temporary roots untouched"
+  ],
+  "commands": {
+    "focused": "node tools/dev/test-temp-directory-cleanup.mjs -- bun --cwd apps/opencode_fork/packages/opencode test test/session/prompt.test.ts -t 'shell completion resumes queued loop callers'",
+    "full": "node tools/dev/test-temp-directory-cleanup.mjs -- bun --cwd apps/opencode_fork/packages/opencode test test/session/ src/session/",
+    "typecheck_if_test_patched": "bun --cwd apps/opencode_fork/packages/opencode run typecheck"
+  },
+  "evidence": "docs/ai/runs/2026-09-30-fork-shell-queued-loop.md",
+  "original_failure_retained": "docs/ai/runs/2026-09-30-test-temp-directory-cleanup.md#final-independent-verification-run3--fail-controlling-outcome"
+}

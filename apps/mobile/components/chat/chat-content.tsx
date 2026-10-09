@@ -1,7 +1,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   FlatList,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -13,6 +14,7 @@ import {
 import { ActivityIndicator, Button, Card, IconButton, Text, TouchableRipple } from 'react-native-paper';
 
 import { Colors } from '@/constants/theme';
+import { AgentTypingBubble } from '@/components/chat/agent-typing-bubble';
 import { DiffCard, PendingInteractionsCard, SessionDiffCard, TranscriptMessage } from '@/components/chat/chat-cards';
 import type { TranscriptEntry } from '@/lib/opencode/format';
 import type { FileDiff, Session, SessionStatus, Todo } from '@/lib/opencode/types';
@@ -30,8 +32,8 @@ type ChatContentProps = {
   activeTab: 'session' | 'changes';
   awaitingUserInput: boolean;
   connection: { status: GatewayConnectionStatus; message: string };
+  coordinatorStatus?: ReactNode;
   copiedMessageId?: string;
-  currentActivityLabel?: string;
   currentDiffs: FileDiff[];
   currentPendingPermissions: PendingPermissionRequest[];
   currentPendingQuestions: PendingQuestionRequest[];
@@ -44,6 +46,7 @@ type ChatContentProps = {
   hasOlderMessages: boolean;
   isRefreshingDiffs: boolean;
   isRefreshingMessages: boolean;
+  completionSyncStatus?: 'syncing' | 'retry';
   onCopyMessage: (entry: TranscriptEntry) => void;
   onForkMessage: (messageId: string) => void;
   onLoadOlderMessages: () => void;
@@ -51,6 +54,7 @@ type ChatContentProps = {
   onUnrevert: () => void;
   onExpandDiff: (id?: string) => void;
   onRefresh: () => void;
+  onRetryCompletionSync: () => void;
   onReplyToPermission: (requestId: string, reply: 'once' | 'always' | 'reject') => void;
   onRejectQuestion: (requestId: string) => void;
   onReplyToQuestion: (requestId: string, answers: PendingQuestionAnswer[]) => void;
@@ -59,6 +63,8 @@ type ChatContentProps = {
   palette: Palette;
   pendingInteractions: number;
   running: boolean;
+  /** A server-primary history without an SDK row is readable but not mutable. */
+  readOnlyTranscript?: boolean;
   speakingMessageId?: string;
   status?: SessionStatus;
 };
@@ -68,8 +74,8 @@ export function ChatContent({
   activeTab,
   awaitingUserInput,
   connection,
+  coordinatorStatus,
   copiedMessageId,
-  currentActivityLabel,
   currentDiffs,
   currentPendingPermissions,
   currentPendingQuestions,
@@ -82,6 +88,7 @@ export function ChatContent({
   hasOlderMessages,
   isRefreshingDiffs,
   isRefreshingMessages,
+  completionSyncStatus,
   onCopyMessage,
   onForkMessage,
   onLoadOlderMessages,
@@ -89,6 +96,7 @@ export function ChatContent({
   onUnrevert,
   onExpandDiff,
   onRefresh,
+  onRetryCompletionSync,
   onRejectQuestion,
   onReplyToPermission,
   onReplyToQuestion,
@@ -97,28 +105,90 @@ export function ChatContent({
   palette,
   pendingInteractions,
   running,
+  readOnlyTranscript = false,
   speakingMessageId,
   status,
 }: ChatContentProps) {
   const [todosExpanded, setTodosExpanded] = useState(false);
+  const [transcriptPositioned, setTranscriptPositioned] = useState(displayTranscript.length === 0);
+  const [newMessageCount, setNewMessageCount] = useState(0);
   const transcriptRef = useRef<FlatList<TranscriptEntry>>(null);
+  const transcriptHeightRef = useRef(0);
+  const transcriptContentHeightRef = useRef(0);
+  const transcriptOffsetRef = useRef(0);
+  const prependAnchorRef = useRef<{
+    height: number;
+    offset: number;
+    pendingIds: Set<string>;
+    measuredHeights: Map<string, number>;
+  } | undefined>(undefined);
+  const initialRenderCountRef = useRef(Math.max(20, displayTranscript.length));
   const transcriptNearBottomRef = useRef(true);
-  const shouldPositionInitialTranscriptRef = useRef(false);
-  const previousTranscriptRef = useRef({ sessionId: currentSessionId, length: displayTranscript.length });
+  const shouldPositionInitialTranscriptRef = useRef(activeTab === 'session' && displayTranscript.length > 0);
+  const suppressEndScrollForPrependRef = useRef(false);
+  const previousTranscriptRef = useRef({
+    activeTab,
+    firstId: displayTranscript[0]?.id,
+    lastId: displayTranscript.at(-1)?.id,
+    lastText: displayTranscript.at(-1)?.text,
+    length: displayTranscript.length,
+    sessionId: currentSessionId,
+  });
   const completedTodoCount = currentTodos.filter((todo) => todo.status === 'completed').length;
   const transcriptExtraData = useMemo(
-    () => [copiedMessageId, speakingMessageId],
-    [copiedMessageId, speakingMessageId],
+    () => [copiedMessageId, speakingMessageId, coordinatorStatus],
+    [copiedMessageId, coordinatorStatus, speakingMessageId],
   );
 
   useLayoutEffect(() => {
     const previous = previousTranscriptRef.current;
-    if (previous.sessionId !== currentSessionId || (previous.length === 0 && displayTranscript.length > 0)) {
+    const firstId = displayTranscript[0]?.id;
+    const lastId = displayTranscript.at(-1)?.id;
+    suppressEndScrollForPrependRef.current = activeTab === 'session' &&
+      previous.activeTab === 'session' &&
+      previous.sessionId === currentSessionId &&
+      previous.length > 0 &&
+      displayTranscript.length > previous.length &&
+      previous.firstId !== firstId &&
+      previous.lastId === lastId;
+    if (activeTab === 'session' && (
+      previous.activeTab !== 'session' ||
+      previous.sessionId !== currentSessionId ||
+      (previous.length === 0 && displayTranscript.length > 0)
+    )) {
       shouldPositionInitialTranscriptRef.current = true;
       transcriptNearBottomRef.current = true;
+      transcriptHeightRef.current = 0;
+      transcriptContentHeightRef.current = 0;
+      prependAnchorRef.current = undefined;
+      initialRenderCountRef.current = Math.max(20, displayTranscript.length);
+      setTranscriptPositioned(displayTranscript.length === 0);
+      setNewMessageCount(0);
+    } else if (suppressEndScrollForPrependRef.current) {
+      transcriptNearBottomRef.current = false;
+      const previousFirstIndex = displayTranscript.findIndex((entry) => entry.id === previous.firstId);
+      prependAnchorRef.current = {
+        height: transcriptContentHeightRef.current,
+        offset: transcriptOffsetRef.current,
+        pendingIds: new Set(displayTranscript.slice(0, previousFirstIndex).map((entry) => entry.id)),
+        measuredHeights: new Map(),
+      };
+    } else if (!transcriptNearBottomRef.current && previous.lastId && (
+      previous.lastId !== lastId || previous.lastText !== displayTranscript.at(-1)?.text
+    )) {
+      const previousLastIndex = displayTranscript.findIndex((entry) => entry.id === previous.lastId);
+      const appended = previousLastIndex < 0 ? 0 : displayTranscript.length - previousLastIndex - 1;
+      setNewMessageCount((count) => appended > 0 ? count + appended : Math.max(1, count));
     }
-    previousTranscriptRef.current = { sessionId: currentSessionId, length: displayTranscript.length };
-  }, [currentSessionId, displayTranscript.length]);
+    if (!suppressEndScrollForPrependRef.current && (
+      activeTab !== previous.activeTab || currentSessionId !== previous.sessionId ||
+      firstId !== previous.firstId || lastId !== previous.lastId ||
+      displayTranscript.at(-1)?.text !== previous.lastText
+    )) {
+      prependAnchorRef.current = undefined;
+    }
+    previousTranscriptRef.current = { activeTab, firstId, lastId, lastText: displayTranscript.at(-1)?.text, length: displayTranscript.length, sessionId: currentSessionId };
+  }, [activeTab, currentSessionId, displayTranscript]);
 
   return (
     <View style={styles.chatArea}>
@@ -128,7 +198,12 @@ export function ChatContent({
           ref={transcriptRef}
           testID="chat-transcript"
           data={displayTranscript}
-          style={styles.scroll}
+           // ponytail: measure the already-bounded newest page, not the entire history.
+           initialNumToRender={initialRenderCountRef.current}
+           style={[styles.scroll, { opacity: transcriptPositioned ? 1 : 0 }]}
+           accessibilityElementsHidden={!transcriptPositioned}
+           importantForAccessibility={transcriptPositioned ? 'auto' : 'no-hide-descendants'}
+           pointerEvents={transcriptPositioned ? 'auto' : 'none'}
           contentContainerStyle={styles.content}
           extraData={transcriptExtraData}
           keyboardDismissMode="interactive"
@@ -137,37 +212,81 @@ export function ChatContent({
           maintainVisibleContentPosition={{
             minIndexForVisible: 0,
           }}
-          onLayout={() => {
-            if (transcriptNearBottomRef.current) {
-              transcriptRef.current?.scrollToEnd({ animated: false });
+           onLayout={(event) => {
+             transcriptHeightRef.current = event.nativeEvent.layout.height;
+             if (!transcriptPositioned || transcriptNearBottomRef.current) {
+               transcriptRef.current?.scrollToEnd({ animated: false });
+               if (transcriptContentHeightRef.current > 0) {
+                 transcriptRef.current?.scrollToOffset({ offset: Math.max(0, transcriptContentHeightRef.current - transcriptHeightRef.current), animated: false });
+               }
+             }
+             if (transcriptContentHeightRef.current > 0 && transcriptContentHeightRef.current <= transcriptHeightRef.current) {
+               shouldPositionInitialTranscriptRef.current = false;
+               setTranscriptPositioned(true);
+             }
+           }}
+           onContentSizeChange={(_, height) => {
+             transcriptContentHeightRef.current = height;
+             if (prependAnchorRef.current) {
+               // Native maintains keyed visible content; RN web needs the measured prepend delta.
+               if (Platform.OS === 'web') {
+                 transcriptRef.current?.scrollToOffset({ offset: Math.max(0, prependAnchorRef.current.offset + height - prependAnchorRef.current.height), animated: false });
+               }
+               // Virtualized rows arrive in stages. Keep the original anchor until
+               // every inserted row has laid out and the final size is reported.
+               const measuredPrependHeight = [...prependAnchorRef.current.measuredHeights.values()]
+                 .reduce((sum, rowHeight) => sum + rowHeight, 0);
+               if (prependAnchorRef.current.pendingIds.size === 0 &&
+                   height - prependAnchorRef.current.height >= measuredPrependHeight - 2) {
+                 prependAnchorRef.current = undefined;
+                 suppressEndScrollForPrependRef.current = false;
+               }
+               return;
             }
-          }}
-          onContentSizeChange={() => {
             if (
               displayTranscript.length === 0 ||
-              (!shouldPositionInitialTranscriptRef.current && !transcriptNearBottomRef.current)
+               (transcriptPositioned && !shouldPositionInitialTranscriptRef.current && !transcriptNearBottomRef.current)
             ) {
               return;
             }
-            shouldPositionInitialTranscriptRef.current = false;
-            transcriptRef.current?.scrollToEnd({ animated: false });
+             shouldPositionInitialTranscriptRef.current = false;
+             transcriptRef.current?.scrollToEnd({ animated: false });
+             if (transcriptHeightRef.current > 0) {
+               transcriptRef.current?.scrollToOffset({ offset: Math.max(0, height - transcriptHeightRef.current), animated: false });
+             }
+             if (transcriptHeightRef.current > 0 && height <= transcriptHeightRef.current) {
+               setTranscriptPositioned(true);
+             }
           }}
           onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
-            const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-            transcriptNearBottomRef.current =
-              layoutMeasurement.height + contentOffset.y >= contentSize.height - 32;
+             const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+             transcriptOffsetRef.current = contentOffset.y;
+             transcriptNearBottomRef.current =
+               layoutMeasurement.height + contentOffset.y >= contentSize.height - 32;
+             if (layoutMeasurement.height > 0 && layoutMeasurement.height + contentOffset.y >= contentSize.height - 1) {
+               setTranscriptPositioned(true);
+             }
+             if (transcriptNearBottomRef.current) setNewMessageCount(0);
           }}
+          onScrollBeginDrag={() => { prependAnchorRef.current = undefined; }}
           scrollEventThrottle={16}
           refreshControl={<RefreshControl refreshing={isRefreshingMessages} onRefresh={onRefresh} tintColor={palette.tint} />}
           renderItem={({ item: entry }) => (
-            <View style={styles.transcriptItem}>
+            <View
+              style={styles.transcriptItem}
+              onLayout={(event) => {
+                const anchor = prependAnchorRef.current;
+                if (!anchor?.pendingIds.has(entry.id)) return;
+                anchor.pendingIds.delete(entry.id);
+                anchor.measuredHeights.set(entry.id, event.nativeEvent.layout.height);
+              }}>
               <TranscriptMessage
                 canSpeak={entry.role === 'assistant' && Boolean(entry.text.trim())}
                 copied={copiedMessageId === entry.id}
                 entry={entry}
                 onCopy={() => onCopyMessage(entry)}
-                onFork={entry.role === 'user' ? () => onForkMessage(entry.id) : undefined}
-                onRevert={entry.role === 'user' ? () => onRevertMessage(entry.id) : undefined}
+                onFork={!readOnlyTranscript && entry.role === 'user' ? () => onForkMessage(entry.id) : undefined}
+                onRevert={!readOnlyTranscript && entry.role === 'user' ? () => onRevertMessage(entry.id) : undefined}
                 onToggleSpeak={() => onToggleSpeak(entry)}
                 speaking={speakingMessageId === entry.id}
               />
@@ -198,7 +317,7 @@ export function ChatContent({
           ListEmptyComponent={(
             <View style={styles.emptyContent}>
                 <Text variant="headlineSmall" style={[styles.emptyTitle, { color: palette.text }]}>Start a new task</Text>
-                <Text variant="bodyMedium" style={{ color: palette.muted }}>
+                <Text style={[styles.emptyDescription, { color: palette.muted }]}>
                   Keep the prompt specific and OpenCode will inspect the workspace, show progress, and stream back file changes.
                 </Text>
                 <View style={styles.promptStack}>
@@ -209,7 +328,7 @@ export function ChatContent({
                       onPress={() => onSendStarterPrompt(prompt)}>
                       <View style={styles.promptCardInner}>
                         <MaterialCommunityIcons name="lightning-bolt" size={18} color={palette.tint} />
-                        <Text variant="bodyMedium" style={{ color: palette.text }}>{prompt}</Text>
+                        <Text style={[styles.promptCardText, { color: palette.text }]}>{prompt}</Text>
                       </View>
                     </TouchableRipple>
                   ))}
@@ -218,6 +337,7 @@ export function ChatContent({
           )}
           ListFooterComponent={(
             <View style={styles.transcriptFooter}>
+              {coordinatorStatus}
               {pendingInteractions > 0 ? (
                 <PendingInteractionsCard
                   permissions={currentPendingPermissions}
@@ -237,12 +357,17 @@ export function ChatContent({
                 </Card>
               ) : null}
 
-              {running && !awaitingUserInput ? (
+              {running && !awaitingUserInput && pendingInteractions === 0 ? (
+                <AgentTypingBubble />
+              ) : null}
+
+              {completionSyncStatus ? (
                 <View style={styles.loadingRow}>
-                  <ActivityIndicator color={palette.muted} size="small" />
+                  {completionSyncStatus === 'syncing' ? <ActivityIndicator color={palette.muted} size="small" /> : null}
                   <Text style={{ color: palette.muted }}>
-                    {currentActivityLabel ? `OpenCode is ${currentActivityLabel.toLowerCase()}...` : 'OpenCode is working through the current step...'}
+                    {completionSyncStatus === 'syncing' ? 'Syncing the completed reply…' : 'The completed reply has not synced yet.'}
                   </Text>
+                  {completionSyncStatus === 'retry' ? <Button onPress={onRetryCompletionSync}>Retry sync</Button> : null}
                 </View>
               ) : null}
 
@@ -327,6 +452,21 @@ export function ChatContent({
           </View>
         </ScrollView>
       )}
+      {activeTab === 'session' && newMessageCount > 0 ? (
+        <Button
+          mode="contained"
+          accessibilityLabel={`${newMessageCount} new ${newMessageCount === 1 ? 'message' : 'messages'}. Jump to newest`}
+          onPress={() => {
+            transcriptNearBottomRef.current = true;
+            setNewMessageCount(0);
+            transcriptRef.current?.scrollToEnd({ animated: false });
+            if (transcriptHeightRef.current > 0) {
+              transcriptRef.current?.scrollToOffset({ offset: Math.max(0, transcriptContentHeightRef.current - transcriptHeightRef.current), animated: false });
+            }
+          }}>
+          {`${newMessageCount} new ${newMessageCount === 1 ? 'message' : 'messages'} ↓`}
+        </Button>
+      ) : null}
     </View>
   );
 }

@@ -4,9 +4,12 @@ import { relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { AppError } from '../errors/app_error';
+import { env } from '../config/env';
+import { getDb } from '../database/db';
 import {
   type MobileOpenCodeOwnershipStore,
 } from '../repositories/mobile_opencode_ownership_repository';
+import { hasManagedSdkSessionHistory } from '../repositories/managed_workstream_context_repository';
 import {
   AgentConfigsRepository,
   agentConfigExecutionBlockReason,
@@ -17,13 +20,18 @@ import {
   asRhythmProfileId,
 } from '../models/agent_session';
 import { logger } from '../utils/logger';
+import { ATTACHMENT_UNAVAILABLE, normalizePartAttachments } from './attachment_hosting';
+import {
+  promptTextFromParts,
+  routeMobilePromptBody,
+} from './decision/mobile_prompt_routing';
 import {
   expandProfileSkillAllowlist,
   resolveProfileScope,
 } from './agent_profile_scope';
 import { capMcpAllowlistForProvider } from './gemini_tool_cap';
 import { expandMcpAllowlist } from './mcp_allowlist_expander';
-import { OPENCODE_ENGINE_PORT } from './opencode_client_service';
+import { INTERACTIVE_TASK_PERMISSION, OPENCODE_ENGINE_PORT } from './opencode_client_service';
 import {
   getMobileOpenCodeOwnershipRepository,
 } from './mobile_opencode_ownership_runtime';
@@ -46,6 +54,7 @@ import {
   readMirrorSessionList,
   readMirrorTranscript,
 } from './mobile_mirror_reads';
+import { boundMirrorTranscript } from './mobile_transcript_bounds';
 import {
   resolveProfileIdForOpenCodeAgent,
   safeMobileSessionProfileState,
@@ -60,6 +69,10 @@ import {
   canUpdateMobileSessionState,
   hasMobileSessionExecutionBinding,
 } from './mobile_session_state_scope';
+import {
+  appendAutomaticMemoryPrefaceToPromptBody,
+  prepareAutomaticMemoryPreface,
+} from './automatic_memory_preface';
 
 export { MOBILE_OPENCODE_OPERATION_MANIFEST };
 export type { MobileOpenCodeOperation } from './mobile_opencode_proxy_types';
@@ -85,6 +98,20 @@ const SCOPED_PATH_QUERY_OPERATIONS = new Set([
 const PROMPT_FILE_PART_OPERATIONS = new Set([
   'session.prompt',
   'session.prompt_async',
+]);
+
+// These operations infer from, mutate, or copy retained engine history. A
+// managed worker's SDK session is permanently nonreusable across every one of
+// them; prompt remains included defensively even though the mobile manifest
+// denies synchronous prompt today.
+const MOBILE_MANAGED_HISTORY_OPERATIONS = new Set([
+  'session.prompt',
+  'session.prompt_async',
+  'session.command',
+  'session.summarize',
+  'session.fork',
+  'session.init',
+  'session.shell',
 ]);
 
 export const MOBILE_OPENCODE_REQUEST_BODY_LIMIT_BYTES = 512 * 1024;
@@ -169,6 +196,36 @@ function operationNotAllowed(): AppError {
     'OPERATION_NOT_ALLOWED',
     'OpenCode operation is not allowed for mobile',
   );
+}
+
+/**
+ * Mobile history-bearing operations reach the engine through this proxy
+ * instead of OpencodeClientService. Keep the same permanent SDK-session
+ * nonreuse boundary here so an ordinary mobile retry cannot replay, compact,
+ * fork, or derive from a managed worker's retained context. The current
+ * feature flag is deliberately irrelevant: enrollment remains historical even
+ * after an administrator turns the coordinator off. PostgreSQL is outside
+ * this local SQLite coordinator's authority, so it must retain its existing
+ * owner/project preflight and upstream validation without being called fresh.
+ */
+function assertMobileSessionHistoryMayForward(sdkSessionId: string, operationId: string): void {
+  if (env.dbClient !== 'sqlite') {
+    return;
+  }
+  try {
+    if (hasManagedSdkSessionHistory(getDb(), sdkSessionId)) {
+      throw AppError.reconciliationRequired(
+        `This SDK session has managed-worker history and cannot be reused for mobile ${operationId}`,
+      );
+    }
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    // A history-bearing operation is unsafe if the durable enrollment ledger
+    // cannot positively classify its session as never-managed.
+    throw AppError.reconciliationRequired(
+      `Mobile ${operationId} cannot verify managed SDK-session history`,
+    );
+  }
 }
 
 function decodeSafeSegments(path: string): string[] | null {
@@ -434,6 +491,8 @@ function sanitizePromptFileUrl(
   project: MobileProjectScope,
 ): string {
   if (typeof value !== 'string') throw invalidPromptFileUrl();
+  // Display references are resolved only after the caller's session scope is authorized.
+  if (/^\/artifacts\/[a-f0-9-]{36}$/i.test(value)) return value;
 
   let url: URL;
   try {
@@ -665,7 +724,9 @@ async function applyMobileSessionCreateScope(
   const permission = expandMobileCorePermissions(
     profile.corePermissionsJson,
   );
-  if (permission !== undefined) scopedBody.permission = permission;
+  // A phone chat is interactive: named profiles go through
+  // rhythm_delegate_async, task stays explore/general. Appended last (findLast).
+  scopedBody.permission = [...(permission ?? []), ...INTERACTIVE_TASK_PERMISSION];
 
   if (scope.mcpRoleConfig) {
     const toolCounts = toolCountsForRoleConfig(scope.mcpRoleConfig.mcpServers);
@@ -1017,12 +1078,16 @@ export class MobileOpenCodeProxy {
           : {}),
       });
       if (messages === null) return null;
+      // A mirror-served page skips the engine, so it skips the engine's byte
+      // bound too. Apply the same ceiling here or `mirrorResponse` rejects an
+      // oversized page outright and the seed is undeliverable again.
+      const boundedMessages = boundMirrorTranscript(messages);
       // Reuse the live path's shaping so mirror-served parts get exactly the
       // same host-path and secret scrubbing. `session.messages` shaping never
       // consults the engine, so the fetcher must never be called.
       const safeValue = await shapeMobileOpenCodeResponse(
         operation,
-        messages,
+        boundedMessages,
         // Scrub against the session's authoritative directory (a worktree may
         // differ from the project root), exactly as the live path does.
         requestProject,
@@ -1059,6 +1124,11 @@ export class MobileOpenCodeProxy {
       input.path,
       'sessionID',
     );
+    if (MOBILE_MANAGED_HISTORY_OPERATIONS.has(operation.operationId) && addressedSessionId) {
+      // Refuse before any operation-specific preflight can expose retained
+      // session history to the engine.
+      assertMobileSessionHistoryMayForward(addressedSessionId, operation.operationId);
+    }
     const authoritativeSessionDirectory = addressedSessionId
       ? ownership.resolveSessionDirectoryForOwner?.(
           addressedSessionId,
@@ -1357,6 +1427,11 @@ export class MobileOpenCodeProxy {
           }
         }
       }
+      if (operation.operationId === 'session.prompt_async' && addressedSessionId) {
+        // Recheck after all authorization/idempotency I/O but before any
+        // automatic retrieval can read local memory for this prompt.
+        assertMobileSessionHistoryMayForward(addressedSessionId, operation.operationId);
+      }
       const sanitizedBody = !acceptsBody || requestBody === undefined
         ? undefined
         : await sanitizeRequestBody(
@@ -1365,15 +1440,130 @@ export class MobileOpenCodeProxy {
           requestProject,
           fetchJson,
         );
-      const scopedBody = sanitizedBody === undefined
+      let authorizedBody = sanitizedBody;
+      if (
+        PROMPT_FILE_PART_OPERATIONS.has(operation.operationId) &&
+        addressedSessionId &&
+        sanitizedBody && typeof sanitizedBody === 'object' && !Array.isArray(sanitizedBody)
+      ) {
+        const body = sanitizedBody as Record<string, unknown>;
+        const parts = body.parts;
+        if (Array.isArray(parts) && parts.some((part) =>
+          typeof recordField(part, 'url') === 'string' &&
+          String(recordField(part, 'url')).startsWith('/artifacts/'))) {
+          if (parts.some((part) => !part || typeof part !== 'object' || Array.isArray(part))) {
+            throw AppError.forbidden(ATTACHMENT_UNAVAILABLE);
+          }
+          // A visible upstream session is insufficient to grant artifact bytes.
+          // Require the server's durable ownership record before normalization.
+          if (!ownership.isResourceOwnedBy('session', addressedSessionId, input.userId, input.project.id)) {
+            throw AppError.forbidden(ATTACHMENT_UNAVAILABLE);
+          }
+          const localSession = new AgentSessionsRepository().findBySdkSessionId(addressedSessionId);
+          if (localSession && (
+            localSession.ownerUserId !== input.userId || localSession.projectId !== input.project.id
+          )) {
+            throw AppError.forbidden(ATTACHMENT_UNAVAILABLE);
+          }
+          try {
+            const normalizedParts = await normalizePartAttachments(
+              parts as Array<Record<string, unknown>>,
+              {
+                id: localSession?.id ?? addressedSessionId,
+                sdkSessionId: addressedSessionId,
+                projectId: input.project.id,
+                ownerUserId: input.userId,
+              },
+              input.userId,
+            );
+            authorizedBody = { ...body, parts: normalizedParts };
+          } catch {
+            throw AppError.forbidden(ATTACHMENT_UNAVAILABLE);
+          }
+        }
+      }
+      const createScopedBody = authorizedBody === undefined
         ? undefined
         : await applyMobileSessionCreateScope(
-          sanitizedBody,
+          authorizedBody,
           operation.operationId,
         );
-      const encodedBody = scopedBody === undefined
+      // Routing scope / router for Auto sessions (falls back to the original
+      // body on any failure). See decision/mobile_prompt_routing.ts.
+      const scopedBody = createScopedBody !== undefined &&
+          operation.operationId === 'session.prompt_async' &&
+          addressedSessionId
+        ? await routeMobilePromptBody({
+          sdkSessionId: addressedSessionId,
+          userId: input.userId,
+          body: createScopedBody,
+        })
+        : createScopedBody;
+      let bodyWithAutomaticMemory = scopedBody;
+      if (
+        operation.operationId === 'session.prompt_async' &&
+        addressedSessionId &&
+        scopedBody &&
+        typeof scopedBody === 'object' &&
+        !Array.isArray(scopedBody)
+      ) {
+        let localSession: ReturnType<AgentSessionsRepository['findBySdkSessionId']> = null;
+        try {
+          localSession = new AgentSessionsRepository().findBySdkSessionId(addressedSessionId);
+        } catch {
+          // The mobile transport remains authorized even when the local
+          // catalog is unavailable; skip only automatic memory assembly.
+        }
+        if (
+          localSession?.ownerUserId === input.userId &&
+          canUpdateMobileSessionState(localSession, input.userId, input.project.id) &&
+          localSession.cwd === requestProject.root
+        ) {
+          const preface = await prepareAutomaticMemoryPreface({
+            query: promptTextFromParts(scopedBody as Record<string, unknown>),
+            sessionId: localSession.id,
+            ownerUserId: localSession.ownerUserId,
+          });
+          bodyWithAutomaticMemory = appendAutomaticMemoryPrefaceToPromptBody(
+            scopedBody,
+            preface,
+          );
+        }
+      }
+      if (
+        operation.operationId === 'session.prompt_async' &&
+        addressedSessionId &&
+        bodyWithAutomaticMemory &&
+        typeof bodyWithAutomaticMemory === 'object' &&
+        !Array.isArray(bodyWithAutomaticMemory)
+      ) {
+        // Persisted truth wins: the phone saves thinking budget / Fast mode on
+        // the session row but never sends them, so mirror ws_gateway.ts
+        // (~L900-940: reasoningConfig {type:'enabled',budgetTokens} + fastMode:true)
+        // from the row and overwrite any client-supplied values. ws_gateway has
+        // no clamp/capability check on these, so none is duplicated here.
+        let row: ReturnType<AgentSessionsRepository['findBySdkSessionId']> = null;
+        try {
+          row = new AgentSessionsRepository().findBySdkSessionId(addressedSessionId);
+        } catch {
+          // Local catalog unavailable: forward unchanged.
+        }
+        if (row && row.ownerUserId === input.userId) {
+          const { reasoningConfig: _r, fastMode: _f, ...rest } =
+            bodyWithAutomaticMemory as Record<string, unknown>;
+          const budget = row.thinkingBudget;
+          bodyWithAutomaticMemory = {
+            ...rest,
+            ...(typeof budget === 'number' && Number.isInteger(budget) && budget > 0
+              ? { reasoningConfig: { type: 'enabled', budgetTokens: budget } }
+              : {}),
+            ...(row.fastMode ? { fastMode: true } : {}),
+          };
+        }
+      }
+      const encodedBody = bodyWithAutomaticMemory === undefined
         ? undefined
-        : JSON.stringify(scopedBody);
+        : JSON.stringify(bodyWithAutomaticMemory);
       if (
         encodedBody !== undefined &&
         Buffer.byteLength(encodedBody, 'utf8') > requestBodyLimitBytes
@@ -1384,16 +1574,20 @@ export class MobileOpenCodeProxy {
           'OpenCode request exceeded the mobile gateway limit',
         );
       }
-      if (
-        operation.operationId === 'session.prompt_async' &&
-        addressedSessionId
-      ) {
+      if (operation.operationId === 'session.prompt_async' && addressedSessionId) {
         await this.preparePromptStream({
           directory: requestProject.root,
           projectId: input.project.id,
           sdkSessionId: addressedSessionId,
           userId: input.userId,
         });
+      }
+      if (MOBILE_MANAGED_HISTORY_OPERATIONS.has(operation.operationId) && addressedSessionId) {
+        // Every asynchronous mobile preflight above (including the streaming
+        // bridge for prompt_async) can overlap durable lifecycle work. Re-read
+        // immediately before the actual forward so no history-bearing session
+        // operation can slip through on a stale early classification.
+        assertMobileSessionHistoryMayForward(addressedSessionId, operation.operationId);
       }
       const response = await this.fetchFn(url, {
         method: operation.method,
@@ -1636,11 +1830,30 @@ export class MobileOpenCodeProxy {
         controller.signal.aborted ||
         (error instanceof Error && error.name === 'AbortError')
       ) {
-        logger.warn('[MobileOpenCodeProxy] upstream request timed out');
+        // Distinguish OUR 30s timer from a foreign AbortError arriving from
+        // upstream. Both used to log "upstream request timed out", so a
+        // connection-level failure was indistinguishable from a real timeout —
+        // measured 2026-10-07, aborts at 14ms were reported as 30s timeouts
+        // and the real cause was discarded, costing most of a night's
+        // diagnosis. Identity only; URL, headers and body stay redacted.
+        const timedOut = controller.signal.aborted;
+        const abortCause = error instanceof Error &&
+            typeof error.cause === 'object' &&
+            error.cause !== null &&
+            'code' in error.cause
+          ? String((error.cause as { code: unknown }).code)
+          : 'NONE';
+        logger.warn(
+          timedOut
+            ? `[MobileOpenCodeProxy] upstream timed out after ${this.timeoutMs}ms ` +
+              `(${error instanceof Error ? error.name : 'UnknownError'}/${abortCause})`
+            : `[MobileOpenCodeProxy] upstream aborted by peer, NOT our timeout ` +
+              `(${error instanceof Error ? error.name : 'UnknownError'}/${abortCause})`,
+        );
         throw new AppError(
           504,
           'OPENCODE_TIMEOUT',
-          'OpenCode request timed out',
+          timedOut ? 'OpenCode request timed out' : 'OpenCode connection aborted',
         );
       }
       const causeCode = error instanceof Error &&

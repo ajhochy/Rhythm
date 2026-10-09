@@ -723,7 +723,13 @@ export function notifyInfraFailureOnce(
   }
 }
 
+// ponytail: one local scheduler owner; serialize selection/dispatch, not async runs.
+// A multi-process scheduler would need a database claim instead.
+let schedulerChecking = false;
 async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
+  if (schedulerChecking) return;
+  schedulerChecking = true;
+  try {
   let dueTasks: Awaited<ReturnType<typeof repo.findDueAsync>>;
   try {
     dueTasks = await repo.findDueAsync();
@@ -783,7 +789,7 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
     // inside its own period. Skipping is expected behaviour, not a failure, so
     // it raises no notification -- but it must never be silent: it advances the
     // schedule, stamps `skipped_stale`, and writes a run-history row.
-    if (isMissedRunStale(task)) {
+    if (task.lastRunStatus !== 'queued' && isMissedRunStale(task)) {
       const skipNote =
         `Skipped: scheduled for ${task.nextRunAt} but the machine was asleep past ` +
         `the next occurrence of this schedule.`;
@@ -969,6 +975,9 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
       await recordRunHistory({ taskId: task.id, startedAt: runStart, status: 'error', error: errMsg });
     }
   }
+  } finally {
+    schedulerChecking = false;
+  }
 }
 
 export interface AgentSchedulerJob {
@@ -976,7 +985,23 @@ export interface AgentSchedulerJob {
   boot: Promise<void>;
 }
 
-export function startAgentSchedulerJob(): AgentSchedulerJob | null {
+/** Optional callback for an already-owned, bounded local coordinator sweep. */
+export interface AgentSchedulerOptions {
+  onOneShotWorkstreamTick?: () => Promise<void> | void;
+}
+
+async function runOneShotWorkstreamTick(options: AgentSchedulerOptions): Promise<void> {
+  if (!options.onOneShotWorkstreamTick) return;
+  try {
+    await options.onOneShotWorkstreamTick();
+  } catch (error) {
+    // The callback owns its own durable holds.  Never make legacy scheduler
+    // work retry or advance because a one-shot coordinator observation fails.
+    logger.warn(`[AgentScheduler] one-shot workstream sweep failed-nonfatal: ${String(error)}`);
+  }
+}
+
+export function startAgentSchedulerJob(options: AgentSchedulerOptions = {}): AgentSchedulerJob | null {
   // Local smoke must be observational. Do not reset stale rows, advance
   // next_run, create sessions, or execute any scheduled prompt against the
   // user's real local database.
@@ -1094,6 +1119,7 @@ export function startAgentSchedulerJob(): AgentSchedulerJob | null {
     await sweepPostApplyLifecycleAsync().catch(() => {
       logger.warn('[AgentScheduler] post-apply sweep outcome=failed-nonfatal');
     });
+    await runOneShotWorkstreamTick(options);
   })();
 
   // 1-minute tick — same granularity as Odysseus's asyncio loop
@@ -1117,6 +1143,7 @@ export function startAgentSchedulerJob(): AgentSchedulerJob | null {
     void sweepPostApplyLifecycleAsync().catch(() => {
       logger.warn('[AgentScheduler] post-apply sweep outcome=failed-nonfatal');
     });
+    void runOneShotWorkstreamTick(options);
   });
 
   logger.info('[AgentScheduler] Scheduler started (1-min tick)');

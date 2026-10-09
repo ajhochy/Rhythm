@@ -10,6 +10,7 @@ import { Config } from "@/config/config"
 import { Effect, Exit, Schema } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { modelStreamScheduler } from "@/session/model-stream-scheduler"
+import { sameWorkflowBinding } from "@/session/rhythm_provider_guard"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -41,28 +42,32 @@ export function isSkillAllowlist(value: unknown): value is NonNullable<Session.I
   return Array.isArray(candidate.skills) && candidate.skills.every((item): item is string => typeof item === "string")
 }
 
-export function childSkillAllowlist(agent: Agent.Info, parent: Session.Info): Session.Info["skillAllowlist"] {
-  // Mirror childMcpAllowlist (#1012): the projected profile carries its expanded
-  // skill scope in options.skillAllowlist (opencode_agent_writer). Read it so the
-  // task tool scopes the delegated child instead of injecting all discovered
-  // skills (~89k first-turn tokens with 105 skills installed).
-  const value = agent.options.skillAllowlist
-  if (isSkillAllowlist(value)) return { skills: [...value.skills] }
-  // Profile declares no skill scope: inherit the PARENT session's scope rather
-  // than falling back to "all skills". undefined only survives if the parent is
-  // also unscoped (a genuinely unrestricted root). Never changes ROOT-session
-  // behavior — root scope is set per-turn by api_server ws_gateway, and those
-  // sessions never pass through this helper.
-  return parent.skillAllowlist
+// THE CHILD RESOLVES ITS OWN PROFILE — it never inherits the parent's scope by
+// default. opencode_agent_writer projects every Rhythm profile's expanded
+// scope into ~/.config/opencode/agents/<id>.md `options`, and ConfigAgent
+// preserves it in `agent.options`, so a delegated child normally has its own
+// mcp/skill scope to read (#1012, #1120). Only a PROFILE-LESS child — the
+// engine's native subagents (general/explore/scout/...) are never projected —
+// reaches the fallback: inherit the parent's scope, the tightest bound
+// available, rather than "everything". undefined only survives when the
+// parent is unscoped too.
+function childScope<T>(ownValue: unknown, isValid: (value: unknown) => value is T, parentValue: T | undefined): T | undefined {
+  if (isValid(ownValue)) return ownValue
+  return parentValue
 }
 
-export function childMcpAllowlist(agent: Agent.Info, model: { providerID: string }): Session.Info["mcpAllowlist"] {
-  // ConfigAgent preserves custom agent-file frontmatter in `options`. The
-  // resolved target profile carries its already-expanded session shape there,
-  // so the task tool does not re-implement api-server DB resolution or
-  // allowlist expansion.
-  const value = agent.options.mcpAllowlist
-  if (!isMcpAllowlist(value)) return undefined
+export function childSkillAllowlist(agent: Agent.Info, parent: Session.Info): Session.Info["skillAllowlist"] {
+  const value = childScope(agent.options.skillAllowlist, isSkillAllowlist, parent.skillAllowlist)
+  return value ? { skills: [...value.skills] } : value
+}
+
+export function childMcpAllowlist(
+  agent: Agent.Info,
+  model: { providerID: string },
+  parent: Session.Info,
+): Session.Info["mcpAllowlist"] {
+  const value = childScope(agent.options.mcpAllowlist, isMcpAllowlist, parent.mcpAllowlist)
+  if (!value) return value
 
   return {
     servers: [...value.servers],
@@ -149,6 +154,7 @@ export const TaskTool = Tool.define(
         ? yield* sessions.get(SessionID.make(taskID)).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
         : undefined
       const parent = yield* sessions.get(ctx.sessionID)
+      const parentWorkflow = yield* sessions.workflowGuard(ctx.sessionID)
       const parentAgent = parent.agent
         ? yield* agent.get(parent.agent).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
         : undefined
@@ -164,7 +170,7 @@ export const TaskTool = Tool.define(
         (yield* sessions.create({
           parentID: ctx.sessionID,
           title: params.description + ` (@${next.name} subagent)`,
-          mcpAllowlist: childMcpAllowlist(next, model),
+          mcpAllowlist: childMcpAllowlist(next, model, parent),
           skillAllowlist: childSkillAllowlist(next, parent),
           permission: [
             ...deriveSubagentSessionPermission({
@@ -174,11 +180,22 @@ export const TaskTool = Tool.define(
             }),
             ...(cfg.experimental?.primary_tools?.map((item) => ({
               pattern: "*",
-              action: "allow" as const,
+              action: "deny" as const,
               permission: item,
             })) ?? []),
           ],
         }))
+
+      // A marked manager may resume only its actual matching descendant.  A
+      // pre-existing/unrelated task_id is never promoted by the parent's
+      // marker, even though unmarked Task behavior remains unchanged.
+      if (parentWorkflow?.kind === "manager_lineage" && session) {
+        const childWorkflow = yield* sessions.workflowGuard(session.id)
+        if (
+          session.parentID !== ctx.sessionID || childWorkflow?.kind !== "manager_lineage" ||
+          !sameWorkflowBinding(childWorkflow.binding, parentWorkflow.binding)
+        ) return yield* Effect.fail(new Error("Workflow task resume lineage is unavailable"))
+      }
 
       yield* ctx.metadata({
         title: params.description,
@@ -222,11 +239,9 @@ export const TaskTool = Tool.define(
                   providerID: model.providerID,
                 },
                 agent: next.name,
-                tools: {
-                  ...(next.permission.some((rule) => rule.permission === "todowrite") ? {} : { todowrite: false }),
-                  ...(next.permission.some((rule) => rule.permission === id) ? {} : { task: false }),
-                  ...Object.fromEntries((cfg.experimental?.primary_tools ?? []).map((item) => [item, false])),
-                },
+                // All Task restrictions are already persisted on the child.
+                // Legacy prompt.tools replaces the entire session ruleset,
+                // which would discard inherited grants and security ceilings.
                 parts,
               })
 

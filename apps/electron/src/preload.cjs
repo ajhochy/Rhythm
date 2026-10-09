@@ -38,8 +38,48 @@ const agentServer = Object.freeze({
     return () => ipcRenderer.removeListener('rhythm:agent-server:status-changed', listener);
   },
   restart: () => ipcRenderer.invoke('rhythm:agent-server:restart'),
+  getManualWorkstreams: () => ipcRenderer.invoke('rhythm:agent-server:manual-workstreams:get'),
+  setManualWorkstreams: (/** @type {boolean} */ enabled) => ipcRenderer.invoke('rhythm:agent-server:manual-workstreams:set', enabled),
 });
 const updates = Object.freeze({ openDownloadPage: () => ipcRenderer.invoke('rhythm:updates:open-download') });
+const dayflowDesktop = Object.freeze({
+  getDayflowDesktopStatus: () => ipcRenderer.invoke('dayflow-desktop:get-status'),
+  openDayflowDesktop: () => ipcRenderer.invoke('dayflow-desktop:open'),
+});
+// Native Dayflow view: the lease stays in this closure (never exposed), with a local monotonic
+// epoch. A stale attach result is dropped WITHOUT detaching; detach revokes locally first.
+let dayflowViewEpoch = 0;
+/** @type {string | undefined} */
+let dayflowViewLease;
+const dayflowViewCall = (/** @type {string} */ channel, /** @type {Record<string, unknown>} */ extra) => {
+  const lease = dayflowViewLease;
+  return lease ? ipcRenderer.invoke(channel, { attachment: lease, ...extra }).then((result) => result === true, () => false) : Promise.resolve(false);
+};
+const dayflowView = Object.freeze({
+  getStatus: () => ipcRenderer.invoke('dayflow:view:status').catch(() => ({ state: 'unavailable', code: 'unavailable' })),
+  attach: async () => {
+    const epoch = ++dayflowViewEpoch;
+    dayflowViewLease = undefined;
+    /** @type {any} */
+    let result;
+    try { result = await ipcRenderer.invoke('dayflow:view:attach'); } catch { result = undefined; }
+    if (epoch !== dayflowViewEpoch) return { ok: false, reason: 'detached' };
+    if (result && result.ok === true && typeof result.lease === 'string') {
+      dayflowViewLease = result.lease;
+      return { ok: true };
+    }
+    return { ok: false, reason: result && (result.reason === 'denied' || result.reason === 'detached') ? result.reason : 'unavailable' };
+  },
+  setBounds: (/** @type {unknown} */ bounds) => dayflowViewCall('dayflow:view:bounds', { bounds }),
+  setBlocked: (/** @type {boolean} */ blocked) => dayflowViewCall('dayflow:view:blocked', { blocked }),
+  detach: () => {
+    ++dayflowViewEpoch;
+    const call = dayflowViewCall('dayflow:view:detach', {});
+    dayflowViewLease = undefined;
+    return call;
+  },
+  returnFocus: () => dayflowViewCall('dayflow:view:return-focus', {}),
+});
 const hermes = Object.freeze({
   enabled: process.env.RHYTHM_HERMES_ENABLED !== '0',
   getStatus: () => ipcRenderer.invoke('hermes:get-status'),
@@ -153,6 +193,38 @@ const colonyView = Object.freeze({
     return ipcRenderer.invoke('colony:view:detach', { attachment });
   },
 });
+// The attachment nonce stays inside this closure. The renderer gets only
+// { ok: true } or { ok: false, reason? } and never supplies a nonce, URL,
+// origin, path, or PID.
+let openDesignViewEpoch = 0;
+/** @type {string | undefined} */
+let openDesignViewAttachment;
+const openDesignView = Object.freeze({
+  getStatus: () => ipcRenderer.invoke('open-design:status'),
+  attach: async () => {
+    const epoch = ++openDesignViewEpoch;
+    openDesignViewAttachment = undefined;
+    let result;
+    try { result = await ipcRenderer.invoke('open-design:view:attach'); } catch { result = undefined; }
+    // Discard a stale completion WITHOUT detaching: main may have handed the
+    // same cached nonce to the newer attach. Main route/document guards
+    // suspend or revoke the view on their own.
+    if (epoch !== openDesignViewEpoch) return { ok: false, reason: 'detached' };
+    const attachment = result?.ok === true && typeof result.attachment === 'string' && result.attachment ? result.attachment : undefined;
+    openDesignViewAttachment = attachment;
+    return attachment ? { ok: true } : { ok: false, ...(typeof result?.reason === 'string' ? { reason: result.reason } : {}) };
+  },
+  /** @param {{x: number, y: number, width: number, height: number}} bounds */
+  setBounds: (bounds) => openDesignViewAttachment
+    ? ipcRenderer.invoke('open-design:view:bounds', { attachment: openDesignViewAttachment, bounds })
+    : Promise.resolve(false),
+  detach: () => {
+    ++openDesignViewEpoch;
+    const attachment = openDesignViewAttachment;
+    openDesignViewAttachment = undefined;
+    return attachment ? ipcRenderer.invoke('open-design:view:detach', { attachment }) : Promise.resolve(false);
+  },
+});
 // Renderer code can only reconcile pending approval IDs with the main process. Main validates the
 // closed approval/session target schema and owns all text, presentation, dedupe, and navigation.
 window.addEventListener('rhythm:approval-notifications', (event) => {
@@ -172,7 +244,8 @@ window.addEventListener('rhythm:agent-notifications', (event) => {
     || detail.type === 'viewing' && keys === 'displayed,sessionId,type,v' && typeof detail.displayed === 'boolean' && (detail.sessionId === null || id(detail.sessionId))
     || detail.type === 'arm' && keys === 'sessionId,type,v' && id(detail.sessionId)
     || detail.type === 'completion' && keys === 'sessionId,type,v' && id(detail.sessionId)
-    || (detail.type === 'ask' || detail.type === 'resolve') && keys === 'family,requestId,sessionId,type,v' && ['permission', 'question'].includes(detail.family) && id(detail.sessionId) && id(detail.requestId)) {
+    || (detail.type === 'ask' || detail.type === 'resolve') && keys === 'family,requestId,sessionId,type,v' && ['permission', 'question'].includes(detail.family) && id(detail.sessionId) && id(detail.requestId)
+    || detail.type === 'push' && keys === 'body,id,title,type,v' && Number.isSafeInteger(detail.id) && detail.id > 0 && typeof detail.title === 'string' && typeof detail.body === 'string') {
     ipcRenderer.send('rhythm:agent-notifications:sync', detail);
   }
 });
@@ -230,11 +303,14 @@ contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
   humanApproval,
   agentServer,
   updates,
+  dayflowDesktop,
+  dayflowView,
   selectDirectory: () => ipcRenderer.invoke('shell:select-directory'),
   saveFile: (/** @type {string} */ suggestedName, /** @type {string} */ contents) => ipcRenderer.invoke('shell:save-file', { suggestedName, contents }),
   hermes,
   hermesView,
   colonyView,
+  openDesignView,
   aiAccounts,
   remoteEnvironments,
 }));

@@ -38,7 +38,11 @@ export interface SafeMobileSessionProfileState {
   profileAvailability: MobileProfileAvailability;
   providerId: string | null;
   modelId: string | null;
+  /** 'auto' = the router picks the model; providerId/modelId are then only the last pick. */
+  modelMode: 'auto' | 'fixed';
+  routerDecidedAt: string | null;
   thinkingBudget: number | null;
+  fastMode: boolean;
   permissionMode: PermissionMode;
 }
 
@@ -68,6 +72,26 @@ export function buildSafeMobileProfileCatalog(
           color: null,
         },
       })),
+  };
+}
+
+/** Versioned settings readback for the explicit-identity state port (wire contract v1). */
+export interface SafeMobileSettingsState extends SafeMobileSessionProfileState {
+  settingsContractVersion: 1;
+  settingsIdentity: 'sdk' | 'local-primary';
+  sdkSessionId: string | null;
+}
+
+export function safeMobileSettingsState(
+  session: AgentSession,
+  configs: AgentConfig[],
+  identity: 'sdk' | 'local-primary',
+): SafeMobileSettingsState {
+  return {
+    ...safeMobileSessionProfileState(session, configs),
+    settingsContractVersion: 1,
+    settingsIdentity: identity,
+    sdkSessionId: session.sdkSessionId ?? null,
   };
 }
 
@@ -109,7 +133,10 @@ export function safeMobileSessionProfileState(
         : 'unassigned',
     providerId: session.providerId,
     modelId: session.modelId,
+    modelMode: session.modelMode,
+    routerDecidedAt: session.routerDecidedAt,
     thinkingBudget: session.thinkingBudget,
+    fastMode: session.fastMode === true,
     permissionMode: session.permissionMode,
   };
 }

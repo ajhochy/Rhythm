@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, mock, test } from "bun:test"
 import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { Config } from "@/config/config"
@@ -8,12 +8,17 @@ import { MessageV2 } from "../../src/session/message-v2"
 import type { SessionPrompt } from "../../src/session/prompt"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
-import { TaskTool, childSkillAllowlist, isSkillAllowlist, type TaskPromptOps } from "../../src/tool/task"
+import { TaskTool, childMcpAllowlist, childSkillAllowlist, isSkillAllowlist, type TaskPromptOps } from "../../src/tool/task"
 import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
 import { modelStreamScheduler } from "@/session/model-stream-scheduler"
 import { disposeAllInstances } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
+import fs from "fs/promises"
+import os from "os"
+import path from "path"
+import { ConfigAgent } from "@/config/agent"
+import { Permission } from "@/permission"
 
 afterEach(async () => {
   await disposeAllInstances()
@@ -192,6 +197,60 @@ describe("tool.task", () => {
           },
           alpha: {
             description: "Alpha agent",
+            mode: "subagent",
+          },
+        },
+      },
+    },
+  )
+
+  // Rhythm: interactive sessions append task rules to the SESSION ruleset
+  // (api_server INTERACTIVE_TASK_PERMISSION). The listing must honour them the
+  // same way call-time evaluation does (agent rules, then session, findLast).
+  it.instance(
+    "description applies session permission over the agent's named-delegate allows",
+    () =>
+      Effect.gen(function* () {
+        const agent = yield* Agent.Service
+        const manager = yield* agent.get("manager")
+        const registry = yield* ToolRegistry.Service
+        const describe = Effect.fnUntraced(function* (sessionPermission?: Session.Info["permission"]) {
+          const tools = yield* registry.tools({ ...ref, agent: manager!, sessionPermission })
+          return tools.find((tool) => tool.id === TaskTool.id)?.description ?? ""
+        })
+        const interactiveRules: NonNullable<Session.Info["permission"]> = [
+          { permission: "*", pattern: "*", action: "allow" },
+          { permission: "bash", pattern: "*", action: "ask" },
+          { permission: "task", pattern: "*", action: "deny" },
+          { permission: "task", pattern: "explore", action: "allow" },
+          { permission: "task", pattern: "general", action: "allow" },
+        ]
+
+        const headless = yield* describe()
+        expect(headless).toContain("- delegate: Delegate agent")
+        expect(headless).toContain("- explore:")
+        expect(headless).toContain("- general:")
+
+        const interactive = yield* describe(interactiveRules)
+        expect(interactive).not.toContain("- delegate: Delegate agent")
+        expect(interactive).toContain("- explore:")
+        expect(interactive).toContain("- general:")
+
+        // Call-time evaluation uses the same merged order (prompt.ts ask).
+        expect(Permission.evaluate("task", "delegate", manager!.permission, interactiveRules).action).toBe("deny")
+        expect(Permission.evaluate("task", "explore", manager!.permission, interactiveRules).action).toBe("allow")
+        expect(Permission.evaluate("task", "delegate", manager!.permission).action).toBe("allow")
+      }),
+    {
+      config: {
+        agent: {
+          manager: {
+            description: "Manager agent",
+            mode: "primary",
+            permission: { task: { "*": "deny", explore: "allow", general: "allow", delegate: "allow" } },
+          },
+          delegate: {
+            description: "Delegate agent",
             mode: "subagent",
           },
         },
@@ -600,19 +659,17 @@ describe("tool.task", () => {
           {
             permission: "bash",
             pattern: "*",
-            action: "allow",
+            action: "deny",
           },
           {
             permission: "read",
             pattern: "*",
-            action: "allow",
+            action: "deny",
           },
         ])
-        expect(seen?.tools).toEqual({
-          todowrite: false,
-          bash: false,
-          read: false,
-        })
+        // Restrictions live on the durable session; legacy tool toggles would
+        // replace that ruleset and discard inherited directory/edit policies.
+        expect(seen?.tools).toBeUndefined()
       }),
     {
       config: {
@@ -765,5 +822,156 @@ describe("tool.task childSkillAllowlist / isSkillAllowlist", () => {
     const parent = { skillAllowlist: undefined } as unknown as Session.Info
 
     expect(childSkillAllowlist(agent, parent)).toBeUndefined()
+  })
+})
+
+describe("tool.task childMcpAllowlist", () => {
+  const model = { providerID: "test" }
+
+  test("childMcpAllowlist inherits the parent session's scope when the profile declares none", () => {
+    // Regression (unscoped child-session inheritance): built-in child agents
+    // (general/explore) are never projected into ~/.config/opencode/agents/, so
+    // they carry no options.mcpAllowlist. Without this fallback the child got
+    // every MCP server/tool instead of the parent's scope.
+    const agent = { options: {} } as unknown as Agent.Info
+    const parent = { mcpAllowlist: { servers: ["rhythm"], tools: ["rhythm_a"] } } as unknown as Session.Info
+
+    expect(childMcpAllowlist(agent, model, parent)).toEqual({ servers: ["rhythm"], tools: ["rhythm_a"] })
+  })
+
+  test("childMcpAllowlist keeps the profile's own scope over the parent's", () => {
+    const agent = { options: { mcpAllowlist: { servers: ["own"], tools: ["own_a"] } } } as unknown as Agent.Info
+    const parent = { mcpAllowlist: { servers: ["rhythm"], tools: ["rhythm_a"] } } as unknown as Session.Info
+
+    expect(childMcpAllowlist(agent, model, parent)).toEqual({ servers: ["own"], tools: ["own_a"] })
+  })
+
+  test("childMcpAllowlist stays undefined when neither the profile nor the parent are scoped", () => {
+    const agent = { options: {} } as unknown as Agent.Info
+    const parent = { mcpAllowlist: undefined } as unknown as Session.Info
+
+    expect(childMcpAllowlist(agent, model, parent)).toBeUndefined()
+  })
+})
+
+// The whole child-scoping design rests on one link the synthetic tests above
+// stub out: opencode_agent_writer projects a Rhythm profile's expanded scope
+// into ~/.config/opencode/agents/<id>.md frontmatter, ConfigAgent preserves it
+// in `agent.options`, and childMcpAllowlist reads it. These load REAL projected
+// frontmatter through ConfigAgent.load so the link is proven end to end.
+describe("tool.task child scoping through projected profile frontmatter", () => {
+  const model = { providerID: "test" }
+
+  // Verbatim `options:` lines as opencode_agent_writer emits them (single-line
+  // flow YAML), taken from the installed coding-agent.md / workflow-orchestrator.md.
+  const CHILD_OPTIONS =
+    '{"mcpAllowlist":{"servers":["gitnexus"],"tools":[]},"skillAllowlist":{"skills":["acceptance-contract","coding-agent"]},"effort":"xhigh"}'
+  const PARENT_OPTIONS =
+    '{"mcpAllowlist":{"servers":["gitnexus","obsidian","playwright","duckduckgo"],"tools":["rhythm_rhythm_ping","rhythm_rhythm_delegate"]},"skillAllowlist":{"skills":["workflow-orchestrator"]},"effort":"xhigh"}'
+
+  async function loadProjected() {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "task-scope-"))
+    await fs.mkdir(path.join(dir, "agents"), { recursive: true })
+    for (const [name, options] of [
+      ["coding-agent", CHILD_OPTIONS],
+      ["workflow-orchestrator", PARENT_OPTIONS],
+    ] as const) {
+      await fs.writeFile(
+        path.join(dir, "agents", `${name}.md`),
+        `---\nname: ${name}\ndescription: ${name}\nmode: all\noptions: ${options}\n---\nbody\n`,
+      )
+    }
+    try {
+      const loaded = await ConfigAgent.load(dir)
+      return {
+        child: { options: loaded["coding-agent"]!.options ?? {} } as unknown as Agent.Info,
+        parent: { options: loaded["workflow-orchestrator"]!.options ?? {} } as unknown as Agent.Info,
+      }
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  }
+
+  test("a projected child keeps its OWN scope, which differs from the dispatching parent's", async () => {
+    const { child, parent } = await loadProjected()
+    // The parent session is scoped from the parent's own projected profile.
+    const parentSession = {
+      mcpAllowlist: childMcpAllowlist(parent, model, {} as unknown as Session.Info),
+      skillAllowlist: childSkillAllowlist(parent, {} as unknown as Session.Info),
+    } as unknown as Session.Info
+
+    expect(parentSession.mcpAllowlist).toEqual({
+      servers: ["gitnexus", "obsidian", "playwright", "duckduckgo"],
+      tools: ["rhythm_rhythm_ping", "rhythm_rhythm_delegate"],
+    })
+
+    const childMcp = childMcpAllowlist(child, model, parentSession)
+    const childSkills = childSkillAllowlist(child, parentSession)
+
+    expect(childMcp).toEqual({ servers: ["gitnexus"], tools: [] })
+    expect(childSkills).toEqual({ skills: ["acceptance-contract", "coding-agent"] })
+    // The point of the whole design: the child is NOT the parent.
+    expect(childMcp).not.toEqual(parentSession.mcpAllowlist)
+    expect(childSkills).not.toEqual(parentSession.skillAllowlist)
+  })
+
+  test("a profile-less built-in child (general/explore is never projected) falls back to the parent", async () => {
+    const { parent } = await loadProjected()
+    const parentSession = {
+      mcpAllowlist: childMcpAllowlist(parent, model, {} as unknown as Session.Info),
+      skillAllowlist: childSkillAllowlist(parent, {} as unknown as Session.Info),
+    } as unknown as Session.Info
+    const builtin = { options: {} } as unknown as Agent.Info
+
+    expect(childMcpAllowlist(builtin, model, parentSession)).toEqual(parentSession.mcpAllowlist!)
+    expect(childSkillAllowlist(builtin, parentSession)).toEqual(parentSession.skillAllowlist!)
+  })
+
+  test("an unrestricted parent plus a profile-less child stays unrestricted", () => {
+    const builtin = { options: {} } as unknown as Agent.Info
+    const parentSession = { mcpAllowlist: undefined, skillAllowlist: undefined } as unknown as Session.Info
+
+    expect(childMcpAllowlist(builtin, model, parentSession)).toBeUndefined()
+    expect(childSkillAllowlist(builtin, parentSession)).toBeUndefined()
+  })
+})
+
+// The frontmatter tests above prove ConfigAgent.load -> childXAllowlist works on
+// a HAND-WRITTEN copy of what opencode_agent_writer emits. The one link never
+// tested end to end is the writer itself (apps/api_server, a separate
+// package/runtime): a projection-format change there would silently unscope
+// every delegated child. Bun can import that package's TypeScript directly, so
+// this calls the REAL writer and feeds its REAL output into the REAL reader —
+// nothing here is reimplemented on either side.
+describe("tool.task writer/reader contract (opencode_agent_writer output -> real ConfigAgent.load)", () => {
+  const model = { providerID: "test" }
+
+  // Consumer half of a two-sided contract. The fixture is REAL output captured
+  // from apps/api_server's writeAgentProfileFile; the producer half
+  // (opencode_agent_writer.contract.test.ts, api_server/vitest) asserts the
+  // writer still emits byte-identical bytes. Split because importing api_server
+  // here drags in its DB layer and fork CI has no better-sqlite3 — a coupled
+  // test could only ever pass locally, which is no protection at all.
+  test("the agent file the writer produces is parsed correctly by ConfigAgent + childMcpAllowlist/childSkillAllowlist", async () => {
+    const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "task-writer-contract-"))
+    try {
+      const agentsDir = path.join(scratch, "agents")
+      await fs.mkdir(agentsDir, { recursive: true })
+      const fixture = path.join(import.meta.dir, "..", "fixtures", "agent-writer", "writer-contract-child.md")
+      await fs.copyFile(fixture, path.join(agentsDir, "writer-contract-child.md"))
+
+      const loaded = await ConfigAgent.load(scratch)
+      const entry = loaded["writer-contract-child"]
+      expect(entry).toBeDefined()
+      const child = { options: entry!.options ?? {} } as unknown as Agent.Info
+      // An unrestricted parent so a pass-through-to-parent bug (rather than a
+      // parse failure) would still be caught by these exact-match assertions.
+      const parent = { mcpAllowlist: undefined, skillAllowlist: undefined } as unknown as Session.Info
+
+      expect(childMcpAllowlist(child, model, parent)).toEqual({ servers: ["gitnexus"], tools: [] })
+      expect(childSkillAllowlist(child, parent)).toEqual({ skills: ["coding-agent"] })
+    } finally {
+      await fs.rm(scratch, { recursive: true, force: true })
+    }
   })
 })

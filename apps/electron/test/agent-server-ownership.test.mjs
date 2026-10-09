@@ -10,7 +10,7 @@ process.env.RHYTHM_AGENT_READY_BUDGET_MS = '8000';
 import { portAvailable } from '../src/agent-server.mjs';
 
 // Real service, fake OS boundaries only: never probe or signal the desktop runtime.
-async function fixture({ occupied = [], healthy = true, mkdirError = false, spawnError = false, graceful = true, exitDelayMs = 0, lingerEnginePortMs = 0, relayConfigurationProvider } = {}) {
+async function fixture({ occupied = [], healthy = true, mkdirError = false, spawnError = false, graceful = true, exitDelayMs = 0, lingerEnginePortMs = 0, relayConfigurationProvider, manualWorkstreamsPreferenceProvider } = {}) {
   const signals = [], probes = [], commands = [], snapshots = [], spawnOptions = [];
   const occupiedPorts = new Set(occupied);
   const child = new EventEmitter();
@@ -50,7 +50,7 @@ async function fixture({ occupied = [], healthy = true, mkdirError = false, spaw
     return new SyntheticModule(Object.keys(exports), function () { for (const [key, value] of Object.entries(exports)) this.setExport(key, value); });
   });
   await module.evaluate();
-  const service = new module.namespace.AgentServerService({ relayConfigurationProvider });
+  const service = new module.namespace.AgentServerService({ relayConfigurationProvider, manualWorkstreamsPreferenceProvider });
   service.onStatusChange((s) => snapshots.push(s));
   return { service, child, signals, probes, commands, snapshots, spawnOptions, healthy, setOccupied: (ports) => { occupiedPorts.clear(); for (const port of ports) occupiedPorts.add(port); }, spawns: () => spawns };
 }
@@ -68,6 +68,37 @@ test('relay restoration: an owned local runtime receives the restored cloud sess
   assert.doesNotMatch(env?.RHYTHM_RELAY_URLS ?? '', /vcrcapps\.com/);
   assert.doesNotMatch(JSON.stringify(f.snapshots), /fixture-restored-session/);
   await f.service.stopGracefully();
+});
+
+test('manual workstreams: only an owned spawn captures the saved paired launch flags; adopted runtimes remain unconfigured', async (t) => {
+  const priorWorkstreams = process.env.RHYTHM_WORKSTREAMS_ENABLED;
+  const priorExports = process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS;
+  delete process.env.RHYTHM_WORKSTREAMS_ENABLED;
+  delete process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS;
+  t.after(() => {
+    if (priorWorkstreams === undefined) delete process.env.RHYTHM_WORKSTREAMS_ENABLED;
+    else process.env.RHYTHM_WORKSTREAMS_ENABLED = priorWorkstreams;
+    if (priorExports === undefined) delete process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS;
+    else process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS = priorExports;
+  });
+  const owned = await fixture({ manualWorkstreamsPreferenceProvider: () => true });
+  t.mock.method(globalThis, 'fetch', async (url) => ({ ok: true, json: async () =>
+    String(url).endsWith('/global/health') ? { healthy: true, version: 'test' } : { status: 'ok', service: 'rhythm-api-server' } }));
+  assert.equal((await owned.service.start()).status, 'ready');
+  const env = owned.spawnOptions.at(-1)?.env;
+  assert.equal(env?.RHYTHM_WORKSTREAMS_ENABLED, 'true');
+  assert.equal(env?.RHYTHM_MANAGED_CONTEXT_EXPORTS, '1');
+  assert.equal(Object.hasOwn(process.env, 'RHYTHM_WORKSTREAMS_ENABLED'), false, 'owned launch must not mutate the main process environment');
+  assert.equal(Object.hasOwn(process.env, 'RHYTHM_MANAGED_CONTEXT_EXPORTS'), false, 'owned launch must not mutate the main process environment');
+  assert.deepEqual(owned.service.status.manualWorkstreamsLaunch, {
+    configured: true, source: 'preference', workstreamsEnabled: true, managedContextExports: true,
+  });
+  await owned.service.stopGracefully();
+
+  const adopted = await fixture({ occupied: [4001, 4096], manualWorkstreamsPreferenceProvider: () => { throw new Error('must not read for an adopted runtime'); } });
+  assert.equal((await adopted.service.start()).status, 'ready');
+  assert.equal(adopted.spawns(), 0);
+  assert.equal(adopted.service.status.manualWorkstreamsLaunch, null);
 });
 
 for (const healthy of [false, true]) for (const port of [4001, 4096]) {

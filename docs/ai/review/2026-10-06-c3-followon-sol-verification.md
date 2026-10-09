@@ -1,0 +1,58 @@
+# C3 follow-on independent source verification
+
+**HELD for one narrow outer-transaction correction. E1 and relay E2 pass source review; the actual E3 terminal observer notification passes.** No moving owner source, implementation edits, real provider/runtime/device, or broad test rerun was used.
+
+Frozen packet: `frozen-c3-followon-review-packet.json`, patch **c05bd024a94100f3acd29cd5d09be37aac196d58a260fdc6a6091bca06b425c7**, based on core follow-on **65c150c6f946bdfe87319ae8f8ad8b8a76c87ce9741f1c0f7deabba2cf98c273**. Reconstructed `c3-followon-sol-frozen-copy` from the prior owned copy plus immutable 71-file prepared images and the exact patch. All 15 postimages matched before checks and after test restoration; all other prepared pins matched. The named `core-followon-frozen-preimages` directory actually contains that core follow-on's postimages, verified against its packet. The included mobile test patch is the unchanged previously authored Sol regression patch; it was verified separately against its pre/post pins before application.
+
+Read accepted `c3-backend-followon-astra-review.md`, Sol host-provenance addendum, Sonnet result field, exact frozen owner run log and all focused owner tests. Owner reports 342 affected cases and API build exit 0; those results were reviewed, not mechanically rerun. Closed baselines remain closed.
+
+## Proven failure and smallest correction
+
+`repositories/coordinator_conversations_repository.ts:1612–1625`, specifically the `outer()` helper, treats successful return of a **nested savepoint** as proof of an outer commit. When a caller already owns a SQLite transaction, `notifyDepth` is initially zero, so this helper still considers itself top-level. Its finalizer clears and flushes pendingCommits while `db.inTransaction` is true. The `markCommitted` check at :1599 does not prevent this: `notifyDepth>0` took the queue branch earlier. The documented caller-owned silence is therefore false for the outer()-wrapped methods.
+
+Two preserved negatives exercise the real migrated SQLite repository and singleton hub, using `recordStatusMessage`:
+
+| Case | Durable result after caller finishes | Actual publication | Expected |
+| --- | --- | --- | --- |
+| Caller commits | One message, one coalesced root outbox entry | One hint emitted **while outer transaction was open** | Silent, because this repository lacks the caller's commit hook |
+| Caller rolls back after successful inner write | Zero messages and zero outbox entries | One queued hint remains **for the rolled-back write** | Zero hints |
+
+Exact assertions: `publication must not run while a caller-owned outer transaction is open: expected [ true ] to deeply equal []`; and `unowned commit has no post-commit publication hook; rollback must never leave a hint: expected [ { …(2) } ] to have a length of +0 but got 1`. Both tests failed; full diagnostics retain both assertions. Test names are `Sol: caller-owned commit never publishes an inner-savepoint hint` and `Sol: caller-owned rollback never publishes an inner-savepoint hint`, in the existing E3 describe. Test-local lines :275–276 in the saved tested fixture/patch.
+
+This is a notification contract defect, not an execution/permission bypass. The hint remains body-free and canonical reread remains final authority. Current production caller inventory is narrower: repository callers are service methods and its own nested create/designate helpers. `CoordinatorConversationService.receiveMessage` calls `recordStatusMessage` directly (:812), and controller `message` calls that async service directly (:81); service/controller/routes contain no surrounding explicit SQLite transaction. Other service calls to reserve/settle/authority likewise have no caller-owned wrapper. **No present production caller with this external wrapper was found.** Do not claim a currently observed live failure, but do not declare the repository's promised post-commit behavior verified.
+
+Smallest same-owner correction, no new framework:
+
+1. At top-level `outer()` entry, capture whether `db.inTransaction` was already true **before** opening its own transaction/savepoint. That determines whether this invocation can prove the outer commit.
+2. Keep current batching for repository-owned outer transactions and nested repository calls. On top-level exit, always clear its pending batch on success or failure. Publish only when the repository owned the outer commit, its transaction returned successfully, and no transaction remains open. Caller-owned invocation clears/discards the batch even when its inner savepoint succeeded; no early hint and no deferred stale queue survives a subsequent rollback or later independent command.
+3. Do not add an after-commit registry, queue, timer or transaction abstraction. Durable same-transaction outbox writes retain their current rollback/commit behavior. Failed publishing remains best-effort and cannot alter the committed command result.
+4. Apply the preserved two negatives; retain original own-transaction positive/rollback cases and terminal proof. After the fix, run just the affected new negatives plus existing own-commit positives (and one later independent write to ensure discarded notifications do not leak). No reason to rerun 342 cases.
+
+## Meaningful positive evidence
+
+**E1: PASS from exact source and adequate owner tests.** `opencode_stream_bridge.ts:2647` now notifies immediately after successful canonical root error append, before status/indexing. Owner `c3_backend_followon.test.ts:282–298` drives the actual bridge, real SQLite append/outbox and hub; later status work throws but one hint survives. Failed append and ordinary/child errors stay silent. The original Sol root-error red assertion is retained and owner records it green. No missing affected assertion required another E1 rerun.
+
+**E3 actual terminal observer: PASS independently, one case.** The existing vertical case `automatically consumes only the next finite ordinal after a strict terminal receipt, even when a sibling idea advanced the chat control revision` was instrumented without removing original assertions. It drives the actual PersistentWorkstreamCoordinator reconciliation and actual `CoordinatorConversationService.onCoordinatorTerminal`, real jobs/workstreams/conversation persistence, with its existing synthetic engine responses. A temporary real directory/projects row supplies the real notification lookup. Exactly one qualified hint is emitted for the next ordinal with `db.inTransaction=false`; properties are exactly projectId/conversationId/localSessionId. Existing duplicate terminal delivery emits no additional hint and no second consumption. Result **1 passed, 10 skipped**, exit 0. This closes the owner's missing service-terminal proof at source/test level; it is not an engine/provider end-to-end claim.
+
+**Relay E2: PASS from exact source review plus adequate owner focused receipts.** Existing `c3_relay_notification.test.ts` eight cases use the actual authenticated uplink handler, replication apply, hub, opaque-project route and HTTP SSE; fake Mac transport and synthetic databases are explicit. No relay projects row is installed. Host provenance is captured from the authenticated connection in `relay_uplink_server.ts:615,711–773,831–854`, carried on the same hub object using WeakMap, and recorded for the mirror only after a successful authenticated apply. Current primary mirror is re-read; deletes/disqualification invalidate origin. Fresh connection generations clear origin and prevent retroactive attribution.
+
+`shapeRelayCoordinatorChanged` (:1500–1598) and the route's injected qualifier (:432–460) reauthenticate exact current device id/token/user/host and require event origin == mirror origin == active connection generation == device host/user; host-online is only another conjunct. The proxy (:667) accepts reserved hints only from hub/project feeds. Ordinary LAN filesystem shaping is unchanged. Fields emitted are exactly opaque directory/projectId, event type/id and the three canonical identities; no body, SDK selector, owner, grant or credential.
+
+Reviewed owner cases cover row-before-event and event-before-row recovery; fresh unchanged-identity sequence; duplicate, failed and disqualified applies; delete; NULL/malformed/ordinary/child/system/foreign-owner mirror; missing/cloned/raw hub origin; mismatched project/conversation/root; revoked/rebound device; queued old generation; real H1→H2 active supersession; same-host reconnect. Foreign/mixed same-user/same-identities H1/H2 checks force online=true for both yet reject mismatched trusted origins; matching H2 device qualifies H2. Owner also recorded guard-removal red/restore green. This is sufficient changed-seam evidence; no duplicate relay suite run was needed.
+
+**Outbox wiring: PASS source/test review.** Metadata CAS and existing root agent_sessions outbox commit together (:1555–1577). Output-only append/structured/info/part/delta writes dirty that same root record inside their actual SQLite transaction. No-op delta and ordinary/child stay silent; full-row sender and existing per-key coalescing are retained. Root output publication may precede mirror replication; the successful applied-row recovery hint covers that ordering without a new retry system.
+
+## Bounds retained / unrun stages
+
+Relay mirror qualification remains eventual/advisory; it cannot synchronously prove Mac directory or project archive state. Canonical Mac reread is final authority. Exactly one active uplink is supported; tests prove real supersession and provenance under an adversarial weak predicate, not simultaneous production hosts. The bounded mirror-origin index is fail-closed. The actual engine → bridge → outbox sender → relay → physical paired device chain was not run; it remains an explicitly separate integration/runtime stage. No packaging, deployment, install or paired-device acceptance is claimed.
+
+Protocol/client byte pins match prior preparation: relay client `8a7098fc8b547f1073cdaf428142c403b427859f39b0bec5f69e046d8d1e3cfd`; protocol `a8ab1043962353be64dc07dabe5832dd5c5a3bff27acae686df4974efa60bdbf`. The permission span from `private decidePermission` through before `private decideQuestion` (including intervening helpers/comments) is byte-identical to prior frozen APD/C3 source; this independently defined span SHA is `59b29a996bb2c92d69b538bc2d4709e07417a4c273904047901d3a7ac2d802fc`, distinct from the owner's shorter method-only hash. No permission assertion/grant/protocol field changed.
+
+## Deliverables
+
+- `c3-followon-sol-verification-evidence.json`: exact commands, exits, pins and stage limits.
+- `c3-followon-sol-reconstruction.json`: immutable reconstruction provenance.
+- `c3-followon-sol-missing-seams-tests.patch`: preserved two red negatives plus instrumented existing terminal positive; SHA256 **2e76270bc428e08fa7646d87ed410e3ff2b1b378dd88328d5ffe1c7f8d83d3a2**. Applies cleanly against the restored frozen copy. Original assertions remain.
+- `c3-followon-sol-evidence/`: full logs, original fixtures and exact tested fixtures. All isolated test modifications restored; all 15 frozen postimages rechecked.
+
+Independent commands were only targeted Vitest filters. The initial two-negative run failed, then the same negatives were rerun with a soft first assertion to capture both premature publication and escaped rollback hint; production source was unchanged. No failing assertion was waived. Terminal targeted command passed. Source acceptance is held only for the narrow transaction correction above; other accepted behavior and closed baselines are not reopened.

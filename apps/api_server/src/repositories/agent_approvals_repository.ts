@@ -22,6 +22,8 @@ export interface AgentApproval {
   decidedAt: string | null;
   securityAction: string | null;
   payloadDigest: string | null;
+  /** Canonical server-authored local proposal; never a general grant. */
+  boundPayloadJson?: string | null;
   taintId: string | null;
   taintedTurnId: string | null;
   boundAgent: string | null;
@@ -43,6 +45,7 @@ export interface CreateAgentApprovalInput {
   actor?: string | null;
   securityAction?: string | null;
   payloadDigest?: string | null;
+  boundPayloadJson?: string | null;
   taintId?: string | null;
   taintedTurnId?: string | null;
   boundAgent?: string | null;
@@ -62,6 +65,7 @@ function rowToModel(row: Record<string, unknown>): AgentApproval {
     decidedAt: (row.decided_at as string | null) ?? null,
     securityAction: (row.security_action as string | null) ?? null,
     payloadDigest: (row.payload_digest as string | null) ?? null,
+    boundPayloadJson: (row.bound_payload_json as string | null) ?? null,
     taintId: (row.taint_id as string | null) ?? null,
     taintedTurnId: (row.tainted_turn_id as string | null) ?? null,
     boundAgent: (row.bound_agent as string | null) ?? null,
@@ -105,8 +109,8 @@ export class AgentApprovalsRepository {
         `INSERT INTO agent_approvals
           (id, session_id, agent_config_id, action, preview, consequence, status,
            actor, decided_at, security_action, payload_digest, taint_id,
-           tainted_turn_id, bound_agent, expires_at, decision_nonce)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           tainted_turn_id, bound_agent, expires_at, decision_nonce, bound_payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -125,6 +129,7 @@ export class AgentApprovalsRepository {
         input.boundAgent ?? null,
         input.expiresAt ?? null,
         decisionNonce,
+        input.boundPayloadJson ?? null,
       );
 
     return this.getById(id)!;

@@ -225,18 +225,26 @@ export class MediaArtifactStore {
     ).run(pinned ? 1 : 0, id, project).changes > 0;
   }
 
-  /** Apply local session ownership when that richer model is available. */
-  canUserAccessArtifact(artifact: MediaArtifact, userId: number): boolean {
-    if (!this.db) return true;
-    const session = this.db.prepare(
-      `SELECT owner_user_id, project_id
-         FROM agent_sessions
-        WHERE id = ? OR sdk_session_id = ?
-        LIMIT 1`,
-    ).get(artifact.session, artifact.session) as {
+  /** Apply session ownership in both database modes when that richer model is available. */
+  async canUserAccessArtifact(artifact: MediaArtifact, userId: number): Promise<boolean> {
+    type SessionOwner = {
       owner_user_id: number | null;
       project_id: string | null;
-    } | undefined;
+    };
+    const session: SessionOwner | undefined = this.pool
+      ? (await this.pool.query<SessionOwner>(
+          `SELECT owner_user_id, project_id
+             FROM agent_sessions
+            WHERE id = $1 OR sdk_session_id = $1
+            LIMIT 1`,
+          [artifact.session],
+        )).rows[0]
+      : this.db?.prepare(
+          `SELECT owner_user_id, project_id
+             FROM agent_sessions
+            WHERE id = ? OR sdk_session_id = ?
+            LIMIT 1`,
+        ).get(artifact.session, artifact.session) as SessionOwner | undefined;
     if (!session) return true;
     if (session.project_id !== null && session.project_id !== artifact.project) return false;
     return session.owner_user_id === null || session.owner_user_id === userId;

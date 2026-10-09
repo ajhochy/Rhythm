@@ -1,0 +1,136 @@
+{
+  "issue": "test-temp-directory-cleanup",
+  "date": "2026-09-30",
+  "test_command": "node tools/dev/test-temp-directory-cleanup.mjs && node tools/dev/test-temp-directory-cleanup.mjs -- npm --prefix apps/api_server test -- src/__tests__/c6_feature_flags.test.ts && node tools/dev/test-temp-directory-cleanup.mjs -- bun --cwd apps/opencode_fork/packages/opencode test test/fixture/fixture.test.ts test/file/ripgrep.test.ts",
+  "waiver": "WAIVED: AJ on 2026-09-30 explicitly accepted the isolated run3 prompt.test.ts:1523 shell completion resumes queued loop callers assertion (expected llm.calls 1, received 0) for the original cleanup draft PR. Exact reply: Yes, to explicitly accept this isolated failure as a documented verification exception, have the verifier assess that exception, and proceed with the cleanup draft PR. Cause UNKNOWN; no session fix or proven flakiness. Original FAIL and all reruns retained. Does not waive missing independent scope/CI evidence or claim all tests green; does not authorize merge or leftover deletion. See fork-shell-queued-loop.json.",
+  "approval": "Approval answer: “Approve narrow fix (Recommended).” The exact authorized scope is failure-before-return exact-path cleanup in fixture tmpdir; its 46 normal callers must retain lifetime semantics.\n\nAJ has now given explicit informed approval for the CRITICAL shared-symbol edit: `apps/opencode_fork/packages/opencode/test/fixture/fixture.ts::tmpdir` may be changed ONLY to remove its exact newly-created directory when initialization throws before returning the disposable fixture, preserving existing successful initialization and normal disposal lifetime.",
+  "criteria": [
+    {
+      "criterion_id": "task-test-temp-directory-cleanup-c1",
+      "text": "search entire repo including apps/opencode_fork for mkdtemp/mkdtempSync/os.tmpdir()/tmpdir()/rhythm-vitest/opencode-test; identify named-prefix creation and missing lifecycle coverage",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Run3 reran full tracked mkdtemp/tmpdir inventory and exact named-prefix lookup, reviewed all pending files directly. Named creation sites: API invocation parent and per-file children; fork tmpdir, tmpdirScoped, ripgrep acquireRelease and preload data root. Scoped/ripgrep/preload unchanged; unrelated prefixes inventoried, not asserted leak-free."
+    },
+    {
+      "criterion_id": "task-test-temp-directory-cleanup-c2",
+      "text": "narrow shared cleanup covers rhythm-vitest-* and fork opencode-test-*/opencode-test-data-* normal completed/passing AND failing test lifecycle, without changing assertions or early deletion while consumers remain active",
+      "mode": "integration",
+      "test": "tools/dev/test-temp-directory-cleanup.mjs; apps/opencode_fork/packages/opencode/test/fixture/fixture.test.ts",
+      "status": "pass",
+      "reason": "Run3 final implementation cleanup independently passes: actual Vitest4.1.1 fork workers passing, intentional assertion-failing, all-skipped and mixed; exact roots/children absent, content active through file teardown, sentinel survives, per-file isolation. Two simultaneous mixed invocations assert unique invocation roots and exact removal. Focused API4, skipped1 and mixed4/1 stable12786/214/9. Serialized full API6776 pass/1 dependency mismatch/286 skip,149 all-skipped files, counts unchanged despite failure. Bun fixture/ripgrep23 pass/53 assertions without growth; normal representative180 pass. This narrow lifecycle criterion does NOT clear the overall compatibility gate: additional fork CI session run has407 pass/1 assertion fail; identical base408 pass. Background growth remains separately deferred; new session assertion is not classified pre-existing."
+    },
+    {
+      "criterion_id": "task-test-temp-directory-cleanup-c3",
+      "text": "delete only exact paths owned by current run, no scanning/deleting existing leftovers or other processes' dirs",
+      "mode": "integration",
+      "test": "tools/dev/test-temp-directory-cleanup.mjs; apps/opencode_fork/packages/opencode/test/fixture/fixture.test.ts",
+      "status": "pass",
+      "reason": "Run3 actual runner asserts exact root/child absence and unowned sentinel survival across pass/fail/skipped/mixed; active content survives file teardown. Bun asserts failed-init root absent/original error/sentinel intact and successful consumer/disposal lifetime. Exact diff removes only captured run parent or exact-created failed-init path; normal fork disposal unchanged. Maintained runner removes only its own sentinel, never leaked roots or existing leftovers; no prefix deletion."
+    },
+    {
+      "criterion_id": "task-test-temp-directory-cleanup-c4",
+      "text": "leave one runnable check counting matching dirs in actual $TMPDIR before/after affected test execution and asserting no growth, with useful per-prefix reporting and concurrency caveat",
+      "mode": "integration",
+      "test": "tools/dev/test-temp-directory-cleanup.mjs",
+      "status": "pass",
+      "reason": "Run3 wrapper counts actual TMPDIR; contract, focused normal/skipped/mixed and full API12786/214/9 unchanged; Bun23 stable. It correctly rejects deferred branch representative214->227, branch session227->228, base representative228->241(data9->10) and base session241->242. New paths reported read-only, retained. Independent shell asserts child exit7 propagated exactly. Concurrent API probe242/10 stable; explicit concurrency caveat and prefix overlap remain."
+    },
+    {
+      "criterion_id": "task-test-temp-directory-cleanup-c5",
+      "text": "run affected suites and record exact commands/counts/output",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Run3 exact commands/results/counts recorded in active run note: maintained actual contract, direct regression files, affected API normal/skipped/mixed, serialized full API, fork fixture/ripgrep and representative/base/session comparisons, fork typecheck, API tsc noEmit/lint/advisory15 and sandbox API/MCP build, concurrent invocation probe and exit7 propagation. Execution criterion satisfied, not blanket suite success: fork session assertion/base comparison fails compatibility gate. No repair or SDK generation/source-writing stages executed."
+    },
+    {
+      "criterion_id": "task-test-temp-directory-cleanup-c6",
+      "text": "no production behavior changes",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Final git diff is API test setup, fork test fixture/test assertions, standalone dev contract/count runner and contract/run docs only. No production source/config changes."
+    }
+  ],
+  "not_tested": [
+    "CIpending: fork SDK generation bun run build:rhythm and generated-artifact git diff --exit-code (.github/workflows/opencode_fork_ci.yml:34-43). No SDK/public API source changed; generation writes repository source, outside evidence-only authority. Not executed, not passed, not waived; hub classifies as post-draft CI.",
+    "CIpending: server CI API smoke, org-optimizer safety guards and disposable Postgres bootstrap (.github/workflows/server_ci.yml:41-94), plus platform dependency/image preparation and exact CI runtime execution. No optimizer/Postgres/production source changed; prior synthetic sandbox readiness is not the exact platform smoke. Not executed, not passed, not waived; hub classifies as post-draft CI.",
+    "not_tested: entire fork suite beyond documented typecheck/session gate and recorded fixture/ripgrep/representative coverage. Not required by opencode_fork_ci.yml; no full-fork success claimed under hub's proportional test-infrastructure-only local draft classification.",
+    "not_tested: abrupt kills, collection failure, throwing earlier teardown hooks and non-default ordering; outside this narrow normal completed-run lifecycle evidence. Human exact-path/lifetime and exception review remains after draft; not merge-ready."
+  ],
+  "verification_status": "PASS",
+  "verification_scope": "PASS-local: original draft-PR assessment only, under hub-owned proportional classification; documented AJ waiver and environment exception, downstream CI pending, not merge-ready.",
+  "active_verification_assessment": {
+    "date": "2026-10-01",
+    "exception_status": "WAIVED: isolated fork session assertion accepted under AJ's explicit informed approval; historical verification_run3.status remains FAIL.",
+    "cleanup_criteria": "c1-c6 pass; prior independent run3 behavior evidence reused for unchanged implementation, not rerun to erase historical failure.",
+    "api_environment_exception": "Accepted objective local environment limitation: installed shared better-sqlite3 12.8.0 vs unchanged manifest ^13.0.3. Full API actually 6776 pass/1 fail/286 skip,149 all-skipped files; cleanup counts unchanged. No whole-base API-suite or blanket full-suite PASS claimed; no install through shared links.",
+    "background_recreation": "Deferred pre-existing normal-disposal finding reproduced on exact base and branch; count wrappers remain exit1. Not fixed, not absorbed by session waiver, no GitHub closure or leftover deletion.",
+    "scope": "Exact tracked diff and all four untracked implementation/test files inspected; tracked numstat matches final gate/diagnostics (1/0,4/2,45/0,40/32). Product/session/manifest/lockfile scoped diff empty; branch/base prompt hashes match 1d4af371507a67b49b4080b288182b8965e12ca1. No drift observed. Prior notes lack a complete immutable blob manifest; no stronger historical fingerprint claim.",
+    "blocking_evidence": [],
+    "gitnexus": "Hub-supplied fresh gitnexus_detect_changes(scope ALL, exact assigned worktree, repo Rhythm): risk LOW, 2 changed symbols tmpdir/tmpdirScoped, 0 affected processes, 4 tracked files. tmpdirScoped body unchanged (line-shift attribution). Specialist MCP unavailable locally; manager invocation satisfies invocation requirement. Stale index/dynamic Vitest loading and untracked-file coverage caveats retained; not comprehensive runtime risk proof.",
+    "ci_classification": "Hub owns proportional local pre-draft classification. opencode_fork_ci.yml:26-43 requires typecheck/session (recorded, isolated assertion WAIVED), SDK generation/artifact diff, not the entire fork suite. server_ci.yml:31-94 includes recorded lint/test/advisory/build and downstream smoke/optimizer/disposable PG. AGENTS.md:40-60 and testing-guide.md documented commands do not explicitly require all platform CI stages before draft creation. Downstream stages are justified not_tested/CIpending, not waived or passed. Previous additional full-fork/pre-draft CI requirement is superseded for this local draft assessment, not erased from historical notes.",
+    "draft_pr_gate_clear": true,
+    "merge_ready": false,
+    "manual_smoke": "After hub opens the original draft PR: human review exact-path ownership/lifetime, retained successful disposal, disclosed session/environment exceptions and separate deferred recreation finding. Await triggered platform CI; no user-facing feature demo qualification, merging, cleanup, or production smoke implied.",
+    "mutations": "Four existing contract/run evidence files only; no code/test changes, test reruns, sandbox/server launch, environment repair, Git-state mutation, external communication, or deletion. Profile default used; no model override or peers. Fresh read-only identity/diff/hash checks captured for this documentation assessment; prior behavioral evidence reused, not represented as fresh execution."
+  },
+  "repair_attempt": 2,
+   "repair_status": "No new repair authorized or attempted. Historical FINAL independent run3 FAIL retained in verification_run3; session assertion explicitly WAIVED under AJ's 2026-09-30 informed approval. Active gate PASS-local for draft only after hub-supplied graph evidence and proportional CI classification; downstream CI pending, not merge-ready. See active_verification_assessment.",
+  "repair_base": "HEAD=origin/main=4f915540f700bbb403728ef8e01e0b5e02baf94f",
+  "repair_scope": "Final attempt: API Vitest globalSetup creates one invocation-owned parent, provides native serialized worker context, setupFiles creates unique per-file children and sets isolated DB/vault/accounts environment paths. Returned run-level teardown removes only its captured parent after file/test teardown, including all-skipped files. Obsolete per-file afterAll removed. Maintained runner drives actual passing, assertion-failing, all-skipped and mixed Vitest files, exact parent/child absence, isolation and sentinel survival; does not delete leaked captured roots. Fork changes untouched by final attempt; prior evidence retained.",
+  "repair_evidence": {
+    "api_vitest_contract": "PASS: actual passing and intentional-failing forks, test-file afterAll active marker, exact-root absence and sentinel preservation;12635/157/6 unchanged",
+    "api_affected": "4 pass;12635/157/6 unchanged; combined2-file invocation5 pass,12635/188/8 unchanged",
+    "fork_typecheck": "bun run typecheck exit0; prior TS2322 reproduced before repair",
+    "fork_fixture_ripgrep": "23 pass/53 assertions;12635/157/6 unchanged",
+    "fork_representative": "180 pass/264 assertions; first157->159, base161->173(data6->7), repaired rerun173->188(data7->8); no no-growth PASS",
+    "fork_session_base": "isolated untouched git archive:408 pass/5 skip/1 todo,159->160;opencode-test-ciyew7oyg2i retained",
+    "fork_session_repaired": "408 pass/5 skip/1 todo,160->161;opencode-test-jmzlr7c4m1s retained",
+    "sandbox": "fresh synthetic fixture /private/tmp/rhythm-temp-cleanup-fixture-20260930-repair1; owned sandbox up/status/down;api76649 engine76667 gateway76649;sanitized diagnostics /private/tmp/rhythm-temp-cleanup-sandbox-20260930-repair1.evidence.R505eZ",
+    "independent_verification": "Run2 FAIL: narrow executed-worker and Bun regressions confirmed; full API count gate and all-skipped-file probes fail. See verification_run2."
+  },
+  "verification_limits": [
+    "Run3 GitNexus MCP detect_changes(scope all, exact worktree, repo Rhythm) unavailable; no CLI substituted. Prior repeated LOW and exact diff support bounded scope only, not independent graph clearance.",
+    "Historical run3 final gate FAIL: fork CI session command407 pass/1 fail/5 skip/1 todo; prompt.test.ts1523 expected1 llm call, received0. Exact base command408 pass/0 fail. Cause unknown; not pre-existing or safely waived at that gate. No repair. Later informed AJ waiver is recorded separately and does not change this test result.",
+    "Full API6776 pass/1 environment mismatch/286 skip; strict cleanup counts stable. HEAD=origin/main=base; manifest/test/guard diffs empty, installed package resolves to shared12.8.0 while unchanged manifest requires^13.0.3. Objective environment classification, no blanket full-suite/base claim, no dependency mutation.",
+    "Deferred fork background growth repeats branch/base +1 session and variable representative+13 each in this run. No GitHub issue created or closure claimed; existing normal disposal unchanged. Separate from newly observed session assertion.",
+    "Abrupt kills, collection failures, throwing earlier teardown hooks and non-default ordering not claimed. Concurrent default fork invocations independently checked. Full fork/SDK source generation and remaining unrelated CI stages not executed after compatibility failure.",
+    "Local Bun1.3.14 vs CI1.3.13; Node22.23.0 and Vitest4.1.1. No environment repair authorized in this final run."
+  ],
+  "final_repair_attempt2": {
+    "independent_verification_status": "FAIL",
+    "no_third_repair": true,
+    "red": "Focused all-skipped agent_server_memory_live.test.ts: 1 skip, Vitest exit0, wrapper exit1;12785/214/9->12786/214/9. Exact new rhythm-vitest-6lackx retained.",
+    "maintained_contract": "exit0: actual pass, intentional assertion failure with expected exit1, all-skipped, mixed. Exact run roots/children absent, active content through file teardown, unique children and invocation roots, sentinel survival;12786/214/9 unchanged.",
+    "affected_api": "Wrapped all-skipped1; mixed4 pass/1 skip; normal4 pass: all exit0 and12786/214/9 unchanged.",
+    "full_api": "Wrapped serialized full suite exit1:6776 pass/1 fail/286 skip;files721 pass/1 fail/149 skip;545.46s. STRICT count gate passed12786/214/9->same despite skipped and failed files. Only failure native_runtime_guard.test.ts:46: unchanged required better-sqlite3^13.0.3 but ignored shared installed tree has12.8.0. Environment classification, not cleanup defect; no dependency/product changes or blanket full-suite PASS.",
+    "full_api_output": "/Users/ajhochhalter/.local/share/opencode/tool-output/tool_0f4f743d00010tEsesYshcCBA8",
+    "sandbox": "NEW synthetic read-only fixture /private/tmp/rhythm-temp-cleanup-fixture-20260930-repair2; sandbox /private/tmp/rhythm-temp-cleanup-sandbox-20260930-repair2; same four variables on up/status/down;API10314 engine10332 gateway10314;down exit0;diagnostics /private/tmp/rhythm-temp-cleanup-sandbox-20260930-repair2.evidence.cUkLCF",
+    "risk": "Before edits exact config/setup File UID impact LOW,0 callers/processes. Vitest dynamic loading outside graph coverage. detect_changes all exact worktree LOW,4 tracked files,2 symbols,no processes; fork tmpdirScoped line-shift attribution unchanged. New untracked files reviewed directly.",
+    "limitations": "Native provide/inject handoff proven in actual default fork workers; no global environment ownership pointer to collide across invocations. mkdtemp run parents and file children uniquely allocated. Concurrent invocations not separately stress-tested. Abrupt kills not claimed. Historical c2 FAIL/verification_status FAIL retained until independent verification; next independent verification failure stops workflow. No fork rerun because no fork edit."
+  },
+  "verification_run3": {
+    "status": "FAIL",
+    "implementation_criteria": "c1-c6 pass for narrow authorized cleanup; independent fork session compatibility assertion prevents overall PASS",
+    "branch": "fix/test-temp-directory-cleanup",
+    "head": "4f915540f700bbb403728ef8e01e0b5e02baf94f",
+    "sandbox": "NEW synthetic read-only fixture /private/tmp/rhythm-temp-cleanup-fixture-20260930-vg3; four exact variables on up/status/down;API18293 engine18311 gateway18293;health ready bridgeLive=true;down exit0;diagnostics /private/tmp/rhythm-temp-cleanup-sandbox-20260930-vg3.evidence.FFgM0Z",
+    "full_api_output": "/Users/ajhochhalter/.local/share/opencode/tool-output/tool_0f504d85e001gfA3ub050prJ38",
+    "fork_session_output": "/Users/ajhochhalter/.local/share/opencode/tool-output/tool_0f50eb9a30013gwRDjfZZltlcg",
+    "counts": "initial12786/214/9; API full/focused/Bun23 stable; deferred fork comparisons final12786/242/10; no leftover removed",
+    "draft_pr_gate_clear": false,
+    "verifier_mutations": "evidence/contract/run/retro/deferred-note reconciliation only; external concurrent probe; no product/test source, Git state, repair, peer or leftover deletion"
+  },
+  "verification_run2": {
+    "status": "FAIL",
+    "branch": "fix/test-temp-directory-cleanup",
+    "head": "4f915540f700bbb403728ef8e01e0b5e02baf94f",
+    "sandbox": "NEW synthetic0400 fixture /private/tmp/rhythm-temp-cleanup-fixture-20260930-vg2; owned up/status/down; API88079 engine88096 gateway88079; ready health; down exit0; diagnostics /private/tmp/rhythm-temp-cleanup-sandbox-20260930-vg2.evidence.PIfWej",
+    "full_api_output": "/Users/ajhochhalter/.local/share/opencode/tool-output/tool_0f4e375be001qgCpG3mBBfQgm9",
+    "draft_pr_gate_clear": false,
+    "verifier_mutations": "contract/run-note evidence only; no source edits, Git state changes, peers or leftover deletion"
+  }
+}

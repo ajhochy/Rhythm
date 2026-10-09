@@ -7,7 +7,7 @@ import { fulfillJson, openInterceptedLiveApp } from '../post-m1-phase-5-live-fix
 // Agent Settings is a column browser: sections → (items →) inspector.
 const autoPromotion = 'Auto-promotion';
 const runtime = 'Runtime / OpenCode server';
-const sections = ['Accounts', 'Models', 'MCP servers', 'Auto-promotion', 'Behavior', 'Keybindings', 'Runtime / OpenCode server'];
+const sections = ['Accounts', 'Models', 'Model routing', 'MCP servers', 'Auto-promotion', 'Behavior', 'Keybindings', 'Runtime / OpenCode server'];
 const categories = (page: Page) => page.getByTestId('settings-column-categories');
 const inspector = (page: Page) => page.getByTestId('settings-column-inspector');
 const detail = (page: Page) => page.getByTestId('list-inspector-detail');

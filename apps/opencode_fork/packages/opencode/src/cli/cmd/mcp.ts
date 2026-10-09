@@ -144,6 +144,9 @@ export const McpListCommand = effectCmd({
       } else if (status.status === "disabled") {
         statusIcon = "○"
         statusText = "disabled"
+      } else if (status.status === "configured") {
+        statusIcon = "○"
+        statusText = "configured (not connected)"
       } else if (status.status === "needs_auth") {
         statusIcon = "⚠"
         statusText = "needs authentication"

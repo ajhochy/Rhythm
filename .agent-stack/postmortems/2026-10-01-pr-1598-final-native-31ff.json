@@ -1,0 +1,181 @@
+{
+  "run_id": "2026-10-01-pr-1598-final-native-31ff",
+  "issue": 1598,
+  "date": "2026-10-01",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "C2-c6",
+      "text": "Manual WebSocket session.input without a per-turn agent uses the stored canonical profile identity for eligibility and scope when the session's engine agent id is a built-in such as build.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Focused and real-engine contract tests passed. The installed UI frame carried an explicit selected profile; this native probe did not isolate the no-per-turn-agent path."
+    },
+    {
+      "criterion_id": "C2-c7",
+      "text": "Manual WebSocket session.input with an explicit per-turn agent resolves the selected canonical profile and its scope without treating an engine agent id as a different disabled profile.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Installed selected model and persisted response passed; the full canonical grant/MCP scope was verified by focused/live regression, not independently by this native send."
+    },
+    {
+      "criterion_id": "task-attachment-a1-c4",
+      "text": "Actual bytes picker->WS->SDK->owned staging->native vision/Read; scoped artifact user/project/session normalization,replay retention/cleanup.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Installed picker-to-engine PNG/workbook bytes and exact-ID cleanup passed. Native replay UI and eventual retention sweep were not exercised, so the full criterion remains open."
+    },
+    {
+      "criterion_id": "task-attachment-a1-c8",
+      "text": "JPEG+PNG actual model vision/tool bytes on capable model; Astra/Luna no vision never spoof capabilities.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Native PNG reached two real capable providers; Sonnet recognized all quadrants and Sol made a spatial error. Installed JPEG and Astra/Luna capability behavior were not exercised; synthetic live gates remain separate."
+    },
+    {
+      "criterion_id": "task-attachment-a1-c10",
+      "text": "browser attachment checks and installed Electron image/XLSX smoke",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Rendered browser attachment checks passed in the scoped source gates, and installed Electron PNG/XLSX selection and real-provider responses passed. This criterion says image/XLSX; installed JPEG, replay/error UI and eventual retention remain separately untested clauses of other criteria."
+    },
+    {
+      "criterion_id": "task-c1-c1",
+      "text": "Exact action produces one POST and one run/session",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "One marked outer Tasks > Agent Schedules fixture Trigger now produced a durable linked run. Read-only native inspection mapped the existing operational Org Self-Optimizer row to the same outer control, but the historical \u201cOrg Optimize\u201d wording differs and no operational POST was sent."
+    },
+    {
+      "criterion_id": "task-e1-approval-queue-c1",
+      "text": "create synthetic global and session-bound approvals through actual supported API; pending visible promptly in global queue including newly created after mount,focus/reconnect/app resume;correct transcript association without hiding global null cards",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Native read-only Notifications refresh showed 21 pending cards including two original cards. Synthetic creation, newly mounted/focused/reconnected/app-resumed state and transcript association were not exercised natively."
+    },
+    {
+      "criterion_id": "task-e1-approval-queue-c5",
+      "text": "Pending statuses sync authoritative after decision,existing cards remain pending unless genuine human decision (actual user's prior chatworkflow approvals NOT signed transitions)",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "No human decision or signing occurred. Original cards remained pending on read-only refresh; post-decision synchronization was not tested."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [],
+    "notes": "Required skill chain was used for this recovery; no skipped skill or supported workflow violation was identified. TodoWrite is unavailable in this environment and the private recovery checklist supplied equivalent tracking."
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/ws_gateway.ts",
+    "apps/web/src/store.tsx",
+    "apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart"
+  ],
+  "failure_output": "No app behavior failure in final installed smoke. Separate Sol model quality observation: lower image quadrants were reversed despite exact bytes; independent Sonnet recognized all four.",
+  "overall_category": "none",
+  "suggested_follow_up": "Keep provider-specific spatial quality separate from app transport acceptance; do not file a Rhythm transport bug or change model assignments based on this one answer.",
+  "pending": [
+    "A1 installed JPEG/replay/error UI and eventual artifact retention",
+    "Historical \u201cOrg Optimize\u201d wording and operational POST execution (not attempted)",
+    "Full E1 mount/reconnect/transcript/post-decision native behavior",
+    "Physical-device build 17 behavior (device unavailable)",
+    "Human approval decisions (not executed)"
+  ],
+  "scope": "Scoped final 31ff installed app observations passed; criteria marked not_checked retain untested clauses. Sol candidate spatial-answer qualification failed independently and led to O1 NOCHANGE.",
+  "observed_native_rss": {
+    "samples": 61,
+    "peakEngineKiB": 950848,
+    "durationMinutes": 5,
+    "sourceSha": "31ff93b13d01eb228e6c2f269f2239a66ff6b811",
+    "note": "Metadata-only process sampling; not a 50 GB incident reproduction."
+  },
+  "o1_model_assignment": "NOCHANGE; creative-media compare-and-set declined after Sol spatial-answer error.",
+  "external_observations": [
+    {
+      "kind": "provider-semantic-variance",
+      "status": "observed",
+      "description": "Sol spatial answer was wrong with exact image bytes; Sonnet independently answered the same quadrants correctly. O1 model assignments stayed unchanged."
+    }
+  ],
+  "cleanup": {
+    "status": "independently_verified_api_engine_worktree_removed_artifact_retention_pending",
+    "apiExactUrls404": 10,
+    "sdkIdsZeroSessionMessagePart": 5,
+    "fixtureProfilesInEngine": 0,
+    "removedWorktreesAndBranches": 2,
+    "scratchManifestChecksUnchanged": 7,
+    "originalOperationalProfilesUnchanged": 54,
+    "originalOperationalSchedulesUnchanged": 33,
+    "artifactMetadataRowsUnpinned": 3,
+    "distinctStorageKeys": 1
+  },
+  "postCleanupRuntime": {
+    "atUtc": "2026-10-01T23:07:39Z",
+    "engineRssKiB": 608528,
+    "apiRssKiB": 212864,
+    "appRssKiB": 200320,
+    "apiAndEngineHealthy": true,
+    "restartRequired": false,
+    "configReason": "in_sync"
+  },
+  "sourceSha": "31ff93b13d01eb228e6c2f269f2239a66ff6b811",
+  "testflight": {
+    "version": "1.0.9",
+    "build": "17",
+    "binaryState": "Validated",
+    "internalGroup": "Testing",
+    "groupBuildStatus": "Testing",
+    "expiry": "90 days",
+    "physicalDevice": "NOT RUN"
+  },
+  "native_observations": [
+    {
+      "behavior": "Installed canonical-profile manual send reaches selected real provider and persists reply",
+      "result": "pass"
+    },
+    {
+      "behavior": "Installed PNG/XLSX selected bytes reach provider unchanged; Sonnet recognizes image and both providers read workbook",
+      "result": "pass"
+    },
+    {
+      "behavior": "One disposable disabled schedule native Trigger now creates one durable linked run",
+      "result": "pass"
+    },
+    {
+      "behavior": "Original approval cards remain visible through read-only native refresh",
+      "result": "pass"
+    },
+    {
+      "behavior": "Dirty source selected-base isolated Start preserves source state",
+      "result": "pass"
+    }
+  ]
+}

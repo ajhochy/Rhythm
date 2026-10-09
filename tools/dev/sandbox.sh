@@ -304,6 +304,32 @@ validate_copied_data_inputs() {
   validate_sanitized_config "$config_path"
 }
 
+# E1's read-only browser queue test uses public fixture values, never an
+# operator Keychain capability or private signing key. Enable only after the
+# copied database proves it is one of the small synthetic auth fixtures.
+configure_e1_public_approval_fixture() {
+  case "${RHYTHM_SANDBOX_E1_PUBLIC_FIXTURE:-0}" in
+    0) return 0 ;;
+    1) ;;
+    *) fail 'RHYTHM_SANDBOX_E1_PUBLIC_FIXTURE must be 0 or 1' ;;
+  esac
+  local valid_fixture
+  valid_fixture="$(sqlite3 "$SB/rhythm.db" "
+    SELECT CASE WHEN
+      (SELECT COUNT(*) FROM users) = 2 AND
+      (SELECT COUNT(*) FROM users WHERE email IN ('admin@example.invalid', 'member@example.invalid')) = 2 AND
+      (SELECT COUNT(*) FROM sessions) IN (1, 2) AND
+      NOT EXISTS (SELECT 1 FROM sessions WHERE token NOT IN (
+        'e02-synthetic-session-not-a-secret', 'c1-member-synthetic-session-not-a-secret')) AND
+      (SELECT COUNT(*) FROM sessions WHERE token = 'e02-synthetic-session-not-a-secret') = 1
+    THEN 1 ELSE 0 END;")" || fail 'cannot inspect copied E1 fixture database'
+  [[ "$valid_fixture" == 1 ]] || fail 'E1 approval fixture requires only the known synthetic users and public bearer'
+  runtime_env+=(
+    'HUMAN_APPROVAL_CAPABILITY_SHA256=00789cad36f3c613d645dec33349a0b18f1926415899f3761812404f0a494cfb'
+    'HUMAN_APPROVAL_PUBLIC_KEY=BGsX0fLhLEJH+Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT+NC4v4af5uO5+tKfA+eFivOM1drMV7Oy7ZAaDe/UfU='
+  )
+}
+
 validate_port() {
   local label="$1"
   local port="$2"
@@ -513,6 +539,7 @@ up() {
   prepare_security_shim
   copy_runtime_files
   sqlite3 "$RHYTHM_LIVE_DB_PATH" ".backup '$SB/rhythm.db'"
+  configure_e1_public_approval_fixture
   if [[ "$RELAY_ENABLED" == 1 ]]; then
     copy_relay_runtime_files
     sqlite3 "$RHYTHM_LIVE_DB_PATH" ".backup '$SB/relay/rhythm.db'"

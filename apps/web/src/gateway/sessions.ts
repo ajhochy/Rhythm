@@ -89,7 +89,58 @@ export type ModelCatalogEntry = {
 };
 export type CustomProviderInput = { providerId: string; name: string; baseURL: string; apiKey?: string };
 export type CustomProviderTestResult = { ok: true; providerId: string; modelCount: number; models: Array<{ id: string; name: string }> };
-export type SessionSettings = { name?: string; profileId?: string | null; providerId?: string | null; modelId?: string | null; thinkingBudget?: number | null; permissionMode?: string; fastMode?: boolean; anthropicAccountId?: string; openaiAccountId?: string };
+export type SessionSettings = { modelMode?: 'auto' | 'fixed'; name?: string; profileId?: string | null; providerId?: string | null; modelId?: string | null; thinkingBudget?: number | null; permissionMode?: string; fastMode?: boolean; anthropicAccountId?: string; openaiAccountId?: string };
+export type RouterPick = { providerId: string; modelId: string; source: string };
+export type RouterBackend = 'local' | 'jev' | 'custom' | 'systemone';
+export type RouterFeatureMode = 'default' | 'off' | 'shadow' | 'on';
+export type RouterFeatureKey = 'model_routing' | 'tool_ranking' | 'memory_ranking' | 'capacity_routing';
+export type RouterScoreScale = 'auto' | 'probability' | 'logit';
+export type RouterTier = 'cheap' | 'standard' | 'frontier';
+export type RouterTierSource = 'cost' | 'heuristic' | 'override';
+export type RouterCatalogModel = {
+  providerID: string; modelID: string; name: string; family?: string | null;
+  tier: RouterTier; tierSource: RouterTierSource;
+  costOutputUsd?: number | null; costInputUsd?: number | null;
+  releaseDate?: string | null; contextLimit?: number | null; excluded: boolean;
+  /** false = available but not enabled in Models curation, so not routable. Absent (older engines) = enabled. */
+  enabled?: boolean;
+};
+export type RouterTierMode = 'auto' | 'manual';
+export type RouterTierThresholds = { mode?: RouterTierMode; cheapMaxOutputUsd: number; frontierMinOutputUsd: number; derivedFromModels?: number };
+/** PUT shape: numbers are sent only in manual mode. */
+export type RouterTierInput = { mode: 'auto' } | { mode: 'manual'; cheapMaxOutputUsd: number; frontierMinOutputUsd: number };
+export type RouterCatalog = { fetchedAt?: string | null; models: RouterCatalogModel[]; tiers: RouterTierThresholds; curatedCount?: number; reason?: 'no_curated_models' };
+export type RouterConfig = {
+  backend: RouterBackend;
+  local: { baseUrl: string; model: string; scoreScale: RouterScoreScale };
+  jev: { baseUrl: string; model: string; hasApiKey: boolean };
+  custom: { baseUrl: string; model: string; scoreScale: RouterScoreScale; hasApiKey: boolean };
+  /** Absent on servers that predate the System One backend. */
+  systemone?: { baseUrl: string; model: string; hasApiKey: boolean };
+  timeoutMs: number;
+  remoteDataConsent: boolean;
+  features: Record<RouterFeatureKey, RouterFeatureMode>;
+  lockedByEnv: string[];
+  /** Live model catalog the router chooses among; absent/empty when the engine is not running. */
+  catalog?: RouterCatalog | null;
+  effective?: { backend: string; baseUrl: string; model: string; features?: Record<string, string> };
+};
+/** Partial write shape; apiKey is write-only ('' clears). */
+export type RouterConfigInput = {
+  backend?: RouterBackend;
+  local?: Partial<RouterConfig['local']>;
+  jev?: { baseUrl?: string; model?: string; apiKey?: string };
+  custom?: Partial<Omit<RouterConfig['custom'], 'hasApiKey'>> & { apiKey?: string };
+  systemone?: { baseUrl?: string; model?: string; apiKey?: string };
+  timeoutMs?: number;
+  remoteDataConsent?: boolean;
+  features?: Partial<Record<RouterFeatureKey, RouterFeatureMode>>;
+  tiers?: RouterTierInput;
+  /** Keyed "provider/model"; replaces the saved overrides. */
+  tierOverrides?: Record<string, RouterTier>;
+  excludedModels?: string[];
+};
+export type RouterTestResult = { ok: boolean; backend?: string; model?: string; latencyMs?: number; ranked?: Array<{ text: string; score: number }>; message?: string; tier?: string; probabilities?: Record<string, number> };
 export type TurnOverride = { profileId?: string; modelOverride?: { providerId: string; modelId: string } };
 const statusOrder: Record<Session['status'], number> = { working: 0, starting: 1, idle: 2, error: 3, closed: 4, resumable: 5 };
 const compareText = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
@@ -117,7 +168,7 @@ export interface SessionFileStatusEntry { path: string; status?: string }
 // component; never forward it to the renderer (post-m1-p6-c2b).
 export interface SessionFileContent { content?: string; type?: string; mimeType?: string; encoding?: string }
 // GET /:id/diff — exactly @opencode-ai/sdk's FileDiff shape (node_modules/@opencode-ai/sdk/gen/types.gen.d.ts:32-38).
-export interface SessionFileDiffEntry { file: string; before: string; after: string; additions: number; deletions: number }
+export interface SessionFileDiffEntry { file: string; before?: string; after?: string; patch?: string; patchOmitted?: string; additions: number; deletions: number }
 // GET /:id/vcs/diff?mode=git|branch — canonical {file,patch?,additions,deletions,status?} (post-m1-p6-c2d).
 export interface SessionVcsDiffEntry { file: string; patch?: string; additions: number; deletions: number; status?: string }
 // GET /projects/:id/branches — apps/api_server/src/controllers/projects_controller.ts:161-175.
@@ -164,6 +215,13 @@ export interface SessionGateway {
   completeProviderAuth?(provider: string, code: string, method: number): Promise<void>;
   saveProviderApiKey?(provider: string, apiKey: string): Promise<void>;
   patchSettings?(localId: string, input: SessionSettings): Promise<Session>;
+  // Auto mode: the model the router actually used last (latest dispatch of GET .../model-provenance).
+  // Resolves null when unavailable (Postgres, no dispatches yet, old server).
+  modelProvenance?(localId: string): Promise<RouterPick | null>;
+  // Router backend settings — /agent-decisions/config (local-only, agent-execution gated).
+  getRouterConfig?(): Promise<RouterConfig>;
+  saveRouterConfig?(input: RouterConfigInput): Promise<RouterConfig>;
+  testRouterConfig?(draft: RouterConfigInput): Promise<RouterTestResult>;
   archive?(localId: string, archived: boolean): Promise<void>;
   fork?(localId: string, messageId: string): Promise<Session>;
   summarize?(localId: string): Promise<void>;
@@ -173,7 +231,7 @@ export interface SessionGateway {
   projectLabels?(): Promise<AgentProject[]>;
   createProject?(input: { name: string; cwd: string }): Promise<AgentProject>;
   detail(localId: string): Promise<Session>;
-  create(input: { profileId: string; cwd: string; name: string; projectId?: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard'; taskId?: string; anthropicAccountId?: string }): Promise<Session>;
+  create(input: { profileId: string; cwd: string; name: string; projectId?: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard'; taskId?: string; taskTitle?: string; anthropicAccountId?: string }): Promise<Session>;
   // post-m1-phase-6 c1b/c2a: GET /:id/files/find-files?query&limit&type — returns relative paths.
   findFiles(localId: string, query: string, opts?: { limit?: number; type?: 'file' | 'directory' }): Promise<string[]>;
   // GET /:id/files/list?path — engine-shaped entries scoped to the session/worktree directory.
@@ -309,6 +367,20 @@ async function customProviderResponse<T>(request: Promise<Response>): Promise<T>
   }
 }
 
+async function routerConfigResponse<T>(request: Promise<Response>): Promise<T> {
+  try {
+    const result = await request;
+    if (!result.ok) {
+      const body = record(await result.clone().json().catch(() => null));
+      throw new SessionGatewayError(result.status, string(body.message, string(body.error, 'The router settings request failed.')));
+    }
+    return await result.json() as T;
+  } catch (error) {
+    if (error instanceof SessionGatewayError) throw error;
+    throw new SessionGatewayError(0, 'The local decision service is unavailable. Try again after the local runtime reconnects.');
+  }
+}
+
 const string = (value: unknown, fallback = '') => typeof value === 'string' ? value : fallback;
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' ? value as Record<string, unknown> : {};
 // A persisted message's canonical identity is its (possibly numeric) `sdkMessageId`/`id` —
@@ -338,7 +410,21 @@ export type RichTranscriptMessage = TranscriptMessage & {
   cost?: number; tokens?: { input?: number; output?: number; reasoning?: number; cache?: { read?: number; write?: number } };
 };
 export const canonicalText = (value: unknown): string => typeof value === 'string' ? value : value === undefined ? '' : JSON.stringify(value, null, 2);
-export const blockSource = (block: RichTranscriptBlock): string => block.tool ? canonicalText(block.tool) : block.content;
+export const blockSource = (block: RichTranscriptBlock): string =>
+  block.kind === 'step-start' || block.kind === 'step-finish'
+    ? ''
+    : block.tool ? canonicalText(block.tool) : block.content;
+
+// A deferred builtin `task` execution: outer tool `mcp_dispatch` whose dispatcher input is
+// {family:'builtin', name:'task', action:'execute'|omitted}. Search/describe, MCP family, other
+// builtins and malformed input are not task executions.
+function isDeferredTaskExecution(raw: Record<string, unknown>, state: Record<string, unknown>): boolean {
+  if (raw.type !== 'tool' || raw.tool !== 'mcp_dispatch') return false;
+  const input = state.input;
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return false;
+  const dispatch = input as Record<string, unknown>;
+  return dispatch.family === 'builtin' && dispatch.name === 'task' && (dispatch.action === undefined || dispatch.action === 'execute');
+}
 
 export function mapPart(raw: Record<string, unknown>, id: string): RichTranscriptBlock {
   const state = record(raw.state);
@@ -355,10 +441,15 @@ export function mapPart(raw: Record<string, unknown>, id: string): RichTranscrip
     metadata: state.metadata && typeof state.metadata === 'object' ? record(state.metadata) : undefined,
     attachments: attachments.length ? attachments : undefined,
   } : undefined;
-  if (raw.type === 'tool' && raw.tool === 'task') {
-    const match = TASK_ID_PATTERN.exec(string(state.output));
+  const nativeTask = raw.type === 'tool' && raw.tool === 'task';
+  if (nativeTask || isDeferredTaskExecution(raw, state)) {
+    const outputId = TASK_ID_PATTERN.exec(string(state.output))?.[1];
+    // Deferred tasks keep the outer `mcp_dispatch` part; the real task still reports its child via
+    // metadata.sessionId and `task_id:` output. Two disagreeing ids link nothing rather than guess.
+    const metadataId = nativeTask ? '' : string(record(state.metadata).sessionId);
+    const childSessionId = nativeTask ? outputId : metadataId && outputId && metadataId !== outputId ? undefined : metadataId || outputId;
     const terminal = state.status === 'completed' || state.status === 'error';
-    return { id, kind: 'children', content: string(state.title, 'Child session'), meta: string(state.status), childSessionId: match?.[1], tool, terminal, streaming: !terminal };
+    return { id, kind: 'children', content: string(state.title, 'Child session'), meta: string(state.status), childSessionId, tool, terminal, streaming: !terminal };
   }
   // post-m1-phase-4 c2d: preserve every other canonical part type instead of collapsing it to
   // markdown. Field vocabulary from apps/api_server/src/services/opencode_stream_bridge.ts:1250-1339.
@@ -366,8 +457,8 @@ export function mapPart(raw: Record<string, unknown>, id: string): RichTranscrip
   if (raw.type === 'tool') {
     return { id, kind: 'tool', title: string(state.title, string(raw.tool, 'Tool')), content: canonicalText(state.output), meta: state.status === 'error' && record(state.metadata).interrupted === true ? 'Interrupted' : tool?.status, tool, terminal: state.status === 'completed' || state.status === 'error' };
   }
-  if (raw.type === 'step-start') return { id, kind: 'step-start', content: string(raw.snapshot) };
-  if (raw.type === 'step-finish') return { id, kind: 'step-finish', content: string(raw.snapshot), meta: string(raw.reason) };
+  if (raw.type === 'step-start') return { id, kind: 'step-start', content: '' };
+  if (raw.type === 'step-finish') return { id, kind: 'step-finish', content: '', meta: string(raw.reason) };
   if (raw.type === 'compaction') return { id, kind: 'compaction', content: raw.auto === true ? 'Context compacted automatically' : 'Context compacted' };
   if (raw.type === 'file') return { id, kind: 'file', title: string(raw.filename), content: string(raw.url), meta: string(raw.mime), artifactId: string(raw.artifactId) || undefined, artifactProject: string(raw.artifactProject) || undefined };
   if (raw.type === 'agent') { const source = record(raw.source); return { id, kind: 'agent', title: string(raw.name, 'Agent'), content: string(source.value) }; }
@@ -457,7 +548,7 @@ export function toSessionViewModel(value: unknown, messages: unknown[] = [], tra
     worktreeName: typeof source.worktreeName === 'string' && source.worktreeName ? source.worktreeName : undefined,
     worktreePath: typeof source.worktreePath === 'string' && source.worktreePath ? source.worktreePath : undefined,
     worktreeBranch: typeof source.worktreeBranch === 'string' && source.worktreeBranch ? source.worktreeBranch : undefined,
-    model: string(source.modelId, 'Configured model'), modelId: string(source.modelId) || undefined, providerId: string(source.providerId) || undefined, sdkSessionId: string(source.sdkSessionId) || undefined, thinkingBudget: typeof source.thinkingBudget === 'number' ? String(source.thinkingBudget) : '', permissionMode: string(source.permissionMode, 'default'), fastMode: source.fastMode === true,
+    model: string(source.modelId, 'Configured model'), modelId: string(source.modelId) || undefined, providerId: string(source.providerId) || undefined, modelMode: source.modelMode === 'auto' ? 'auto' as const : 'fixed' as const, sdkSessionId: string(source.sdkSessionId) || undefined, thinkingBudget: typeof source.thinkingBudget === 'number' ? String(source.thinkingBudget) : '', permissionMode: string(source.permissionMode, 'default'), fastMode: source.fastMode === true,
     createdAt: string(source.createdAt, new Date(0).toISOString()), updatedAt: string(source.updatedAt, string(source.createdAt, new Date(0).toISOString())), cost: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalBudget: 0,
     // post-m1-phase-5 c2d: preserve canonical delegation identity instead of dropping it — a
     // child's canonical parentSessionId is normalized into the web model's parentId; both fields
@@ -637,6 +728,24 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
       const body = await response<{ session: unknown; messages?: unknown[]; transcriptPage?: unknown }>('Read session settings', request(`/agent-sessions/${encodeURIComponent(id)}?transcriptLimit=50`));
       return toSessionViewModel(body.session, body.messages ?? [], body.transcriptPage);
     },
+    modelProvenance: async (id) => {
+      try {
+        const result = await request(`/agent-sessions/${encodeURIComponent(id)}/model-provenance`);
+        if (!result.ok) return null;
+        const body = record(await result.json().catch(() => null));
+        if (body.available === false || !Array.isArray(body.dispatches) || !body.dispatches.length) return null;
+        const last = record(body.dispatches[body.dispatches.length - 1]);
+        const modelId = string(last.finalModelId);
+        if (!modelId) return null;
+        return { providerId: string(last.finalProviderId), modelId, source: string(last.requestedSource) };
+      } catch { return null; }
+    },
+    getRouterConfig: async () => routerConfigResponse<RouterConfig>(request('/agent-decisions/config')),
+    saveRouterConfig: async (input) => {
+      await routerConfigResponse<unknown>(request('/agent-decisions/config', { method: 'PUT', body: JSON.stringify(input) }));
+      return routerConfigResponse<RouterConfig>(request('/agent-decisions/config'));
+    },
+    testRouterConfig: async (draft) => routerConfigResponse<RouterTestResult>(request('/agent-decisions/config/test', { method: 'POST', body: JSON.stringify(draft) })),
     projectLabels: async () => (await response<unknown[]>('Load projects', request('/projects?includeArchived=true')))
       .map(mapAgentProject),
     createProject: async (input) => {
@@ -725,7 +834,7 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
     },
     sessionDiff: async (localId) => {
       const data = await response<unknown>('Load session diff', request(`/agent-sessions/${encodeURIComponent(localId)}/diff`));
-      return Array.isArray(data) ? data.map((item) => record(item)).map((item) => ({ file: string(item.file), before: string(item.before), after: string(item.after), additions: Number(item.additions) || 0, deletions: Number(item.deletions) || 0 })) : [];
+      return Array.isArray(data) ? data.map((item) => record(item)).map((item) => ({ file: string(item.file), before: typeof item.before === 'string' ? item.before : undefined, after: typeof item.after === 'string' ? item.after : undefined, patch: typeof item.patch === 'string' ? item.patch : undefined, patchOmitted: typeof item.patchOmitted === 'string' ? item.patchOmitted : undefined, additions: Number(item.additions) || 0, deletions: Number(item.deletions) || 0 })) : [];
     },
     vcsDiff: async (localId, mode) => {
       const data = await response<unknown>('Load VCS diff', request(`/agent-sessions/${encodeURIComponent(localId)}/vcs/diff?mode=${mode}`));

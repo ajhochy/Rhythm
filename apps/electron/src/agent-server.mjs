@@ -25,7 +25,8 @@ const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 /**
  * @typedef {'nodeNotFound' | 'bundleNotFound' | 'spawnThrew' | 'healthCheckTimeout' | 'lostConnection' | 'approvalCredentialsUnavailable' | 'portConflict' | 'startupFailed' | 'stopFailed'} AgentServerFailureReason
  * @typedef {'electron' | 'external' | 'none'} AgentServerOwnership
- * @typedef {{ status: 'starting' | 'ready' | 'failed' | 'stopping' | 'stopped', ownership: AgentServerOwnership, owned: boolean, failureReason: AgentServerFailureReason | null, stderrTail: string | null, errorMessage: string | null }} AgentServerStatus
+ * @typedef {{ configured: boolean, source: 'preference' | 'environment_override', workstreamsEnabled: boolean, managedContextExports: boolean }} ManualWorkstreamsLaunch
+ * @typedef {{ status: 'starting' | 'ready' | 'failed' | 'stopping' | 'stopped', ownership: AgentServerOwnership, owned: boolean, failureReason: AgentServerFailureReason | null, stderrTail: string | null, errorMessage: string | null, manualWorkstreamsLaunch: ManualWorkstreamsLaunch | null }} AgentServerStatus
  * @typedef {{ executable: string, args: string[], workingDir: string, mcpRolesDir: string | undefined }} ServerEntry
  */
 
@@ -95,12 +96,39 @@ export function relayUplinkUrlForProductionApiBase(value) {
 }
 
 /**
+ * Resolve the pair only for a child this process owns. A caller-provided value
+ * for either member is an explicit launch override, including explicit-off and
+ * intentionally contradictory values; the device preference never repairs it.
+ * @param {NodeJS.ProcessEnv} baseEnv
+ * @param {unknown} configured
+ * @returns {ManualWorkstreamsLaunch}
+ */
+export function manualWorkstreamsLaunchForEnvironment(baseEnv, configured) {
+  const hasEnvironmentOverride = Object.hasOwn(baseEnv, 'RHYTHM_WORKSTREAMS_ENABLED')
+    || Object.hasOwn(baseEnv, 'RHYTHM_MANAGED_CONTEXT_EXPORTS');
+  if (hasEnvironmentOverride) {
+    return {
+      configured: configured === true,
+      source: 'environment_override',
+      workstreamsEnabled: baseEnv.RHYTHM_WORKSTREAMS_ENABLED === 'true',
+      managedContextExports: baseEnv.RHYTHM_MANAGED_CONTEXT_EXPORTS === '1',
+    };
+  }
+  return {
+    configured: configured === true,
+    source: 'preference',
+    workstreamsEnabled: configured === true,
+    managedContextExports: configured === true,
+  };
+}
+
+/**
  * api_server_service.dart:46-92 field-for-field, adapted to Electron's persisted main-process
  * session. The restored session is paired with only the validated selected API base; explicit relay
  * configuration, including an intentional empty value, never receives it automatically.
- * @param {{ baseEnv: NodeJS.ProcessEnv, port: number, enginePort: number, dbPathValue: string, humanApprovalPublicKey: string, humanApprovalCapabilitySha256: string, bridgeRegistrarSha256?: string | undefined, mcpRolesDir: string | undefined, relaySessionToken?: string | undefined, relayProductionApiBase?: string | undefined }} options
+ * @param {{ baseEnv: NodeJS.ProcessEnv, port: number, enginePort: number, dbPathValue: string, humanApprovalPublicKey: string, humanApprovalCapabilitySha256: string, bridgeRegistrarSha256?: string | undefined, mcpRolesDir: string | undefined, relaySessionToken?: string | undefined, relayProductionApiBase?: string | undefined, manualWorkstreamsPreference?: boolean | undefined }} options
  */
-export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, humanApprovalPublicKey, humanApprovalCapabilitySha256, bridgeRegistrarSha256, mcpRolesDir, relaySessionToken, relayProductionApiBase }) {
+export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, humanApprovalPublicKey, humanApprovalCapabilitySha256, bridgeRegistrarSha256, mcpRolesDir, relaySessionToken, relayProductionApiBase, manualWorkstreamsPreference = false }) {
   /** @type {NodeJS.ProcessEnv} */
   const env = { ...baseEnv };
   for (const key of Object.keys(env)) if (key.startsWith('HUMAN_APPROVAL_')) delete env[key];
@@ -112,6 +140,14 @@ export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, human
   env.RHYTHM_LOCAL_RENDERER_ORIGINS = 'rhythm://app';
   // Research Projects are on for the Electron desktop; an explicit caller value still wins.
   if (!Object.hasOwn(baseEnv, 'RHYTHM_RESEARCH_PROJECTS_ENABLED')) env.RHYTHM_RESEARCH_PROJECTS_ENABLED = 'true';
+  const manualWorkstreamsLaunch = manualWorkstreamsLaunchForEnvironment(baseEnv, manualWorkstreamsPreference);
+  // The saved device choice only fills a wholly absent launch pair. Any explicit
+  // environment value, including an explicit-off or contradictory pair, is the
+  // launch authority and remains byte-for-byte intact in the child environment.
+  if (manualWorkstreamsLaunch.source === 'preference' && manualWorkstreamsLaunch.workstreamsEnabled) {
+    env.RHYTHM_WORKSTREAMS_ENABLED = 'true';
+    env.RHYTHM_MANAGED_CONTEXT_EXPORTS = '1';
+  }
   env.HUMAN_APPROVAL_PUBLIC_KEY = humanApprovalPublicKey;
   env.HUMAN_APPROVAL_CAPABILITY_SHA256 = humanApprovalCapabilitySha256;
   if (typeof bridgeRegistrarSha256 === 'string' && /^[a-f0-9]{64}$/.test(bridgeRegistrarSha256)) {
@@ -229,14 +265,29 @@ export class AgentServerService {
   #relayConfigurationProvider;
   /** @type {string | undefined} */
   #bridgeRegistrarSecret;
+  /** @type {ManualWorkstreamsLaunch | undefined} */
+  #manualWorkstreamsLaunch;
+  /** @type {(() => Promise<boolean | undefined> | boolean | undefined) | undefined} */
+  #manualWorkstreamsPreferenceProvider;
 
-  /** @param {{ relayConfigurationProvider?: (() => Promise<{ token?: string, productionApiBase?: string } | undefined> | { token?: string, productionApiBase?: string } | undefined) | undefined }} [options] */
-  constructor({ relayConfigurationProvider } = {}) {
+  /** @param {{ relayConfigurationProvider?: (() => Promise<{ token?: string, productionApiBase?: string } | undefined> | { token?: string, productionApiBase?: string } | undefined) | undefined, manualWorkstreamsPreferenceProvider?: (() => Promise<boolean | undefined> | boolean | undefined) | undefined }} [options] */
+  constructor({ relayConfigurationProvider, manualWorkstreamsPreferenceProvider } = {}) {
     this.#relayConfigurationProvider = relayConfigurationProvider;
+    this.#manualWorkstreamsPreferenceProvider = manualWorkstreamsPreferenceProvider;
   }
 
   /** @returns {AgentServerStatus} */
-  get status() { return { status: this.#status, ownership: this.#ownership, owned: this.#ownership === 'electron', failureReason: this.#failureReason ?? null, stderrTail: this.#stderrTail(), errorMessage: this.#errorMessage ?? null }; }
+  get status() {
+    return {
+      status: this.#status,
+      ownership: this.#ownership,
+      owned: this.#ownership === 'electron',
+      failureReason: this.#failureReason ?? null,
+      stderrTail: this.#stderrTail(),
+      errorMessage: this.#errorMessage ?? null,
+      manualWorkstreamsLaunch: this.#ownership === 'electron' ? this.#manualWorkstreamsLaunch ?? null : null,
+    };
+  }
 
   bridgeRegistrar() {
     if (this.#usingExisting || this.#status !== 'ready' || !this.#process || !this.#bridgeRegistrarSecret) return undefined;
@@ -302,6 +353,7 @@ export class AgentServerService {
     this.#failureReason = undefined;
     this.#errorMessage = undefined;
     this.#bridgeRegistrarSecret = undefined;
+    this.#manualWorkstreamsLaunch = undefined;
     this.#emit();
 
     const occupied = [];
@@ -362,6 +414,16 @@ export class AgentServerService {
     }
     if (generation !== this.#generation) return this.status;
 
+    let manualWorkstreamsPreference = false;
+    try {
+      manualWorkstreamsPreference = (await this.#bounded(this.#manualWorkstreamsPreferenceProvider?.(), 'reading manual workstreams preference')) === true;
+    } catch {
+      // A local preference read failure is safely equivalent to the default off.
+      manualWorkstreamsPreference = false;
+    }
+    if (generation !== this.#generation) return this.status;
+    const manualWorkstreamsLaunch = manualWorkstreamsLaunchForEnvironment(process.env, manualWorkstreamsPreference);
+
     const env = buildEnvironment({
       baseEnv: process.env,
       port: AGENT_SERVER_PORT,
@@ -376,6 +438,7 @@ export class AgentServerService {
       mcpRolesDir: serverInfo.mcpRolesDir,
       relaySessionToken: relayConfiguration?.token,
       relayProductionApiBase: relayConfiguration?.productionApiBase,
+      manualWorkstreamsPreference,
     });
 
     try {
@@ -385,6 +448,7 @@ export class AgentServerService {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       this.#ownership = 'electron';
+      this.#manualWorkstreamsLaunch = manualWorkstreamsLaunch;
     } catch (error) {
       this.#appendStderr(error instanceof Error ? error.message : String(error));
       this.#setFailed('spawnThrew', "Couldn't start the local runtime process. Quit and reopen Rhythm to retry. See technical details below.");
@@ -413,6 +477,7 @@ export class AgentServerService {
       proc.off('exit', onExit); proc.off('error', onError);
       if (this.#process === proc) this.#process = undefined;
       this.#bridgeRegistrarSecret = undefined;
+      this.#manualWorkstreamsLaunch = undefined;
       this.#abort.abort();
     };
     proc.on('error', onError); proc.on('exit', onExit);

@@ -22,6 +22,10 @@ import '../models/agent_session.dart';
 import '../models/catalog_model_entry.dart';
 import '_session_model_picker.dart' show ModelPickerApplyAs;
 
+/// Label of the router option — first in the picker and on the pill while the
+/// session is in auto mode.
+const String autoRouterLabel = 'Auto (router)';
+
 /// Pill button that shows the current model and opens the unified picker.
 class UnifiedAgentModelPicker extends StatelessWidget {
   const UnifiedAgentModelPicker({
@@ -55,6 +59,7 @@ class UnifiedAgentModelPicker extends StatelessWidget {
       session: session,
       onPick: (entry, applyAs) =>
           _applyPick(context, controller, entry, applyAs),
+      onPickAuto: () => controller.setSessionModelAuto(session.id),
     );
   }
 
@@ -66,6 +71,7 @@ class UnifiedAgentModelPicker extends StatelessWidget {
   }) {
     if (!loaded) return '…';
     if (turnOverride != null) return '(turn) ${turnOverride.modelId}';
+    if (session.isAutoModel) return autoRouterLabel;
     if (session.modelId != null) return session.modelId!;
     // Fallback: first authorized entry.
     final first = catalog.firstWhere(
@@ -122,6 +128,7 @@ class _UnifiedPickerButton extends StatefulWidget {
     required this.loaded,
     required this.session,
     required this.onPick,
+    required this.onPickAuto,
   });
 
   final String label;
@@ -130,6 +137,7 @@ class _UnifiedPickerButton extends StatefulWidget {
   final bool loaded;
   final AgentSession session;
   final _OnEntryPicked onPick;
+  final VoidCallback onPickAuto;
 
   @override
   State<_UnifiedPickerButton> createState() => _UnifiedPickerButtonState();
@@ -153,8 +161,13 @@ class _UnifiedPickerButtonState extends State<_UnifiedPickerButton> {
       offset: const Offset(0, 36),
       constraints: const BoxConstraints(minWidth: 320, maxWidth: 420),
       onSelected: (value) {
-        if (!value.entry.authorized) return; // "Connect" button handled inline
-        _promptApplyAs(context, value.entry);
+        if (value.isAuto) {
+          widget.onPickAuto();
+          return;
+        }
+        final entry = value.entry!;
+        if (!entry.authorized) return; // "Connect" button handled inline
+        _promptApplyAs(context, entry);
       },
       itemBuilder: (_) => _buildItems(context),
       child: Container(
@@ -196,8 +209,11 @@ class _UnifiedPickerButtonState extends State<_UnifiedPickerButton> {
 
   List<PopupMenuEntry<_PickerValue>> _buildItems(BuildContext context) {
     final catalog = widget.catalog;
+    final autoItem = _autoItem(context);
     if (!widget.loaded || catalog.isEmpty) {
       return [
+        autoItem,
+        const PopupMenuDivider(),
         PopupMenuItem<_PickerValue>(
           enabled: false,
           child: Text(
@@ -219,14 +235,17 @@ class _UnifiedPickerButtonState extends State<_UnifiedPickerButton> {
     final unauthedAggregator =
         catalog.where((e) => !e.authorized && e.isAggregator).toList();
 
-    final items = <PopupMenuEntry<_PickerValue>>[];
+    final items = <PopupMenuEntry<_PickerValue>>[
+      autoItem,
+      const PopupMenuDivider(),
+    ];
 
     // ---- Authorized direct, grouped by agent/provider section ----
     if (authedDirect.isNotEmpty) {
       items.add(_sectionHeader(context, 'CONNECTED — DIRECT'));
       final grouped = _groupBySection(authedDirect);
       for (final section in grouped.entries) {
-        if (items.length > 1) items.add(const PopupMenuDivider());
+        if (items.length > 3) items.add(const PopupMenuDivider());
         items.add(_providerHeader(context, section.key));
         for (final entry in section.value) {
           items.add(_entryItem(context, entry, isActive: _isActive(entry)));
@@ -276,6 +295,9 @@ class _UnifiedPickerButtonState extends State<_UnifiedPickerButton> {
       return override.providerId == entry.provider &&
           override.modelId == entry.modelId;
     }
+    // In auto mode the stored model is only the router's fallback — no
+    // concrete model row is the active selection.
+    if (session.isAutoModel) return false;
     return session.providerId == entry.provider &&
         session.modelId == entry.modelId;
   }
@@ -309,6 +331,53 @@ class _UnifiedPickerButtonState extends State<_UnifiedPickerButton> {
       default:
         return e.provider;
     }
+  }
+
+  /// "Auto (router)" — always the first row; checked while the session is in
+  /// auto mode and no turn-only override is staged.
+  PopupMenuItem<_PickerValue> _autoItem(BuildContext context) {
+    final accent = context.rhythm.accent;
+    final isActive = widget.session.isAutoModel &&
+        context.read<AgentsController>().pendingTurnOverride == null;
+    return PopupMenuItem<_PickerValue>(
+      key: const ValueKey('model-picker-auto'),
+      value: const _PickerValue.auto(),
+      height: 52,
+      child: Row(
+        children: [
+          SizedBox(
+            width: 18,
+            child: isActive
+                ? Icon(Icons.check, size: 14, color: accent)
+                : const SizedBox.shrink(),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  autoRouterLabel,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
+                    color: isActive ? accent : context.rhythm.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Picks the best model for each message',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: context.rhythm.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   PopupMenuItem<_PickerValue> _sectionHeader(
@@ -482,8 +551,12 @@ class _UnifiedPickerButtonState extends State<_UnifiedPickerButton> {
 }
 
 class _PickerValue {
-  const _PickerValue({required this.entry});
-  final CatalogModelEntry entry;
+  const _PickerValue({required CatalogModelEntry this.entry}) : isAuto = false;
+  const _PickerValue.auto()
+      : entry = null,
+        isAuto = true;
+  final CatalogModelEntry? entry;
+  final bool isAuto;
 }
 
 // ---------------------------------------------------------------------------

@@ -625,8 +625,8 @@ function LiveChangesPanel() {
   const gateway = useGateway();
   const sessions = gateway.domains.sessions!;
   const [scope, setScope] = useState<'session' | 'git' | 'branch'>('session');
-  const [sessionEntries, setSessionEntries] = useState<{ path: string; additions: number; deletions: number; patch?: string; before?: string; after?: string }[]>([]);
-  const [vcsEntries, setVcsEntries] = useState<{ path: string; additions: number; deletions: number; patch?: string; before?: string; after?: string }[]>([]);
+  const [sessionEntries, setSessionEntries] = useState<{ path: string; additions: number; deletions: number; patch?: string; patchOmitted?: string; before?: string; after?: string }[]>([]);
+  const [vcsEntries, setVcsEntries] = useState<{ path: string; additions: number; deletions: number; patch?: string; patchOmitted?: string; before?: string; after?: string }[]>([]);
   const [error, setError] = useState('');
   const [confirm, setConfirm] = useState<'reset' | 'remove' | 'revert' | 'restore' | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -635,7 +635,7 @@ function LiveChangesPanel() {
   const loadSessionDiff = () => {
     setError('');
     sessions.sessionDiff(selected.id)
-      .then((rows) => setSessionEntries(rows.map((row) => ({ path: row.file, additions: row.additions, deletions: row.deletions, before: row.before, after: row.after }))))
+      .then((rows) => setSessionEntries(rows.map((row) => ({ path: row.file, additions: row.additions, deletions: row.deletions, patch: row.patch, patchOmitted: row.patchOmitted, before: row.before, after: row.after }))))
       .catch(() => setError('Diff could not be loaded'));
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -692,7 +692,7 @@ function LiveChangesPanel() {
         <button type="button" aria-expanded={Boolean(expanded[entry.path])} onClick={() => setExpanded((current) => ({ ...current, [entry.path]: !current[entry.path] }))} data-testid={`change-file-${slug(entry.path)}`}>
           <Icon name="chevronRight" size={13} /><code>{entry.path}</code><span>+{entry.additions} −{entry.deletions}</span>
         </button>
-        {expanded[entry.path] && (entry.patch !== undefined || entry.before !== undefined || entry.after !== undefined) && <pre className="diff-code">{entry.patch ?? `--- Before\n${entry.before ?? ''}\n+++ After\n${entry.after ?? ''}`}</pre>}
+        {expanded[entry.path] && (entry.patchOmitted ? <p className="file-guard" role="status">Patch preview omitted to keep this session responsive; change counts are available.</p> : entry.patch !== undefined || entry.before !== undefined || entry.after !== undefined ? <pre className="diff-code">{entry.patch ?? `--- Before\n${entry.before ?? ''}\n+++ After\n${entry.after ?? ''}`}</pre> : <p className="file-guard" role="status">Patch preview unavailable; change counts are available.</p>)}
       </article>)}
       {entries.length === 0 && <p className="rail-empty">No changes.</p>}
     </div>
@@ -743,9 +743,12 @@ export function Inspector({ collapsed, onToggle }: { collapsed: boolean; onToggl
   useEffect(() => {
     if (previousCollapsed.current === collapsed) return;
     previousCollapsed.current = collapsed;
-    requestAnimationFrame(() => (collapsed ? expandControl : collapseControl).current?.focus());
+    requestAnimationFrame(() => {
+      if (collapsed) document.querySelector<HTMLElement>('[data-testid="session-details"]')?.focus();
+      else collapseControl.current?.focus();
+    });
   }, [collapsed]);
-  if (collapsed) return <aside className="inspector collapsed" aria-label="Inspector collapsed" data-testid="inspector-collapsed" data-od-id="session-inspector"><button ref={expandControl} className="icon-button collapse-control" type="button" onClick={onToggle} aria-label="Expand Inspector" data-testid="inspector-expand"><Icon name="expand" /></button>{tabs.map((tab) => <button className={`rail-glyph ${inspectorTab === tab.id ? 'selected' : ''}`} type="button" key={tab.id} onClick={() => { setInspectorTab(tab.id); onToggle(); }} aria-label={tab.label} data-testid={`inspector-collapsed-${tab.id}`}><Icon name={tab.icon} /></button>)}</aside>;
+  if (collapsed) return <aside id="session-inspector" className="inspector collapsed" aria-label="Inspector collapsed" aria-hidden="true" data-testid="inspector-collapsed" data-od-id="session-inspector"><button ref={expandControl} className="icon-button collapse-control" type="button" onClick={onToggle} aria-label="Expand Inspector" data-testid="inspector-expand"><Icon name="expand" /></button>{tabs.map((tab) => <button className={`rail-glyph ${inspectorTab === tab.id ? 'selected' : ''}`} type="button" key={tab.id} onClick={() => { setInspectorTab(tab.id); onToggle(); }} aria-label={tab.label} data-testid={`inspector-collapsed-${tab.id}`}><Icon name={tab.icon} /></button>)}</aside>;
   const pty = ptySessions[selected.id] ?? { id: `pty-${selected.id}`, status: 'connected' as const, output: ['$ pwd', selected.cwd] };
   const updatePty = (next: PtyFixture) => setPtySessions((current) => ({ ...current, [selected.id]: next }));
   const live = sessionGatewayMode === 'live';
@@ -759,7 +762,7 @@ export function Inspector({ collapsed, onToggle }: { collapsed: boolean; onToggl
     requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-testid="inspector-${next}"]`)?.focus());
   };
   const todosCollapsed = Boolean(collapsedTodos[selected.id]);
-  return <aside className="inspector" aria-label="Session inspector" data-od-id="session-inspector">
+  return <aside id="session-inspector" className="inspector" aria-label="Session inspector" data-od-id="session-inspector">
     <header className="inspector-header"><div role="tablist" aria-label="Inspector views" onKeyDown={moveTab}>{tabs.map((tab) => <button role="tab" aria-selected={inspectorTab === tab.id} tabIndex={inspectorTab === tab.id ? 0 : -1} type="button" key={tab.id} onClick={() => { setInspectorTab(tab.id); setTrace(null); }} data-testid={`inspector-${tab.id}`}><Icon name={tab.icon} size={15} /><span>{tab.label}</span></button>)}</div><button ref={collapseControl} className="icon-button small" type="button" onClick={onToggle} aria-label="Collapse Inspector" data-testid="inspector-collapse"><Icon name="collapse" size={16} /></button></header>
     {/* ponytail: gate mounting, not just requests, so every session panel drops stale state. */}
     <div className="inspector-content" role="region" aria-label={`${tabs.find((tab) => tab.id === inspectorTab)?.label ?? 'Session'} inspector content`} tabIndex={0} data-testid="inspector-content">{live && <SharedWithMePanel />}{selected.id ? panel : <p className="inspector-empty" role="status">Select a session to inspect its details.</p>}</div>

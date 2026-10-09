@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../icons';
 import { isSessionOffline, sessionPresentation } from '../sessionState';
 import { emptyLiveProfile, useFixtures } from '../store';
@@ -10,18 +10,53 @@ import { RemoteComputers } from './RemoteComputers';
 import { SessionRail } from './SessionRail';
 import { Splitter } from './Splitter';
 import { formatCost, Transcript } from './Transcript';
+import { WorkstreamsPanel } from './WorkstreamsPanel';
 import { usePendingDecisions } from '../pending-decisions';
-import { sessionLabel, accountOptionLabel, type AgentProject, type RichTranscriptMessage } from '../gateway/sessions';
+import { mapMessage, sessionLabel, accountOptionLabel, type AgentProject, type RichTranscriptMessage } from '../gateway/sessions';
 import { emitAgentNotification } from '../agentNotifications';
 import { useAuthUser } from '../gateway/auth';
+import { useGateway } from '../gateway/context';
+import {
+  coordinatorScopeForRootChat,
+  type CoordinatorResolveResult,
+  type CoordinatorSetupProfileChoice,
+  type CoordinatorSetupResult,
+} from '../gateway/coordinator-conversations';
+import { CoordinatorConversationCard } from './CoordinatorConversationCard';
+import { useCoordinatorConversation } from './use-coordinator-conversation';
 import {
   matchSwitchSessionKey, matchesCancelTurnKey, matchesNewSessionKey,
   readLocalUserPreferences, USER_PREFERENCES_CHANGED_EVENT,
 } from '../gateway/user-preferences';
 
+type RhythmEntry = {
+  opening: boolean;
+  notice?: string;
+  /** Opaque server-returned setup choices, never local profile authority. */
+  setup?: { commandKey: string; profileChoices?: CoordinatorSetupProfileChoice[] };
+};
+
+type PendingRhythmSetup = {
+  generation: number;
+  actorId: number;
+  gateway: ReturnType<typeof useGateway>;
+  originSessionId: string;
+  originProjectId?: string;
+  commandKey: string;
+  profileChoices?: CoordinatorSetupProfileChoice[];
+};
+
+function rhythmSetupCommandKey(): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  return uuid
+    ? `coordinator-setup:${uuid}`
+    : `coordinator-setup:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+}
+
 export function AgentsWorkspace() {
   const { selected, sessions, profiles, models, accounts, openaiAccounts, refreshCatalog, sessionGatewayMode, saveSessionSettings, connectionMessage: fixtureConnectionMessage, liveSessionError, loading, summarizeSession, prepareLiveSession, startFreshSession, reconnectLiveSession, updateSession: updateFixtureSession, archiveSession, resumeSession, selectSession, createSession, createLiveSession, selectLiveSession, cancelSession, notify, resumeGone, liveChildView, closeLiveChildView } = useFixtures();
   const auth = useAuthUser();
+  const gateway = useGateway();
   const preferenceUserId = auth?.user.id ?? 'fixture';
   const live = sessionGatewayMode === 'live';
   const sessionCost = selected.messages.reduce((total, message) => {
@@ -34,19 +69,31 @@ export function AgentsWorkspace() {
   const [savingSettings, setSavingSettings] = useState(false);
   const updateSession: typeof updateFixtureSession = (id, patch) => {
     if (!live) { updateFixtureSession(id, patch); return; }
-    // The actions menu only uses this path for Fast; all form fields use the canonical submit below.
-    void saveSessionSettings(id, { fastMode: patch.fastMode }).catch(error => setSettingsError(error instanceof Error ? error.message : 'Settings failed'));
+    void saveSessionSettings(id, { fastMode: patch.fastMode });
   };
   const [compactLayout, setCompactLayout] = useState(() => window.matchMedia('(max-width: 900px)').matches);
   const [railWidth, setRailWidth] = useState(280);
   const [inspectorWidth, setInspectorWidth] = useState(336);
   const [railCollapsed, setRailCollapsed] = useState(compactLayout);
-  const [inspectorCollapsed, setInspectorCollapsed] = useState(compactLayout);
+  // Details is opt-in on every viewport. Keeping its mounted collapsed surface preserves the
+  // existing inspector/PTY lifecycle without narrowing the first-activation conversation pane.
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(true);
   const [sessionSettings, setSessionSettings] = useState(false);
+  const [workstreamsOpen, setWorkstreamsOpen] = useState(false);
   // Accounts/models can go stale (added/removed elsewhere) while this session is idle in the
   // background — force a refetch whenever the settings dialog that surfaces them opens.
-  const openSessionSettings = () => { void refreshCatalog({ force: true }); setSessionSettings(true); };
+  const openChatConfiguration = () => {
+    void refreshCatalog({ force: true });
+    setChatConfigurationOpen(true);
+    window.dispatchEvent(new CustomEvent('rhythm:open-chat-configuration'));
+  };
   const [prepareOpen, setPrepareOpen] = useState(false);
+  const chatMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const prepareReturnFocusRef = useRef<HTMLElement | null>(null);
+  const openPrepare = (returnFocusTo?: HTMLElement | null) => {
+    prepareReturnFocusRef.current = returnFocusTo ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setPrepareOpen(true);
+  };
   const [selectedProject, setSelectedProject] = useState<AgentProject | null>(null);
   const [shortcutRevision, setShortcutRevision] = useState(0);
   useEffect(() => {
@@ -57,7 +104,20 @@ export function AgentsWorkspace() {
   }, []);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+      // Native <details> toggles before React has committed its onToggle state. Claim Escape
+      // from an open message-action disclosure synchronously, otherwise a rapid Enter → Escape
+      // can fall through to the workspace cancel-turn shortcut during that render gap.
+      const openMessageActions = document.querySelector<HTMLDetailsElement>('details.message-actions[open]');
+      if (openMessageActions) {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          openMessageActions.open = false;
+          requestAnimationFrame(() => openMessageActions.querySelector<HTMLElement>('summary')?.focus());
+        }
+        return;
+      }
+      if (event.defaultPrevented || document.querySelector('dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"]')) return;
       const target = event.target as HTMLElement | null;
       const editing = target?.matches('input, textarea, select, [contenteditable="true"]') && target.dataset.testid !== 'composer-input';
       if (editing) return;
@@ -105,11 +165,9 @@ export function AgentsWorkspace() {
   const [retrying, setRetrying] = useState(false);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const connectionMessage = live ? retrying ? 'Reconciling session…' : liveSessionError ?? (loading ? 'Loading session…' : fixtureConnectionMessage === 'Desktop connected' ? 'Session loaded' : fixtureConnectionMessage) : fixtureConnectionMessage;
-  const [actionsOpen, setActionsOpen] = useState(false);
+  const [chatConfigurationOpen, setChatConfigurationOpen] = useState(false);
   const [resizeAnnouncement, setResizeAnnouncement] = useState('');
   const [activityAnnouncement, setActivityAnnouncement] = useState('');
-  const actionsRef = useRef<HTMLDivElement>(null);
-  const actionsTriggerRef = useRef<HTMLButtonElement>(null);
   const previousStatus = useRef(selected.status);
   const previousConnection = useRef(connectionMessage);
   // ponytail: a real workspace with zero configured agent profiles is a legitimate live state
@@ -119,8 +177,450 @@ export function AgentsWorkspace() {
   const parentId = selected.parentId;
   const parent = parentId ? sessions.find((session) => session.id === parentId) : undefined;
   const readOnlyChild = live ? Boolean(liveChildView) : Boolean(parent);
+  const coordinatorScope = useMemo(() => coordinatorScopeForRootChat({
+    actorKey: auth?.user.id ? `user:${auth.user.id}` : 'desktop-local',
+    sessionId: selected.id,
+    projectId: selected.projectId,
+    parentSessionId: readOnlyChild ? 'child-session' : selected.parentId,
+    writable: !selectedProject && !readOnlyChild && selected.group !== 'archived' && !selected.completedAt,
+    mode: gateway.mode,
+  }), [auth?.user.id, gateway.mode, readOnlyChild, selected.completedAt, selected.group, selected.id, selected.parentId, selected.projectId, selectedProject]);
+  const coordinator = useCoordinatorConversation(
+    coordinatorScope,
+    gateway.domains.coordinatorConversations,
+    auth?.user.id ? `user:${auth.user.id}` : 'desktop-local',
+  );
+  // A server-ready primary root can remain intentionally SDK-less after a
+  // normal restart. Treat its coordinator state as authoritative only for
+  // this exact writable root; ordinary, child, held, unavailable, and real
+  // connection-error sessions continue to use their normal presentation.
+  const coordinatorReadyForSelectedRoot = Boolean(
+    coordinatorScope &&
+    !readOnlyChild &&
+    !selected.sdkSessionId &&
+    !liveSessionError &&
+    selected.connectionState !== 'offline' &&
+    selected.connectionState !== 'unavailable' &&
+    coordinator.state.enabled &&
+    coordinator.state.phase === 'ready' &&
+    !coordinator.state.openingReconciliation &&
+    coordinator.state.conversation?.primaryOwnerRoot === true &&
+    coordinator.state.conversation.sessionId === selected.id &&
+    coordinator.state.conversation.projectId === selected.projectId,
+  );
+  const coordinatorReadyForSelectedRootRef = useRef(coordinatorReadyForSelectedRoot);
+  coordinatorReadyForSelectedRootRef.current = coordinatorReadyForSelectedRoot;
+  // Preserve the last server-confirmed primary conversation while a fresh
+  // open/status reconciliation is underway. It is not a success claim: the
+  // header says Opening until the controller has completed that current scoped
+  // reconciliation, and held/offline/error results still replace it normally.
+  const coordinatorReconcilingSelectedRoot = Boolean(
+    coordinatorScope &&
+    !readOnlyChild &&
+    !selected.sdkSessionId &&
+    !liveSessionError &&
+    selected.connectionState !== 'offline' &&
+    selected.connectionState !== 'unavailable' &&
+    coordinator.state.enabled &&
+    (coordinator.state.openingReconciliation || coordinator.state.phase === 'opening' || coordinator.state.phase === 'refreshing') &&
+    coordinator.state.conversation?.primaryOwnerRoot === true &&
+    coordinator.state.conversation.sessionId === selected.id &&
+    coordinator.state.conversation.projectId === selected.projectId,
+  );
+  // Coordinator history is never synthesized from an acknowledgement: these
+  // rows are the bounded server page mapped by the same normal-session
+  // mapper. If the actual root is selected, live SDK events can refine the
+  // matching row while it streams; a different selected chat is never mixed.
+  const coordinatorTranscript = useMemo(() => {
+    const history = coordinator.state.canonicalHistory;
+    if (!coordinator.state.enabled || !history) return undefined;
+    const rows = new Map<string, RichTranscriptMessage>();
+    history.messages.forEach((row) => {
+      const mapped = mapMessage(row);
+      if (mapped.id) rows.set(mapped.id, mapped);
+    });
+    if (selected.id === history.conversation.sessionId && selected.projectId === history.conversation.projectId) {
+      (selected.messages as RichTranscriptMessage[]).forEach((message) => rows.set(message.id, message));
+    }
+    return {
+      messages: [...rows.values()].sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.id.localeCompare(right.id)),
+      hasMore: history.hasMore,
+      loadingOlder: coordinator.state.canonicalHistoryLoading,
+      loadOlder: coordinator.loadOlderHistory,
+    };
+  }, [coordinator.loadOlderHistory, coordinator.state.canonicalHistory, coordinator.state.canonicalHistoryLoading, coordinator.state.enabled, selected.id, selected.messages, selected.projectId]);
+  // This ephemeral navigation fence is deliberately not a coordinator journal
+  // or transcript. The server remains the sole owner of the durable primary
+  // root; it only prevents a late resolve from moving a different signed-in
+  // user or newly selected chat.
+  const rhythmResolveGeneration = useRef(0);
+  const rhythmActorRef = useRef(auth?.user.id);
+  rhythmActorRef.current = auth?.user.id;
+  const rhythmGatewayRef = useRef(gateway);
+  rhythmGatewayRef.current = gateway;
+  const rhythmSelectionRef = useRef({ sessionId: selected.id, projectId: selected.projectId });
+  rhythmSelectionRef.current = { sessionId: selected.id, projectId: selected.projectId };
+  const rhythmSetupRef = useRef<PendingRhythmSetup | null>(null);
+  // The rail disables after React commits, but two native click events can be
+  // delivered before that commit. Keep the one primary-entry operation
+  // synchronous as well, so a first-use setup key is never replaced by a
+  // second click.
+  const rhythmOpeningRef = useRef(false);
+  const rhythmSetupRequestRef = useRef<string | null>(null);
+  const rhythmPrimaryRef = useRef<{
+    generation: number;
+    actorId: number;
+    gateway: typeof gateway;
+    sessionId: string;
+    projectId: string;
+    originSessionId: string;
+    originProjectId?: string;
+    selectionRequested?: boolean;
+    opening?: boolean;
+  } | null>(null);
+  const dayflowConsentGeneration = useRef(0);
+  const dayflowConsentAbort = useRef<AbortController | null>(null);
+  const [dayflowConsentNotice, setDayflowConsentNotice] = useState<string>();
+  const [rhythmEntry, setRhythmEntry] = useState<RhythmEntry>({ opening: false });
+  // Selecting an already-active server root does not change the ordinary
+  // selection dependencies below. Keep a small local navigation revision so
+  // the primary handoff still starts its existing coordinator open path.
+  const [rhythmPrimaryNavigationRevision, setRhythmPrimaryNavigationRevision] = useState(0);
+  const releaseRhythmOpening = useCallback((generation: number) => {
+    // A selection/account/gateway change increments this generation before a
+    // later click may begin. An old completion must never unlock that newer
+    // primary-entry operation.
+    if (generation === rhythmResolveGeneration.current) rhythmOpeningRef.current = false;
+  }, []);
+  const navigateRhythmRoot = useCallback(async (
+    resolved: Extract<CoordinatorResolveResult, { kind: 'resolved' }> | Extract<CoordinatorSetupResult, { kind: 'setup_created' | 'setup_replay' }>,
+    input: { generation: number; actorId: number; requestGateway: typeof gateway; requestSelection: { sessionId: string; projectId?: string } },
+  ): Promise<boolean> => {
+    if (resolved.conversation.primaryOwnerRoot !== true) {
+      setRhythmEntry({ opening: false, notice: 'Rhythm could not open its chat. Your ordinary chats are unchanged.' });
+      return false;
+    }
+    rhythmPrimaryRef.current = {
+      generation: input.generation,
+      actorId: input.actorId,
+      gateway: input.requestGateway,
+      sessionId: resolved.sessionId,
+      projectId: resolved.projectId,
+      originSessionId: input.requestSelection.sessionId,
+      originProjectId: input.requestSelection.projectId,
+    };
+    // Refresh then open only the server-returned root. No client-created
+    // session, SDK prompt, or project rewriting occurs here.
+    await refreshCatalog({ force: true });
+    if (
+      input.generation !== rhythmResolveGeneration.current ||
+      rhythmActorRef.current !== input.actorId ||
+      rhythmGatewayRef.current !== input.requestGateway
+    ) return false;
+    const currentSelection = rhythmSelectionRef.current;
+    const rootAlreadySelected = currentSelection.sessionId === resolved.sessionId && currentSelection.projectId === resolved.projectId;
+    const originStillSelected = currentSelection.sessionId === input.requestSelection.sessionId && currentSelection.projectId === input.requestSelection.projectId;
+    if (!rootAlreadySelected && !originStillSelected && currentSelection.sessionId !== '') {
+      rhythmPrimaryRef.current = null;
+      setRhythmEntry({ opening: false, notice: 'Rhythm selection changed. Your ordinary chats are unchanged.' });
+      return false;
+    }
+    rhythmPrimaryRef.current.selectionRequested = true;
+    // Selecting an already-current server root needlessly starts a second
+    // detail handoff. That handoff can briefly publish its empty placeholder
+    // and make the original primary-entry continuation look like a user
+    // navigation away. The resolved root is already the authoritative target,
+    // so advance only the coordinator-open revision in that case.
+    if (!rootAlreadySelected) {
+      await selectLiveSession(resolved.sessionId);
+      if (
+        input.generation !== rhythmResolveGeneration.current ||
+        rhythmActorRef.current !== input.actorId ||
+        rhythmGatewayRef.current !== input.requestGateway
+      ) return false;
+      const afterSelection = rhythmSelectionRef.current;
+      if (
+        afterSelection.sessionId !== '' &&
+        (afterSelection.sessionId !== resolved.sessionId || afterSelection.projectId !== resolved.projectId)
+        && (afterSelection.sessionId !== input.requestSelection.sessionId || afterSelection.projectId !== input.requestSelection.projectId)
+      ) {
+        rhythmPrimaryRef.current = null;
+        setRhythmEntry({ opening: false, notice: 'Rhythm selection changed. Your ordinary chats are unchanged.' });
+        return false;
+      }
+    }
+    setRhythmPrimaryNavigationRevision((revision) => revision + 1);
+    setRhythmEntry({ opening: true, notice: 'Opening Rhythm…' });
+    return true;
+  }, [refreshCatalog, selectLiveSession]);
+  const startRhythmSetup = useCallback(async (profileId?: string): Promise<boolean> => {
+    const pending = rhythmSetupRef.current;
+    const coordinatorGateway = gateway.domains.coordinatorConversations;
+    const actorId = auth?.user.id;
+    const requestGateway = gateway;
+    if (!pending || !coordinatorGateway?.setup || !actorId || pending.actorId !== actorId || pending.gateway !== requestGateway) {
+      rhythmOpeningRef.current = false;
+      setRhythmEntry({ opening: false, notice: 'Rhythm setup is not available for this chat. Your ordinary chats are unchanged.' });
+      return false;
+    }
+    if (profileId !== undefined && !pending.profileChoices?.some((choice) => choice.id === profileId)) {
+      rhythmOpeningRef.current = false;
+      setRhythmEntry({ opening: false, notice: 'Choose one of the listed Rhythm profiles.', setup: { commandKey: pending.commandKey, profileChoices: pending.profileChoices } });
+      return false;
+    }
+    if (rhythmSetupRequestRef.current === pending.commandKey) return false;
+    rhythmSetupRequestRef.current = pending.commandKey;
+    rhythmOpeningRef.current = true;
+    const generation = ++rhythmResolveGeneration.current;
+    const attempt: PendingRhythmSetup = { ...pending, generation };
+    rhythmSetupRef.current = attempt;
+    setRhythmEntry({ opening: true, notice: 'Setting up Rhythm…', setup: { commandKey: attempt.commandKey, profileChoices: attempt.profileChoices } });
+    try {
+      // This is an explicit user action. The closed setup request contains
+      // only its idempotency key and an optional opaque server-returned choice.
+      const result = await coordinatorGateway.setup({
+        commandKey: attempt.commandKey,
+        ...(profileId === undefined ? {} : { profileId }),
+      });
+      if (
+        rhythmSetupRef.current !== attempt ||
+        generation !== rhythmResolveGeneration.current ||
+        rhythmActorRef.current !== actorId ||
+        rhythmGatewayRef.current !== requestGateway
+      ) return false;
+      if (
+        rhythmSelectionRef.current.sessionId !== attempt.originSessionId ||
+        rhythmSelectionRef.current.projectId !== attempt.originProjectId
+      ) {
+        releaseRhythmOpening(generation);
+        setRhythmEntry({ opening: false, notice: 'Rhythm selection changed. Your ordinary chats are unchanged.' });
+        return false;
+      }
+      if (result.kind === 'setup_profile_choice_required') {
+        attempt.profileChoices = result.profileChoices;
+        releaseRhythmOpening(generation);
+        setRhythmEntry({
+          opening: false,
+          notice: 'Choose a Rhythm profile to finish setup.',
+          setup: { commandKey: attempt.commandKey, profileChoices: result.profileChoices },
+        });
+        return false;
+      }
+      if (result.kind === 'setup_created' || result.kind === 'setup_replay') {
+        // The server-created root is now the authoritative setup replay
+        // target. Clear this local menu pointer before selecting that root so
+        // the origin-selection fence does not mistake the normal handoff for
+        // a user navigation away from setup.
+        rhythmSetupRef.current = null;
+        const navigated = await navigateRhythmRoot(result, {
+          generation,
+          actorId,
+          requestGateway,
+          requestSelection: { sessionId: attempt.originSessionId, projectId: attempt.originProjectId },
+        });
+        if (!navigated) releaseRhythmOpening(generation);
+        return navigated;
+      }
+      releaseRhythmOpening(generation);
+      setRhythmEntry({ opening: false, notice: 'Rhythm setup is unavailable right now. Your ordinary chats are unchanged.', setup: { commandKey: attempt.commandKey, profileChoices: attempt.profileChoices } });
+      return false;
+    } catch {
+      if (
+        rhythmSetupRef.current === attempt &&
+        generation === rhythmResolveGeneration.current &&
+        rhythmActorRef.current === actorId &&
+        rhythmGatewayRef.current === requestGateway
+      ) {
+        // A failed acknowledgement can still have reached the server. Keep
+        // the exact setup key instead of making a second allocation request.
+        releaseRhythmOpening(generation);
+        setRhythmEntry({ opening: false, notice: 'Rhythm setup could not be confirmed. Retry when you are ready.', setup: { commandKey: attempt.commandKey, profileChoices: attempt.profileChoices } });
+      }
+      return false;
+    } finally {
+      if (rhythmSetupRequestRef.current === attempt.commandKey) rhythmSetupRequestRef.current = null;
+    }
+  }, [auth?.user.id, gateway, navigateRhythmRoot, releaseRhythmOpening]);
+  const openRhythmPrimary = useCallback(async () => {
+    if (rhythmOpeningRef.current) return;
+    const coordinatorGateway = gateway.domains.coordinatorConversations;
+    const actorId = auth?.user.id;
+    const requestGateway = gateway;
+    const requestSelection = { ...rhythmSelectionRef.current };
+    if (!live || !actorId || !coordinatorGateway?.resolve) {
+      setRhythmEntry({ opening: false, notice: 'Rhythm is unavailable here. Your ordinary chats are unchanged.' });
+      return;
+    }
+    const existingSetup = rhythmSetupRef.current;
+    if (
+      existingSetup &&
+      existingSetup.actorId === actorId &&
+      existingSetup.gateway === requestGateway &&
+      existingSetup.originSessionId === requestSelection.sessionId &&
+      existingSetup.originProjectId === requestSelection.projectId
+    ) {
+      if (existingSetup.profileChoices?.length) {
+        setRhythmEntry({
+          opening: false,
+          notice: 'Choose a Rhythm profile to finish setup.',
+          setup: { commandKey: existingSetup.commandKey, profileChoices: existingSetup.profileChoices },
+        });
+        return;
+      }
+      rhythmOpeningRef.current = true;
+      await startRhythmSetup();
+      return;
+    }
+    const generation = ++rhythmResolveGeneration.current;
+    rhythmOpeningRef.current = true;
+    rhythmPrimaryRef.current = null;
+    rhythmSetupRef.current = null;
+    setRhythmEntry({ opening: true, notice: 'Opening Rhythm…' });
+    try {
+      const resolved = await coordinatorGateway.resolve(
+        selected.projectId?.trim() ? { projectId: selected.projectId } : {},
+      );
+      if (generation !== rhythmResolveGeneration.current || rhythmActorRef.current !== actorId || rhythmGatewayRef.current !== requestGateway) return;
+      const currentSelection = rhythmSelectionRef.current;
+      const originStillSelected =
+        currentSelection.sessionId === requestSelection.sessionId &&
+        currentSelection.projectId === requestSelection.projectId;
+      // Startup catalog hydration can replace an empty placeholder with the
+      // exact root that this already-authoritative resolve returned. That is
+      // not a navigation away: accept only this precise server-proven primary
+      // root after the actor/gateway/generation fences above have held.
+      const resolvedPrimaryAlreadySelected =
+        resolved.kind === 'resolved' &&
+        resolved.conversation.primaryOwnerRoot === true &&
+        currentSelection.sessionId === resolved.sessionId &&
+        currentSelection.projectId === resolved.projectId;
+      if (!originStillSelected && !resolvedPrimaryAlreadySelected) {
+        releaseRhythmOpening(generation);
+        setRhythmEntry({ opening: false, notice: 'Rhythm selection changed. Your ordinary chats are unchanged.' });
+        return;
+      }
+      if (resolved.kind === 'setup_unavailable') {
+        const setup: PendingRhythmSetup = {
+          generation,
+          actorId,
+          gateway: requestGateway,
+          originSessionId: requestSelection.sessionId,
+          originProjectId: requestSelection.projectId,
+          commandKey: rhythmSetupCommandKey(),
+        };
+        rhythmSetupRef.current = setup;
+        // Resolve intentionally does not allocate an inert root. Immediately
+        // continue through the explicit, server-validated setup exchange so
+        // first use either reaches the root or visibly asks for a profile.
+        await startRhythmSetup();
+        return;
+      }
+      if (resolved.kind !== 'resolved' || resolved.conversation.primaryOwnerRoot !== true) {
+        releaseRhythmOpening(generation);
+        setRhythmEntry({ opening: false, notice: 'Rhythm is not available for this chat. Your ordinary chats are unchanged.' });
+        return;
+      }
+      const navigated = await navigateRhythmRoot(resolved, { generation, actorId, requestGateway, requestSelection });
+      if (!navigated) releaseRhythmOpening(generation);
+    } catch {
+      if (generation === rhythmResolveGeneration.current && rhythmActorRef.current === actorId && rhythmGatewayRef.current === requestGateway) {
+        releaseRhythmOpening(generation);
+        setRhythmEntry({ opening: false, notice: 'Rhythm could not be opened. Your ordinary chats are unchanged.' });
+      }
+    }
+  }, [auth?.user.id, gateway, live, navigateRhythmRoot, releaseRhythmOpening, selected.projectId, startRhythmSetup]);
+  useEffect(() => () => {
+    rhythmResolveGeneration.current += 1;
+    rhythmSetupRef.current = null;
+    rhythmSetupRequestRef.current = null;
+    rhythmOpeningRef.current = false;
+  }, []);
+  useEffect(() => {
+    dayflowConsentGeneration.current += 1;
+    dayflowConsentAbort.current?.abort();
+    dayflowConsentAbort.current = null;
+    setDayflowConsentNotice(undefined);
+  }, [auth?.user.id, gateway, selected.id, selected.projectId]);
+  useEffect(() => () => { dayflowConsentAbort.current?.abort(); }, []);
+  useEffect(() => {
+    const setup = rhythmSetupRef.current;
+    if (!setup || (setup.originSessionId === selected.id && setup.originProjectId === selected.projectId)) return;
+    rhythmResolveGeneration.current += 1;
+    rhythmSetupRef.current = null;
+    rhythmSetupRequestRef.current = null;
+    rhythmOpeningRef.current = false;
+    // A dismissed dialog intentionally has no visible `setup` state, but its
+    // retained pointer still belongs only to the origin chat.
+    setRhythmEntry({ opening: false, notice: 'Rhythm selection changed. Your ordinary chats are unchanged.' });
+  }, [selected.id, selected.projectId]);
+  useEffect(() => {
+    const pendingPrimary = rhythmPrimaryRef.current;
+    if (!pendingPrimary || pendingPrimary.opening) return;
+    if (
+      pendingPrimary.generation !== rhythmResolveGeneration.current ||
+      pendingPrimary.actorId !== rhythmActorRef.current ||
+      pendingPrimary.gateway !== rhythmGatewayRef.current
+    ) {
+      rhythmPrimaryRef.current = null;
+      releaseRhythmOpening(pendingPrimary.generation);
+      return;
+    }
+    const currentSelection = rhythmSelectionRef.current;
+    if (
+      !coordinatorScope ||
+      selected.id !== pendingPrimary.sessionId ||
+      selected.projectId !== pendingPrimary.projectId
+    ) {
+      // While the requested root selection is committing, React can still
+      // render the origin chat. Any third selection is user/navigation input,
+      // not permission for this late resolve to move it back.
+      if (
+        pendingPrimary.selectionRequested &&
+        // `selectLiveSession` sets the selected local id before its detail
+        // row reaches the store. During that normal handoff the workspace
+        // briefly renders the empty live-session placeholder. It is neither
+        // an actor/project switch nor a user navigation away from the root.
+        // A nonempty third session still cancels this late entry request.
+        currentSelection.sessionId !== '' &&
+        currentSelection.sessionId !== pendingPrimary.sessionId &&
+        (currentSelection.sessionId !== pendingPrimary.originSessionId ||
+          currentSelection.projectId !== pendingPrimary.originProjectId)
+      ) {
+        // Fence the still-awaited selectLiveSession continuation as well as
+        // the visible card effect. Otherwise its late completion can repaint
+        // "Opening" after a user deliberately chose another chat.
+        rhythmResolveGeneration.current += 1;
+        rhythmPrimaryRef.current = null;
+        rhythmOpeningRef.current = false;
+        setRhythmEntry({ opening: false, notice: 'Rhythm selection changed. Your ordinary chats are unchanged.' });
+      }
+      return;
+    }
+    pendingPrimary.opening = true;
+    void coordinator.open().then((opened) => {
+      if (rhythmPrimaryRef.current !== pendingPrimary || pendingPrimary.generation !== rhythmResolveGeneration.current) return;
+      const currentSelection = rhythmSelectionRef.current;
+      if (currentSelection.sessionId !== pendingPrimary.sessionId || currentSelection.projectId !== pendingPrimary.projectId) {
+        rhythmPrimaryRef.current = null;
+        releaseRhythmOpening(pendingPrimary.generation);
+        return;
+      }
+      rhythmPrimaryRef.current = null;
+      releaseRhythmOpening(pendingPrimary.generation);
+      // A newer current-root open can have established authoritative ready
+      // state before this older promise settles. Preserve that ready result;
+      // it must not be repainted as a failed primary entry.
+      setRhythmEntry(opened || coordinatorReadyForSelectedRootRef.current
+        ? { opening: false, notice: 'Rhythm is ready.' }
+        : { opening: false, notice: 'Rhythm could not be opened. Your ordinary chats are unchanged.' });
+    });
+  }, [auth?.user.id, coordinator, coordinatorScope, gateway, releaseRhythmOpening, rhythmPrimaryNavigationRevision, selected.id, selected.projectId]);
   const backToParent = () => { if (liveChildView) closeLiveChildView(); else if (parent) selectSession(parent.id); };
-  const presentation = sessionPresentation(selected);
+  const presentation = selected.status === 'error' && coordinatorReadyForSelectedRoot
+    ? { label: 'Ready', tone: 'idle' as const, waiting: false }
+    : selected.status === 'error' && coordinatorReconcilingSelectedRoot
+      ? { label: 'Opening', tone: 'idle' as const, waiting: true }
+      : sessionPresentation(selected);
   const recoverableConnection = Boolean(live && liveSessionError) || isSessionOffline(selected) || selected.connectionState === 'unavailable' || Boolean(selected.stuckSince);
   const lifecycleDisabled = lifecycleBusy || live && (!selected.id || readOnlyChild || selected.status === 'working' || selected.status === 'starting');
   const compactSession = async () => {
@@ -142,7 +642,12 @@ export function AgentsWorkspace() {
     finally { setRetrying(false); }
   };
 
-  useEffect(() => { setRetrying(false); setActionsOpen(false); previousStatus.current = selected.status; previousConnection.current = connectionMessage; }, [selected.id]);
+  useEffect(() => { setRetrying(false); setChatConfigurationOpen(false); previousStatus.current = selected.status; previousConnection.current = connectionMessage; }, [selected.id]);
+  useEffect(() => {
+    const syncConfigurationVisibility = (event: Event) => setChatConfigurationOpen(Boolean((event as CustomEvent<boolean>).detail));
+    window.addEventListener('rhythm:chat-configuration-visibility', syncConfigurationVisibility);
+    return () => window.removeEventListener('rhythm:chat-configuration-visibility', syncConfigurationVisibility);
+  }, []);
   useEffect(() => {
     if (previousStatus.current === 'working' && selected.status !== 'working') setActivityAnnouncement('Agent response complete.');
     previousStatus.current = selected.status;
@@ -170,19 +675,6 @@ export function AgentsWorkspace() {
     query.addEventListener('change', change);
     return () => query.removeEventListener('change', change);
   }, []);
-  useEffect(() => {
-    if (!actionsOpen) return;
-    const close = (event: MouseEvent) => { if (!actionsRef.current?.contains(event.target as Node)) setActionsOpen(false); };
-    const key = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      setActionsOpen(false);
-      actionsTriggerRef.current?.focus();
-    };
-    document.addEventListener('mousedown', close);
-    document.addEventListener('keydown', key);
-    requestAnimationFrame(() => actionsRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus());
-    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', key); };
-  }, [actionsOpen]);
   const resizeRail = useCallback((size: number) => { setRailWidth(size); setResizeAnnouncement(`Sessions rail width ${size} pixels`); }, []);
   const resizeInspector = useCallback((size: number) => { setInspectorWidth(size); setResizeAnnouncement(`Inspector width ${size} pixels`); }, []);
   const toggleRail = () => {
@@ -197,15 +689,87 @@ export function AgentsWorkspace() {
       return !value;
     });
   };
-  const moveActionsFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-    const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemcheckbox"]')];
-    if (!items.length) return;
-    event.preventDefault();
-    const current = Math.max(0, items.indexOf(document.activeElement as HTMLElement));
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
-    items[next]?.focus();
+  const canManageDayflowSource = Boolean(
+    live &&
+    gateway.domains.dayflowSourceConsent &&
+    coordinator.state.enabled &&
+    (coordinator.state.conversation?.schemaVersion === 3 || coordinator.state.conversation?.schemaVersion === 4) &&
+    coordinator.state.conversation.primaryOwnerRoot === true &&
+    coordinator.state.conversation.sessionId === selected.id &&
+    coordinator.state.conversation.projectId === selected.projectId,
+  );
+  const requestDayflowSourceConsent = useCallback(async (action: 'grant' | 'revoke') => {
+    const consentGateway = gateway.domains.dayflowSourceConsent;
+    const actorId = auth?.user.id;
+    const conversation = coordinator.state.conversation;
+    const selection = { sessionId: selected.id, projectId: selected.projectId };
+    if (!consentGateway || !actorId || !conversation || (conversation.schemaVersion !== 3 && conversation.schemaVersion !== 4) || conversation.primaryOwnerRoot !== true ||
+      conversation.sessionId !== selection.sessionId || conversation.projectId !== selection.projectId) {
+      setDayflowConsentNotice('Dayflow source controls are unavailable for this chat.');
+      return;
+    }
+    const generation = ++dayflowConsentGeneration.current;
+    dayflowConsentAbort.current?.abort();
+    const controller = new AbortController();
+    dayflowConsentAbort.current = controller;
+    setDayflowConsentNotice(action === 'grant' ? 'Allowing Dayflow context…' : 'Removing Dayflow context…');
+    try {
+      const result = await consentGateway.setSourceConsent({
+        action,
+        sessionId: selection.sessionId,
+        projectId: selection.projectId,
+      }, controller.signal);
+      if (
+        generation !== dayflowConsentGeneration.current ||
+        rhythmActorRef.current !== actorId ||
+        rhythmGatewayRef.current !== gateway ||
+        rhythmSelectionRef.current.sessionId !== selection.sessionId ||
+        rhythmSelectionRef.current.projectId !== selection.projectId
+      ) return;
+      setDayflowConsentNotice(result.status === 'accepted'
+        ? (action === 'grant' ? 'Dayflow context request accepted. Refresh to see current source availability.' : 'Dayflow context removal request accepted. Refresh to see current source availability.')
+        : 'Dayflow source controls are unavailable. No local consent was changed.');
+    } catch {
+      // Abort, network, and malformed responses all remain closed. Do not
+      // disclose transport details or represent an unverified local grant.
+      if (generation === dayflowConsentGeneration.current) {
+        setDayflowConsentNotice('Dayflow source controls are unavailable. No local consent was changed.');
+      }
+    } finally {
+      if (dayflowConsentAbort.current === controller) dayflowConsentAbort.current = null;
+    }
+  }, [auth?.user.id, coordinator.state.conversation, gateway, selected.id, selected.projectId]);
+  const deferRhythmSetup = () => {
+    rhythmOpeningRef.current = false;
+    setRhythmEntry((current) => current.setup ? {
+      opening: false,
+      notice: current.setup.profileChoices?.length
+        ? 'Rhythm setup is waiting for your profile choice.'
+        : 'Rhythm setup is ready to retry.',
+    } : current);
   };
+  const secondaryChatActions = (closeConfigurationThen: (action: () => void) => void) => <>
+    {rhythmEntry.setup ? <button type="button" className="secondary-button" disabled={rhythmEntry.opening} onClick={() => closeConfigurationThen(() => {
+      const pendingSetup = rhythmSetupRef.current;
+      if (pendingSetup?.profileChoices?.length) {
+        setRhythmEntry({
+          opening: false,
+          notice: 'Choose a Rhythm profile to finish setup.',
+          setup: { commandKey: pendingSetup.commandKey, profileChoices: pendingSetup.profileChoices },
+        });
+      } else void startRhythmSetup();
+    })} data-testid="session-actions-rhythm-setup"><Icon name="agents" size={14} />Set up Rhythm</button> : null}
+    {coordinatorScope ? <button type="button" className="secondary-button" onClick={() => closeConfigurationThen(() => { void coordinator.open(); })} data-testid="session-actions-coordinate"><Icon name="agents" size={14} />Coordinate with Rhythm</button> : null}
+    {canManageDayflowSource ? <>
+      <button type="button" className="secondary-button" onClick={() => closeConfigurationThen(() => { void requestDayflowSourceConsent('grant'); })} data-testid="session-actions-dayflow-allow">Allow Dayflow context</button>
+      <button type="button" className="secondary-button" onClick={() => closeConfigurationThen(() => { void requestDayflowSourceConsent('revoke'); })} data-testid="session-actions-dayflow-remove">Remove Dayflow context</button>
+    </> : null}
+    <button type="button" className="secondary-button" onClick={() => closeConfigurationThen(() => { void refreshCatalog({ force: true }); setSessionSettings(true); })} data-testid="session-actions-session-defaults"><Icon name="rename" size={14} />Session defaults and account</button>
+    <button type="button" className="secondary-button" disabled={lifecycleDisabled} onClick={() => closeConfigurationThen(() => { void compactSession(); })} data-testid="session-actions-compact"><Icon name="spark" size={14} />Compact session</button>
+    <button type="button" className="secondary-button" disabled={lifecycleDisabled} onClick={() => closeConfigurationThen(() => openPrepare(chatMenuTriggerRef.current))} data-testid="session-actions-prepare"><Icon name="worktree" size={14} />Prepare project for agents</button>
+    <button type="button" className="secondary-button" disabled={live && (!selected.id || readOnlyChild)} onClick={() => closeConfigurationThen(() => archiveSession(selected.id))} data-testid="session-actions-archive"><Icon name="archive" size={14} />Archive session</button>
+    <button type="button" className="secondary-button" onClick={() => closeConfigurationThen(() => notify('Session view closed; selection remains in the rail'))} data-testid="session-actions-close"><Icon name="close" size={14} />Close session view</button>
+  </>;
 
   // #1374 — remote attach replaces the whole workspace surface rather than nesting inside the
   // local conversation-pane grid, so the local session header/transcript/composer rows this
@@ -218,7 +782,7 @@ export function AgentsWorkspace() {
       '--inspector-resizer-width': inspectorCollapsed ? '0px' : '8px',
       '--inspector-width': inspectorCollapsed ? 'var(--collapsed-inspector-width)' : `${inspectorWidth}px`,
     } as React.CSSProperties} data-od-id="agents-workspace">
-      <SessionRail collapsed={railCollapsed} onToggle={toggleRail} selectedProject={selectedProject} onSelectProject={setSelectedProject} onOpenRemoteComputers={() => setRemoteOpen(true)} />
+      <SessionRail collapsed={railCollapsed} onToggle={toggleRail} selectedProject={selectedProject} onSelectProject={setSelectedProject} onOpenRemoteComputers={() => setRemoteOpen(true)} onOpenRhythm={() => { void openRhythmPrimary(); }} rhythmOpening={rhythmEntry.opening} />
       {!railCollapsed && <Splitter orientation="vertical" storageKey="layout.agents.rail" min={228} max={380} defaultSize={280} onResize={resizeRail} ariaLabel="Resize Agents rail" className="rail-resize" testId="rail-resizer" />}
       <section className="conversation-pane" aria-label={selectedProject ? 'Selected agent project' : 'Active agent session'} data-od-id="active-agent-session">
         {selectedProject ? <div className="agent-project-empty" role="status" data-testid="selected-agent-project"><Icon name="worktree" size={28} /><h1>{selectedProject.name}</h1><p className="rail-project-path">{selectedProject.cwd}</p><p>No session selected. Use New session in the Agents rail to start here.</p><button className="secondary-button" type="button" onClick={() => setSelectedProject(null)}>Back to sessions</button></div> : <>
@@ -227,9 +791,11 @@ export function AgentsWorkspace() {
             <ProfileAvatar profile={profile} />
             <div className="session-title-copy">
               {readOnlyChild && <button className="child-breadcrumb" type="button" onClick={backToParent} aria-label={`Back to parent session ${sessionLabel(parent ?? selected).label}`} data-testid="child-back"><Icon name="chevronRight" className="rotate-180" size={12} />{parent ? parent.name : selected.name}</button>}
-              <div className="identity-line"><strong>{profile.label}</strong>{selected.account && <button type="button" onClick={openSessionSettings}>{selected.account}<Icon name="chevronDown" size={11} /></button>}<span className={`status-label ${presentation.tone}`}><i />{presentation.label}</span></div>
+              <div className="identity-line"><strong>{profile.label}</strong>{selected.account && <button type="button" onClick={openChatConfiguration}>{selected.account}<Icon name="chevronDown" size={11} /></button>}<span className={`status-label ${presentation.tone}`}><i />{presentation.label}</span></div>
               <h1 className={!liveChildView && sessionLabel(selected).fallback ? 'session-name-fallback' : undefined}>{liveChildView ? liveChildView.title : sessionLabel(selected).label}</h1>
               <div className="session-meta"><span><Icon name="branch" size={13} />{selected.branch}</span>{selected.dirtyCount > 0 && <span className="dirty-badge">{selected.dirtyCount} changed</span>}{selected.isolateWorktree && <span className="worktree-badge"><Icon name="worktree" size={12} />worktree</span>}{readOnlyChild && <span className="readonly-badge">Read only</span>}<span className="session-connection" aria-live="polite" data-testid="connection-status"><i className={`status-dot ${connectionMessage.toLowerCase().includes('offline') || connectionMessage.toLowerCase().includes('unavailable') ? 'offline' : 'working'}`} />{connectionMessage}</span></div>
+              {rhythmEntry.notice ? <p className="coordinator-conversation-notice" role="status" aria-live="polite" aria-atomic="true" data-testid="rhythm-primary-status">{rhythmEntry.notice}</p> : null}
+              {dayflowConsentNotice ? <p className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="dayflow-source-consent-status">{dayflowConsentNotice}</p> : null}
               {resumeGone && resumeGone.id === selected.id && <div className="form-error" role="alert" data-testid="resume-gone-alert"><p>{resumeGone.message}</p><button className="secondary-button" type="button" disabled={lifecycleBusy} onClick={async () => { setLifecycleBusy(true); try { await startFreshSession(selected.id); } finally { setLifecycleBusy(false); } }}>Start fresh</button></div>}
             </div>
           </div>
@@ -238,20 +804,33 @@ export function AgentsWorkspace() {
             {sessionCost > 0 && <span className="session-cost" title="Total loaded session cost" data-testid="session-cost">{formatCost(sessionCost)}</span>}
             {recoverableConnection && <button className="secondary-button compact" type="button" disabled={retrying} onClick={() => void retryConnection()} data-testid="session-retry"><Icon name="refresh" className={retrying ? 'spin' : ''} size={14} />{retrying ? 'Retrying' : 'Reconnect'}</button>}
             <button className="icon-button small" type="button" disabled={lifecycleDisabled} onClick={() => void compactSession()} aria-label="Compact session" title="Compact session" data-testid="session-compact"><Icon name="spark" size={15} /></button>
-            <button className="secondary-button prepare-button" type="button" disabled={lifecycleDisabled} onClick={() => setPrepareOpen(true)} data-testid="prepare-project" aria-label="Prepare project for agents" title="Prepare project for agents"><Icon name="worktree" size={14} /><span>Prepare project</span></button>
-            <div className="menu-anchor" ref={actionsRef}><button ref={actionsTriggerRef} className="icon-button small" type="button" aria-label="Session actions" aria-haspopup="menu" aria-expanded={actionsOpen} onClick={() => setActionsOpen((value) => !value)} data-testid="session-actions"><Icon name="more" size={16} /></button>{actionsOpen && <div className="menu-popover session-actions-menu" role="menu" aria-label="Session actions" onKeyDown={moveActionsFocus}><button role="menuitem" type="button" className="menu-item" onClick={() => { setActionsOpen(false); openSessionSettings(); }} data-testid="session-actions-settings"><Icon name="rename" size={14} />Agent, model and session settings</button><button role="menuitemcheckbox" aria-checked={selected.fastMode} type="button" className="menu-item" onClick={() => { updateSession(selected.id, { fastMode: !selected.fastMode }); setActionsOpen(false); }} data-testid="session-actions-fast"><Icon name="activity" size={14} />{selected.fastMode ? 'Disable Fast mode' : 'Enable Fast mode'}</button><button role="menuitem" type="button" className="menu-item" disabled={lifecycleDisabled} onClick={() => { void compactSession(); setActionsOpen(false); }} data-testid="session-actions-compact"><Icon name="spark" size={14} />Compact session</button><button role="menuitem" type="button" className="menu-item" disabled={lifecycleDisabled} onClick={() => { setActionsOpen(false); setPrepareOpen(true); }} data-testid="session-actions-prepare"><Icon name="worktree" size={14} />Prepare project for agents</button><button role="menuitem" type="button" className="menu-item" disabled={live && (!selected.id || readOnlyChild)} onClick={() => { archiveSession(selected.id); setActionsOpen(false); }}><Icon name="archive" size={14} />Archive session</button><button role="menuitem" type="button" className="menu-item" onClick={() => { notify('Session view closed; selection remains in the rail'); setActionsOpen(false); }}><Icon name="close" size={14} />Close session view</button></div>}</div>
+            <button className="secondary-button prepare-button" type="button" disabled={lifecycleDisabled} onClick={() => openPrepare()} data-testid="prepare-project" aria-label="Prepare project for agents" title="Prepare project for agents"><Icon name="worktree" size={14} /><span>Prepare project</span></button>
+            <button className="secondary-button compact" type="button" onClick={() => setWorkstreamsOpen(true)} data-testid="workstreams-open">Workstreams</button>
+            <button className="secondary-button compact" type="button" onClick={toggleInspector} aria-expanded={!inspectorCollapsed} aria-controls="session-inspector" data-testid="session-details">Details</button>
+            <button ref={chatMenuTriggerRef} className="icon-button small" type="button" aria-label="Chat menu" aria-haspopup="dialog" aria-expanded={chatConfigurationOpen} onClick={openChatConfiguration} data-testid="session-actions"><Icon name="more" size={16} /></button>
           </div>
         </header>
         <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="agent-activity-status">{activityAnnouncement}</span>
-        <div className="transcript-reader"><Transcript /></div>
-        {!liveChildView && <Composer />}
+        <div className="transcript-reader"><Transcript coordinatorTranscript={coordinatorTranscript} coordinatorStatus={coordinatorScope ? <CoordinatorConversationCard
+          state={coordinator.state}
+          onRefresh={() => { void coordinator.refresh(); }}
+          onRetry={() => { void coordinator.retry(); }}
+          onRetryPlan={() => { void coordinator.retryPlan(); }}
+          onPreparePlan={(goalId, consent) => { void coordinator.preparePlan(goalId, consent); }}
+          onContinuePlan={(goalId, authorizationId) => { void coordinator.continuePlan(goalId, authorizationId); }}
+          onReviewConflict={() => { void coordinator.reviewConflict(); }}
+          onBeginNewMessageAfterReview={coordinator.beginNewMessageAfterReview}
+          onReturnToNormal={coordinator.returnToNormal}
+          onInspectWorkstream={() => setWorkstreamsOpen(true)}
+        /> : undefined} /></div>
+        {!liveChildView && <Composer renderSecondaryChatActions={secondaryChatActions} coordinator={coordinatorScope ? { active: coordinator.state.enabled, onSend: coordinator.send } : undefined} />}
         </>}
       </section>
       {!inspectorCollapsed && <Splitter orientation="vertical" storageKey="layout.agents.inspector" min={286} max={470} defaultSize={336} onResize={resizeInspector} ariaLabel="Resize Inspector" resizeEdge="end" className="inspector-resize" testId="inspector-resizer" />}
       {selectedProject ? <aside className={`inspector${inspectorCollapsed ? ' collapsed' : ''}`} aria-label="Project context" /> : <Inspector collapsed={inspectorCollapsed} onToggle={toggleInspector} />}
       <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="panel-resize-status">{resizeAnnouncement}</span>
 
-      <FocusDialog open={sessionSettings} onClose={() => setSessionSettings(false)} title="Session settings" description="Update the fields supported by PATCH /agent-sessions/:id." testId="session-settings-dialog" wide>
+      <FocusDialog open={sessionSettings} onClose={() => setSessionSettings(false)} title="Session settings" description="Update the fields supported by PATCH /agent-sessions/:id." testId="session-settings-dialog" wide returnFocusTo={chatMenuTriggerRef.current}>
         <form className="form-grid" onSubmit={(event) => {
           event.preventDefault(); if (savingSettings) return;
           const data = new FormData(event.currentTarget);
@@ -277,7 +856,31 @@ export function AgentsWorkspace() {
           <footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setSessionSettings(false)}>Cancel</button><button className="primary-button" type="submit" disabled={savingSettings || live && (!selected.id || readOnlyChild)} data-testid="save-session-settings">{savingSettings ? 'Saving…' : 'Save settings'}</button></footer>
         </form>
       </FocusDialog>
-      <FocusDialog open={prepareOpen} onClose={() => setPrepareOpen(false)} title="Prepare project for agents" description="Initialize project instructions through POST /agent-sessions/:id/init." testId="prepare-project-dialog">{live ? <p>The configured model will inspect this project and write instructions. This can use provider tokens and modify AGENTS.md.</p> : <div className="prepare-list"><span><Icon name="check" />Git repository available</span><span><Icon name="check" />Worktree can be isolated</span><span><Icon name="check" />AGENTS.md discovered</span></div>}<div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setPrepareOpen(false)}>Cancel</button><button className="primary-button" type="button" disabled={lifecycleDisabled} onClick={() => void prepareProject()} data-testid="confirm-prepare-project">{lifecycleBusy ? 'Preparing…' : 'Prepare project'}</button></div></FocusDialog>
+      <FocusDialog open={prepareOpen} onClose={() => setPrepareOpen(false)} title="Prepare project for agents" description="Initialize project instructions through POST /agent-sessions/:id/init." testId="prepare-project-dialog" returnFocusTo={prepareReturnFocusRef.current}>{live ? <p>The configured model will inspect this project and write instructions. This can use provider tokens and modify AGENTS.md.</p> : <div className="prepare-list"><span><Icon name="check" />Git repository available</span><span><Icon name="check" />Worktree can be isolated</span><span><Icon name="check" />AGENTS.md discovered</span></div>}<div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setPrepareOpen(false)}>Cancel</button><button className="primary-button" type="button" disabled={lifecycleDisabled} onClick={() => void prepareProject()} data-testid="confirm-prepare-project">{lifecycleBusy ? 'Preparing…' : 'Prepare project'}</button></div></FocusDialog>
+      <FocusDialog
+        open={Boolean(rhythmEntry.setup) && !rhythmEntry.opening}
+        onClose={deferRhythmSetup}
+        title="Set up Rhythm"
+        description={rhythmEntry.setup?.profileChoices?.length
+          ? 'One Rhythm conversation stays with you across projects.'
+          : 'Rhythm could not confirm setup. Retry, or keep using ordinary chat.'}
+        testId="rhythm-setup-dialog"
+        returnFocusTo={chatMenuTriggerRef.current}>
+        <div className="rhythm-setup">
+          {rhythmEntry.setup?.profileChoices?.length ? <p className="rhythm-setup-copy">Choose the existing profile Rhythm should use for its configured model and tools. This does not change permissions.</p> : null}
+          <div className="rhythm-setup-choice-list" role="group" aria-label="Choose a Rhythm profile" data-testid="rhythm-setup-choice-list">
+            {rhythmEntry.setup?.profileChoices?.length
+              ? rhythmEntry.setup.profileChoices.map((choice) => <button className="secondary-button rhythm-setup-choice" type="button" key={choice.id} onClick={() => { void startRhythmSetup(choice.id); }} data-testid={`rhythm-setup-profile-${choice.id}`}>{choice.label}</button>)
+              : <button className="secondary-button rhythm-setup-choice" type="button" onClick={() => { void startRhythmSetup(); }} data-testid="rhythm-setup-retry">Retry setup</button>}
+          </div>
+          <footer className="rhythm-setup-footer" data-testid="rhythm-setup-footer">
+            <button className="text-button" type="button" onClick={deferRhythmSetup} data-testid="rhythm-setup-keep-ordinary">Keep using ordinary chat</button>
+          </footer>
+        </div>
+      </FocusDialog>
+      <FocusDialog open={workstreamsOpen} onClose={() => setWorkstreamsOpen(false)} title="Workstreams" description="Explicit, bounded read-only workers for this project. Ordinary chat remains separate." testId="workstreams-dialog" wide>
+        <WorkstreamsPanel projectId={selectedProject?.id ?? selected.projectId} parentSessionId={selectedProject || readOnlyChild || liveChildView ? null : selected.id} profiles={profiles} />
+      </FocusDialog>
     </section>
   );
 }
