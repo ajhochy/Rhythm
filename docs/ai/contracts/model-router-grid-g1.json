@@ -1,0 +1,24 @@
+{
+  "issue": "model-router-grid-g1",
+  "date": "2026-10-08",
+  "test_command": "npx vitest run src/services/decision/router_grid_select.test.ts src/services/decision/router_grid_classifier.test.ts src/services/decision/router_grid_config.test.ts src/services/decision/router_grid_exhaustion.test.ts --no-file-parallelism",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "AT1", "text": "Tier 4 extraction, all accounts healthy", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "AT2", "text": "Same, both Anthropic accounts exhausted", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "AT3", "text": "Tier 2 coding, OpenAI accounts at 10% and 12%", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "AT4", "text": "Tier 1 coding, Anthropic accounts at 10% and 12%", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "AT5", "text": "Tier 3, prompt 400K tokens, all healthy", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "AT6", "text": "Tier 1 knowledge, all accounts exhausted, can_queue=true", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "AT7", "text": "Same, can_queue=false", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "AT8", "text": "Tier 1 design, all accounts exhausted", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "AT9", "text": "Security research task, tier 2", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "AT10", "text": "Both OpenAI accounts exhausted", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "AT11", "text": "Two Anthropic accounts tied on quota", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "G1-select", "text": "plus unknown-usage ranking, unavailable-model rule skip + step-up, openrouterUsable=false -> none, DeepSeek weekday ordering, recursive step-up stops at tier 1, trace has no prompt text.", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "G1-classifier", "text": "router_grid_classifier.test.ts: exact request body (4 questions, level order, exact instruction text), threshold boundaries, predicate thresholds, each failure -> rules default, key never in logs/results.", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_classifier.test.ts", "status": "pass" },
+    { "criterion_id": "G1-config", "text": "router_grid_config.test.ts: defaults, override merge, malformed override, SAME_AS, validation.", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_config.test.ts", "status": "pass" },
+    { "criterion_id": "G1-exhaustion", "text": "plus accountsFromSnapshot adapter and router_grid_exhaustion.ts store (markExhausted/isExhausted/list, small JSON in app-support dir, expired pruned; no event wiring).", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_exhaustion.test.ts", "status": "pass" }
+  ],
+  "not_tested": []
+}

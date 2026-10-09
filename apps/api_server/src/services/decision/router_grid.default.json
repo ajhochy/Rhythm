@@ -1,0 +1,256 @@
+{
+  "version": "2026-10-08",
+  "reserve_pct": 15,
+  "coding_t1_prefer_astra": false,
+  "classifier": {
+    "model": "gpt-6-luna",
+    "tier_thresholds": [
+      0.1,
+      0.35,
+      2.25
+    ],
+    "can_queue_min_p": 0.5,
+    "security_min_p": 0.5,
+    "rules_default_tier": 2
+  },
+  "models": {
+    "anthropic/claude-opus-5-5": {
+      "price_in": 4.0,
+      "price_out": 20.0
+    },
+    "anthropic/claude-sonnet-5-5": {
+      "price_in": 2.0,
+      "price_out": 10.0
+    },
+    "anthropic/claude-haiku-5-5": {
+      "price_in": 0.1,
+      "price_out": 0.5,
+      "long_prompt_threshold": 100000
+    },
+    "openai/gpt-6-astra": {
+      "price_in": 10.0,
+      "price_out": 50.0,
+      "long_prompt_threshold": 272000
+    },
+    "openai/gpt-6.1-sol": {
+      "price_in": 2.0,
+      "price_out": 10.0,
+      "long_prompt_threshold": 272000
+    },
+    "openai/gpt-6-sol": {
+      "price_in": 2.0,
+      "price_out": 10.0,
+      "long_prompt_threshold": 272000
+    },
+    "openai/gpt-6-luna": {
+      "price_in": 0.1,
+      "price_out": 0.5,
+      "long_prompt_threshold": 272000
+    },
+    "openrouter/xiaomi/mimo-v2.6-pro": {
+      "price_in": 0.435,
+      "price_out": 0.87
+    },
+    "openrouter/xiaomi/mimo-v2.6-flash": {
+      "price_in": 0.14,
+      "price_out": 0.28
+    },
+    "openrouter/moonshotai/kimi-k3": {
+      "price_in": 3.0,
+      "price_out": 15.0
+    },
+    "openrouter/z-ai/glm-5.3": {
+      "price_in": 1.4,
+      "price_out": 4.4
+    },
+    "openrouter/deepseek/deepseek-v4.1-flash": {
+      "price_in": 0.15,
+      "price_out": 0.6,
+      "peak": "weekday"
+    }
+  },
+  "routing": {
+    "coding": {
+      "1": [
+        {
+          "model": "anthropic/claude-sonnet-5-5",
+          "effort": "xhigh",
+          "cost_per_task": 2.74
+        },
+        {
+          "model": "openai/gpt-6-astra",
+          "effort": "max",
+          "cost_per_task": 3.26
+        },
+        {
+          "model": "anthropic/claude-opus-5-5",
+          "effort": "max",
+          "cost_per_task": 5.98
+        }
+      ],
+      "2": [
+        {
+          "model": "openai/gpt-6.1-sol",
+          "effort": "max",
+          "cost_per_task": 0.72
+        },
+        {
+          "model": "anthropic/claude-sonnet-5-5",
+          "effort": "high",
+          "cost_per_task": 1.08
+        }
+      ],
+      "3": [
+        {
+          "model": "anthropic/claude-haiku-5-5",
+          "effort": "max",
+          "cost_per_task": 0.21
+        },
+        {
+          "model": "openai/gpt-6-sol",
+          "effort": "medium",
+          "cost_per_task": 0.25
+        }
+      ],
+      "4": [
+        {
+          "model": "anthropic/claude-haiku-5-5",
+          "effort": "low",
+          "cost_per_task": 0.02
+        },
+        {
+          "model": "openai/gpt-6-luna",
+          "effort": "max",
+          "cost_per_task": 0.07
+        }
+      ]
+    },
+    "knowledge": "SAME_AS:coding",
+    "design": {
+      "1": [
+        {
+          "model": "anthropic/claude-sonnet-5-5",
+          "effort": "xhigh",
+          "cost_per_task": 2.74
+        },
+        {
+          "model": "openai/gpt-6-astra",
+          "effort": "max",
+          "cost_per_task": 3.26
+        },
+        {
+          "model": "anthropic/claude-opus-5-5",
+          "effort": "max",
+          "cost_per_task": 5.98
+        }
+      ],
+      "2": [
+        {
+          "model": "openai/gpt-6.1-sol",
+          "effort": "max",
+          "cost_per_task": 0.72
+        },
+        {
+          "model": "anthropic/claude-sonnet-5-5",
+          "effort": "high",
+          "cost_per_task": 1.08
+        }
+      ],
+      "3": [
+        {
+          "model": "anthropic/claude-haiku-5-5",
+          "effort": "high",
+          "cost_per_task": 0.08
+        },
+        {
+          "model": "openai/gpt-6-sol",
+          "effort": "medium",
+          "cost_per_task": 0.25
+        }
+      ],
+      "4": [
+        {
+          "model": "anthropic/claude-haiku-5-5",
+          "effort": "low",
+          "cost_per_task": 0.02
+        },
+        {
+          "model": "openai/gpt-6-luna",
+          "effort": "max",
+          "cost_per_task": 0.07
+        }
+      ]
+    }
+  },
+  "openrouter_fallback": {
+    "coding": {
+      "1": {
+        "action": "queue_or_degrade",
+        "degraded_model": "openrouter/xiaomi/mimo-v2.6-pro"
+      },
+      "2": {
+        "models": [
+          "openrouter/xiaomi/mimo-v2.6-pro",
+          "openrouter/z-ai/glm-5.3"
+        ]
+      },
+      "3": {
+        "models": [
+          "openrouter/xiaomi/mimo-v2.6-pro"
+        ]
+      },
+      "4": {
+        "models": [
+          "openrouter/deepseek/deepseek-v4.1-flash",
+          "openrouter/xiaomi/mimo-v2.6-flash"
+        ]
+      }
+    },
+    "knowledge": {
+      "1": {
+        "action": "queue_or_degrade",
+        "degraded_model": "openrouter/xiaomi/mimo-v2.6-pro"
+      },
+      "2": {
+        "models": [
+          "openrouter/xiaomi/mimo-v2.6-pro"
+        ]
+      },
+      "3": {
+        "models": [
+          "openrouter/xiaomi/mimo-v2.6-pro"
+        ]
+      },
+      "4": {
+        "models": [
+          "openrouter/deepseek/deepseek-v4.1-flash",
+          "openrouter/xiaomi/mimo-v2.6-flash"
+        ]
+      }
+    },
+    "design": {
+      "1": {
+        "models": [
+          "openrouter/moonshotai/kimi-k3"
+        ]
+      },
+      "2": {
+        "models": [
+          "openrouter/xiaomi/mimo-v2.6-pro"
+        ]
+      },
+      "3": {
+        "models": [
+          "openrouter/xiaomi/mimo-v2.6-pro"
+        ]
+      },
+      "4": {
+        "models": [
+          "openrouter/deepseek/deepseek-v4.1-flash",
+          "openrouter/xiaomi/mimo-v2.6-flash"
+        ]
+      }
+    }
+  },
+  "task_type_overrides": {}
+}
