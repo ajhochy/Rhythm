@@ -1350,6 +1350,11 @@ async function main() {
       logger.info('[server] RHYTHM_MANAGED_CHROME=0 — skipping managed Chrome');
     }
 
+    // The explicit private qualification seed bypasses normal profile CRUD.
+    // Project its latest trusted rows after all backfills, before engine boot;
+    // a blocked/missing/failed projection must prevent a misleading candidate.
+    (await import('./services/qualification_fixture_bootstrap')).bootstrapQualificationFixture('project');
+
     // Initialize Opencode SDK (non-blocking — logs on failure, never prevents startup)
     opencodeClient
       .initialize()

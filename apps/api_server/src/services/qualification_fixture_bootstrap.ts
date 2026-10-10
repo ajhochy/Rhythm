@@ -3,10 +3,27 @@ import { join } from 'node:path';
 import { getDb } from '../database/db';
 import { AgentConfigsRepository, type AgentConfigInput } from '../repositories/agent_configs_repository';
 import { loadQualificationFixtureAuthority } from './qualification_fixture_authority';
+import { projectAgentProfileAfterWrite } from './agent_profile_projection_service';
 /** Public identity/profile configuration only. Never creates authentication sessions or signed decisions. */
-export function bootstrapQualificationFixture():void {
+export function bootstrapQualificationFixture(phase:'seed'|'project'='seed'):void {
   const m=loadQualificationFixtureAuthority();if(!m)return;
   const db=getDb(),user=m.publicUserSeed;
+  if(phase==='project'){
+    if(!m.profileSeedPath)return;
+    const profiles=JSON.parse(readFileSync(m.profileSeedPath,'utf8')).profiles as Array<{id:string}>;
+    if(!Array.isArray(profiles) || profiles.length>16)throw new Error('qualification profiles invalid');
+    const repo=new AgentConfigsRepository();
+    // Reconcile current rows after boot backfills, including recovery boots.
+    // Never restore the older seed body/revision over an operator's current row.
+    for(const profile of profiles){
+      const current=typeof profile.id==='string'?repo.getById(profile.id):null;
+      if(!current)throw new Error('qualification profile projection missing');
+      const outcome=projectAgentProfileAfterWrite(current,'recovery');
+      const durable=db.prepare('SELECT projection_state,file_projected_revision FROM agent_profile_projections WHERE profile_id=?').get(current.id) as {projection_state:string;file_projected_revision:number}|undefined;
+      if(outcome.kind!=='projected' || durable?.projection_state!=='projected' || durable.file_projected_revision!==current.revision)throw new Error('qualification profile projection unavailable');
+    }
+    return;
+  }
   const prior=db.prepare('SELECT id,email,google_sub FROM users WHERE id=?').get(m.ownerUserId) as {id:number;email:string;google_sub:string}|undefined;
   if(prior && (prior.email!==user.email || prior.google_sub!==user.googleSub))throw new Error('qualification public identity differs');
   db.prepare('INSERT OR IGNORE INTO users(id,name,email,google_sub,timezone) VALUES (?,?,?,?,?)').run(user.id,user.name,user.email,user.googleSub,user.timezone);

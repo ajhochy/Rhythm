@@ -144,9 +144,11 @@ export class QualificationFixtureService {
     const memory=new AuthenticatedDayflowMemoryClient(authority,{createOnly:(input,options)=>createObservationIfAbsentInVault(input,{...options,memoryDir:memoryRoot}),indexForOwner:owner=>new MemoryIndexService(new AgentMemoryRepository(),owner)});
     const service=new DayflowIntegrationService({source:new DayflowSqliteSource(),memoryClient:memory,configStore:config,ledger,journalVerifier:{verify:verifyDayflowJournal},sourceForJournal:j=>new DayflowSqliteSource(j),qualificationAuthority:authority});
     const adapter=createDayflowManagementAdapter(service),check=await adapter.checkReadiness({bundlePath:journal});if(!check.selectionToken)throw new Error('actual Dayflow selection unavailable');
-    await adapter.updateConfig({sourceSelectionToken:check.selectionToken});await adapter.updateConfig({enabled:true,automaticImport:false,timezone:'UTC'});
+    await adapter.updateConfig({sourceSelectionToken:check.selectionToken});await adapter.updateConfig({enabled:true,automaticImport:true,timezone:'UTC'});
     const consent=resolveAuthenticatedDayflowConsentScope(this.m.ownerUserId,{schemaVersion:1,action:'grant',sessionId:f.sessionId,projectId:f.projectId});if(!consent)throw new Error('actual Dayflow consent scope unavailable');service.grantAuthenticatedSourceConsent(consent.scope);
-    const preview=await adapter.preview({date});await adapter.commit({token:preview.token,candidateIds:preview.candidates.map(x=>x.candidateId)});await adapter.updateConfig({automaticImport:true});
+    // Consent binds this final configuration generation. A subsequent config
+    // update would revoke it; the real automatic scheduler starts after 15m.
+    const preview=await adapter.preview({date});await adapter.commit({token:preview.token,candidateIds:preview.candidates.map(x=>x.candidateId)});
     const records=new DayflowReceivingContextRepository(getDb()),enrollment=new DayflowGuardEnrollmentService({engine:opencodeClient,records}),receiver=new DayflowReceivingContextAuthorityService({engine:opencodeClient,records});
     const evidence=new DayflowQualifiedEvidenceService({reader:service,receiver,enrollment,canonical:new DayflowCanonicalEvidenceResolver({memoryRoot:()=>memoryRoot})});
     return {service,authority,memoryRoot,canary,guard:new DayflowReceivingHistoryGuard({reader:service,records,authority,enrollment,evidence}),admission:new DayflowProviderAdmissionService({records,engine:opencodeClient,reader:service,evidence,authority,enrollment})};
@@ -197,7 +199,7 @@ export class QualificationFixtureService {
       if(caseName==='router-corrupt'){const errors=await this.frontdoor(f);checks.push({id:'corrupt',pass:errors.some(x=>x.includes('Routing state is unavailable')),observed:{admission:errors.length?'refused':'allowed',state:errors.some(x=>x.includes('Routing state is unavailable'))?'corrupt':'unknown'}});}
       else{
         await this.frontdoor(f);const initial=projection();if(initial.accountId!=='fixture-account-a')throw new Error('actual first router policy did not select fixture account A');
-        if(caseName==='router-exhausted-pinned'){repo.setOpenaiAccountSource(f.sessionId,'pinned');repo.updateFields(f.sessionId,{modelMode:'fixed'});}
+        if(caseName==='router-exhausted-pinned'){repo.setOpenaiAccountSource(f.sessionId,'pinned');repo.updateFields(f.sessionId,{modelMode:'fixed',routerVariant:initial.effort});}
         else if(caseName==='router-exhausted-null')getDb().prepare('UPDATE agent_sessions SET openai_account_source=NULL WHERE id=?').run(f.sessionId);
         else if(caseName!=='router-exhausted-auto')throw new Error('unsupported router case');
         f.router.exhaustion.markExhausted('openai',initial.accountId,Date.now()+3600000);await this.frontdoor(f);const after=projection(),unknown=caseName==='router-exhausted-null',pinned=caseName==='router-exhausted-pinned';
