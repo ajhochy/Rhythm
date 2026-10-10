@@ -134,6 +134,8 @@ async function hermesRuntimeFixture({ argv = ['--interactive-smoke'], enabled = 
     async start() { calls.push('start-agent'); }
     async stopGracefully() { calls.push('stop-agent'); }
   }
+  let resolveWindowLoaded;
+  const windowLoaded = new Promise((resolve) => { resolveWindowLoaded = resolve; });
   class Window extends EventEmitter {
     static getAllWindows() { return windows; }
     constructor() { super();
@@ -144,7 +146,7 @@ async function hermesRuntimeFixture({ argv = ['--interactive-smoke'], enabled = 
       windows.push(this);
     }
     isDestroyed() { return false; }
-    async loadURL() { this.webContents.emit('did-finish-load'); }
+    async loadURL() { this.webContents.emit('did-finish-load'); resolveWindowLoaded(); }
   }
   const app = Object.assign(new EventEmitter(), {
     getPath: () => '/fixture', setPath() {}, requestSingleInstanceLock: () => true, isReady: () => false,
@@ -173,8 +175,15 @@ async function hermesRuntimeFixture({ argv = ['--interactive-smoke'], enabled = 
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
   await module.evaluate();
-  await tick();
-  await tick();
+  if (!argv.includes('--smoke') && !argv.includes('--missing-dist')) {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Hermes fixture owning document did not finish loading')), 2000);
+      windowLoaded.then(() => { clearTimeout(timer); resolve(); });
+    });
+  } else {
+    await tick();
+    await tick();
+  }
   const event = windows[0] ? { sender: windows[0].webContents, senderFrame: windows[0].webContents.mainFrame } : undefined;
   return {
     app, calls, event, handlers, options, processBoundary, stdout, supervisor,
@@ -187,6 +196,8 @@ test('issue-1542-desktop-c5: feature flag never starts the retired dashboard sid
   const attached = await hermesRuntimeFixture();
   assert.ok(!attached.calls.includes('start-hermes'), 'Desktop host, not the shell, owns Hermes service discovery and startup');
   assert.ok(!attached.calls.includes('construct-agent'), 'attached mode must not take ownership of the Flutter runtime');
+  await assert.rejects(async () => attached.handlers.get('hermes:install')({ sender: attached.event.sender, senderFrame: { url: attached.event.senderFrame.url } }), /Privileged IPC denied/);
+  await assert.rejects(async () => attached.handlers.get('hermes:install')({ sender: {}, senderFrame: attached.event.senderFrame }), /Privileged IPC denied/);
   await attached.handlers.get('hermes:install')(attached.event);
   await attached.handlers.get('hermes:restart')(attached.event);
   assert.ok(!attached.calls.includes('install-hermes'));
