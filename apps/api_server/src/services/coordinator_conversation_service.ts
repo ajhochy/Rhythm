@@ -3,6 +3,7 @@ import { Buffer } from 'node:buffer';
 
 import {
   MAX_COORDINATOR_GOAL_CHARS,
+  coordinatorConversationCommands,
   optionalSourceProofCurrent,
   type CoordinatorConversation,
   type CoordinatorConversationAddGoalRequest,
@@ -710,7 +711,7 @@ export class CoordinatorConversationService {
         !computeCodingWorkflowCapability({ configs: this.dependencies.configs, projectAuthorized: true, enrollmentAvailable: true }).available) return null;
     const goals = current.conversation.goals.filter(g => (g.id === goalSelector || g.objective === goalSelector) &&
       g.state === (linkedWorkstreamId ? 'linked' : 'captured') && g.linkedWorkstreamId === (linkedWorkstreamId ?? null));
-    if (goals.length !== 1 || current.conversation.commandDedupe.some(c => c.kind === 'delegate_goal' && c.goalId === goals[0].id) ||
+    if (goals.length !== 1 || coordinatorConversationCommands(current.conversation).some(c => c.kind === 'delegate_goal' && c.goalId === goals[0].id) ||
         current.conversation.continuations.some(c => c.goalId === goals[0].id)) return null;
     return { conversation: current.conversation, goal: goals[0], profileId: selected.profile.id,
       profileRevision: selected.profile.revision ?? 1,
@@ -798,7 +799,7 @@ export class CoordinatorConversationService {
     const reservedControlRevision = reservation.conversation.controlRevision;
     const reservationCurrent = async (): Promise<boolean> => {
       if (!(await input.bindingCurrent())) return false;
-      const current = this.repository.get(requestScope);
+      const current = this.repository.get({ ...requestScope, commandKey: input.commandKey });
       const currentSelection = this.currentRootSelection(actor, request);
       const command = current.kind === 'found'
         ? current.conversation.commandDedupe.find((candidate) => candidate.key === input.commandKey)
@@ -1015,7 +1016,7 @@ export class CoordinatorConversationService {
     // is already durable, so an init/send failure must never be retried under
     // this command key.
     const initialized = await this.ensureManagedSelection(actor, request, selected, true);
-    const latest = this.repository.get(scope(actor.user.id, request));
+    const latest = this.repository.get({ ...scope(actor.user.id, request), commandKey: request.commandKey });
     const finalSelection = this.currentRootSelection(actor, request, true);
     const stillReserved = latest.kind === 'found'
       ? latest.conversation.commandDedupe.find((command) => command.key === request.commandKey)
@@ -1035,7 +1036,7 @@ export class CoordinatorConversationService {
     }
     const foregroundEpoch = reserved.conversation.controlRevision;
     const reservationCurrent = (): boolean => {
-      const current = this.repository.get(scope(actor.user.id, request));
+      const current = this.repository.get({ ...scope(actor.user.id, request), commandKey: request.commandKey });
       const currentSelection = this.currentRootSelection(actor, request, true);
       const command = current.kind === 'found'
         ? current.conversation.commandDedupe.find((candidate) => candidate.key === request.commandKey)
@@ -1142,7 +1143,7 @@ export class CoordinatorConversationService {
     // One captured goal cannot silently fund both a Coding Workflow child and
     // a finite managed workstream. The user must create/choose another goal
     // rather than treating either result as authorization for the other.
-    if (initial.conversation.commandDedupe.some((command) =>
+    if (coordinatorConversationCommands(initial.conversation).some((command) =>
       command.kind === 'delegate_goal' && command.goalId === goal.id,
     )) return { kind: 'planning_already_linked', conversation: initial.conversation };
     if (!this.c2Enabled()) return { kind: 'planning_authority_unavailable', conversation: initial.conversation };
@@ -3272,7 +3273,7 @@ export class CoordinatorConversationService {
         !selection || selection.session.sdkSessionId !== input.sdkSessionId ||
         read.kind !== 'found' || !read.conversation.primaryOwnerRoot
       ) return null;
-      const bound = read.conversation.commandDedupe.some((command) =>
+      const bound = coordinatorConversationCommands(read.conversation).some((command) =>
         command.kind === 'delegate_goal' && command.state === 'dispatched' &&
         command.delegationId === input.delegationId && command.childSessionId === input.childSessionId &&
         command.parentSdkSessionId === input.sdkSessionId);
@@ -3342,11 +3343,11 @@ export class CoordinatorConversationService {
         blocked: conversation.continuations.filter((authority) => authority.status === 'blocked').length,
       },
       codingWorkflow: {
-        reserved: conversation.commandDedupe.filter((command) =>
+        reserved: coordinatorConversationCommands(conversation).filter((command) =>
           command.kind === 'delegate_goal' && command.state === 'reserved').length,
-        dispatched: conversation.commandDedupe.filter((command) =>
+        dispatched: coordinatorConversationCommands(conversation).filter((command) =>
           command.kind === 'delegate_goal' && command.state === 'dispatched').length,
-        uncertain: conversation.commandDedupe.filter((command) =>
+        uncertain: coordinatorConversationCommands(conversation).filter((command) =>
           command.kind === 'delegate_goal' && command.state === 'uncertain').length,
         // Execution outcomes of dispatched children; none is goal verification.
         outcomes: this.goalOutcomes(conversation).reduce<Record<string, number>>((counts, item) => {
@@ -3402,7 +3403,7 @@ export class CoordinatorConversationService {
           authority.authorizationId, authority.status, authority.consumedTurns, authority.expiresAt,
           authority.workstreamRevision, authority.goalRevision,
         ]),
-        codingWorkflow: conversation.commandDedupe
+        codingWorkflow: coordinatorConversationCommands(conversation)
           .filter((command) => command.kind === 'delegate_goal')
           .map((command) => [command.goalId, command.state, command.delegationId, command.childSessionId]),
         goalOutcomes: this.goalOutcomeIdentities(conversation),
@@ -3434,7 +3435,7 @@ export class CoordinatorConversationService {
       continuations: conversation.continuations.map((authority) => [
         authority.authorizationId, authority.status, authority.consumedTurns, authority.expiresAt,
       ]),
-      codingWorkflow: conversation.commandDedupe
+      codingWorkflow: coordinatorConversationCommands(conversation)
         .filter((command) => command.kind === 'delegate_goal')
         .map((command) => [command.goalId, command.state, command.delegationId, command.childSessionId]),
       goalOutcomes: this.goalOutcomeIdentities(conversation),
@@ -3697,7 +3698,7 @@ export class CoordinatorConversationService {
         maxTurns: authority.maxTurns, expiresAt: authority.expiresAt,
         ...(authority.purpose === 'workflow' ? { workflow: this.workflowStatus(conversation, authority) } : {}),
       })),
-      codingWorkflow: conversation.commandDedupe
+      codingWorkflow: coordinatorConversationCommands(conversation)
         .filter((command) => command.kind === 'delegate_goal')
         .slice(0, 12)
         .map((command) => ({
@@ -3753,7 +3754,7 @@ export class CoordinatorConversationService {
       },
       goalCount: conversation.goals.length,
       finiteAuthorizationCount: conversation.continuations.length,
-      codingWorkflowDelegationCount: conversation.commandDedupe.filter((command) => command.kind === 'delegate_goal').length,
+      codingWorkflowDelegationCount: coordinatorConversationCommands(conversation).filter((command) => command.kind === 'delegate_goal').length,
       dayflow: {
         availability: context.availability.manualActivity,
         coverage: context.coverage.manualActivity,
@@ -4279,7 +4280,7 @@ export function createCoordinatorForegroundSender(deps: CoordinatorForegroundSen
           ? 'The ordinary rhythm_start_coordinator_goal control is unavailable in this profile scope. Use only the separately scoped exact finite proposal and signed human approval path described below.'
           : 'No signed coordinator goal-action control is in your current profile scope. Do not claim an async workflow can be started here.',
       boundedWorkflowToolsAvailable
-        ? 'The signed chat-only finite Coding Workflow tools are in scope. Discover the human-named current note with rhythm_search_memory, use its referenceSourceId and referenceVersion, and select one captured goal from current coordinator status. Estimate task-specific soft total tokens (input/output/reasoning/cache), per-worker wall seconds and an expiry allowance sufficient for two checked outer turns with a distinct reviewer. Explain the estimate; do not choose fixed defaults or always use maximum bounds. Call rhythm_propose_bounded_coding_workflow with these values and a rationale. This creates a same-chat human approval card, not finite authority. A human chat adjustment creates a revised exact card. Wait for the signed human decision and dedicated native wake, then call rhythm_start_bounded_coding_workflow once with that wake’s approval_id/proposal_digest. You cannot approve, acknowledge, grant, or substitute prose for human consent. Report only actual server-checked selected_reference_current/reviewed_summary_with_citation and the checked stop.'
+        ? 'The signed bounded Coding Workflow proposal tool is in scope. For the selectTasks coding fixture, read current coordinator status and select exactly one captured coding goal. Call rhythm_propose_bounded_coding_workflow with purpose coordinator_coding_execution_v1 and goalSelector set to the exact captured coding goal id. The server derives the exact workspace, two writable files, absolute test command, one manager and one coding worker, resource limits and independent acceptance oracle. Read the resulting same-chat human approval card and wait. Only the genuine signed human approval dispatches the manager automatically; do not call a start tool or ask for another foreground action. You cannot approve, grant or substitute prose for human consent. Report only the durable exact artifact result and its verification status.'
         : 'Chat-only finite Coding Workflow setup is unavailable in this profile scope; hold rather than inventing an approval or grant.',
       dayflowToolsAvailable
         ? 'The signed Dayflow activity tools are in your current profile scope. Use them only for current qualified activity; their output is reference/source data, not completion evidence.'

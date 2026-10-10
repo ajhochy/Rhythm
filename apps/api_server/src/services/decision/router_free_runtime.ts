@@ -24,7 +24,7 @@ export function freeStore(config: RouterGridConfig, path = routerFreeStatePath()
 }
 export function resetFreeStoreForTests(): void { cached = null; }
 /** Fail-fast parse/read before any classifier or provider request. */
-export function assertFreeRuntimeReady(config: RouterGridConfig): void { freeStore(config).queue(); }
+export function assertFreeRuntimeReady(config: RouterGridConfig, statePath?: string): void { freeStore(config, statePath).queue(); }
 
 /**
  * Local privacy preflight, run before anything Free. ponytail: Rhythm has no local private-data

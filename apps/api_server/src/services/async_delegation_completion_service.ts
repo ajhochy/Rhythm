@@ -1,3 +1,4 @@
+import { codingEffortVariant } from './coordinator_coding_effort';
 import { createHash } from 'node:crypto';
 
 import {
@@ -20,6 +21,17 @@ import type {
   CoordinatorCallbackContextInput,
 } from './coordinator_conversation_service';
 import { getDb } from '../database/db';
+import { qualifyCodingTerminal } from './coordinator_coding_terminal';
+import { codingGrantDelegation, codingResultAuthorityCurrent } from './coordinator_coding_grant_permission';
+import { holdCodingResultIfScoped } from './coordinator_coding_delivery_controls';
+import { captureCodingSnapshot, codingSnapshotCurrent, verifyCodingSnapshot, codingEvaluatorPins,
+  codingDockerPins, codingDockerRuntimeDigest } from './coordinator_coding_artifact_verifier';
+import { readWorkflowProposal } from './chat_bounded_workflow';
+import { AgentApprovalsRepository } from '../repositories/agent_approvals_repository';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
+import { loadQualificationFixtureAuthority, qualificationApiBootId } from './qualification_fixture_authority';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { resolveProfileScope } from './agent_profile_scope';
 import {
@@ -121,6 +133,61 @@ export class AsyncDelegationCompletionService {
     }
   }
 
+  /** Existing engine watchdog owns expiry observation; persisted clocks survive API restart. */
+  async enforceCodingDeadlines(now=Date.now()):Promise<void> {
+    if(env.dbClient!=='sqlite')return;
+    const db=getDb();
+    if(!(db.prepare('PRAGMA table_info(coordinator_conversation_commands)').all() as Array<{name:string}>).some(x=>x.name==='coding_grant_json'))return;
+    const rows=db.prepare(`SELECT * FROM coordinator_conversation_commands WHERE role='manager' AND coding_grant_json IS NOT NULL`).all() as Array<Record<string,unknown>>;
+    for(const row of rows){
+      let state;try{state=JSON.parse(String(row.coding_grant_json));}catch{continue;}
+      const approval=new AgentApprovalsRepository().getById(state.approvalId),p=approval?readWorkflowProposal(approval):null;
+      if(!p || p.purpose!=='coordinator_coding_execution_v1')continue;
+      const task=Date.parse(String(row.allocation_intent_at??state.taskStartedAt)),worker=Date.parse(String(state.workerReservedAt??state.workerStartedAt));
+      const active=db.prepare(`SELECT a.id,a.child_session_id,a.parent_session_id,a.status,a.coding_terminal_json,a.error_text FROM agent_async_delegations a WHERE a.coding_root_session_id=? AND a.coding_operation_key=? AND (a.status IN('dispatched','waking') OR (a.status='cancelled' AND a.error_text LIKE 'Coding deadline: stop pending%'))`).all(row.root_session_id,row.command_key) as Array<{id:string;child_session_id:string;parent_session_id:string;status:string;coding_terminal_json:string|null;error_text:string|null}>;
+      if(!active.length)continue;
+      const workerActive=active.some(a=>a.child_session_id===state.worker?.localId && a.status==='dispatched' && !a.coding_terminal_json);
+      const expired=now>=Date.parse(p.expiresAt) || (Number.isFinite(task) && now>=task+p.limits.taskWallSeconds*1000) ||
+        (workerActive && Number.isFinite(worker) && now>=worker+p.limits.workerWallSeconds*1000);
+      const exactChildren=active.flatMap(a=>{
+        if(state.revokedAt && !a.error_text?.startsWith('Coding deadline: stop pending'))return [];
+        const child=this.sessionsRepo.findById(a.child_session_id),role=child?.id===state.manager?.localId?'manager':child?.id===state.worker?.localId?'worker':null;
+        return child && role && child.sdkSessionId===state[role].sdkId && child.ownerUserId===p.ownerUserId && child.projectId===p.projectId && child.cwd===p.workspace.canonicalRoot && child.parentSessionId===a.parent_session_id?[{a,child}]:[];
+      });
+      if(!state.revokedAt && !expired)continue;
+      // All durable deadline ownership is committed together BEFORE the first native await.
+      const pending=db.transaction(()=>{
+        if(!state.revokedAt){
+          const changed=db.prepare('UPDATE coordinator_conversation_commands SET coding_grant_json=?,updated_at=? WHERE root_session_id=? AND command_key=? AND coding_grant_json=?')
+            .run(JSON.stringify({...state,revokedAt:new Date(now).toISOString()}),new Date(now).toISOString(),row.root_session_id,row.command_key,row.coding_grant_json).changes;
+          if(changed!==1)return [];
+        }
+        const result:typeof exactChildren=[];
+        for(const item of exactChildren){
+          if(item.a.status!=='cancelled' && !this.delegationsRepo.markCancelled(item.a.id))continue;
+          const marked=db.prepare("UPDATE agent_async_delegations SET error_text='Coding deadline: stop pending; hard stop remains unqualified',updated_at=? WHERE id=? AND status='cancelled'").run(new Date(now).toISOString(),item.a.id).changes;
+          if(marked!==1)throw new Error('coding deadline marker held');
+          result.push(item);
+        }
+        return result;
+      }).immediate();
+      for(const {a,child} of pending){
+        try{
+          const native=await opencodeClient.getSession(child.sdkSessionId!);
+          if(native?.id!==child.sdkSessionId || native.directory!==child.cwd)continue;
+          const statuses=await opencodeClient.getSessionStatuses(child.cwd,true);
+          if(!statuses[child.sdkSessionId!] || statuses[child.sdkSessionId!].type==='idle'){
+            db.prepare("UPDATE agent_async_delegations SET error_text='Coding deadline: exact native child observed idle',updated_at=? WHERE id=? AND status='cancelled'").run(new Date(now).toISOString(),a.id);
+          }else if(await opencodeClient.abortSession(child.sdkSessionId!,child.cwd)){
+            // ACK is not idle. The existing watchdog retries/checks after restart until native idle.
+            db.prepare("UPDATE agent_async_delegations SET error_text='Coding deadline: stop pending; abort acknowledged, native idle unconfirmed' WHERE id=? AND status='cancelled'").run(a.id);
+          }
+        }catch{logger.warn('[CodingDeadline] exact owned stop unavailable; remains partial and will be checked by existing watchdog');}
+      }
+      await this.flushParent(String(row.root_session_id));
+    }
+  }
+
   async onBridgeJobTerminal(parentSessionId: string): Promise<void> {
     await this.flushParent(parentSessionId);
   }
@@ -165,6 +232,13 @@ export class AsyncDelegationCompletionService {
           };
         }
         examined.add(parentSessionId);
+        let childCursor = '';
+        while (true) {
+          const children = this.delegationsRepo.listCodingRecoveryChildren(parentSessionId, childCursor, pageSize);
+          if (!children.length) break;
+          for (const child of children) await this.onChildIdle(child.child_session_id);
+          childCursor = children.at(-1)!.id;
+        }
         await this.flushParent(parentSessionId);
       }
 
@@ -214,6 +288,10 @@ export class AsyncDelegationCompletionService {
 
   async onChildIdle(childSessionId: string): Promise<void> {
     const delegation = this.delegationsRepo.findByChildSessionId(childSessionId);
+    if (delegation && await this.reconcileCodingTerminal(delegation.id, childSessionId)) {
+      await this.flushParent(delegation.parentSessionId);
+      return;
+    }
     if (!delegation || delegation.status === 'notified' || delegation.status === 'failed') {
       return;
     }
@@ -232,6 +310,10 @@ export class AsyncDelegationCompletionService {
 
   async onChildFailed(childSessionId: string, errorText: string): Promise<void> {
     const delegation = this.delegationsRepo.findByChildSessionId(childSessionId);
+    if (delegation && await this.reconcileCodingTerminal(delegation.id, childSessionId)) {
+      await this.flushParent(delegation.parentSessionId);
+      return;
+    }
     if (!delegation || delegation.status !== 'dispatched') return;
     this.delegationsRepo.markFailed(childSessionId, errorText);
     await this.flushParent(delegation.parentSessionId);
@@ -242,6 +324,69 @@ export class AsyncDelegationCompletionService {
     // turn reaches the next idle boundary. Only then may another batch wake it.
     this.wakeInFlight.delete(parentSessionId);
     await this.flushParent(parentSessionId);
+  }
+
+  private async reconcileCodingTerminal(id: string, child: string): Promise<boolean> {
+    if (env.dbClient !== 'sqlite') return false; // hosted local coding execution is inert
+    const db = getDb();
+    const rows = db.prepare(`SELECT c.*,a.coding_delivery_mode,a.coding_terminal_json FROM coordinator_conversation_commands c
+      JOIN agent_async_delegations a ON a.id=c.delegation_id WHERE a.id=? AND c.child_session_id=? LIMIT 2`)
+      .all(id,child) as Array<Record<string,unknown>>;
+    const trace = db.prepare(`SELECT 1 FROM coordinator_conversation_commands WHERE json_valid(coding_grant_json) AND
+      (json_extract(coding_grant_json,'$.manager.localId')=? OR json_extract(coding_grant_json,'$.worker.localId')=?) LIMIT 1`).get(child,child);
+    const mode = db.prepare('SELECT coding_delivery_mode FROM agent_async_delegations WHERE id=?').get(id) as {coding_delivery_mode:string|null};
+    if (!trace && !mode?.coding_delivery_mode) return false; // unchanged ordinary/coordinator planning lane
+    if (rows.length !== 1) return true; // contradictory/unbound coding history never adopts idle/prose
+    const row = rows[0];
+    if (row.coding_terminal_json) return true;
+    const root = String(row.root_session_id), operation = String(row.parent_command_key ?? row.command_key);
+    const role = row.role as 'manager'|'worker';
+    if (!mode.coding_delivery_mode) this.delegationsRepo.bindCoding(id,root,operation,role);
+    const manager = db.prepare('SELECT coding_grant_json FROM coordinator_conversation_commands WHERE root_session_id=? AND command_key=?')
+      .get(root,operation) as {coding_grant_json:string|null}|undefined;
+    if (!manager?.coding_grant_json || !row.engine_identity || !row.child_sdk_session_id) return true;
+    let state;
+    try { state = JSON.parse(manager.coding_grant_json); } catch { return true; }
+    if (state[role]?.localId !== child || state[role]?.sdkId !== row.child_sdk_session_id) return true;
+    const session = this.sessionsRepo.findById(child);
+    if (!session || session.ownerUserId !== row.owner_user_id || session.projectId !== row.project_id ||
+        session.sdkSessionId !== row.child_sdk_session_id || session.cwd !== row.canonical_cwd ||
+        session.parentSessionId !== (role === 'manager' ? root : state.manager?.localId)) return true;
+    let anchor = String(row.initial_sdk_user_message_id ?? '');
+    if (role === 'manager') {
+      if (!state.workerReservedAt) return true;
+      const worker = db.prepare(`SELECT coding_terminal_json FROM agent_async_delegations WHERE coding_root_session_id=?
+        AND coding_operation_key=? AND coding_delivery_mode='coding_worker_v1'`).get(root,operation) as {coding_terminal_json:string|null}|undefined;
+      if (!worker?.coding_terminal_json || row.callback_acceptance !== 'accepted') return true;
+      anchor = String(row.callback_sdk_user_message_id ?? '');
+    } else if (row.acceptance !== 'accepted') return true;
+    const engine = await opencodeClient.getEngineIdentity();
+    if (!engine || JSON.stringify(engine) !== row.engine_identity) return true;
+    const sdk = String(row.child_sdk_session_id), cwd = String(row.canonical_cwd);
+    const gates = await opencodeClient.codingPendingGateState(sdk,cwd);
+    if (!gates || gates.pending) return true;
+    const messages: Array<{info:Record<string,unknown>;parts?:unknown}> = [];
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    let complete = false;
+    for (let page = 0; page < 50; page++) {
+      const result = await opencodeClient.listMessagesPageStrict(sdk,cwd,{limit:200,...(cursor ? {before:cursor}: {})});
+      if (!result) return true;
+      messages.push(...result.messages);
+      if (result.messages.some(m => m.info.id === anchor)) { complete = true; break; }
+      if (!result.nextCursor || seen.has(result.nextCursor)) return true;
+      seen.add(result.nextCursor); cursor = result.nextCursor;
+    }
+    if (JSON.stringify(await opencodeClient.getEngineIdentity()) !== row.engine_identity) return true;
+    const finalGates = await opencodeClient.codingPendingGateState(sdk,cwd);
+    if (!finalGates || finalGates.pending) return true;
+    const current = db.prepare('SELECT acceptance,callback_acceptance,initial_sdk_user_message_id,callback_sdk_user_message_id FROM coordinator_conversation_commands WHERE root_session_id=? AND command_key=?')
+      .get(root,row.command_key) as Record<string,unknown>;
+    if (!current || (role === 'manager' && state.workerReservedAt ? current.callback_acceptance : current.acceptance) !== 'accepted') return true;
+    const fact = qualifyCodingTerminal({sdkSessionId:sdk,anchor,messages,complete,pending:false,
+      ...(row.allocation_intent_at ? {notBefore:Date.parse(String(row.allocation_intent_at))} : {})});
+    if (fact) this.delegationsRepo.recordCodingTerminal(id,fact);
+    return true;
   }
 
   private async flushParent(parentSessionId: string): Promise<void> {
@@ -263,6 +408,7 @@ export class AsyncDelegationCompletionService {
     if (this.wakeInFlight.has(parentSessionId)) return;
 
     const parent = this.sessionsRepo.findById(parentSessionId);
+    if (parent) await this.publishCodingRootResults(parent);
     if (!parent) return;
 
     const nativeContext = await this.resolveNativeDeliveryContext(parent);
@@ -476,7 +622,7 @@ export class AsyncDelegationCompletionService {
     const workflowJob = coordinatorCallbackReason && singleCoordinatorWake
       ? bridgeRepo.findLiveCoordinatorWorkflowJobByDelegation(singleCoordinatorWake.id)
       : null;
-    const callbackContext = callbackFreshness || workflowJob
+    let callbackContext = callbackFreshness || workflowJob
       ? {
         kind: 'coordinator_callback_v1' as const,
         validate: async () => (callbackFreshness ? await callbackFreshness() : true) &&
@@ -499,12 +645,37 @@ export class AsyncDelegationCompletionService {
       }
       : null;
 
+    const codingClaims=claimed.filter(item=>(getDb().prepare('SELECT coding_delivery_mode FROM agent_async_delegations WHERE id=?').get(item.id) as {coding_delivery_mode:string|null})?.coding_delivery_mode==='coding_worker_v1');
+    if(codingClaims.length && (claimed.length!==1 || activeNative.length || bridgeClaimed.length)){this.delegationsRepo.releaseClaims(ids);return;}
+    let codingCallback: ReturnType<typeof codingGrantDelegation> = null;
+    if (claimed.length === 1 && activeNative.length === 0 && bridgeClaimed.length === 0) {
+      const coded = getDb().prepare('SELECT coding_delivery_mode FROM agent_async_delegations WHERE id=?').get(claimed[0].id) as {coding_delivery_mode:string|null};
+      if (coded?.coding_delivery_mode === 'coding_worker_v1') {
+        try {
+          codingCallback = codingGrantDelegation(parent.id,parentSdkSessionId,parent.ownerUserId ?? 0);
+          if (!codingCallback || codingCallback.role !== 'worker' || !codingCallback.current() ||
+              profileScope.model?.providerID !== codingCallback.proposal.chain.manager.providerId ||
+              profileScope.model?.modelID !== codingCallback.proposal.chain.manager.modelId) throw new Error('coding callback held');
+          const variant=codingEffortVariant(codingCallback.proposal.chain.manager,await opencodeClient.providerSnapshot());
+          if(!variant || !codingCallback.current())throw new Error('coding callback effort held');
+          promptOpts.variant=variant;
+          const binding = getDb().prepare('SELECT callback_dispatch_id FROM coordinator_conversation_commands WHERE root_session_id=? AND command_key=?')
+            .get(codingCallback.scope.sessionId,codingCallback.scope.commandKey) as {callback_dispatch_id:string|null};
+          if (binding?.callback_dispatch_id) throw new Error('one coding callback already prepared; never replay');
+          const exact = codingCallback;
+          callbackContext = { kind:'coordinator_callback_v1', validate:async () => exact.current(),
+            onPrepared: b => exact.current() && exact.journal.recordCallbackPrepared(exact.scope,b) };
+        } catch { this.delegationsRepo.releaseClaims(ids); return; }
+      }
+    }
+
     this.wakeInFlight.add(parentSessionId);
     let deliveryUnknown = false;
     const attemptedNative = activeNative.length > 0 && nativeContext
       ? { context: nativeContext, items: activeNative }
       : null;
     try {
+      if (codingCallback) codingCallback.journal.recordCallbackOutcome(codingCallback.scope,'unknown');
       const dispatchProvenance = {
         sessionId: parentSessionId,
         sdkSessionId: parentSdkSessionId,
@@ -545,6 +716,13 @@ export class AsyncDelegationCompletionService {
           undefined,
           dispatchProvenance,
         );
+      if (codingCallback) {
+        if (enqueued) codingCallback.journal.recordCallbackOutcome(codingCallback.scope,'accepted');
+        else {
+          codingCallback.journal.recordCallbackOutcome(codingCallback.scope,'unknown');
+          deliveryUnknown = true; return;
+        } // exact prepared anchor, never marker/prose retry
+      }
       if (!enqueued) {
         let nativeDelivered = attemptedNative
           ? wakeDelegations.length > 0
@@ -610,6 +788,10 @@ export class AsyncDelegationCompletionService {
           `${claimed.length} completed delegate(s) and ${activeNative.length} native status item(s)`,
       );
     } catch (error) {
+      if (codingCallback) {
+        codingCallback.journal.recordCallbackOutcome(codingCallback.scope,'unknown');
+        deliveryUnknown = true; return;
+      }
       let nativeDelivered = attemptedNative
         ? wakeDelegations.length > 0
           ? await this.wasMixedWakeDelivered(
@@ -1078,9 +1260,40 @@ export class AsyncDelegationCompletionService {
   private async reconcileWakingClaims(parent: AgentSession): Promise<boolean> {
     const bridgeRepo = new AgentBridgeJobsRepository();
     const asyncWaking = this.delegationsRepo.listWakingForParent(parent.id);
+    for (const item of asyncWaking) {
+      const coded = getDb().prepare(`SELECT a.coding_delivery_mode,c.callback_acceptance,c.callback_sdk_user_message_id,
+        c.child_sdk_session_id,c.canonical_cwd,c.engine_identity,c.root_session_id,c.command_key FROM agent_async_delegations a
+        LEFT JOIN coordinator_conversation_commands c ON c.root_session_id=a.coding_root_session_id AND c.command_key=a.coding_operation_key WHERE a.id=?`)
+        .get(item.id) as {coding_delivery_mode:string|null;callback_acceptance:string|null;callback_sdk_user_message_id:string;
+          child_sdk_session_id:string;canonical_cwd:string;engine_identity:string;root_session_id:string;command_key:string}|undefined;
+      if (coded?.coding_delivery_mode === 'coding_worker_v1') {
+        if(!coded.root_session_id || !coded.command_key)return false;
+        if (coded.callback_acceptance !== 'accepted') {
+          if (!coded.callback_sdk_user_message_id || JSON.stringify(await opencodeClient.getEngineIdentity()) !== coded.engine_identity) return false;
+          let cursor: string | undefined;
+          let proven = false;
+          const seen = new Set<string>();
+          for (let n = 0; n < 50; n++) {
+            const page = await opencodeClient.listMessagesPageStrict(coded.child_sdk_session_id,coded.canonical_cwd,
+              {limit:200,...(cursor ? {before:cursor} : {})});
+            if (!page) return false;
+            proven = page.messages.some(m => m.info.id === coded.callback_sdk_user_message_id &&
+              m.info.role === 'user' && m.info.sessionID === coded.child_sdk_session_id);
+            if (proven || !page.nextCursor || seen.has(page.nextCursor)) break;
+            seen.add(page.nextCursor); cursor = page.nextCursor;
+          }
+          if (!proven || JSON.stringify(await opencodeClient.getEngineIdentity()) !== coded.engine_identity) return false;
+          getDb().prepare(`UPDATE coordinator_conversation_commands SET callback_acceptance='accepted' WHERE root_session_id=? AND command_key=?
+            AND callback_sdk_user_message_id=? AND callback_acceptance IN ('pending','unknown')`)
+            .run(coded.root_session_id,coded.command_key,coded.callback_sdk_user_message_id);
+        }
+        this.delegationsRepo.markNotified([item.id]);
+      }
+    }
+    const refreshedAsync = this.delegationsRepo.listWakingForParent(parent.id);
     const bridgeWaking = bridgeRepo.listWakingForParent(parent.id);
     const waking: WakeDelegation[] = [
-      ...asyncWaking,
+      ...refreshedAsync,
       ...bridgeWaking.map(bridgeWakeDelegation),
     ];
     if (waking.length === 0) return true;
@@ -1108,6 +1321,83 @@ export class AsyncDelegationCompletionService {
     );
     bridgeRepo.releaseDeliveryClaims(bridgeWaking.map((delegation) => delegation.id));
     return true;
+  }
+
+  private async publishCodingRootResults(parent:AgentSession):Promise<void> {
+    if (env.dbClient!=='sqlite' || parent.ownerUserId==null || parent.projectId==null) return;
+    const db=getDb(),actor={ownerUserId:parent.ownerUserId,projectId:parent.projectId};
+    let cursor='';
+    for (;;) {
+      const rows=db.prepare(`SELECT * FROM agent_async_delegations WHERE coding_root_session_id=? AND id>?
+        AND coding_delivery_mode IN ('coding_root_v1','delivery_only_v1') ORDER BY id LIMIT 100`)
+        .all(parent.id,cursor) as Array<Record<string,unknown>>;
+      if (!rows.length) break;
+      for (const row of rows) {
+        cursor=String(row.id);
+        if (!['completed','failed','cancelled'].includes(String(row.status))) continue;
+        if (!row.coding_result_receipt_json && row.coding_delivery_mode==='coding_root_v1') {
+          const command=db.prepare('SELECT * FROM coordinator_conversation_commands WHERE root_session_id=? AND command_key=?')
+            .get(parent.id,row.coding_operation_key) as Record<string,unknown>|undefined;
+          if (!command || command.owner_user_id!==actor.ownerUserId || command.project_id!==actor.projectId) continue;
+          const state=command.coding_grant_json?JSON.parse(String(command.coding_grant_json)):null;
+          const approval=state?.approvalId?new AgentApprovalsRepository().getById(state.approvalId):null;
+          const proposal=approval?readWorkflowProposal(approval):null;
+          const worker=db.prepare(`SELECT * FROM agent_async_delegations
+            WHERE coding_root_session_id=? AND coding_operation_key=? AND coding_delivery_mode='coding_worker_v1' LIMIT 1`)
+            .get(parent.id,row.coding_operation_key) as Record<string,unknown>|undefined;
+          const terminal=worker?.coding_terminal_json?JSON.parse(String(worker.coding_terminal_json)):null;
+          let files:unknown[]=[],reason='Qualified worker/source capture unavailable; no independent verification authority';
+          let verification='unverified',checks:unknown[]=[],authentication:unknown=null;
+          if (proposal?.purpose==='coordinator_coding_execution_v1' && terminal?.execution==='completed' && row.status==='completed' &&
+              worker && ['completed','waking','notified'].includes(String(worker.status)) && state?.worker?.localId===worker.child_session_id &&
+              state.manager?.localId===row.child_session_id && worker.parent_session_id===row.child_session_id &&
+              terminal.sdkSessionId===state.worker.sdkId && codingResultAuthorityCurrent(proposal)) {
+            try {
+              const fixture=loadQualificationFixtureAuthority();
+              const artifacts=fixture?join(fixture.fixtureRoot,'coding-verification'):join(homedir(),'coding-verification');mkdirSync(artifacts,{recursive:true,mode:0o700});
+              const snapshot=await captureCodingSnapshot(proposal.workspace.canonicalRoot,proposal.workspace.readablePaths,artifacts);
+              files=snapshot.files;
+              if (!codingSnapshotCurrent(snapshot)) {
+                verification='stale';reason='Current source differs from captured bytes';
+              } else {
+                const pins=codingEvaluatorPins();
+                if(pins.evaluatorDigest!==proposal.acceptance.evaluatorDigest || pins.runnerDigest!==proposal.acceptance.runnerDigest)
+                  throw new Error('approved evaluator differs from current evaluator');
+                const evaluated=await verifyCodingSnapshot(snapshot,pins,{docker:{pins:codingDockerPins(codingDockerRuntimeDigest),
+                  context:{rootSessionId:parent.id,operationKey:String(row.coding_operation_key)}}});
+                verification=evaluated.qualified && codingSnapshotCurrent(snapshot) && codingResultAuthorityCurrent(proposal)?evaluated.verdict:'unverified';checks=evaluated.checks;
+                evaluated.snapshot && (terminal.verifiedSnapshot=evaluated.snapshot);
+                authentication=evaluated.authentication??null;reason=evaluated.reason??'Exact immutable source independently evaluated';
+              }
+            } catch(error){reason=String(error).slice(0,512);}
+          }
+          const receipt={kind:'coding_result_v1',execution:terminal?.execution??(row.status==='cancelled'?'cancelled':'unknown'),
+            producedApiBootId:qualificationApiBootId,producedApiPid:process.pid,verification,files,checks,authentication,snapshot:terminal?.verifiedSnapshot??null,usage:terminal?.usage??null,
+            summary:verification==='passed'?'Independent checks confirmed optional open/done/all filtering, empty handling, stable order, unsupported-status rejection and preservation of input values.':'Independent acceptance did not establish the requested behavior; see actual verification checks and limits.',
+            limits:[reason,'Worker command/evaluator/genuine A6 are distinct proofs; no billable root prompt','Worker Node test subprocess is not generally confined by SDK tool grants; this is an invented bounded fixture, not OS/network confinement.']};
+          db.prepare('UPDATE agent_async_delegations SET coding_result_receipt_json=? WHERE id=? AND coding_result_receipt_json IS NULL')
+            .run(JSON.stringify(receipt),row.id);
+        }
+        // A retained receipt is evidence of a past evaluation, never a current success lease.
+        if(row.coding_delivery_mode==='coding_root_v1'){
+          const fresh=db.prepare('SELECT coding_result_receipt_json,result_message_id FROM agent_async_delegations WHERE id=?').get(row.id) as {coding_result_receipt_json:string|null;result_message_id:number|null};
+          if(fresh.coding_result_receipt_json && !fresh.result_message_id){
+            const receipt=JSON.parse(fresh.coding_result_receipt_json);
+            const command=db.prepare('SELECT coding_grant_json FROM coordinator_conversation_commands WHERE root_session_id=? AND command_key=?').get(parent.id,row.coding_operation_key) as {coding_grant_json:string|null}|undefined;
+            const state=command?.coding_grant_json?JSON.parse(command.coding_grant_json):null;
+            const approval=state?.approvalId?new AgentApprovalsRepository().getById(state.approvalId):null;
+            const proposal=approval?readWorkflowProposal(approval):null;
+            if(receipt.verification==='passed' && (!proposal || proposal.purpose!=='coordinator_coding_execution_v1' ||
+              !codingResultAuthorityCurrent(proposal) || !receipt.snapshot || !codingSnapshotCurrent(receipt.snapshot))){
+              receipt.verification='stale';receipt.limits.push('Current artifact or signed execution authority changed before delivery');
+              db.prepare('UPDATE agent_async_delegations SET coding_result_receipt_json=? WHERE id=? AND result_message_id IS NULL').run(JSON.stringify(receipt),row.id);
+            }
+          }
+        }
+        holdCodingResultIfScoped(String(row.id),actor);
+        this.messagesRepo.appendCodingResult(String(row.id),actor);
+      }
+    }
   }
 
   private async wasWakeDelivered(

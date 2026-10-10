@@ -1,3 +1,4 @@
+import { loadQualificationFixtureAuthority } from '../services/qualification_fixture_authority';
 import os from 'os';
 import path from 'path';
 import { isIP } from 'node:net';
@@ -6,6 +7,19 @@ import {
   defaultTimeoutFor,
   loadDecisionSettings,
 } from '../services/decision/decision_settings';
+
+const qualificationStartup=loadQualificationFixtureAuthority();
+if(qualificationStartup){
+  const root=qualificationStartup.fixtureRoot;
+  const isolated:Record<string,string>={DB_CLIENT:'sqlite',DB_PATH:qualificationStartup.dbPath,
+    XDG_CONFIG_HOME:path.join(root,'xdg-config'),OPENCODE_TEST_HOME:path.join(root,'engine-home'),OPENCODE_CONFIG_DIR:path.join(root,'opencode-config'),RHYTHM_OPENCODE_CONFIG_PATH:path.join(root,'opencode-config','opencode.json'),
+    RHYTHM_ORG_INSTRUCTIONS_FILE:path.join(root,'org-instructions.md'),RHYTHM_MANAGED_SKILLS_DIR:path.join(root,'opencode-config','skills'),RHYTHM_LEGACY_MANAGED_SKILLS_DIR:path.join(root,'legacy-managed-skills'),
+    MEMORY_VAULT_PATH:path.join(root,'memory'),MEMORY_VAULT_SUBDIR:'',LIVE_ARTIFACT_STORAGE_DIR:path.join(root,'live-artifacts'),
+    RHYTHM_ACCOUNTS_FILE:path.join(root,'anthropic-accounts.json'),RHYTHM_OPENAI_ACCOUNTS_FILE:path.join(root,'openai-accounts.json'),RHYTHM_DECISION_ROUTER_FILE:path.join(root,'decision-router.json'),RHYTHM_MANAGED_TOOL_ROOT:path.join(root,'managed-tools'),RHYTHM_TOOL_ARTIFACT_ROOT:path.join(root,'tool-artifacts')};
+  for(const [key,value] of Object.entries(isolated))process.env[key]=value;
+  // The engine's existing managed credential broker stays in its normal data
+  // store. Only new owned SDK sessions may be used by this qualification DB.
+}
 
 export type DbClient = 'sqlite' | 'postgres';
 
@@ -669,7 +683,7 @@ export const env = {
     path.join(os.homedir(), 'Documents'),
   researchModel: parseResearchModel(),
   dbClient: parseDbClient(dbClientValue),
-  dbPath: process.env.DB_PATH ?? path.join(process.cwd(), 'rhythm.db'),
+  dbPath: loadQualificationFixtureAuthority()?.dbPath ?? process.env.DB_PATH ?? path.join(process.cwd(), 'rhythm.db'),
   dbHost: process.env.DB_HOST ?? 'localhost',
   dbPort: Number(process.env.DB_PORT ?? 5432),
   dbName: process.env.DB_NAME ?? 'rhythm',

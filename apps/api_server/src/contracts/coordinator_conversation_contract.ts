@@ -292,6 +292,9 @@ export interface CoordinatorConversation {
   primaryOwnerRoot: boolean;
   goals: CoordinatorConversationGoal[];
   commandDedupe: CoordinatorConversationCommand[];
+  /** Bounded journal page, not lifetime history. Complete goal receipts are
+   * bounded separately by MAX_GOALS (one capture + one manager per goal). */
+  commandJournal?: { paginated: true; goalCommands: CoordinatorConversationCommand[] };
   /** Default-off finite controls, independently bound to exact authored goals. */
   continuations: CoordinatorConversationContinuationAuthority[];
   createdAt: string;
@@ -1428,8 +1431,40 @@ function parseStoredAuthority(
 }
 
 /** Parse durable bytes defensively. Any malformed/future record is a safety hold. */
-export function parseStoredCoordinatorConversation(value: unknown): CoordinatorConversation {
+export function parseStoredCoordinatorConversation(
+  value: unknown,
+  options: { normalizedJournal?: boolean } = {},
+): CoordinatorConversation {
   assertStored(plain(value), 'record');
+  if (value.commandJournal !== undefined) {
+    const { commandJournal, ...record } = value;
+    assertStored(plain(commandJournal) && exactKeys(commandJournal, ['paginated', 'goalCommands']) &&
+      commandJournal.paginated === true && Array.isArray(commandJournal.goalCommands) &&
+      commandJournal.goalCommands.length <= MAX_COORDINATOR_CONVERSATION_GOALS * 2, 'journal inventory');
+    assertStored(Array.isArray(record.commandDedupe) &&
+      record.commandDedupe.length <= MAX_COORDINATOR_CONVERSATION_COMMANDS, 'journal page');
+    const page = record.commandDedupe;
+    const receipts = new Map<string, unknown>();
+    for (const command of commandJournal.goalCommands) {
+      assertStored(plain(command) && (command.kind === 'add_goal' || command.kind === 'delegate_goal') &&
+        typeof command.key === 'string' && !receipts.has(command.key), 'journal goal receipt');
+      receipts.set(command.key, command);
+    }
+    for (const command of record.commandDedupe) {
+      assertStored(plain(command) && typeof command.key === 'string', 'journal page command');
+      const receipt = receipts.get(command.key);
+      assertStored(receipt === undefined || JSON.stringify(receipt) === JSON.stringify(command), 'journal receipt conflict');
+    }
+    // Reuse the full strict binding/authority parser, never skip referential
+    // validation merely because a receipt is outside the public page.
+    const parsed = parseStoredCoordinatorConversation({ ...record,
+      commandDedupe: [...page, ...commandJournal.goalCommands.filter(command =>
+        !page.some((entry: Record<string, unknown>) => entry.key === command.key))],
+    }, { normalizedJournal: true });
+    return { ...parsed, commandDedupe: parsed.commandDedupe.slice(0, record.commandDedupe.length),
+      commandJournal: { paginated: true, goalCommands: parsed.commandDedupe.filter(command =>
+        command.kind === 'add_goal' || command.kind === 'delegate_goal') } };
+  }
   const legacy = value.schemaVersion === 1;
   const schema2 = value.schemaVersion === 2;
   const schema3 = value.schemaVersion === 3;
@@ -1451,7 +1486,10 @@ export function parseStoredCoordinatorConversation(value: unknown): CoordinatorC
   assertStored(Number.isSafeInteger(value.controlRevision) && (value.controlRevision as number) >= 1, 'control revision');
   assertStored(value.primaryOwnerRoot === undefined || typeof value.primaryOwnerRoot === 'boolean', 'primary root');
   assertStored(Array.isArray(value.goals) && value.goals.length <= MAX_COORDINATOR_CONVERSATION_GOALS, 'goals');
-  assertStored(Array.isArray(value.commandDedupe) && value.commandDedupe.length <= MAX_COORDINATOR_CONVERSATION_COMMANDS, 'commands');
+  // Only the repository may supply normalized rows. Public/legacy blob parsing
+  // retains its defensive bound; normalization is not a browser authority flag.
+  assertStored(Array.isArray(value.commandDedupe) &&
+    (options.normalizedJournal || value.commandDedupe.length <= MAX_COORDINATOR_CONVERSATION_COMMANDS), 'commands');
   assertStored(isIso(value.createdAt) && isIso(value.updatedAt), 'timestamps');
 
   const seenGoals = new Set<string>();
@@ -1617,6 +1655,12 @@ export function parseStoredCoordinatorConversation(value: unknown): CoordinatorC
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
   };
+}
+
+/** Goal-bound inventory + page; never infer complete history from the page. */
+export function coordinatorConversationCommands(conversation: CoordinatorConversation): CoordinatorConversationCommand[] {
+  return [...new Map([...(conversation.commandJournal?.goalCommands ?? []), ...conversation.commandDedupe]
+    .map(command => [command.key, command])).values()];
 }
 
 export function continuationIsLive(

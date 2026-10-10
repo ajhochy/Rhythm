@@ -14,6 +14,28 @@ import { loadDecisionSettings } from './decision_settings';
 import { assertFreeRuntimeReady, checkFreeMode, FREE_HOLD_MESSAGE, FREE_RELEASE_MESSAGE, holdForFreeMode, releaseFreeQueue } from './router_free_runtime';
 import { drainHeldTurn, HELD_CLAIM_STALE_MS, HeldTurnsRepository, type DrainDeps } from './router_free_held_turns';
 
+/** Internal startup composition only; the resolver must bind current test-owned session identity. */
+export interface RouterGridFixtureDependencies {
+  config: ReturnType<typeof loadRouterGridConfig>;
+  settings: ReturnType<typeof loadDecisionSettings>;
+  exhaustion: RouterGridExhaustionStore;
+  statePath: string;
+  usage: typeof getUsageBudget;
+  inventory: {anthropic: import('../anthropic_accounts_service').AnthropicAccountsService;
+    openai: import('../openai_accounts_service').OpenAIAccountsService};
+  catalog: typeof getRoutableModels;
+  authedProviders(): Promise<string[]>;
+  classifierClient: OpenAIDecisionsClient;
+}
+let fixtureResolver: ((sessionId: string) => RouterGridFixtureDependencies | null) | null = null;
+export function configureRouterGridFixtureResolver(resolver: NonNullable<typeof fixtureResolver>): void {
+  if (fixtureResolver) throw new Error('fixture router already composed');
+  fixtureResolver=resolver;
+}
+export function routerGridFixtureDependencies(sessionId: string): RouterGridFixtureDependencies | null {
+  return fixtureResolver?.(sessionId) ?? null;
+}
+
 const efforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 export function gridEffortVariant(requested: string | null, variants: readonly string[]): string | undefined {
   if (!requested) return undefined;
@@ -26,7 +48,8 @@ export function gridRunnerEligible(profileId: string | null | undefined, modelOv
 }
 
 /** Account writes use the existing setters and routing map; explicit account choices never move. */
-export async function applyGridAccount(sessionId: string, provider: string, accountId: string | null): Promise<void> {
+export async function applyGridAccount(sessionId: string, provider: string, accountId: string | null,
+  fixture?: RouterGridFixtureDependencies | null): Promise<void> {
   if (!accountId || (provider !== 'anthropic' && provider !== 'openai')) return;
   const repo = new AgentSessionsRepository();
   const row = repo.findById(sessionId);
@@ -36,7 +59,7 @@ export async function applyGridAccount(sessionId: string, provider: string, acco
   if (current && source !== 'router') unmarkAutoAccountSession(sessionId, provider); // clear stale process marker
   const automatic = !current || source === 'router';
   if (current && !automatic && current !== accountId) throw new Error('grid_account_pinned');
-  const service = provider === 'anthropic'
+  const service = fixture ? fixture.inventory[provider] : provider === 'anthropic'
     ? (await import('../anthropic_accounts_service')).anthropicAccountsService
     : (await import('../openai_accounts_service')).openaiAccountsService;
   if (!service.getAccount(accountId)) throw new Error('grid_account_unavailable');
@@ -137,6 +160,7 @@ export async function waitForGridShadowForTests(): Promise<void> { await Promise
 
 /** Grid owns its whole turn; never lets the legacy router/capacity layer replace its pick. */
 export async function routeGridTurn(input: RouteTurnForSessionInput, mode: 'on' | 'shadow'): Promise<RouteTurnForSessionResult> {
+  const fixture=routerGridFixtureDependencies(input.sessionId);
   const baseline: RouteTurnForSessionResult = { route: input.baseRoute, source: 'baseline', applied: false,
     requestedSource: input.requestedSource, requestedTier: input.requestedTier ?? null };
   const row = input.sessionRow;
@@ -153,29 +177,29 @@ export async function routeGridTurn(input: RouteTurnForSessionInput, mode: 'on' 
       // Authoritative session provenance: NULL is unknown and never upgraded from legacy attempts.
       const automatic = (provider: ClosedProvider): boolean => sessionSource(provider) === 'router';
       for (const provider of ['anthropic', 'openai'] as const) if (automatic(provider)) markAutoAccountSession(input.sessionId, provider);
-      const exhaustion = new RouterGridExhaustionStore().list();
+      const exhaustion = (fixture?.exhaustion ?? new RouterGridExhaustionStore()).list();
       const account = row?.providerId === 'anthropic' ? row.anthropicAccountId : row?.providerId === 'openai' ? row.openaiAccountId : null;
       const reroute = matching && (row?.providerId === 'anthropic' || row?.providerId === 'openai') &&
         automatic(row.providerId) && exhaustion.some(e => e.provider === row.providerId && e.accountId === account);
       // If durable classification is unavailable, preserve
       // carryover but never invent a fresh classification for an exhausted session.
       if (matching && (!reroute || !saved)) return { ...baseline, ...(row?.routerVariant ? { variant: row.routerVariant } : {}) };
-      const config = loadRouterGridConfig();
+      const config = fixture?.config ?? loadRouterGridConfig();
       const free = mode === 'on' && config.free_mode.enabled === true;
-      if (free) assertFreeRuntimeReady(config);
+      if (free) assertFreeRuntimeReady(config,fixture?.statePath);
       // Free-held turn resent after release: reuse its stored classification (never re-sent while consent is revoked).
       const held = free && !saved && !row?.routerDecidedAt ? await attempts.readFreeQueued(input.sessionId) : null;
-      const reuseHeld = held && (held.source === 'rules' || loadDecisionSettings().remoteDataConsent) ? held : null;
+      const reuseHeld = held && (held.source === 'rules' || (fixture?.settings ?? loadDecisionSettings()).remoteDataConsent) ? held : null;
       const now = Date.now();
-      const snapshot = await getUsageBudget({ cachedOnly: true });
+      const snapshot = await (fixture?.usage ?? getUsageBudget)({ cachedOnly: true });
       const fresh = !!snapshot?.providers.length && Number.isFinite(Date.parse(snapshot.fetchedAt)) && now - Date.parse(snapshot.fetchedAt) <= 15 * 60_000;
-      if (!fresh) primeUsageCache();
+      if (!fresh && !fixture) primeUsageCache();
       const accounts = snapshot ? accountsFromSnapshot(snapshot, exhaustion) : [];
       if (!fresh) accounts.forEach(a => { a.quotaRemainingPct = null; });
       {
         // Supplement unavailable/missing usage from healthy local inventory; never probe inline.
-        const { anthropicAccountsService } = await import('../anthropic_accounts_service');
-        const { openaiAccountsService } = await import('../openai_accounts_service');
+        const anthropicAccountsService=fixture?.inventory.anthropic ?? (await import('../anthropic_accounts_service')).anthropicAccountsService;
+        const openaiAccountsService=fixture?.inventory.openai ?? (await import('../openai_accounts_service')).openaiAccountsService;
         for (const [provider, service] of [['anthropic', anthropicAccountsService], ['openai', openaiAccountsService]] as const) {
           for (const a of service.listRedacted().accounts) {
             if (a.status !== 'ok' || accounts.some(existing => existing.provider === provider && existing.id === a.id)) continue;
@@ -185,15 +209,15 @@ export async function routeGridTurn(input: RouteTurnForSessionInput, mode: 'on' 
         }
       }
       // Local inventory/freshness is a trust boundary: fail before any classifier/provider HTTP.
-      const classification = saved && reroute ? saved.classification : reuseHeld ?? await classifyRouterGrid(input.prompt, config, input.gridClient);
+      const classification = saved && reroute ? saved.classification : reuseHeld ?? await classifyRouterGrid(input.prompt, config, fixture?.classifierClient ?? input.gridClient);
       const pinned = (provider: ClosedProvider) => {
         const id = provider === 'anthropic' ? row?.anthropicAccountId : row?.openaiAccountId;
         return id && !automatic(provider) ? id : null;
       };
-      const catalog = await getRoutableModels({ agentId: input.agentId, baseRoute: input.baseRoute });
+      const catalog = await (fixture?.catalog ?? getRoutableModels)({ agentId: input.agentId, baseRoute: input.baseRoute });
       const availableModels = new Set(catalog.source === 'live' ? catalog.models.map(m => `${m.providerID}/${m.modelID}`) : []);
       const { opencodeClient } = await import('../opencode_engine');
-      const authed = new Set(await opencodeClient.listAuthedProviders());
+      const authed = new Set(await (fixture?.authedProviders() ?? opencodeClient.listAuthedProviders()));
       const knownEmpty = snapshot?.providers.some(p => p.provider === 'openrouter' && p.kind === 'credits' &&
         p.items.some(i => i.remainingFraction !== null && i.remainingFraction <= 0));
       // Free Mode budget 0 = no paid OpenRouter fallback spending at all.
@@ -207,11 +231,11 @@ export async function routeGridTurn(input: RouteTurnForSessionInput, mode: 'on' 
       const variant = result.kind === 'route' ? gridEffortVariant(result.effort, model?.variants ?? []) : undefined;
       const accountSource = result.kind === 'route' && result.provider !== 'openrouter' && pinned(result.provider) ? 'pinned' : 'router';
       if (free) {
-        const state = checkFreeMode({ config, accounts, usageFresh: fresh, openrouterUsable, tier: classification.tier, now });
-        if (state.recovered) startFreeRelease(config);
+        const state = checkFreeMode({ config, accounts, usageFresh: fresh, openrouterUsable, tier: classification.tier, now,statePath:fixture?.statePath });
+        if (state.recovered && !fixture) startFreeRelease(config);
         if (state.active && result.kind === 'none') {
           const reference = row?.scheduledTaskId ? `scheduled:${row.scheduledTaskId}` : `session:${input.sessionId}`;
-          const hold = holdForFreeMode({ config, taskId: reference, ownerUserId: row?.ownerUserId ?? null, reference, classification, now });
+          const hold = holdForFreeMode({ config, taskId: reference, ownerUserId: row?.ownerUserId ?? null, reference, classification, now,statePath:fixture?.statePath });
           await attempts.append(input.sessionId, classification, { kind: 'free_queued', model: null, provider: null,
             effortRequested: null, effortApplied: null, accountId: null, accountSource: 'router', tierUsed: null,
             reason: 'free_mode_queued', degraded: false, applied: false, trace: result.trace });
@@ -234,7 +258,7 @@ export async function routeGridTurn(input: RouteTurnForSessionInput, mode: 'on' 
       // Journal the intended route before side effects, but never authorize restart reconstruction yet.
       await attempts.append(input.sessionId, classification, attemptResult);
       if (mode === 'on' && result.kind === 'route') {
-        await applyGridAccount(input.sessionId, result.provider, result.accountId);
+        await applyGridAccount(input.sessionId, result.provider, result.accountId,fixture);
         if (row) new AgentSessionsRepository().setRouterDecision(input.sessionId, {
           providerId: result.provider, modelId: result.model.slice(result.provider.length + 1), variant: variant ?? null, decidedAt: new Date(now).toISOString(),
         });

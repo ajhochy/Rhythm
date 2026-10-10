@@ -4,7 +4,7 @@ import {
   CoordinatorConversationsRepository,
   type CoordinatorGoalApprovalResumeCandidate,
 } from '../repositories/coordinator_conversations_repository';
-import { WORKFLOW_APPROVAL_ACTION, workflowApprovalResumeCandidate } from './chat_bounded_workflow';
+import { WORKFLOW_APPROVAL_ACTION, workflowApprovalResumeCandidate, isCodingExecutionApproval } from './chat_bounded_workflow';
 import { logger } from '../utils/logger';
 import { resolveProfileScope } from './agent_profile_scope';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
@@ -20,6 +20,11 @@ export class AgentApprovalContinuationService {
   private readonly sessionChains = new Map<string, Promise<void>>();
 
   private workflowReadiness: (() => Promise<boolean>) | null = null;
+  private codingDecision: ((approval: AgentApproval) => Promise<boolean>) | null = null;
+
+  configureCodingDecision(consume: (approval: AgentApproval) => Promise<boolean>): void {
+    this.codingDecision = consume;
+  }
 
   /** Server composition only; no request or model input can supply this probe. */
   configureWorkflowReadiness(probe: (() => Promise<boolean>) | null): void {
@@ -82,7 +87,14 @@ export class AgentApprovalContinuationService {
     // reattach) an engine stream unless this session actually has durable
     // continuation work. Re-subscribing an already-ended stream from its own
     // idle callback can replay another idle event and recurse forever.
-    const continuations = this.approvals.listContinuations(session.id);
+    // Coding decisions belong to their scoped journal admission, never the
+    // selected-note/generic billable root wake. Keep them durable and queued
+    // until that deterministic admission consumer is connected and qualified.
+    const queued = this.approvals.listContinuations(session.id);
+    for (const approval of queued.filter(isCodingExecutionApproval)) {
+      if (this.codingDecision && await this.codingDecision(approval)) this.approvals.markContinuationDelivered(approval.id);
+    }
+    const continuations = queued.filter(a => !isCodingExecutionApproval(a));
     if (continuations.length === 0) return;
 
     // The live map is authoritative. Persisted sdk_session_id is only a

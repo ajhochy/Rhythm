@@ -500,6 +500,11 @@ export async function handleInputFrame(
     }
   }
 
+  if (attachmentSession?.sdkSessionId) {
+    try { await opencodeClient.assertDayflowSdkHistoryMayBeReused(attachmentSession.sdkSessionId); }
+    catch { ws.send(JSON.stringify({v:1,type:'error',id,message:'SDK history is withheld because Dayflow dependencies changed.'})); return; }
+  }
+
   // OPC-M1-4: If the session is in status='error', clear the error
   // state before forwarding the prompt. This is the "explicit user
   // action" that transitions the session out of error — the new
@@ -603,11 +608,11 @@ export async function handleInputFrame(
   const turnModelMode: 'auto' | 'fixed' = frameModelMode ?? sessionModelMode;
   const turnSessionAuto = turnModelMode === 'auto';
   let routedVariant: string | undefined;
-  if (scopeAgentId && (agentKind || sessionProfileId || perTurnProfileId || legacyCanonicalProfileId || trustedScopeAgent)) {
+  if (scopeAgentId || turnSessionAuto) {
     try {
       const { resolveModelForSessionTurnWithProvenance } = await import('./agent_model_resolver');
       const resolution = await resolveModelForSessionTurnWithProvenance({
-        agentId: scopeAgentId,
+        agentId: scopeAgentId ?? 'build',
         sessionProviderId,
         sessionModelId,
         perTurnOverride,
@@ -634,7 +639,7 @@ export async function handleInputFrame(
           sessionRow: routingRow,
           sessionId: id,
           prompt: data ?? '',
-          agentId: scopeAgentId,
+          agentId: scopeAgentId ?? 'build',
           requestedSource: resolution.requestedSource,
           requestedTier: resolution.requestedTier,
           baseRoute: resolution.route,
@@ -664,6 +669,10 @@ export async function handleInputFrame(
     } catch (err) {
       console.error(`[ws_gateway] early model resolution for Gemini tool cap failed (non-fatal):`, err);
     }
+  }
+  if ((await import('./qualification_fixture_service')).qualificationStopBeforeSdk(id)) {
+    ws.send(JSON.stringify({v:1,type:'error',id,message:'Qualification router observation complete; intentional pre-SDK stop.'}));
+    return;
   }
   const resolvedTurnProviderId: string | null = resolvedTurnModel?.providerID ?? null;
 

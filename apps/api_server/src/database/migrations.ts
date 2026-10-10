@@ -14,6 +14,7 @@ import { installAgentBridgeSchema } from '../shared_agents/bridge_schema';
 import { installAgentWorkstreamsSchema } from './agent_workstreams_schema';
 import { installManagedWorkstreamContextSchema } from './managed_workstream_context_schema';
 import { installCoordinatorConversationSchema } from './coordinator_conversation_schema';
+import { installCodingResultSchema } from './coordinator_coding_result_schema';
 
 /**
  * W1 corrective-6 package B — monotonic persistence revisions.
@@ -4939,4 +4940,5 @@ If someone asks for creative work that needs a local capability:
   // nullable column grants nothing by itself; routes remain absent unless the
   // server composes an enabled coordinator service.
   installCoordinatorConversationSchema(db);
+  installCodingResultSchema(db);
 }

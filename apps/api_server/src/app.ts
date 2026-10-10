@@ -1,3 +1,5 @@
+import { createQualificationFixtureRouter } from './routes/qualification_fixture_routes';
+import type { QualificationFixtureService } from './services/qualification_fixture_service';
 import cors from 'cors';
 import express, { type Router } from 'express';
 
@@ -109,6 +111,7 @@ export function isLoopbackAddress(address: string | undefined): boolean {
 
 export function createApp(options: {
   mobileGatewayRouter?: Router;
+  qualificationFixtures?: QualificationFixtureService;
   dayflowService?: DayflowManagementService;
   dayflowAuthenticatedConsent?: DayflowAuthenticatedConsentService;
   dayflowQualifiedEvidence?: DayflowQualifiedEvidenceService;
@@ -199,6 +202,7 @@ export function createApp(options: {
   // limit is sufficient for normal requests but we raise it to 1 MB as a
   // safety margin.
   app.use(express.json({ limit: '1mb' }));
+  if(options.qualificationFixtures)app.use('/qualification-fixtures',createQualificationFixtureRouter(options.qualificationFixtures));
   // Signed evidence tools are default-off until both current receiving and
   // persisted source qualification authorities are composed in server.ts.
   if (env.agentExecutionEnabled && (options.dayflowQualifiedEvidence || options.dayflowProviderAdmission)) {

@@ -9,6 +9,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { env } from '../config/env';
 import { appEvents } from '../utils/app_events';
 import type { AppEvent } from '../utils/app_events';
+import { codingDeliveryTestHandlers } from './coordinator_coding_delivery_test_handlers';
 
 const controller = new AgentSessionsController();
 const sessionsRepository = new AgentSessionsRepository();
@@ -37,6 +38,11 @@ function requireAgentSessionOwner(
 }
 
 agentSessionsRouter.param('id', requireAgentSessionOwner);
+agentSessionsRouter.post('/:id/_coding-delivery/fixture',requireAuth,codingDeliveryTestHandlers.fixture);
+agentSessionsRouter.post('/:id/_coding-delivery/release',requireAuth,codingDeliveryTestHandlers.release);
+agentSessionsRouter.post('/:id/_coding-delivery/recover',requireAuth,codingDeliveryTestHandlers.recover);
+agentSessionsRouter.get('/:id/_coding-delivery/state',requireAuth,codingDeliveryTestHandlers.state);
+agentSessionsRouter.post('/:id/_coding-delivery/control',requireAuth,codingDeliveryTestHandlers.control);
 
 function requirePromptAuth(req: Request, _res: Response, next: NextFunction): void {
   if (!req.auth) return next(AppError.unauthorized('Missing bearer token'));

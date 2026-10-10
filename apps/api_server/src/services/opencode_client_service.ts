@@ -1,4 +1,7 @@
+import { loadQualificationFixtureAuthority } from './qualification_fixture_authority';
+import { qualificationSdkAttempt } from './qualification_dispatch_counters';
 import { homedir } from 'os';
+import { parseCodingExecutionProposal, type CoordinatorCodingExecutionProposal } from '../contracts/coordinator_coding_execution_contract';
 import { isAbsolute, join, relative, resolve, sep } from 'path';
 import { readFileSync, existsSync } from 'fs';
 import { createHmac, randomBytes } from 'node:crypto';
@@ -6,6 +9,7 @@ import { promisify } from 'util';
 import type { OpencodeClient, RhythmEvent as Event } from '@opencode-ai/sdk';
 import { logger } from '../utils/logger';
 import { OpencodeAuthStore } from './opencode_auth_store';
+import { prepareSandboxEngineLaunch, sandboxEngineAttachment } from './sandbox_engine_attachment';
 import { AppError } from '../errors/app_error';
 import {
   CURATED_MCP_SERVERS,
@@ -258,6 +262,8 @@ export type ProviderSnapshot = {
       family?: string;
       reasoning?: boolean;
       variants?: string[];
+      apiNpm?: string;
+      variantEffects?: Record<string,{reasoningEffort?:string;effort?:string;thinkingType?:string}>;
       capabilities?: {
         input?: { text?: boolean };
         output?: { text?: boolean };
@@ -1255,6 +1261,8 @@ export class OpencodeClientService {
   private status: EngineStatus = 'uninitialized';
   private client: OpencodeClient | null = null;
   private server: OpencodeServerHandle | null = null;
+  private attachedEngineUrl: string | null = null;
+  private lifecycleGeneration = 0;
   private error: Error | null = null;
   private authStore: Pick<OpencodeAuthStore, 'listAuthedProviders'> = new OpencodeAuthStore();
   private providerSnapshotPending?: Promise<ProviderSnapshot>;
@@ -1319,7 +1327,8 @@ export class OpencodeClientService {
     directory: string | undefined,
     sourceAnchorIds: readonly string[] = [],
   ): Promise<ProviderPendingExport | ProviderUnavailableExport | null> {
-    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    const ownedUrl = this.hasOwnedEngine ? this.serverUrl : undefined;
+    const generation = this.lifecycleGeneration;
     if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' || !ownedUrl || !sdkSessionId || !requestNonce) return null;
     if (sourceAnchorIds.length > PROVIDER_ADMISSION_BOUNDS.sourceAnchors) return null;
     const params: string[] = [];
@@ -1337,6 +1346,7 @@ export class OpencodeClientService {
       );
       if (!response.ok) return null;
       const parsed = parseProviderFrameExportText(await response.text());
+      if (generation !== this.lifecycleGeneration || !this.hasOwnedEngine) return null;
       return parsed.ok ? parsed.value : null;
     } catch {
       return null;
@@ -1355,7 +1365,8 @@ export class OpencodeClientService {
     directory: string | undefined,
     sourceAnchorIds: readonly string[] = [],
   ): Promise<WorkflowProviderPendingExport | ProviderUnavailableExport | null> {
-    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    const ownedUrl = this.hasOwnedEngine ? this.serverUrl : undefined;
+    const generation = this.lifecycleGeneration;
     if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' || !ownedUrl || !sdkSessionId || !requestNonce) return null;
     if (sourceAnchorIds.length > PROVIDER_ADMISSION_BOUNDS.sourceAnchors) return null;
     const params: string[] = [];
@@ -1373,6 +1384,7 @@ export class OpencodeClientService {
       );
       if (!response.ok) return null;
       const parsed = parseWorkflowProviderFrameExportText(await response.text());
+      if (generation !== this.lifecycleGeneration || !this.hasOwnedEngine) return null;
       // A workflow caller must never downgrade a V2 marker to a V1 pending
       // frame. V1 remains readable by the existing C1 consumer only.
       return parsed.ok && parsed.value.schemaVersion === 2 ? parsed.value : null;
@@ -1390,7 +1402,8 @@ export class OpencodeClientService {
     sdkSessionId: string,
     directory: string | undefined,
   ): Promise<{ engineGeneration: string } | null> {
-    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    const ownedUrl = this.hasOwnedEngine ? this.serverUrl : undefined;
+    const generation = this.lifecycleGeneration;
     if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' || !ownedUrl || !sdkSessionId) return null;
     const query = directory ? `?directory=${encodeURIComponent(directory)}` : '';
     try {
@@ -1406,6 +1419,7 @@ export class OpencodeClientService {
       );
       if (!response.ok) return null;
       const parsed = parseEnrollmentResponse(JSON.parse(await response.text()), sdkSessionId);
+      if (generation !== this.lifecycleGeneration || !this.hasOwnedEngine) return null;
       return parsed.ok ? { engineGeneration: parsed.value.engineGeneration } : null;
     } catch {
       return null;
@@ -1422,7 +1436,8 @@ export class OpencodeClientService {
     directory: string | undefined,
     enrollment: WorkflowEnrollmentRequest,
   ): Promise<{ engineGeneration: string } | null> {
-    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    const ownedUrl = this.hasOwnedEngine ? this.serverUrl : undefined;
+    const generation = this.lifecycleGeneration;
     if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' || !ownedUrl || !sdkSessionId) return null;
     const query = directory ? `?directory=${encodeURIComponent(directory)}` : '';
     try {
@@ -1438,13 +1453,14 @@ export class OpencodeClientService {
       );
       if (!response.ok) return null;
       const parsed = parseWorkflowEnrollmentResponse(JSON.parse(await response.text()), sdkSessionId, enrollment);
+      if (generation !== this.lifecycleGeneration || !this.hasOwnedEngine) return null;
       return parsed.ok ? { engineGeneration: parsed.value.engineGeneration } : null;
     } catch {
       return null;
     }
   }
 
-  private async assertDayflowSdkHistoryMayBeReused(
+  async assertDayflowSdkHistoryMayBeReused(
     sdkSessionId: string,
     /** Only a typed current-root foreground/callback may load for a projected provider request. */
     projectedLoad = false,
@@ -1589,8 +1605,9 @@ export class OpencodeClientService {
    */
   get hasOwnedEngine(): boolean {
     return this.status === 'ready' && this.client !== null &&
-      this.server !== null && typeof this.server.url === 'string' &&
-      this.server.url.length > 0;
+      !this._shuttingDown &&
+      ((typeof this.server?.url === 'string' && this.server.url.length > 0) ||
+       (typeof this.attachedEngineUrl === 'string' && this.attachedEngineUrl.length > 0));
   }
 
   /**
@@ -1689,8 +1706,13 @@ export class OpencodeClientService {
   }
 
   private async _initializeImpl(config?: { directory?: string }): Promise<void> {
+    const generation = this.lifecycleGeneration;
+    this.attachedEngineUrl = null;
     const t0 = Date.now();
     try {
+      // Validate preserved-engine isolation before configuration writes or any
+      // reclaim/spawn boundary. Absent attachment input keeps ordinary startup.
+      const attachment = sandboxEngineAttachment(OPENCODE_ENGINE_PORT);
       // Phase 1: augment PATH so the bundled opencode binary is discoverable.
       const t1 = Date.now();
       augmentPathForOpencode();
@@ -1803,7 +1825,7 @@ export class OpencodeClientService {
       // non-opencode holder throws a clear error (caught below → status=error
       // with the occupying PID/command) instead of the opaque exit-code-1.
       const t4 = Date.now();
-      await reclaimStalePortForOpencode();
+      if (!attachment) await reclaimStalePortForOpencode();
       logger.info(`[Opencode][timing] reclaimStalePort took ${Date.now() - t4}ms`);
 
       // Phase 5: spawn the opencode engine and wait for readiness.
@@ -1868,11 +1890,26 @@ export class OpencodeClientService {
         corsOrigins,
         resolveOpencodeStartupTimeout(),
       );
-      const { client, server } = await mod.createOpencode(engineOptions);
+      if (attachment) {
+        const health = await fetch(`${attachment}/global/health`, { signal: AbortSignal.timeout(5000) });
+        if (!health.ok) throw new Error('Preserved sandbox engine is not healthy');
+        // Recheck identity after the await; never reclaim or respawn on attachment failure.
+        if (sandboxEngineAttachment(OPENCODE_ENGINE_PORT) !== attachment) throw new Error('Sandbox engine identity changed');
+      }
+      if (generation !== this.lifecycleGeneration) throw new Error('Engine initialization was disposed');
+      if (!attachment) prepareSandboxEngineLaunch(OPENCODE_ENGINE_PORT);
+      const { client, server } = attachment
+        ? { client: mod.createOpencodeClient({ baseUrl: attachment }), server: null }
+        : await mod.createOpencode(engineOptions);
+      if (generation !== this.lifecycleGeneration) {
+        server?.close(); // Only the SDK-spawned handle; an attachment has none.
+        throw new Error('Engine initialization was disposed');
+      }
       logger.info(`[Opencode][timing] createOpencode (engine spawn) took ${Date.now() - t5}ms`);
 
       this.client = client;
       this.server = server;
+      this.attachedEngineUrl = attachment;
       this.status = 'ready';
       this.error = null;
       logger.info('[OpencodeClientService] SDK initialized');
@@ -1888,11 +1925,19 @@ export class OpencodeClientService {
       // createOpencode() starts a clean server that doesn't auto-load it.
       const t6 = Date.now();
       await this.restoreAuth();
+      if (generation !== this.lifecycleGeneration) throw new Error('Engine initialization was disposed');
       logger.info(`[Opencode][timing] restoreAuth took ${Date.now() - t6}ms`);
 
       this._engineReadyAt = Date.now();
       logger.info(`[Opencode][timing] total _initializeImpl took ${Date.now() - t0}ms`);
     } catch (err) {
+      this.attachedEngineUrl = null;
+      if (this.server) {
+        try { this.server.close(); } catch (closeError) { logger.error('Spawned engine cleanup failed:', closeError); }
+      }
+      this.server = null;
+      this.client = null;
+      if (generation !== this.lifecycleGeneration) return;
       this.status = 'error';
       this.error = err instanceof Error ? err : new Error(String(err));
       logger.error(
@@ -1908,6 +1953,7 @@ export class OpencodeClientService {
    * the file — without this, session.create() returns "Unauthorized".
    */
   private async restoreAuth(): Promise<void> {
+    if(loadQualificationFixtureAuthority())return; // engine uses its existing broker in place; no API credential copy
     const authPath = join(homedir(), '.local', 'share', 'opencode', 'auth.json');
     if (!existsSync(authPath)) return;
     try {
@@ -2017,7 +2063,7 @@ export class OpencodeClientService {
       const providers = raw.data.providers.map((provider) => {
         const models = Object.entries(provider.models ?? {}).map(([key, value]) => {
           const model = value as typeof value & {
-            api?: { id?: string; url?: string };
+            api?: { id?: string; url?: string; npm?: string };
             status?: string;
             capabilities?: ProviderSnapshot['providers'][number]['models'][number]['capabilities'];
             cost?: {
@@ -2054,6 +2100,13 @@ export class OpencodeClientService {
             ...(typeof model.family === 'string' && model.family ? { family: model.family } : {}),
             ...(typeof model.reasoning === 'boolean' ? { reasoning: model.reasoning } : {}),
             variants: model.variants && typeof model.variants === 'object' ? Object.keys(model.variants) : [],
+            ...(typeof model.api?.npm==='string'?{apiNpm:model.api.npm}:{}),
+            variantEffects:Object.fromEntries(Object.entries(model.variants??{}).map(([name,value])=>{
+              const v=value && typeof value==='object'?value as Record<string,unknown>:{};
+              const effort=(x:unknown)=>typeof x==='string' && ['none','minimal','low','medium','high','xhigh','max'].includes(x)?x:undefined;
+              const thinking=v.thinking && typeof v.thinking==='object'?(v.thinking as Record<string,unknown>).type:undefined;
+              return [name,{...(effort(v.reasoningEffort)?{reasoningEffort:effort(v.reasoningEffort)}:{}),...(effort(v.effort)?{effort:effort(v.effort)}:{}),...(thinking==='adaptive'?{thinkingType:'adaptive'}:{})}];
+            })),
             ...(model.capabilities ? {
               capabilities: {
                 input: { text: model.capabilities.input?.text === true },
@@ -2324,6 +2377,7 @@ export class OpencodeClientService {
      * it and retain their established session behavior.
      */
     finiteExecutionPermissions?: readonly FiniteExecutionPermissionRule[],
+    codingWorkerScope?: { proposal: CoordinatorCodingExecutionProposal; role?: 'manager'|'worker'; isCurrent(): boolean },
     // #1222 — root-cause of the discarded-error bug: every failure branch
     // below used to collapse to a bare `null`, so callers (AgentRunner in
     // particular) could only ever report the generic "failed to create
@@ -2491,6 +2545,30 @@ function validFiniteExecutionPermissionRules(
         // broad bypass policy is merged into it.
         body.permission = finiteExecutionPermissions.map((rule) => ({ ...rule }));
       }
+      if (codingWorkerScope) {
+        const p = parseCodingExecutionProposal(codingWorkerScope.proposal);
+        const manager = codingWorkerScope.role === 'manager';
+        if (!p || directory !== p.workspace.canonicalRoot || permissionMode !== (manager?'plan':'default') || !parentSdkSessionId ||
+            managedReadOnly || finiteExecutionPermissions !== undefined || !codingWorkerScope.isCurrent())
+          return { error: 'coding worker scope held' };
+        const paths=await this.client.path.get({query:{directory}});
+        const engineWorktree=paths.data?.worktree;
+        if(paths.error || typeof engineWorktree!=='string' || !isAbsolute(engineWorktree) || !codingWorkerScope.isCurrent())return {error:'coding engine worktree unavailable'};
+        const patterns=(file:string)=>[relative(engineWorktree,resolve(directory,file)),resolve(directory,file)];
+        // Ask candidates only. Expiry/revocation cannot survive in an engine allow cache.
+        body.permission = manager ? [
+          {permission:'*',pattern:'*',action:'deny'},
+          {permission:'rhythm_rhythm_delegate_async',pattern:'*',action:'allow'},
+          {permission:'rhythm_rhythm_delegation_status',pattern:'*',action:'allow'},
+        ] : [
+          { permission: '*',pattern: '*',action: 'deny' },
+          { permission: 'external_directory',pattern: '*',action: 'deny' },
+          ...p.workspace.readablePaths.flatMap(file => patterns(file).map(pattern=>({ permission: 'read',pattern,action: 'ask' }))),
+          ...p.workspace.writablePaths.flatMap(file => ['edit','write'].flatMap(permission => patterns(file).map(pattern=>({ permission,pattern,action: 'ask' })))),
+          { permission: 'bash',pattern: p.command.shellCommand,action: 'ask' },
+        ];
+        body.mcpAllowlist = { servers: [],tools: manager?['rhythm_rhythm_delegate_async','rhythm_rhythm_delegation_status']:[] };
+      }
       // #775 (skill-scope): pass the per-session skill allowlist on the create body.
       // The fork reads `skillAllowlist.skills` to scope the model's available skills.
       const effectiveSkillAllowlist = managedReadOnly ? [] : skillAllowlist;
@@ -2501,6 +2579,7 @@ function validFiniteExecutionPermissionRules(
           effectiveSkillAllowlist.join(',') || '(none)',
         );
       }
+      if (codingWorkerScope && !codingWorkerScope.isCurrent()) return { error: 'coding worker scope held' };
       const raw = await (this.client.session.create as (opts: {
         body: Record<string, unknown>;
         query?: { directory?: string };
@@ -3054,6 +3133,7 @@ function validFiniteExecutionPermissionRules(
       return null;
     }
     try {
+      qualificationSdkAttempt(sessionId);
       const raw = await this.client.session.prompt(requestArgs);
       if (raw.error || !raw.data) {
         settleDispatch(dispatchId, 'rejected');
@@ -3099,8 +3179,16 @@ function validFiniteExecutionPermissionRules(
     callback?: CoordinatorCallbackPromptDispatchContext,
     approvalResume?: CoordinatorApprovalResumePromptDispatchContext,
     codingWorkflow?: CodingWorkflowPromptDispatchContext,
+    codingExecutionCurrent?: () => boolean,
+    codingExecutionReceipt?: {
+      engine: OpencodeEngineIdentity | null;
+      onPrepared(binding: {dispatchId:string;sdkUserMessageId:string}): boolean;
+      onOutcome(outcome: 'accepted'|'rejected'|'unknown'): void;
+    },
   ): Promise<boolean> {
     if (!this.client) return false;
+    if (codingExecutionCurrent && (managed || foreground || callback || approvalResume || codingWorkflow || !codingExecutionCurrent())) return false;
+    if (codingExecutionReceipt && !codingExecutionCurrent) return false;
     if (foreground && (managed || !isCoordinatorForegroundPromptContext(foreground, sessionId, provenance))) {
       return false;
     }
@@ -3245,7 +3333,7 @@ function validFiniteExecutionPermissionRules(
         : await this.mintCallbackDayflowAnchor(sessionId, directory);
       if (anchor === 'missing') return false;
       dayflowMessageID = anchor ?? undefined;
-    } else if (!managed && !approvalResume && !codingWorkflow) {
+    } else if (!managed && !approvalResume && !codingWorkflow && !codingExecutionReceipt) {
       dayflowMessageID = await this.maybeMintDayflowPromptAnchor(
         sessionId,
         directory,
@@ -3253,6 +3341,9 @@ function validFiniteExecutionPermissionRules(
         foregroundMessageID,
       );
     }
+    const codingMessageID = codingExecutionReceipt
+      ? await this.mintPromptAnchor(sessionId, directory).catch(() => null) : null;
+    if (codingExecutionReceipt && !codingMessageID) return false;
     // OPC-M4-1: use the caller-supplied parts array when present; otherwise
     // fall back to a single text part so all existing call-sites are unchanged.
     const sdkParts: Array<import('@opencode-ai/sdk').PartInput> = parts && parts.length > 0
@@ -3264,7 +3355,7 @@ function validFiniteExecutionPermissionRules(
         model,
         parts: sdkParts,
         ...(opts ?? {}),
-        ...(managedMessageID ? { messageID: managedMessageID } : foregroundMessageID ? { messageID: foregroundMessageID } : approvalMessageID ? { messageID: approvalMessageID } : workflowMessageID ? { messageID: workflowMessageID } : dayflowMessageID ? { messageID: dayflowMessageID } : {}),
+        ...(codingMessageID ? { messageID: codingMessageID } : managedMessageID ? { messageID: managedMessageID } : foregroundMessageID ? { messageID: foregroundMessageID } : approvalMessageID ? { messageID: approvalMessageID } : workflowMessageID ? { messageID: workflowMessageID } : dayflowMessageID ? { messageID: dayflowMessageID } : {}),
       },
       ...(directory ? { query: { directory } } : {}),
     };
@@ -3325,6 +3416,13 @@ function validFiniteExecutionPermissionRules(
       } catch {
         return false;
       }
+    }
+    if (codingExecutionReceipt) {
+      try {
+        if (!codingExecutionCurrent?.() || !provenance || !codingMessageID) return false;
+        dispatchId = modelProvenanceRepo.insert({ ...provenance, sdkUserMessageId: codingMessageID }).id;
+        if (!codingExecutionReceipt.onPrepared({ dispatchId, sdkUserMessageId: codingMessageID })) return false;
+      } catch { return false; }
     }
     if (!dispatchId && codingWorkflow) {
       try {
@@ -3474,6 +3572,7 @@ function validFiniteExecutionPermissionRules(
       }
     }
     const exportWorkflowOutcome = (delivery: 'accepted' | 'unknown' | 'rejected'): void => {
+      codingExecutionReceipt?.onOutcome(delivery);
       if (!codingWorkflow) return;
       try {
         codingWorkflow.onOutcome({ delivery, dispatchId: dispatchId!, sdkUserMessageId: workflowMessageID! });
@@ -3482,6 +3581,17 @@ function validFiniteExecutionPermissionRules(
       }
     };
     try {
+      if (codingExecutionReceipt && JSON.stringify(await this.getEngineIdentity()) !== JSON.stringify(codingExecutionReceipt.engine)) {
+        exportWorkflowOutcome('rejected');
+        return false;
+      }
+      if (codingExecutionCurrent && !codingExecutionCurrent()) {
+        settleDispatch(dispatchId, 'rejected');
+        exportWorkflowOutcome('rejected');
+        return false;
+      }
+      codingExecutionReceipt?.onOutcome('unknown'); // Exposure ambiguity durable BEFORE the awaited SDK request.
+      qualificationSdkAttempt(sessionId);
       const raw = await this.client.session.promptAsync(requestArgs);
       if (raw.error) {
         settleDispatch(dispatchId, 'rejected');
@@ -3524,7 +3634,7 @@ function validFiniteExecutionPermissionRules(
       // A thrown transport error after the request left is NOT proof it was
       // refused: the Coding Workflow adapter keeps it `unknown`. Every other
       // caller keeps its existing rejected settlement.
-      settleDispatch(dispatchId, codingWorkflow ? 'unknown' : 'rejected');
+      settleDispatch(dispatchId, codingWorkflow || codingExecutionReceipt ? 'unknown' : 'rejected');
       exportWorkflowOutcome('unknown');
       logger.error(`[OpencodeClientService] promptAsync failed for session ${sessionId}:`, err);
       return false;
@@ -3973,7 +4083,8 @@ function validFiniteExecutionPermissionRules(
     sdkSessionId: string,
     directory?: string,
   ): Promise<string | null> {
-    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    const ownedUrl = this.hasOwnedEngine ? this.serverUrl : undefined;
+    const generation = this.lifecycleGeneration;
     if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' || !ownedUrl || !sdkSessionId) return null;
     const query = directory ? `?directory=${encodeURIComponent(directory)}` : '';
     try {
@@ -3983,6 +4094,7 @@ function validFiniteExecutionPermissionRules(
       );
       if (!response.ok) return null;
       const value = await response.json() as Record<string, unknown>;
+      if (generation !== this.lifecycleGeneration || !this.hasOwnedEngine) return null;
       if (
         Object.keys(value).length !== 1 ||
         typeof value.messageID !== 'string' ||
@@ -4011,7 +4123,8 @@ function validFiniteExecutionPermissionRules(
     toolCallId: string,
     directory?: string,
   ): Promise<ManagedActiveToolCall | null> {
-    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    const ownedUrl = this.hasOwnedEngine ? this.serverUrl : undefined;
+    const generation = this.lifecycleGeneration;
     if (
       process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' ||
       !ownedUrl ||
@@ -4028,6 +4141,7 @@ function validFiniteExecutionPermissionRules(
       );
       if (!response.ok) return null;
       const value = await response.json() as Record<string, unknown>;
+      if (generation !== this.lifecycleGeneration || !this.hasOwnedEngine) return null;
       const keys = [
         'sdkSessionId', 'assistantId', 'userMessageId', 'partId', 'toolCallId',
         'toolKey', 'agentName', 'serverName', 'toolName',
@@ -4063,9 +4177,14 @@ function validFiniteExecutionPermissionRules(
     return this.getManagedActiveToolCall(sdkSessionId, assistantId, toolCallId, directory);
   }
 
-  /** Base URL of the spawned opencode server (falls back to the default port). */
+  /** Validated attachment transport is independent of a spawned close handle. */
   private get serverUrl(): string {
-    return this.server?.url ?? 'http://127.0.0.1:4096';
+    if (this.hasOwnedEngine) return this.attachedEngineUrl ?? this.server!.url;
+    if (process.env.RHYTHM_SANDBOX_ATTACH_ENGINE_PID !== undefined || process.env.RHYTHM_SANDBOX_DIR ||
+        process.argv?.some(arg => arg.startsWith('--rhythm-sandbox='))) {
+      throw new Error('Sandbox engine transport has no verified binding');
+    }
+    return 'http://127.0.0.1:4096';
   }
 
   /** Test-only seam (mirrors {@link __setTestClient}) for the v2 SDK client. */
@@ -4223,17 +4342,21 @@ function validFiniteExecutionPermissionRules(
    */
   async getSessionStatuses(
     directory?: string,
+    strict=false,
   ): Promise<Record<string, { type: string }>> {
     const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
     try {
       const res = await fetch(`${this.serverUrl}/session/status${qs}`);
       if (!res.ok) {
+        if(strict)throw new Error('owned session status unavailable');
         logger.warn('[OpencodeClientService] getSessionStatuses HTTP %s', res.status);
         return {};
       }
       const data = (await res.json()) as Record<string, { type: string }>;
+      if(strict && (!completeSessionStatusMap(data) || Object.entries(data).some(([id,status])=>{const retry=status as {type:string;attempt?:unknown;next?:unknown;message?:unknown};return !id.startsWith('ses') || !['idle','busy','retry'].includes(status.type) || (status.type==='retry' && (!Number.isSafeInteger(retry.attempt) || Number(retry.attempt)<0 || !Number.isSafeInteger(retry.next) || Number(retry.next)<0 || typeof retry.message!=='string'));})))throw new Error('owned session status invalid');
       return data && typeof data === 'object' ? data : {};
     } catch (err) {
+      if(strict)throw err;
       logger.error('[OpencodeClientService] getSessionStatuses failed:', err);
       return {};
     }
@@ -4930,6 +5053,7 @@ function validFiniteExecutionPermissionRules(
     };
     assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session fork');
     await this.assertDayflowSdkHistoryMayBeReused(sdkId);
+    qualificationSdkAttempt(sdkId);
     const raw = await client.session.fork(request);
     if (raw.error || !raw.data) {
       throw new AppError(
@@ -5036,6 +5160,23 @@ function validFiniteExecutionPermissionRules(
     } catch {
       return null;
     }
+  }
+
+  /** Unknown pending-gate state is not an empty permission/question list. */
+  async codingPendingGateState(sdkId: string, directory: string): Promise<{pending:boolean}|null> {
+    if (!this.hasOwnedEngine) return null;
+    try {
+      let pending = false;
+      for (const route of ['permission','question']) {
+        const response = await fetch(`${this.serverUrl}/${route}?directory=${encodeURIComponent(directory)}`,
+          {redirect:'error',signal:AbortSignal.timeout(5000)});
+        if (!response.ok) return null;
+        const list: unknown = await response.json();
+        if (!Array.isArray(list) || list.some(item => !item || typeof item !== 'object' || typeof item.sessionID !== 'string')) return null;
+        if (list.some(item => item.sessionID === sdkId)) pending = true;
+      }
+      return {pending};
+    } catch { return null; }
   }
 
   /**
@@ -5893,6 +6034,15 @@ function validFiniteExecutionPermissionRules(
    *
    * Does NOT throw — callers use the null signal to distinguish gone vs. error.
    */
+  /** Actual owned engine filesystem root; no suffix-pattern inference. */
+  async resolveCodingPermissionPattern(directory:string,pattern:string):Promise<string|null>{
+    if(!this.client || !directory || !pattern || pattern.includes('\\') || pattern.split('/').some(x=>x==='..' || x==='.') || pattern.includes('\0'))return null;
+    const result=await this.client.path.get({query:{directory}});
+    const worktree=result.data?.worktree;
+    if(result.error || typeof worktree!=='string' || !isAbsolute(worktree))return null;
+    return isAbsolute(pattern)?resolve(pattern):resolve(worktree,pattern);
+  }
+
   async getSession(
     sdkId: string,
   ): Promise<import('@opencode-ai/sdk').Session | null> {
@@ -5967,6 +6117,9 @@ function validFiniteExecutionPermissionRules(
   }
 
   dispose(): void {
+    this.lifecycleGeneration++;
+    this.attachedEngineUrl = null;
+    this._shuttingDown = true;
     if (this.status === 'uninitialized' && this.client === null && this.server === null) {
       return; // Already disposed — no-op.
     }

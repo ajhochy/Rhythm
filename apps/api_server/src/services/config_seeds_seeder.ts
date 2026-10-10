@@ -1,3 +1,4 @@
+import { loadQualificationFixtureAuthority } from './qualification_fixture_authority';
 /**
  * config_seeds_seeder.ts — boot-time seeding of the opencode/Rhythm config
  * assets that ship in `apps/api_server/config_seeds/` onto disk under
@@ -85,7 +86,8 @@ export function configSeedsSourceDir(): string | null {
 
 /** Absolute path to the seeded config-doctor tools dir (~/.config/opencode/tools). */
 export function seededToolsDir(): string {
-  return join(homedir(), ".config", "opencode", "tools");
+  const fixture=loadQualificationFixtureAuthority();
+  return fixture?join(fixture.fixtureRoot,"opencode-config","tools"):join(homedir(), ".config", "opencode", "tools");
 }
 
 /** Default run-once check: a `schema_meta` marker row exists for {@link CONFIG_SEEDS_MARKER}. */

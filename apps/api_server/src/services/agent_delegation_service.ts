@@ -1,3 +1,4 @@
+import { codingEffortVariant } from './coordinator_coding_effort';
 import { syncAutoAccountSessionProvenance } from './decision/capacity_router';
 import { AppError } from '../errors/app_error';
 import {
@@ -20,6 +21,7 @@ import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { isInteractiveChatSession } from './opencode_client_service';
 import { resolveProfileScope } from './agent_profile_scope';
 import { listAgentModelCatalog } from '../routes/agents_models_routes';
+import { codingGrantDelegation } from './coordinator_coding_grant_permission';
 
 /**
  * Server-only input for ONE fixed Coding Workflow child (G2 first adapter). It
@@ -328,8 +330,8 @@ export async function delegateToAgentAsync(
   }
   // A specialist's profile supplies its tools, but dispatch must not turn an
   // interactive parent's selected permission mode into an automatic bypass.
-  const permissionMode = callerSession.permissionMode;
-  if (!['default', 'plan', 'acceptEdits', 'bypassPermissions'].includes(permissionMode)) {
+  const callerPermissionMode = callerSession.permissionMode;
+  if (!['default', 'plan', 'acceptEdits', 'bypassPermissions'].includes(callerPermissionMode)) {
     throw AppError.forbidden('caller permission mode is invalid');
   }
   /** The canonical root row's CURRENT project, re-read each call (never the initial snapshot). */
@@ -337,7 +339,7 @@ export async function delegateToAgentAsync(
   const assertPermissionScopeCurrent = (): void => {
     const current = sessionRepo.findById(callerSessionId);
     if (!current || current.ownerUserId !== input.authenticatedUserId ||
-        current.permissionMode !== permissionMode) {
+        current.permissionMode !== callerPermissionMode) {
       throw AppError.forbidden('caller permission scope changed during async delegation');
     }
   };
@@ -361,6 +363,11 @@ export async function delegateToAgentAsync(
   if (!parentSdkSessionId) {
     throw AppError.badRequest('caller session is not attached to the engine');
   }
+  const coding = codingGrantDelegation(callerSession.id,parentSdkSessionId,input.authenticatedUserId);
+  if (coding && (callerPermissionMode !== 'plan' || input.codingWorkflow || input.isolateWorktree || input.model !== undefined ||
+      callerSession.projectId !== coding.scope.projectId || callerSession.cwd !== coding.proposal.workspace.canonicalRoot ||
+      targetId !== (coding.role === 'manager' ? 'workflow-orchestrator' : 'coding-agent'))) throw AppError.forbidden('coding delegation held');
+  const permissionMode = coding?.role === 'worker' ? 'default' : callerPermissionMode;
 
   const childDepth = nextDelegationDepth(callerSession.delegationDepth);
 
@@ -396,6 +403,11 @@ export async function delegateToAgentAsync(
   requireExecutableProfile(configRepo, targetId, 'target');
   const profileScope = await resolveProfileScope(targetId);
   const runModel = modelOverride ?? profileScope.model;
+  if (coding) {
+    const expected = coding.proposal.chain[coding.role];
+    if (runModel.providerID !== expected.providerId || runModel.modelID !== expected.modelId || !coding.current())
+      throw AppError.forbidden('coding model scope held');
+  }
   const skillNames = parseSkillNames(profileScope.allowedSkillsJson);
   const scopedPrompt = input.context?.trim()
     ? `${input.context.trim()}\n\n${prompt}`
@@ -459,7 +471,10 @@ export async function delegateToAgentAsync(
     }
     assertPermissionScopeCurrent();
   }
-  const childSession = await opencodeClient.createSession(
+  if (coding && !(coding.role === 'manager' ? coding.journal.reserveManagerAllocation(coding.scope,coding.current) :
+      coding.journal.reserveWorker(coding.scope,callerSession.id,parentSdkSessionId,coding.current)))
+    throw AppError.forbidden('coding allocation already reserved or held');
+  const childArguments = [
     childTitle,
     effectiveCwd,
     profileScope.mcpRoleConfig ?? undefined,
@@ -472,7 +487,10 @@ export async function delegateToAgentAsync(
     // caller is — always, past the gate above. A manager child must also
     // delegate named profiles via rhythm_delegate_async.
     isInteractiveChatSession(callerSession),
-  );
+  ] as const;
+  const childSession = coding
+    ? await opencodeClient.createSession(...childArguments,false,undefined,{ proposal: coding.proposal,role:coding.role,isCurrent: coding.current })
+    : await opencodeClient.createSession(...childArguments);
   if (!childSession?.id) {
     throw AppError.internal('failed to create async delegated child session');
   }
@@ -482,7 +500,8 @@ export async function delegateToAgentAsync(
     parentSdkSessionId,
     childTitle,
     effectiveCwd,
-    profileScope.mcpRoleConfig?.allowedToolsJson ?? null,
+    coding ? JSON.stringify(coding.role==='manager'?{rhythm:['rhythm_delegate_async','rhythm_delegation_status']}:{})
+      : profileScope.mcpRoleConfig?.allowedToolsJson ?? null,
   );
   if (childRow) syncAutoAccountSessionProvenance(childRow);
   if (!childRow) {
@@ -492,6 +511,11 @@ export async function delegateToAgentAsync(
 
   opencodeSessionMap.set(childRow.id, childSession.id);
   sessionRepo.updatePermissionMode(childRow.id, permissionMode);
+  if(coding)sessionRepo.updateFields(childRow.id,{profileId:targetId as NonNullable<typeof childRow.profileId>,providerId:coding.proposal.chain[coding.role].providerId,modelId:coding.proposal.chain[coding.role].modelId,modelMode:'fixed',routerVariant:coding.proposal.chain[coding.role].reasoningEffort});
+  if (coding) sessionRepo.setMcpScope(childRow.id,targetId,
+    JSON.stringify(coding.role==='manager'?{rhythm:['rhythm_delegate_async','rhythm_delegation_status']}:{}));
+  if (coding && (!coding.current() || !coding.journal.bindChild(coding.scope,coding.role,childRow.id,childSession.id,effectiveCwd)))
+    throw AppError.forbidden('coding child binding held');
   sessionRepo.updateStatus(childRow.id, 'working');
 
   const delegationRepo = new AgentAsyncDelegationsRepository();
@@ -508,6 +532,10 @@ export async function delegateToAgentAsync(
       targetAgentConfigId: targetId,
     }).id;
     delegationPersisted = true;
+    if (coding && (!coding.journal.bindDelegation(coding.scope,coding.role,delegationId) ||
+        !delegationRepo.bindCoding(delegationId,coding.scope.sessionId,coding.scope.commandKey,coding.role))) {
+      throw AppError.forbidden('coding async operation binding held');
+    }
 
     // Subscribe before enqueue so a very fast child cannot finish before the
     // bridge has a route for its first message/status event.
@@ -525,8 +553,10 @@ export async function delegateToAgentAsync(
 
     // The receipt names the exact engine process that will receive the request;
     // without a current identity nothing is sent.
+    let codingVariant:string|null=null;
+    if(coding){codingVariant=codingEffortVariant(coding.proposal.chain[coding.role],await opencodeClient.providerSnapshot());if(!codingVariant || !coding.current())throw AppError.forbidden('coding effort scope held');}
     let engineIdentity: Awaited<ReturnType<typeof opencodeClient.getEngineIdentity>> = null;
-    if (workflow) {
+    if (workflow || coding) {
       engineIdentity = await opencodeClient.getEngineIdentity();
       if (!engineIdentity) throw AppError.internal('engine identity unavailable for coding workflow dispatch');
     }
@@ -535,6 +565,7 @@ export async function delegateToAgentAsync(
       profileScope.ocAgent !== null && profileScope.ocAgent === targetId;
     const promptOpts: Record<string, unknown> = {
       permissionMode,
+      ...(codingVariant?{variant:codingVariant}:{}),
       ...(profileScope.ocAgent ? { agent: profileScope.ocAgent } : {}),
       ...(profileScope.systemPrompt && !runningAsOwnAgent
         ? { system: profileScope.systemPrompt }
@@ -564,6 +595,16 @@ export async function delegateToAgentAsync(
       },
     ] as const;
     // Calls without the typed input keep their exact original argument list.
+    let codingClockStarted = false;
+    const codingExecutionCurrent = coding ? () => {
+      assertPermissionScopeCurrent();
+      if (!coding.current() || sessionRepo.findById(childRow.id)?.permissionMode !== permissionMode) return false;
+      if (!codingClockStarted) {
+        if (!coding.journal.startClock(coding.scope,coding.role,coding.current)) return false;
+        codingClockStarted = true;
+      }
+      return true;
+    } : undefined;
     const enqueued = workflow
       ? await opencodeClient.promptAsync(
         ...promptHead,
@@ -645,7 +686,13 @@ export async function delegateToAgentAsync(
           },
         },
       )
-      : await opencodeClient.promptAsync(...promptHead);
+      : codingExecutionCurrent
+        ? await opencodeClient.promptAsync(...promptHead,undefined,undefined,undefined,undefined,undefined,codingExecutionCurrent, {
+          engine: engineIdentity,
+          onPrepared: binding => coding!.current() && coding!.journal.recordPrepared(coding!.scope,coding!.role,binding,engineIdentity),
+          onOutcome: outcome => { deliveryOutcome=outcome; coding!.journal.recordOutcome(coding!.scope,coding!.role,outcome); },
+        })
+        : await opencodeClient.promptAsync(...promptHead);
     if (workflow) {
       const prepared = preparedBinding as { dispatchId: string; sdkUserMessageId: string } | null;
       const delivery = deliveryOutcome as 'accepted' | 'unknown' | 'rejected' | null;
@@ -685,6 +732,11 @@ export async function delegateToAgentAsync(
     // An unknown workflow delivery leaves the delegation/child dispatched: the
     // engine may be running it, so it is neither failed nor completed here.
     if (error instanceof CodingWorkflowDeliveryUnknownError) throw error;
+    if (coding && (deliveryOutcome as string | null) === 'unknown') {
+      // The exact exposed anchor is unresolved, not failed/nonadmitted. Keep the
+      // one allocation/async slot; recovery may inspect, never re-prompt/create.
+      throw AppError.internal('coding dispatch acceptance unknown; operation held');
+    }
     const failure = dispatchFailureMessage(error);
     if (delegationPersisted) {
       delegationRepo.markDispatchFailed(childRow.id, failure);

@@ -1,4 +1,5 @@
 import { getDb } from '../database/db';
+import { createHash } from 'node:crypto';
 import { hostPartAttachments } from '../services/attachment_hosting';
 import type { AgentSessionMessage, StructuredAgentSessionMessage } from '../models/agent_session';
 import {
@@ -133,6 +134,50 @@ export class AgentSessionMessagesRepository {
       SELECT COALESCE(stripped_text, raw_text) AS text FROM agent_session_messages
       WHERE session_id = ? AND role = 'input' ORDER BY id DESC LIMIT ?
     `).all(sessionId, bounded) as Array<{ text: string }>).map(row => row.text);
+  }
+
+  /** Server-local work result; canonical row+operation association+relay dirty are ONE transaction. */
+  appendCodingResult(delegationId:string, scope:{ownerUserId:number;projectId:string}): AgentSessionMessage|null {
+    const db=getDb();
+    return db.transaction(()=>{
+      const operation=db.prepare(`SELECT a.*,s.owner_user_id AS root_owner,s.project_id AS root_project,s.status AS root_status
+        FROM agent_async_delegations a JOIN agent_sessions s ON s.id=a.coding_root_session_id WHERE a.id=?`)
+        .get(delegationId) as Record<string,unknown>|undefined;
+      if (!operation || operation.root_owner!==scope.ownerUserId || operation.root_project!==scope.projectId) throw new Error('foreign coding result scope');
+      if (!['coding_root_v1','delivery_only_v1'].includes(String(operation.coding_delivery_mode)) ||
+          !operation.coding_operation_key || !operation.coding_result_receipt_json) return null;
+      if (['starting','working'].includes(String(operation.root_status))) return null;
+      if (operation.coding_test_hold_json && JSON.parse(String(operation.coding_test_hold_json)).held===true) return null;
+      if (operation.coding_delivery_mode==='coding_root_v1' && !operation.coding_terminal_json && !['failed','cancelled'].includes(String(operation.status))) return null;
+      const receipt=JSON.parse(String(operation.coding_result_receipt_json));
+      if (!['coding_result_v1','delivery_only_v1'].includes(receipt.kind)) throw new Error('untrusted result receipt kind');
+      const root=String(operation.coding_root_session_id),key=String(operation.coding_operation_key);
+      const localKey='rhythm-work-result-v1:'+createHash('sha256').update(JSON.stringify([root,key,'work_result'])).digest('hex');
+      const fileLines=(Array.isArray(receipt.files)?receipt.files:[]).slice(0,4).map((f:{path?:string;sha256?:string;mode?:number})=>
+        `${String(f.path??'unknown').slice(0,256)} sha256=${String(f.sha256??'unknown').slice(0,64)} mode=${f.mode??'unknown'}`);
+      const checkLines=(Array.isArray(receipt.checks)?receipt.checks:[]).slice(0,7).map((c:{id?:string;passed?:boolean})=>`${String(c.id??'unknown').slice(0,128)}: ${c.passed===true?'passed':c.passed===false?'failed':'unverified'}`);
+      const body=['[Server-local work result — no model turn]',`Operation: ${key.slice(0,256)}`,
+        receipt.kind==='delivery_only_v1'?'delivery-only fixture: execution and verification not_exercised':'Coding execution facts; independent server verification only',
+        `Control: ${String(operation.status)}`,`Execution: ${String(receipt.execution??'unknown').slice(0,64)}`,
+        `Verification: ${String(receipt.verification??'unverified').slice(0,64)}`,
+        ...(typeof receipt.summary==='string'?['Changes: '+receipt.summary.slice(0,1000)]:[]),'Files:',...fileLines,'Checks:',...checkLines,`Usage: ${receipt.usage?JSON.stringify(receipt.usage).slice(0,1000):'unknown; not zero'}`,
+        'Limits:',...(Array.isArray(receipt.limits)?receipt.limits:[]).slice(0,8).map((v:unknown)=>String(v).slice(0,512))].join('\n').slice(0,8000);
+      const parts=JSON.stringify([{type:'text',text:body},{type:'work_result',source:'SERVER_LOCAL',operationKey:key,localEventKey:localKey}]);
+      const info=JSON.stringify({source:'SERVER_LOCAL',kind:'work_result',operationKey:key,localEventKey:localKey});
+      const existing=db.prepare('SELECT id,raw_text FROM agent_session_messages WHERE session_id=? AND local_event_key=?').get(root,localKey) as {id:number;raw_text:string}|undefined;
+      if (existing?.raw_text===body && Number(operation.result_message_id)===existing.id) {
+        return rowToModel(db.prepare('SELECT * FROM agent_session_messages WHERE id=?').get(existing.id) as AgentSessionMessageRow);
+      }
+      let id=existing?.id;
+      if (id) db.prepare(`UPDATE agent_session_messages SET raw_text=?,stripped_text=?,parts_json=?,info_json=? WHERE id=? AND sdk_message_id IS NULL`)
+        .run(body,body,parts,info,id);
+      else id=Number(db.prepare(`INSERT INTO agent_session_messages(session_id,role,raw_text,stripped_text,parts_json,info_json,local_event_key,sdk_message_id)
+        VALUES(?,'output',?,?,?,?,?,NULL)`).run(root,body,body,parts,info,localKey).lastInsertRowid);
+      if (db.prepare('UPDATE agent_async_delegations SET result_message_id=? WHERE id=? AND (result_message_id IS NULL OR result_message_id=?)')
+        .run(String(id),delegationId,String(id)).changes!==1) throw new Error('contradictory result message association');
+      appendRelayPrimaryRootUpsert(db,root);
+      return rowToModel(db.prepare('SELECT * FROM agent_session_messages WHERE id=?').get(id) as AgentSessionMessageRow);
+    }).immediate();
   }
 
   /** Latest persisted agent-message timestamp across all sessions. */

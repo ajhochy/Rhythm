@@ -270,6 +270,9 @@ await buildAndStageApprovalHelper({ electronRoot, resources });
 await mkdir(resolve(packagedApp, 'src'), { recursive: true });
 await mkdir(packagedShared, { recursive: true });
 await mkdir(packagedApiServer, { recursive: true });
+const sourceRevision = (await run('git', ['rev-parse', 'HEAD'], { cwd: electronRoot })).stdout.trim();
+if (!/^[a-f0-9]{40}$/.test(sourceRevision)) throw new Error('packaged source identity unavailable');
+await writeFile(resolve(packagedApiServer, 'build-identity.json'), `${JSON.stringify({schemaVersion:1,sourceRevision})}\n`);
 await mkdir(packagedMcpServer, { recursive: true });
 await Promise.all([
   // Ship every runtime module in src/ (the renderer and main load them by path and import);

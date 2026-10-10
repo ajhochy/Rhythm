@@ -94,13 +94,16 @@ function LiveProvenance({ sessionId }: { sessionId: string }) {
  */
 export function LiveModelProvenance({ sessionId }: { sessionId: string }) {
   const api = useGateway().domains.inspector;
+  const { sessions } = useFixtures();
+  const session = sessions.find(item => item.id === sessionId);
+  const observedRevision = [session?.status, session?.updatedAt, session?.messages.length, session?.messages.at(-1)?.id, session?.model].join(':');
   const [data, setData] = useState<ModelProvenance | null>(null);
   const [error, setError] = useState(false);
   const [revision, refresh] = useState(0);
   useEffect(() => { let active = true; setError(false); setData(null);
     api?.modelProvenance(sessionId).then(value => { if (active) setData(value); }).catch(() => { if (active) setError(true); });
     return () => { active = false; };
-  }, [api, sessionId, revision]);
+  }, [api, sessionId, revision, observedRevision]);
   return <section className="memory-provenance" aria-label="Model provenance" data-testid="model-provenance">
     <h3>Served by</h3>
     {!api || error ? <p role="alert">Served-model provenance unavailable.</p> : !data ? <p role="status">Loading served models…</p> : !data.available ? (

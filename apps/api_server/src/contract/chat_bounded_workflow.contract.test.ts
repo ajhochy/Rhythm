@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+const { finishFixture } = require('../__tests__/helpers/preserved_fixture.cjs');
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { sdkPromptAsync, sdkMcpStatus, sdkMcpConnect } = vi.hoisted(() => ({
@@ -283,9 +284,12 @@ describe('chat bounded Coding Workflow API acceptance contract', () => {
     else process.env.MEMORY_VAULT_SUBDIR = priorMemorySubdir;
     homeSpy?.mockRestore();
     homeSpy = undefined;
-    if (memoryDir) await rm(memoryDir, { recursive: true, force: true });
-    await http?.close();
-    db?.close();
+    try {
+      if (memoryDir) await finishFixture(memoryDir, () => rm(memoryDir, { recursive: true, force: true }));
+    } finally {
+      await http?.close();
+      db?.close();
+    }
   });
 
   const post = (path: string, body: unknown) => fetch(`${http.baseUrl}${path}`, {

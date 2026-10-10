@@ -196,6 +196,7 @@ export class AgentAsyncDelegationsRepository {
         .prepare(
           `SELECT * FROM agent_async_delegations
             WHERE parent_session_id = ? AND status = 'completed'
+              AND COALESCE(coding_delivery_mode,'') NOT IN ('coding_root_v1','delivery_only_v1')
             ORDER BY created_at ASC, id ASC`,
         )
         .all(parentSessionId) as AgentAsyncDelegationRow[];
@@ -240,9 +241,17 @@ export class AgentAsyncDelegationsRepository {
     const bounded = Math.max(1, Math.min(100, Math.floor(limit)));
     const rows = getDb()
       .prepare(
-        `SELECT parent_session_id
-           FROM agent_async_delegations
-          WHERE status = 'waking'
+        `SELECT parent_session_id FROM (
+          SELECT parent_session_id FROM agent_async_delegations
+          WHERE (status = 'waking' OR
+            (coding_delivery_mode IS NOT NULL AND result_message_id IS NULL
+             AND status IN ('dispatched','completed','failed','cancelled')))
+          UNION SELECT c.root_session_id AS parent_session_id FROM coordinator_conversation_commands c
+          WHERE c.allocation_intent_at IS NOT NULL AND c.child_session_id IS NULL AND
+            (c.coding_grant_json IS NOT NULL OR EXISTS(SELECT 1 FROM coordinator_conversation_commands p
+              WHERE p.root_session_id=c.root_session_id AND p.command_key=c.parent_command_key AND p.coding_grant_json IS NOT NULL))
+          )
+          WHERE 1=1
             AND (? IS NULL OR parent_session_id > ?)
           GROUP BY parent_session_id
           ORDER BY parent_session_id ASC
@@ -263,6 +272,30 @@ export class AgentAsyncDelegationsRepository {
       )
       .get() as { count: number };
     return row.count;
+  }
+
+  bindCoding(id: string, root: string, operation: string, role: 'manager' | 'worker'): boolean {
+    return getDb().prepare(`UPDATE agent_async_delegations SET coding_delivery_mode=?,coding_root_session_id=?,coding_operation_key=?
+      WHERE id=? AND coding_delivery_mode IS NULL`).run(role === 'manager' ? 'coding_root_v1' : 'coding_worker_v1', root, operation, id).changes === 1;
+  }
+
+  /** One immutable server-qualified execution fact, never a verification verdict. */
+  recordCodingTerminal(id: string, fact: unknown): boolean {
+    const raw = JSON.stringify(fact);
+    const db = getDb();
+    const row = db.prepare('SELECT coding_terminal_json FROM agent_async_delegations WHERE id=?').get(id) as {coding_terminal_json:string|null}|undefined;
+    if (!row) return false;
+    if (row.coding_terminal_json) return row.coding_terminal_json === raw;
+    return db.prepare(`UPDATE agent_async_delegations SET coding_terminal_json=?,
+      status=CASE WHEN status='dispatched' THEN 'completed' ELSE status END,
+      completed_at=COALESCE(completed_at,?),updated_at=? WHERE id=? AND coding_terminal_json IS NULL
+      AND coding_delivery_mode IS NOT NULL`).run(raw,new Date().toISOString(),new Date().toISOString(),id).changes === 1;
+  }
+
+  listCodingRecoveryChildren(parent: string, after = '', limit = 100): Array<{id:string;child_session_id:string}> {
+    return getDb().prepare(`SELECT id,child_session_id FROM agent_async_delegations
+      WHERE parent_session_id=? AND coding_delivery_mode IS NOT NULL AND coding_terminal_json IS NULL
+      AND id>? ORDER BY id LIMIT ?`).all(parent,after,Math.max(1,Math.min(100,limit))) as Array<{id:string;child_session_id:string}>;
   }
 
   markNotified(ids: string[]): void {

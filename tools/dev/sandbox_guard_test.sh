@@ -117,7 +117,7 @@ assert_case 'writable source db rejected' fail 'must be read-only' \
 # ── 6. A sandbox dir outside /private/tmp or /var/folders is rejected ──────
 assert_case 'sandbox dir outside temp roots rejected' fail 'RHYTHM_SANDBOX_DIR must resolve under /tmp, /private/tmp, or /var/folders' \
   "RHYTHM_APPROVED_FIXTURE_ROOT=$FIXTURE_ROOT" "RHYTHM_LIVE_DB_PATH=$DB" \
-  "RHYTHM_SANDBOX_OPENCODE_CONFIG=$CONFIG_DIR" "RHYTHM_SANDBOX_DIR=$HOME/not-a-temp-dir"
+  "RHYTHM_SANDBOX_OPENCODE_CONFIG=$CONFIG_DIR" "RHYTHM_SANDBOX_DIR=/Users/not-a-rhythm-sandbox"
 
 # ── 7. A source nested inside the sandbox dir is rejected ──────────────────
 NESTED_ROOT="$SANDBOX_DIR/fixture-root"

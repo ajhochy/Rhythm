@@ -318,7 +318,16 @@ export type AutomaticMemoryQueryMode = 'current' | 'continuation' | 'abstain';
 export function resolveAutomaticMemoryQuery(current: string, priorUserTexts: string[]): {
   mode: AutomaticMemoryQueryMode; query: string; evidenceText: string;
 } {
-  const own = relevanceTokens(current).length;
+  // A pronoun question can carry generic response constraints without naming
+  // a new subject. Count its question only when the complete tail is constraints;
+  // any substantive tail keeps the ordinary standalone topic threshold.
+  const question = /^([^?]+\?)([\s\S]+)$/.exec(current);
+  const constraintTail = question?.[2].replace(
+    /\b(?:keep (?:the )?same (?:read[- ]only|safety|scope) constraints|cite (?:relevant )?(?:remembered )?context if available|answer (?:under|in at most) \d+ words|and)\b/gi,
+    '',
+  ).replace(/[\s,.;]+/g, '');
+  const topic = question && constraintTail === '' ? question[1] : current;
+  const own = relevanceTokens(topic).length;
   const continuationCue = (text: string) => /\b(?:resume|continue|proceed|it|that|this|those)\b|^\s*what about\b/i.test(text);
   const concreteCommand = (text: string) => /^\s*(?:push|deploy|ship|stage|write|draft|revise|edit|fix|run|check|implement|lookup)\b/i.test(text)
     && relevanceTokens(text).length >= 1;

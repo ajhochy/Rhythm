@@ -96,6 +96,15 @@ describe('Slice B automatic relevance contract (synthetic only)', () => {
     expect(resolve('Calibrate violet telescope optics before tonight star party', [prompt]).mode).toBe('current');
   });
 
+  it('B1: generic reply constraints do not turn a pronoun follow-up into a new topic', () => {
+    const resolve = retrieval.resolveAutomaticMemoryQuery;
+    const current = 'And how should it be framed? Keep the same read-only constraints, cite relevant remembered context if available, and answer under 60 words.';
+    expect(resolve(current, [prompt]).mode).toBe('continuation');
+    expect(resolve(current, [prompt]).evidenceText).toBe(`${current}\n${prompt}`);
+    expect(resolve('And how should it be framed? Also compare amber camera sensor dynamic range.', [prompt]).mode).toBe('current');
+    expect(resolve('How should that new camera sensor calibration experiment be framed? Keep the same read-only constraints.', [prompt]).mode).toBe('current');
+  });
+
   it('B3: retriever order ranks admitted notes; word overlap only admits', async () => {
     const first = note('Violet telescope optics need a dew shield.', 'preference/dew-shield.md');
     const second = note('Calibrate violet telescope optics with the amber collimator at dusk.', 'fact/collimator.md');

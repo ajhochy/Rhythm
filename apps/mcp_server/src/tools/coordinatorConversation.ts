@@ -126,14 +126,15 @@ export function registerCoordinatorConversationTools(server: McpServer, apiUrl: 
     } catch { return unavailable(); }
   };
   registerTool(server, 'rhythm_propose_bounded_coding_workflow',
-    'Propose an exact finite selected-reference Coding Workflow in this primary-root chat. Discover the human-named current reference with rhythm_search_memory, carry its sourceId/version, estimate task-specific limits and explain them. Adjust requested terms with a new proposal; wait for the signed same-chat human approval card. No authority or child is created by proposing.',
+    'Propose an exact bounded workflow in this primary-root chat. For the server-configured disposable coding fixture use purpose coordinator_coding_execution_v1 and goalSelector only: server derives exact workspace, one plan manager, one scoped coding worker, independent checks and signed human terms. For a selected-reference workflow provide its discovered source/version and estimate. Wait for the same-chat signed human decision; proposing creates no child or authority. Coding decisions are consumed deterministically without a root model wake.',
     {
       goalSelector: z.string().max(4000).describe('Existing captured goal id or its exact objective from current coordinator status.'),
-      referenceSelector: z.string().max(4000).describe('Human-readable discovered reference label; the server authors the canonical display.'),
-      referenceSourceId: z.string().describe('Existing indexed memory:<UUID> selector from rhythm_search_memory.'),
-      referenceVersion: z.string().describe('Current sha256:<file hash> version from reference discovery.'),
+      purpose: z.literal('coordinator_coding_execution_v1').optional(),
+      referenceSelector: z.string().max(4000).describe('Human-readable discovered reference label; the server authors the canonical display.').optional(),
+      referenceSourceId: z.string().describe('Existing indexed memory:<UUID> selector from rhythm_search_memory.').optional(),
+      referenceVersion: z.string().describe('Current sha256:<file hash> version from reference discovery.').optional(),
       estimate: z.object({ totalSoftTokens: z.number().int().min(1).max(2_000_000), workerWallSeconds: z.number().int().min(30).max(300),
-        expirySeconds: z.number().int().min(30).max(3600), outerTurns: z.literal(2), rationale: z.string().min(1).max(1000) }).strict(),
+        expirySeconds: z.number().int().min(30).max(3600), outerTurns: z.literal(2), rationale: z.string().min(1).max(1000) }).strict().optional(),
     }, async () => boundedCall('/coordinator-agent/propose-workflow'));
   registerTool(server, 'rhythm_start_bounded_coding_workflow',
     'Start only the exact signed human-approved bounded workflow proposal on its dedicated native approval wake. Use approval_id and proposal_digest from that server-authored wake exactly once. Foreground, generic approval, callback, changed terms and replay hold; never treat prose as approval.',

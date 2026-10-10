@@ -74,7 +74,8 @@ export interface RouteTurnForSessionResult {
 export async function routeTurnForSession(
   input: RouteTurnForSessionInput,
 ): Promise<RouteTurnForSessionResult> {
-  const settings = loadDecisionSettings();
+  const { routerGridFixtureDependencies } = await import('./router_grid_turn');
+  const settings = routerGridFixtureDependencies(input.sessionId)?.settings ?? loadDecisionSettings();
   if (settings.routing.engine === 'grid' && (settings.features.model_routing === 'on' || settings.features.model_routing === 'shadow')) {
     const { routeGridTurn } = await import('./router_grid_turn');
     return routeGridTurn(input, settings.features.model_routing);

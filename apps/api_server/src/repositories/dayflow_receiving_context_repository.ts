@@ -8,6 +8,7 @@ import {
 import { parseCoordinatorCallbackMarker } from '../contracts/coordinator_callback_marker';
 import { parseDayflowWorkstreamReferenceV1 } from '../contracts/dayflow_workstream_reference_contract';
 import { CoordinatorConversationsRepository } from './coordinator_conversations_repository';
+import { coordinatorConversationCommands } from '../contracts/coordinator_conversation_contract';
 
 export type DayflowContextUnsafeCode =
   | 'dayflow_dependency_persistence_failure'
@@ -612,7 +613,7 @@ export class DayflowReceivingContextRepository {
         dispatch.origin !== 'delegation_completion' || dispatch.requested_source !== 'agent_config' ||
         dispatch.route_authed !== null || delegationId === null
       ) return null;
-      const command = conversation.conversation.commandDedupe.find((candidate) =>
+      const command = coordinatorConversationCommands(conversation.conversation).find((candidate) =>
         candidate.kind === 'delegate_goal' && candidate.state === 'dispatched' &&
         candidate.delegationId === delegationId && candidate.parentSdkSessionId === scope.sdkSessionId &&
         candidate.targetAgentConfigId === 'workflow-orchestrator' && candidate.childSessionId !== null);

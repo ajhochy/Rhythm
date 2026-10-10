@@ -1,3 +1,4 @@
+import { getDb } from '../database/db';
 import { syncAutoAccountSessionProvenance } from './decision/capacity_router';
 import { broadcast, broadcastSessionUpdated } from './ws_gateway';
 import { opencodeClient } from './opencode_engine';
@@ -29,6 +30,8 @@ import {
 import { CoordinatorConversationsRepository } from '../repositories/coordinator_conversations_repository';
 import { getRelayUplinkClient } from './relay_uplink_runtime';
 import { classifyCommands, extractBashCommands } from '../security/command_approval';
+import { codingGrantPermission } from './coordinator_coding_grant_permission';
+import type { CodingProtectedOperation } from './coordinator_coding_operation_grant';
 
 /**
  * Engine permission ids that are permission SCOPES rather than tool names.
@@ -700,6 +703,7 @@ export class OpencodeStreamBridge {
           );
           return;
         }
+        if (this.tryCodingGrantPermission(localSessionId, sdkSessionId, perm, directory ?? dbSession?.cwd)) return;
         if (
           classification.decision === 'ask' &&
           !shouldAutoDeny &&
@@ -732,6 +736,7 @@ export class OpencodeStreamBridge {
       }
     }
 
+    if (this.tryCodingGrantPermission(localSessionId, sdkSessionId, perm, directory ?? dbSession?.cwd)) return;
     const editTools = new Set(['write', 'edit', 'patch']);
     const shouldAutoAccept =
       permissionMode === 'bypassPermissions' ||
@@ -779,6 +784,62 @@ export class OpencodeStreamBridge {
         : [],
       title: perm.title ?? perm.summary ?? summary,
     });
+  }
+
+  /** Exact coding membership intercepts shortcuts; missing current policy never falls back. */
+  private tryCodingGrantPermission(localSessionId: string, sdkSessionId: string, perm: PermissionRequest, directory?: string): boolean {
+    const native = (perm.toolName ?? perm.type ?? perm.permission ?? '').toLowerCase();
+    const permission = (perm.permission ?? perm.type ?? '').toLowerCase();
+    const hasPatchFiles=Array.isArray((perm.metadata as Record<string,unknown>|undefined)?.files);
+    const tool = hasPatchFiles || ['apply_patch','patch'].includes(native) ? 'patch' : ['read','edit','write','bash'].includes(permission) ? permission : native;
+    if (!['bash', 'read', 'edit', 'write', 'patch'].includes(tool)) return false;
+    const args = perm.args ?? perm.metadata ?? {};
+    const input = perm.tool?.messageID && perm.tool?.callID
+      ? this.messagesRepo.findToolPartInput(localSessionId,perm.tool.messageID,perm.tool.callID) : null;
+    const commands = tool === 'bash' ? extractBashCommands(args,perm.patterns,input) : [];
+    const values = args as Record<string, unknown>;
+    const actual = input && typeof input === 'object' ? input as Record<string, unknown> : values;
+    const file = actual.filePath ?? actual.filepath ?? actual.path ?? values.filePath ?? values.filepath ?? values.path;
+    const commandCwd = actual.workdir ?? actual.cwd ?? values.workdir ?? values.cwd ?? directory;
+    const operation: CodingProtectedOperation = tool === 'bash'
+      ? { kind: 'bash', command: commands.length === 1 ? commands[0] : '', cwd: typeof commandCwd === 'string' ? commandCwd : '',
+        env: (actual.env ?? values.env ?? {}) as Record<string, unknown> }
+      : { kind: tool === 'read' ? 'read' : tool === 'write' ? 'write' : 'edit', path: tool === 'patch' ? '' : typeof file === 'string' ? file :
+        perm.patterns?.length === 1 && typeof perm.patterns[0] === 'string' ? perm.patterns[0] : '', cwd: directory ?? '' };
+    let actualTool='';
+    try{const row=perm.tool?.messageID?getDb().prepare('SELECT parts_json FROM agent_session_messages WHERE session_id=? AND sdk_message_id=?').get(localSessionId,perm.tool.messageID) as {parts_json:string|null}|undefined:null;
+      const parts=row?.parts_json?JSON.parse(row.parts_json):[];const matches=Array.isArray(parts)?parts.filter(p=>p?.type==='tool' && p.callID===perm.tool?.callID):[];
+      if(matches.length===1 && typeof matches[0].tool==='string')actualTool=matches[0].tool;}catch{/* absent actual identity stays denied */}
+    operation.nativeTool=actualTool;
+    const decision = codingGrantPermission(localSessionId,sdkSessionId,operation);
+    if (!decision) return false;
+    const permissionId = perm.permissionID ?? perm.id;
+    if (!permissionId) return true;
+    // Retain pending on false/throw; only beginPermissionReply's ACK retires it.
+    this.pendingPermissions.set(`${localSessionId}:${permissionId}`, { permissionId,toolName: tool,args,
+      summary: perm.summary ?? perm.title ?? tool,sdkSessionId,directory });
+    let acknowledgedReply: 'once' | 'reject' = 'reject';
+    this.beginPermissionReply(localSessionId,permissionId,async () => {
+      let currentOperation=operation;
+      if(tool==='read' && operation.kind!=='bash' && typeof file!=='string' && perm.patterns?.length===1 && typeof perm.patterns[0]==='string'){
+        const path=await opencodeClient.resolveCodingPermissionPattern(directory??'',perm.patterns[0]);
+        currentOperation={...operation,path:path??''};
+      }
+      // Fresh synchronous authority immediately before reply's first HTTP exposure.
+      let fresh = codingGrantPermission(localSessionId,sdkSessionId,currentOperation);
+      if(tool==='patch'){
+        const files=values.files;
+        if(Array.isArray(files) && files.length>0 && files.length<=2 && files.every(f=>f && typeof f==='object' &&
+          typeof f.filePath==='string' && ['add','update'].includes(f.type) && !f.movePath)){
+          const decisions=files.map(f=>codingGrantPermission(localSessionId,sdkSessionId,{kind:'edit',path:f.filePath,cwd:directory??'',nativeTool:actualTool}));
+          fresh=decisions.every(d=>d?.reply==='once')?decisions[0]:{reply:'reject',reason:'coding_patch_scope_unavailable'};
+        }
+      }
+      acknowledgedReply = fresh?.reply ?? 'reject';
+      return opencodeClient.replyToPermission(permissionId,acknowledgedReply,fresh?.reason ?? 'coding_authority_unavailable',directory,sdkSessionId);
+    }, () => broadcast({ v: 1,type: 'permission.resolved',sessionId: localSessionId,permissionId,
+      decision: acknowledgedReply === 'once' ? 'accept' : 'deny' }));
+    return true;
   }
 
   /** Per-call `glob` timeout (ms). Deliberately much shorter than the 600s
@@ -1407,6 +1468,7 @@ export class OpencodeStreamBridge {
     if (this.engineHealthCheckInFlight) return;
     this.engineHealthCheckInFlight = true;
     try {
+      await asyncDelegationCompletionService.enforceCodingDeadlines();
       if (typeof opencodeClient.getEngineIdentity === 'function') {
         const identity = await opencodeClient.getEngineIdentity();
         if (identity) {

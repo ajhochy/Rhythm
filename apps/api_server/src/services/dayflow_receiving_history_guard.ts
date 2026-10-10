@@ -82,6 +82,7 @@ export class DayflowReceivingHistoryGuard implements DayflowSdkHistoryGuard {
     reader: DayflowQualifiedReader;
     authority: DayflowPersistedQualificationAuthority;
     enrollment?: DayflowGuardEnrollment;
+    evidence?: Pick<DayflowQualifiedEvidenceService, 'canonicalCandidateCurrent'>;
   }) {}
 
   async shouldBindPrompt(sdkSessionId: string): Promise<boolean> {
@@ -96,9 +97,11 @@ export class DayflowReceivingHistoryGuard implements DayflowSdkHistoryGuard {
     if (before === null) return this.fail(sdkSessionId);
     if (before.length === 0) return true;
     for (const dependency of before) {
-      let page;
+      let page, admission, admittedPage;
+      const request={ownerUserId:dependency.binding.ownerUserId,projectId:dependency.binding.projectId,limit:3000};
       try {
-        page = await this.dependencies.reader.readQualifiedEvidence({
+        if(this.dependencies.evidence){const read=await this.dependencies.reader.readQualifiedEvidenceWithAdmission(request);page=read.page;admission=read.admission;admittedPage=read.page;}
+        else page = await this.dependencies.reader.readQualifiedEvidence({
           ownerUserId: dependency.binding.ownerUserId,
           projectId: dependency.binding.projectId,
           limit: 3000,
@@ -106,6 +109,8 @@ export class DayflowReceivingHistoryGuard implements DayflowSdkHistoryGuard {
       } catch {
         return this.fail(sdkSessionId);
       }
+      if(this.dependencies.evidence && (!admission || !admittedPage || !this.dependencies.reader.isQualifiedEvidenceAdmissionCurrent(request,admittedPage,admission) ||
+        dependency.candidates.some(candidate=>!this.dependencies.evidence!.canonicalCandidateCurrent({...request,candidate}))))return this.fail(sdkSessionId);
       // Routine scheduler renewal must not brick the chat; any scope change still fails closed.
       if (page.status !== 'available' || !dependency.candidates.every((candidate) =>
         page.candidates.some((current) => sameDayflowQualifiedEvidenceRenewal(candidate, current)))) {

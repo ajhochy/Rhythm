@@ -1,3 +1,4 @@
+import { markQualificationDayflowOverlay } from "./rhythm_qualification_counter"
 /**
  * Rhythm carried patch (Dayflow native/API contract, provider slice): per-attempt
  * guard around the actual provider call.
@@ -870,6 +871,7 @@ export function providerGuardMiddleware(ctx: GuardAttemptContext): LanguageModel
           nextInstructions = inserted.instructions
         }
         const out = finish(next, nextInstructions)
+        if (decision.overlay) markQualificationDayflowOverlay(out, decision.overlay)
         // Only a safe, overlay-free projected exposure whose provider handoff actually happens can
         // certify its own output group (sealed in wrapStream after the real doStream).
         if ((certifiable && decision.projection) || workflow) {

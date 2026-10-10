@@ -1,3 +1,4 @@
+import { loadQualificationFixtureAuthority } from './services/qualification_fixture_authority';
 import http from 'http';
 import path from 'path';
 import { mkdir } from 'node:fs/promises';
@@ -185,6 +186,7 @@ async function main() {
   // #1396: abort rather than advertise healthy when the configured mount is unusable.
   await verifyLiveArtifactStorageDir();
   await initDb();
+  (await import('./services/qualification_fixture_bootstrap')).bootstrapQualificationFixture();
 
   // Persistent workstreams are an explicit local opt-in.  The shared MCP
   // selector is deliberately absent while off, preserving ordinary memory
@@ -657,10 +659,16 @@ async function main() {
     completionWakes.setCoordinatorCallbackContext({
       prepare: (input) => callbackContextService.prepareCallbackContext(input),
     });
+    const { CoordinatorCodingExecutionService } = await import('./services/coordinator_coding_execution_service');
+    const codingExecution = new CoordinatorCodingExecutionService(ownerProjectAccess);
+    codingExecution.composePermissionAuthority();
+    const { agentApprovalContinuationService: approvalContinuations } = await import('./services/agent_approval_continuation_service');
+    approvalContinuations.configureCodingDecision(approval => codingExecution.consumeDecision(approval));
     coordinatorAgentTools =new CoordinatorConversationModelStatusService({
       conversations: coordinatorConversationService,
       records: conversationRepository,
       engine: opencodeClient,
+      codingExecution,
     });
     // Initialize only after the terminal observer can see the composed service.
     // This is status-only boot reconciliation, not a model wake or scheduler.
@@ -909,7 +917,8 @@ async function main() {
       const { populateWorkflowSkillsOnce } = await import(
         './services/skill_seed_importer'
       );
-      const r = populateWorkflowSkillsOnce();
+      const fixture=(await import('./services/qualification_fixture_authority')).loadQualificationFixtureAuthority();
+      const r = populateWorkflowSkillsOnce(fixture?{claudeSkillsDir:path.join(fixture.fixtureRoot,'empty-claude-skills')}:{});
       if (!r.alreadyDone) {
         logger.info(
           `[server] workflow-skill one-time population: copied=${r.copied} alreadyPresent=${r.alreadyPresent}`,
@@ -988,7 +997,7 @@ async function main() {
     // Non-fatal — never blocks startup; no-op under Postgres.
     try {
       const { seedConfigAssets } = await import('./services/config_seeds_seeder');
-      const r = seedConfigAssets();
+      const r = seedConfigAssets((await import('./services/qualification_fixture_authority')).loadQualificationFixtureAuthority()?{sourceDir:null}:{});
       if (!r.alreadyDone) {
         logger.info(
           `[server] config-seeds: skillsCopied=${r.skillsCopied} ` +
@@ -1161,12 +1170,18 @@ async function main() {
       receiver: dayflowReceiver,
       enrollment: dayflowEnrollment,
     });
-    opencodeClient.setDayflowSdkHistoryGuard(new DayflowReceivingHistoryGuard({
+    const ordinaryHistoryGuard=new DayflowReceivingHistoryGuard({
       records: dayflowRecords,
       reader: dayflowService,
       authority: dayflowQualificationAuthority,
       enrollment: dayflowEnrollment,
-    }));
+      evidence: dayflowQualifiedEvidence,
+    });
+    opencodeClient.setDayflowSdkHistoryGuard({
+      async shouldBindPrompt(sdk){const f=(await import('./services/qualification_fixture_service')).qualificationDayflowForSdk(sdk);return (f?.guard??ordinaryHistoryGuard).shouldBindPrompt(sdk);},
+      async revalidateBeforeSdk(sdk){const f=(await import('./services/qualification_fixture_service')).qualificationDayflowForSdk(sdk);return (f?.guard??ordinaryHistoryGuard).revalidateBeforeSdk(sdk);},
+      async revalidateForProjectedLoad(sdk){const f=(await import('./services/qualification_fixture_service')).qualificationDayflowForSdk(sdk);return (f?.guard??ordinaryHistoryGuard).revalidateForProjectedLoad(sdk);},
+    });
     const workflowMembershipJobs = new AgentBridgeJobsRepository(getDb());
     dayflowProviderAdmission = new DayflowProviderAdmissionService({
       records: dayflowRecords,
@@ -1195,7 +1210,10 @@ async function main() {
       },
     });
   }
+  const qualificationFixtures=(await import('./services/qualification_fixture_authority')).loadQualificationFixtureAuthority() && coordinatorConversationService
+    ? new (await import('./services/qualification_fixture_service')).QualificationFixtureService(coordinatorConversationService):undefined;
   const app = createApp({
+    qualificationFixtures,
     mobileGatewayRouter,
     dayflowService: dayflowManagementService,
     dayflowAuthenticatedConsent: dayflowService,
@@ -1440,6 +1458,7 @@ async function main() {
         );
       }
 
+      if(!loadQualificationFixtureAuthority()){
       // Dual-accounts Task B — the Rhythm accounts store is the source of
       // truth for Claude tokens once it has accounts. Boot order:
       //   1. Store empty + Claude Code creds readable → one-time migration
@@ -1571,6 +1590,7 @@ async function main() {
           `[server] auth credential watcher failed to start (non-fatal): ${String(err)}`,
         );
       }
+      } // private qualification boot never migrates, refreshes or mirrors live credentials
     })
     .catch((err) => {
       console.warn('[Opencode] SDK init failed (non-fatal):', err);

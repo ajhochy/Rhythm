@@ -4,8 +4,17 @@ import { AgentApprovalsRepository, type AgentApproval } from '../repositories/ag
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { CoordinatorConversationsRepository, type CoordinatorForegroundMcpSessionScope } from '../repositories/coordinator_conversations_repository';
 import { AgentWorkstreamsRepository } from '../repositories/agent_workstreams_repository';
+import { parseCodingExecutionProposal, type CoordinatorCodingExecutionProposal } from '../contracts/coordinator_coding_execution_contract';
 
 export const WORKFLOW_APPROVAL_ACTION = 'coordinator.workflow.start';
+
+/** Recognition is deliberately conservative: even malformed coding terms must not buy a generic wake. */
+export function isCodingExecutionApproval(approval: AgentApproval): boolean {
+  try {
+    return approval.securityAction === WORKFLOW_APPROVAL_ACTION && !!approval.boundPayloadJson &&
+      JSON.parse(approval.boundPayloadJson)?.purpose === 'coordinator_coding_execution_v1';
+  } catch { return false; }
+}
 export interface BoundedWorkflowEstimate {
   totalSoftTokens: number;
   workerWallSeconds: number;
@@ -36,7 +45,7 @@ export interface BoundedWorkflowProposal {
   proposedAt: string;
   expiresAt: string;
 }
-export const workflowProposalDigest = (proposal: BoundedWorkflowProposal): string =>
+export const workflowProposalDigest = (proposal: BoundedWorkflowProposal | CoordinatorCodingExecutionProposal): string =>
   createHash('sha256').update(JSON.stringify(proposal)).digest('hex');
 export const workflowApprovalResumeReasonCode = (approvalId: string, digest: string): string =>
   `workflow_approval_resume_${createHash('sha256').update(`${approvalId}\n${digest}`).digest('hex').slice(0, 32)}`;
@@ -54,11 +63,18 @@ export function parseBoundedWorkflowEstimate(value: unknown): BoundedWorkflowEst
 }
 
 /** The durable digest covers the entire compact canonical payload, never model acknowledgement flags. */
-export function readWorkflowProposal(approval: AgentApproval): BoundedWorkflowProposal | null {
+export function readWorkflowProposal(approval: AgentApproval): BoundedWorkflowProposal | CoordinatorCodingExecutionProposal | null {
   try {
     if (approval.securityAction !== WORKFLOW_APPROVAL_ACTION || !approval.boundPayloadJson ||
         approval.boundPayloadJson.length > 16_384) return null;
-    const p = JSON.parse(approval.boundPayloadJson) as BoundedWorkflowProposal;
+    const value: unknown = JSON.parse(approval.boundPayloadJson);
+    if (value && typeof value === 'object' && 'purpose' in value && value.purpose === 'coordinator_coding_execution_v1') {
+      const coding = parseCodingExecutionProposal(value);
+      return coding && workflowProposalDigest(coding) === approval.payloadDigest &&
+        approval.sessionId === coding.sessionId && approval.agentConfigId === coding.profileId &&
+        approval.boundAgent === coding.profileId && approval.expiresAt === coding.expiresAt ? coding : null;
+    }
+    const p = value as BoundedWorkflowProposal;
     if (!p || Object.keys(p).length !== 21 || !['schemaVersion','purpose','proposalId','ownerUserId','sessionId','projectId','sdkSessionId','profileId','profileRevision','scopeFingerprint','controlRevision','goalId','goalRevision','objective','referenceSourceId','referenceVersion','canonicalSource','sourceInstance','estimate','proposedAt','expiresAt'].every(k => Object.hasOwn(p,k)) || p.schemaVersion !== 1 || p.purpose !== 'selected_reference_summary_v1' ||
         workflowProposalDigest(p) !== approval.payloadDigest || approval.sessionId !== p.sessionId ||
         approval.agentConfigId !== p.profileId || approval.boundAgent !== p.profileId ||
@@ -91,7 +107,9 @@ export function workflowApprovalResumeCandidate(approvalId: string, records = ne
     if (!approval || approval.status !== 'approved' || !approval.actor?.startsWith('user:') ||
         !approval.decidedAt || approval.decisionNonce !== null || approval.consumedAt !== null) return null;
     const p = readWorkflowProposal(approval);
-    if (!p || approval.actor !== `user:${p.ownerUserId}` || Date.parse(p.expiresAt) <= (options.now ?? Date.now())) return null;
+    // Coding approval must never enter the legacy selected-note native workflow.
+    // Its scoped admission/worker binding is a distinct, fail-closed boundary.
+    if (!p || p.purpose !== 'selected_reference_summary_v1' || approval.actor !== `user:${p.ownerUserId}` || Date.parse(p.expiresAt) <= (options.now ?? Date.now())) return null;
     const session = new AgentSessionsRepository().findById(p.sessionId);
     if (!session || session.profileId !== p.profileId || session.permissionMode !== 'plan' || session.approvalBypassExplicit ||
         session.sdkSessionId !== p.sdkSessionId) return null;

@@ -18,6 +18,8 @@ import {
 import type { OpencodeClientService } from './opencode_client_service';
 import { CoordinatorConversationService } from './coordinator_conversation_service';
 import { CoordinatorForegroundMcpAuthority } from './coordinator_foreground_mcp_authority';
+import { codingExecutionApprovalPreview, parseCodingExecutionProposal, type CoordinatorCodingExecutionProposal } from '../contracts/coordinator_coding_execution_contract';
+import { CoordinatorCodingGrantJournal, type CodingGrantScope } from './coordinator_coding_grant_journal';
 
 const TOOL_NAME = 'rhythm_get_coordinator_status';
 const GOAL_TOOL_NAME = 'rhythm_start_coordinator_goal';
@@ -130,6 +132,12 @@ export class CoordinatorConversationModelStatusService {
     verify?: typeof verifyTrustedMcpCall;
     /** Defaults to the real approval/taint service; only an isolated-schema fixture substitutes it. */
     approvals?: Pick<ExternalContentSecurityService, 'consumeCoordinatorGoalApproval'>;
+    /** Fixed owned fixture composition only; no model-provided paths, policies or models. */
+    codingExecution?: {
+      resolveProposal(auth: AuthContext, binding: { sessionId: string; projectId: string; sdkSessionId: string }, goalSelector: string): Promise<CoordinatorCodingExecutionProposal | null>;
+      isCurrent(proposal: CoordinatorCodingExecutionProposal): boolean;
+      dispatchManager(proposal: CoordinatorCodingExecutionProposal, scope: CodingGrantScope): Promise<boolean>;
+    };
   }) {
     this.security = dependencies.approvals ?? new ExternalContentSecurityService();
     this.authority = new CoordinatorForegroundMcpAuthority({
@@ -146,6 +154,32 @@ export class CoordinatorConversationModelStatusService {
       if (!auth || !envelope) return held();
       const verified = await this.verify(envelope, 'rhythm_propose_bounded_coding_workflow', Date.now(), 'coordinator_workflow_proposal');
       const a = verified.arguments;
+      if (a.purpose === 'coordinator_coding_execution_v1') {
+        if (Object.keys(a).length !== 2 || typeof a.goalSelector !== 'string' || !a.goalSelector.trim() || a.goalSelector.length > 4000) return held();
+        const composition = this.dependencies.codingExecution;
+        if (!composition) return held();
+        const binding = await this.authority.resolveForeground(auth,verified,'rhythm_propose_bounded_coding_workflow');
+        if (!binding || !this.dependencies.conversations.modelStatusScopeCurrent(auth,binding)) return held();
+        const p = parseCodingExecutionProposal(await composition.resolveProposal(auth,binding,a.goalSelector));
+        if (!p || p.ownerUserId !== auth.user.id || p.sessionId !== binding.sessionId || p.projectId !== binding.projectId ||
+            p.sdkSessionId !== binding.sdkSessionId || p.profileId !== verified.context.agentName || !composition.isCurrent(p) ||
+            !(await this.authority.isCurrent(binding,auth,verified,'rhythm_propose_bounded_coding_workflow'))) return held();
+        const approval = getDb().transaction(() => {
+          if (!composition.isCurrent(p) || !this.dependencies.conversations.modelStatusScopeCurrent(auth,binding)) throw new Error('coding proposal held');
+          const approvals = new AgentApprovalsRepository();
+          const rows = getDb().prepare(`SELECT id FROM agent_approvals WHERE session_id=? AND security_action=? AND status='pending'
+            AND json_extract(bound_payload_json,'$.goalId')=? ORDER BY rowid DESC LIMIT 1`).get(p.sessionId,WORKFLOW_APPROVAL_ACTION,p.goalId) as {id:string} | undefined;
+          const old = rows ? approvals.getById(rows.id) : null;
+          const previous = old ? readWorkflowProposal(old) : null;
+          if (old && previous?.purpose === p.purpose && previous.normalizedIntentHash === p.normalizedIntentHash && Date.parse(previous.expiresAt) > Date.now()) return old;
+          return approvals.create({ sessionId: p.sessionId,agentConfigId: p.profileId,boundAgent: p.profileId,
+            action: 'Approve bounded coding execution',preview: codingExecutionApprovalPreview(p),
+            consequence: 'Only the exact coding worker may edit the declared fixture and run its declared check; root/manager remain plan. No persistent allow or retries.',
+            securityAction: WORKFLOW_APPROVAL_ACTION,payloadDigest: workflowProposalDigest(p),expiresAt: p.expiresAt,boundPayloadJson: JSON.stringify(p) });
+        })();
+        return { schemaVersion: 1 as const,status: 'approval_pending' as const,
+          text: `${approval.preview}\nApproval is pending in this same chat. Wait for the signed human decision; prose is not consent.\napproval_id: ${approval.id}\nproposal_digest: ${approval.payloadDigest}` };
+      }
       if (Object.keys(a).length !== 5 || !['goalSelector','referenceSelector','referenceSourceId','referenceVersion','estimate'].every(k => Object.hasOwn(a,k)) ||
           !['goalSelector','referenceSelector','referenceSourceId','referenceVersion'].every(k => typeof a[k] === 'string' && (a[k] as string).trim().length > 0 && (a[k] as string).length <= 4_000)) return held();
       const estimate = parseBoundedWorkflowEstimate(a.estimate);
@@ -179,7 +213,7 @@ export class CoordinatorConversationModelStatusService {
       const old = previous ? readWorkflowProposal(previous) : null;
       const comparable = (p: BoundedWorkflowProposal) => { const { proposalId, proposedAt, expiresAt, ...terms } = p; return JSON.stringify(terms); };
       let approval;
-      if (previous?.status === 'pending' && old && Date.parse(old.expiresAt) > now.valueOf() && comparable(old) === comparable(candidate)) {
+      if (previous?.status === 'pending' && old?.purpose === 'selected_reference_summary_v1' && Date.parse(old.expiresAt) > now.valueOf() && comparable(old) === comparable(candidate)) {
         approval = previous;
       } else {
         const sourceLabel = path.basename(candidate.canonicalSource, '.md').replace(/[-_]+/g, ' ').slice(0, 160);
@@ -218,6 +252,27 @@ export class CoordinatorConversationModelStatusService {
       const a = verified.arguments;
       if (Object.keys(a).length !== 2 || typeof a.approval_id !== 'string' || a.approval_id.length > 256 ||
           typeof a.proposal_digest !== 'string' || !/^[a-f0-9]{64}$/.test(a.proposal_digest)) return held();
+      const approved = new AgentApprovalsRepository().getById(a.approval_id);
+      const coding = approved ? readWorkflowProposal(approved) : null;
+      if (coding?.purpose === 'coordinator_coding_execution_v1') {
+        const composition = this.dependencies.codingExecution;
+        if (!composition || approved?.payloadDigest !== a.proposal_digest) return held();
+        // Explicit current foreground action only; NEVER a new billable root approval wake.
+        const binding = await this.authority.resolveForeground(auth,verified,'rhythm_start_bounded_coding_workflow');
+        if (!binding || coding.sessionId !== binding.sessionId || coding.sdkSessionId !== binding.sdkSessionId ||
+            coding.projectId !== binding.projectId || coding.ownerUserId !== auth.user.id ||
+            !(await this.authority.isCurrent(binding,auth,verified,'rhythm_start_bounded_coding_workflow'))) return held();
+        const current = () => composition.isCurrent(coding) && this.dependencies.conversations.modelStatusScopeCurrent(auth,binding);
+        const scope: CodingGrantScope = { sessionId: coding.sessionId,ownerUserId: coding.ownerUserId,
+          projectId: coding.projectId,commandKey: `coding-execution:${coding.proposalId}` };
+        const reserved = new CoordinatorCodingGrantJournal().reserveManager(scope,a.approval_id,coding,current);
+        if (reserved === 'held') return held();
+        if (reserved === 'replay') return { schemaVersion: 1 as const,status: 'held' as const,
+          text: 'This exact coding operation is already reserved. No approval, child or prompt was repeated; inspect its recorded state.' };
+        if (!current() || !(await composition.dispatchManager(coding,scope))) return held();
+        return { schemaVersion: 1 as const,status: 'started' as const,
+          text: 'Exact approved coding operation dispatched; root and manager remain plan. Execution and independent verification are not completion claims.' };
+      }
       if (!(await this.dependencies.conversations.boundedWorkflowRuntimeReady())) return held();
       const binding = await this.authority.resolveWorkflowApprovalResume(auth, verified, a.approval_id, a.proposal_digest);
       if (!binding) return held();

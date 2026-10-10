@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 
 import { env } from '../config/env';
 import { convertLegacyNumberedCorePermissions } from './core_permissions_repair';
+import { COORDINATOR_COMMAND_JOURNAL_SQL } from './coordinator_conversation_schema';
 
 const UTC_TEXT_NOW =
   `to_char(timezone('utc', now()), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
@@ -2472,11 +2473,29 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   // SESSION_DEFINITIONS / DAYFLOW_SESSION_DEFINITIONS), CHECKs included.
   await pool.query(`
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS coordinator_conversation_json TEXT NULL;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS coordinator_command_storage TEXT NULL;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS coordinator_command_legacy_hash TEXT NULL;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS coordinator_command_hold TEXT NULL;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS managed_context_nonreuse_code TEXT CHECK(managed_context_nonreuse_code IS NULL OR managed_context_nonreuse_code IN ('dependency_conflict','dependency_overflow','manifest_malformed','binding_ambiguous','scope_mismatch','persistence_failure','unknown_manifest_version'));
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS managed_context_nonreuse_at TEXT CHECK(managed_context_nonreuse_at IS NULL OR length(managed_context_nonreuse_at) > 0);
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS dayflow_context_nonreuse_code TEXT CHECK(dayflow_context_nonreuse_code IS NULL OR dayflow_context_nonreuse_code IN ('dayflow_dependency_persistence_failure','dayflow_receiving_context_changed','dayflow_dependency_revalidation_failed','dayflow_manifest_malformed','dayflow_binding_ambiguous'));
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS dayflow_context_nonreuse_at TEXT CHECK(dayflow_context_nonreuse_at IS NULL OR length(dayflow_context_nonreuse_at) > 0);
   `);
+
+  // Hosted execution stays inert. Existing blobs remain unmarked/unmodified;
+  // only the local repository validates/imports a root before switching it.
+  await pool.query(COORDINATOR_COMMAND_JOURNAL_SQL);
+  await pool.query('ALTER TABLE coordinator_conversation_commands ADD COLUMN IF NOT EXISTS coding_grant_json TEXT NULL');
+  // Additive parity only; hosted execution/verification remains unavailable.
+  for (const name of ['coding_delivery_mode','coding_root_session_id','coding_operation_key','coding_terminal_json',
+    'coding_result_receipt_json','result_message_id','coding_test_hold_json']) {
+    await pool.query(`ALTER TABLE agent_async_delegations ADD COLUMN IF NOT EXISTS ${name} TEXT NULL`);
+  }
+  await pool.query('ALTER TABLE coordinator_conversation_commands ADD COLUMN IF NOT EXISTS callback_acceptance TEXT NULL');
+  await pool.query(`DO $$ BEGIN IF to_regclass('public.agent_session_messages') IS NOT NULL THEN
+    ALTER TABLE agent_session_messages ADD COLUMN IF NOT EXISTS local_event_key TEXT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_messages_local_event ON agent_session_messages(session_id,local_event_key) WHERE local_event_key IS NOT NULL;
+    END IF; END $$`); // Local transcript table is deliberately absent on hosted deployments.
 
   // #1485 S3a-1 — durable recipe-workflow runs. Postgres twin of
   // migrations.ts; column set (including the '' item_key/item_id sentinel —

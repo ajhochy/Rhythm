@@ -232,7 +232,18 @@ describe('coordinator foreground honors the session model, reasoning and Fast', 
     expect(allowlist).not.toHaveBeenCalled();
     expect(db.prepare('SELECT COUNT(*) AS n FROM agent_turn_dispatches').get()).toEqual({ n: 0 });
     const after = db.prepare('SELECT * FROM agent_sessions WHERE id=?').get('primary') as Record<string, unknown>;
-    expect({ ...after, updated_at: null }).toEqual({ ...(before as Record<string, unknown>), updated_at: null });
+    // R1 permits one validated storage migration, not a control/settings write.
+    // Keep whole-row equality: only these two explicitly proven markers differ.
+    expect(before).toMatchObject({ coordinator_command_storage: null, coordinator_command_legacy_hash: null });
+    expect({ ...after, updated_at: null }).toEqual({ ...(before as Record<string, unknown>), updated_at: null,
+      coordinator_command_storage: 'rows_v1',
+      coordinator_command_legacy_hash: '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945' });
+    expect(db.prepare('SELECT count(*) AS n FROM coordinator_conversation_commands').get()).toEqual({ n: 0 });
+    await service.status(auth, request);
+    expect(db.prepare('SELECT * FROM agent_sessions WHERE id=?').get('primary')).toEqual(after);
+    expect(sdkPromptAsync).not.toHaveBeenCalled();
+    expect(allowlist).not.toHaveBeenCalled();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM agent_turn_dispatches').get()).toEqual({ n: 0 });
   });
 
   it('holds (no SDK) when the ordinary resolution disagrees with the selected session model', async () => {
