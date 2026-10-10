@@ -497,6 +497,8 @@ export interface AgentRunResult {
   error?: string;
   /** Machine-readable classification for errors callers may safely retry. */
   errorCode?: 'capacity' | 'profile_unavailable';
+  /** Capacity deferral only: earliest retry the scheduler should use (Free Mode hold). */
+  retryAfterMs?: number;
   /** R3: why this run failed and whether a teacher retry can help. */
   failureCategory?: AgentRunFailureCategory;
 }
@@ -1024,7 +1026,13 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   // Checked synchronously first so the default (off) path adds no async hop.
   const runRoutingMode = getEffectiveDecisionMode('model_routing', { sessionAuto: false });
   const runCapacityMode = getEffectiveDecisionMode('capacity_routing', { sessionAuto: false });
+  const gridSettings = (await import('./decision/decision_settings')).loadDecisionSettings();
+  const gridEngine = gridSettings.routing.engine === 'grid' && ['on', 'shadow'].includes(gridSettings.features.model_routing);
+  const gridOptIn = gridEngine && (await import('./decision/router_grid_turn')).gridRunnerEligible(effectiveConfigId, modelOverride, taskKind);
+  let gridVariant: string | undefined;
+  let gridAccountId: string | null | undefined;
   if (
+    !gridEngine &&
     runRoutingMode !== 'off'
     && !modelOverride && !taskKind && !profilePinsModel && !profileScope.modelTierHint
   ) {
@@ -1062,6 +1070,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   // Usage-capacity routing (AGENT_DECISION_CAPACITY_ROUTING): same pin rules as
   // above. Model only — run sessions keep their profile/default account.
   if (
+    !gridEngine &&
     runCapacityMode !== 'off'
     && resolvedModel && !modelOverride && !taskKind && !profilePinsModel && !profileScope.modelTierHint
   ) {
@@ -1226,6 +1235,26 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     worktree,
   });
   resolvedRunEpisodeId = explicitRunEpisodeId ?? rhythmSessionId;
+  if (gridOptIn && rhythmSessionId) {
+    try {
+      const { routeGridTurn } = await import('./decision/router_grid_turn');
+      const row = new AgentSessionsRepository().findById(rhythmSessionId);
+      const routed = await routeGridTurn({ sessionId: rhythmSessionId, sessionRow: row ? { ...row, modelMode: 'auto' } : null,
+        sessionAuto: true, prompt, agentId: effectiveConfigId ?? 'claude-code', requestedSource: 'agent_default', baseRoute: resolvedModel },
+        gridSettings.features.model_routing as 'on' | 'shadow');
+      if (routed.held) {
+        // Free Mode F1: nothing was sent to any model. ponytail: one held session row per retry
+        // (15 min) per task while Free is active; upgrade: a pre-session free-state check.
+        const msg = `AgentRunner: ${routed.held.message}`;
+        _markSessionError(rhythmSessionId, msg, false, resolvedRunEpisodeId ?? undefined);
+        return { sessionId: rhythmSessionId, result: '', status: 'error', error: msg, errorCode: 'capacity', retryAfterMs: 15 * 60_000 };
+      }
+      if (routed.applied && routed.route) {
+        resolvedModel = routed.route; gridVariant = routed.variant; gridAccountId = routed.gridAccountId;
+        requestedSource = 'auto';
+      }
+    } catch { /* Keep profile/default model on any grid failure. */ }
+  }
   if (rhythmSessionId && opts.onSessionCreated) {
     await opts.onSessionCreated(rhythmSessionId);
   }
@@ -1476,6 +1505,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       try {
         const sessRepo = new AgentSessionsRepository();
         sessRepo.setSdkSessionId(rhythmSessionId, sessionId);
+        if (gridAccountId) {
+          const { applyGridAccount } = await import('./decision/router_grid_turn');
+          await applyGridAccount(rhythmSessionId, resolvedModel.providerID, gridAccountId);
+        }
         // Preserve the explicit starting→working transition as the immediate
         // baseline; subsequent bridge events maintain live status and the
         // completion block below remains authoritative for final idle/error.
@@ -1674,6 +1707,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     }
 
     const promptOpts: Record<string, unknown> = {
+      ...(gridVariant ? { variant: gridVariant } : {}),
       permissionMode,
       // Treatment override wins unconditionally; it is NOT "a duplicate" of the profile prompt.
       // When present, it replaces any effectiveSystemPrompt/transient block for this cohort.

@@ -1,3 +1,4 @@
+import { syncAutoAccountSessionProvenance } from './decision/capacity_router';
 import { broadcast, broadcastSessionUpdated } from './ws_gateway';
 import { opencodeClient } from './opencode_engine';
 import { opencodeSessionMap } from './opencode_engine';
@@ -2511,6 +2512,7 @@ export class OpencodeStreamBridge {
               childCwd,
               childMcpAllowlist ? JSON.stringify(childMcpAllowlist) : null,
             );
+            if (childRow) syncAutoAccountSessionProvenance(childRow);
             if (childRow) {
               // Register in the session map so subsequent events route correctly.
               opencodeSessionMap.set(childRow.id, opencodeSessionId);

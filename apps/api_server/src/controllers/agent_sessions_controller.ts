@@ -193,7 +193,8 @@ const messagesRepo = new AgentSessionMessagesRepository();
 const mcpAppCapabilityBroker = new McpAppCapabilityBroker();
 
 import { getPrimaryWorktreePath, gitCheckout, probeVcs } from '../services/vcs_probe';
-import { autoPickAccountId, markAutoAccountSession } from '../services/decision/capacity_router';
+import { autoPickAccountId, markAutoAccountSession, unmarkAutoAccountSession } from '../services/decision/capacity_router';
+import { RouterGridAttemptsRepository } from '../services/decision/router_grid_attempts_repository';
 
 function resolveWorktreeEngineDirectory(session: {
   projectId: string | null;
@@ -1049,15 +1050,17 @@ export class AgentSessionsController {
         mcpAllowedToolsJson,
         // Task D — resolved Anthropic account (null = engine default).
         anthropicAccountId: resolvedAccountId,
+        anthropicAccountSource: resolvedAccountId ? (!requestedAccountId && !profileDefaultAnthropicAccountId ? 'router' : 'pinned') : null,
         openaiAccountId: resolvedOpenaiAccountId,
+        openaiAccountSource: resolvedOpenaiAccountId ? (!requestedOpenaiAccountId && !profileDefaultOpenaiAccountId ? 'router' : 'pinned') : null,
         ownerUserId,
       };
 
       const session = repo.insert(dto);
-      if (autoAnthropicAccountId && resolvedAccountId === autoAnthropicAccountId) {
+      if (!requestedAccountId && !profileDefaultAnthropicAccountId) {
         markAutoAccountSession(session.id, 'anthropic');
       }
-      if (autoOpenaiAccountId && resolvedOpenaiAccountId === autoOpenaiAccountId) {
+      if (!requestedOpenaiAccountId && !profileDefaultOpenaiAccountId) {
         markAutoAccountSession(session.id, 'openai');
       }
 
@@ -1154,10 +1157,14 @@ export class AgentSessionsController {
       // the engine plugin resolves the right bearer token per request. Only
       // when an account resolved; null means "engine default", no routing entry.
       if (resolvedAccountId) {
-        anthropicAccountsService.setRouting(opencodeSession.id, resolvedAccountId);
+        anthropicAccountsService.setRouting(opencodeSession.id, resolvedAccountId, {
+          pinned: !!(requestedAccountId || profileDefaultAnthropicAccountId),
+        });
       }
       if (resolvedOpenaiAccountId) {
-        openaiAccountsService.setRouting(opencodeSession.id, resolvedOpenaiAccountId);
+        openaiAccountsService.setRouting(opencodeSession.id, resolvedOpenaiAccountId, {
+          pinned: !!(requestedOpenaiAccountId || profileDefaultOpenaiAccountId),
+        });
       }
 
       // Start streaming Opencode events through the WebSocket gateway.
@@ -1337,9 +1344,13 @@ export class AgentSessionsController {
         if (!anthropicAccountsService.getAccount(accountId)) {
           throw AppError.badRequest(`unknown anthropic account: '${accountId}'`);
         }
+        // Explicit intent is durable even if the audit append fails; PATCH still returns the append error truthfully.
         repo.setAnthropicAccountId(session.id, accountId);
+        repo.setAnthropicAccountSource(session.id, 'pinned');
+        unmarkAutoAccountSession(session.id, 'anthropic');
+        await new RouterGridAttemptsRepository().markPinned(session.id, 'anthropic', accountId);
         if (session.sdkSessionId) {
-          anthropicAccountsService.setRouting(session.sdkSessionId, accountId);
+          anthropicAccountsService.setRouting(session.sdkSessionId, accountId, { pinned: true });
         }
       }
 
@@ -1354,8 +1365,11 @@ export class AgentSessionsController {
           throw AppError.badRequest(`unknown openai account: '${accountId}'`);
         }
         repo.setOpenaiAccountId(session.id, accountId);
+        repo.setOpenaiAccountSource(session.id, 'pinned');
+        unmarkAutoAccountSession(session.id, 'openai');
+        await new RouterGridAttemptsRepository().markPinned(session.id, 'openai', accountId);
         if (session.sdkSessionId) {
-          openaiAccountsService.setRouting(session.sdkSessionId, accountId);
+          openaiAccountsService.setRouting(session.sdkSessionId, accountId, { pinned: true });
         }
       }
 

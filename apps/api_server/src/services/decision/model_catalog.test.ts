@@ -78,6 +78,7 @@ describe('providerSnapshot pass-through', () => {
           id: 'priced', name: 'Priced', family: 'fam', release_date: '2026-04-16', reasoning: true,
           cost: { input: 5, output: 25, cache_read: 0.5, cache_write: 6.25 },
           capabilities: CAPS, status: 'active', limit: { context: 1000 },
+          variants: { low: {}, high: {} },
         },
         nested: { id: 'nested', cost: { input: 1, output: 2, cache: { read: 0.1, write: 0.2 } }, capabilities: CAPS },
         bare: { id: 'bare', capabilities: CAPS },
@@ -90,11 +91,13 @@ describe('providerSnapshot pass-through', () => {
       id: 'priced', name: 'Priced', status: 'active', contextLimit: 1000,
       cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
       releaseDate: '2026-04-16', family: 'fam', reasoning: true,
+      variants: ['low', 'high'],
       capabilities: { input: { text: true }, output: { text: true }, toolcall: true },
     });
     expect(nested.cost).toEqual({ input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 });
     expect(bare).not.toHaveProperty('cost');
     expect(bare).not.toHaveProperty('releaseDate');
+    expect(bare.variants).toEqual([]);
     expect(out[0].digest).toEqual(expect.any(String));
   });
 });
@@ -384,7 +387,7 @@ describe('auto tier cutoffs derived from the catalog', () => {
 describe('pickModelForTier preference order', () => {
   const rm = (providerID: string, modelID: string, tier: RoutableModel['tier'], out: number | null, date: string | null): RoutableModel => ({
     providerID, modelID, name: modelID, family: null, tier, tierSource: 'cost',
-    costInputUsd: null, costOutputUsd: out, releaseDate: date, contextLimit: null, reasoning: null, keyless: false,
+    costInputUsd: null, costOutputUsd: out, releaseDate: date, contextLimit: null, reasoning: null, variants: [], keyless: false,
   });
   const models = [
     rm('anthropic', 'a-cheap', 'standard', 15, '2026-02-01'),

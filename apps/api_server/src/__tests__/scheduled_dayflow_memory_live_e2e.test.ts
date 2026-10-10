@@ -17,6 +17,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { assertLiveE2EIsolation } from './_live_e2e_guard';
 
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
+// Evidence-preserving runs keep every created session/memory/profile/dir for review.
+const RETAIN = process.env.RHYTHM_LIVE_RETAIN_FIXTURES === '1';
 const BASE = (process.env.RHYTHM_LIVE_URL ?? '').replace(/\/$/, '');
 const ENGINE = process.env.RHYTHM_LIVE_ENGINE_URL ?? '';
 const DB = process.env.RHYTHM_LIVE_DB_PATH ?? '';
@@ -153,6 +155,51 @@ function plantMarker(id: string): void {
       'dayflow_receiving_context_changed', new Date().toISOString(), id).changes).toBe(1);
   } finally { db.close(); }
 }
+/**
+ * A4 fixture mutation: marks ONLY the fresh scheduler-created row whose first native turn is in
+ * flight (exact id + task + scheduled + ownerless + current SDK id + no prior marker), with the same
+ * synthetic code S2 uses. Returns body-free before/after metadata for the retained log.
+ */
+function markInFlight(id: string, scheduleId: string, sdk: string): { before: unknown; after: unknown } {
+  const cols = 'id, scheduled_task_id, category, owner_user_id, project_id, sdk_session_id, status, dayflow_context_nonreuse_code, dayflow_context_nonreuse_at';
+  const db = new Database(tempPath(DB), { fileMustExist: true });
+  try {
+    const before = db.prepare(`SELECT ${cols} FROM agent_sessions WHERE id=?`).get(id);
+    expect(db.prepare(`UPDATE agent_sessions SET dayflow_context_nonreuse_code=?, dayflow_context_nonreuse_at=?
+      WHERE id=? AND scheduled_task_id=? AND category='scheduled' AND owner_user_id IS NULL AND sdk_session_id=?
+        AND dayflow_context_nonreuse_code IS NULL AND dayflow_context_nonreuse_at IS NULL`).run(
+      'dayflow_receiving_context_changed', new Date().toISOString(), id, scheduleId, sdk).changes).toBe(1);
+    return { before, after: db.prepare(`SELECT ${cols} FROM agent_sessions WHERE id=?`).get(id) };
+  } finally { db.close(); }
+}
+type Receipt = { query_mode: string | null; decision: string; candidates_json: string | null; injected_count: number | null; injected_chars: number | null };
+function receipts(sessionId: string): Receipt[] {
+  const db = new Database(tempPath(DB), { readonly: true, fileMustExist: true });
+  try {
+    return db.prepare(`SELECT query_mode, decision, candidates_json, injected_count, injected_chars
+      FROM agent_memory_turn_receipts WHERE session_id=? ORDER BY id`).all(sessionId) as Receipt[];
+  } finally { db.close(); }
+}
+/** Real vault write; `id` is the note id (edit/delete), `path` is the index sourceId receipts carry. */
+async function remember(content: string, kind: string, tags: string[]): Promise<{ id: string; path: string }> {
+  const memory = await json<{ id: string; path: string }>('/agent-memory', { method: 'POST', body: JSON.stringify({ content, kind, tags, id: `sdmr-${randomUUID()}` }) });
+  memories.push(memory.id);
+  return memory;
+}
+/** One real turn: returns exactly the provider requests and receipts this turn produced. */
+async function memoryTurn(id: string, text: string, output: string): Promise<{ requests: Capture[]; added: Receipt[] }> {
+  const before = (await captures()).length, prior = receipts(id).length;
+  const done = async () => (await json<{ messages: Array<{ role: string; rawText?: string; strippedText?: string }> }>(`/agent-sessions/${id}/messages?limit=100`))
+    .messages.filter((m) => m.role === 'output' && (m.rawText ?? m.strippedText ?? '').includes(output)).length;
+  const outputs = await done();
+  await prompt(id, text);
+  await poll(async () => await done() > outputs && (await snapshot(id)).status === 'idle' ? true : undefined, 'observable assistant answer');
+  return { requests: (await captures()).slice(before), added: receipts(id).slice(prior) };
+}
+function admitted(receipt: Receipt): Array<{ memoryId?: string; sourceId?: string; admitted?: boolean; reason?: string }> {
+  return (JSON.parse(receipt.candidates_json ?? '[]') as Array<{ memoryId?: string; sourceId?: string; admitted?: boolean; reason?: string }>)
+    .filter((candidate) => candidate.admitted);
+}
 async function evidence(caseId: string, status: string, checks: Record<string, boolean>, count?: number): Promise<void> {
   console.info(JSON.stringify({ caseId, sessionIds: [...sessions], status,
     providerRequestCount: count ?? (await captures()).length, ...checks }));
@@ -195,7 +242,7 @@ function bodyFree(value: unknown): boolean {
     expect((await fetch(`${PROVIDER}/_sdmr/reset`, { method: 'POST' })).status).toBe(204);
   });
   afterEach(async () => {
-    if (!safeToClean) return;
+    if (!safeToClean || RETAIN) return;
     // Discover first; stop schedules before deleting their sessions/profiles.
     const errors: string[] = [];
     for (const id of schedules) {
@@ -268,10 +315,81 @@ function bodyFree(value: unknown): boolean {
     // Explicit skip; beforeAll emits its compact evidence line when live is enabled.
   });
 
+  it('A4 scheduled_inflight_guard_reason_preserved (fresh first-turn tool loop; no resume API)', async () => {
+    const marker = tag();
+    const profileId = await profile();
+    // Timing only: the provider holds this tag's first native request, then returns the normal pwd call.
+    expect((await fetch(`${PROVIDER}/_sdmr/hold/${marker}`, { method: 'POST' })).status).toBe(204);
+    let released = false;
+    const release = async () => {
+      if (released) return;
+      released = true;
+      expect((await fetch(`${PROVIDER}/_sdmr/release/${marker}`, { method: 'POST' })).status).toBe(204);
+    };
+    const schedule = await json<Schedule>('/agent-schedules', { method: 'POST', body: JSON.stringify({
+      name: `Synthetic SDMR A4 ${marker}`, scheduleType: 'once', runAt: '2099-01-01T00:00:00.000Z',
+      agentConfigId: profileId, prompt: `SDMR:PWD:${marker}`,
+    }) }, false);
+    schedules.push(schedule.id);
+    expect(schedule.createdByUserId).toBeNull();
+    try {
+      await json(`/agent-schedules/${schedule.id}/trigger-now`, { method: 'POST', body: '{}' });
+      await poll(async () => ((await (await fetch(`${PROVIDER}/_sdmr/held`)).json()) as string[]).includes(marker) ? true : undefined,
+        'first native provider request held', 120_000);
+      const ids = await discoverScheduledSessions(schedule.id);
+      expect(ids).toHaveLength(1);
+      const id = ids[0];
+      const sdk = await poll(async () => {
+        const value = row(id).sdk_session_id;
+        return typeof value === 'string' && value.length > 0 ? value : undefined;
+      }, 'fresh scheduled SDK binding', 30_000);
+      expect(row(id)).toMatchObject({ owner_user_id: null, category: 'scheduled', scheduled_task_id: schedule.id, dayflow_context_nonreuse_code: null });
+      const archived = markInFlight(id, schedule.id, sdk);
+      console.info(JSON.stringify({ caseId: 'A4-fixture-marker', ...archived }));
+      await release();
+      const terminal = await poll(async () => {
+        const task = await json<Schedule>(`/agent-schedules/${schedule.id}`);
+        return ['success', 'completed_no_op', 'error', 'blocked_on_approval'].includes(task.lastRunStatus ?? '') ? task : undefined;
+      }, 'schedule terminal status');
+      const reason = 'AgentRunner: Dayflow provider guard held this request (history_ambiguous)';
+      const prefixed = /^\[([a-z_]+)\] (.*)$/.exec(terminal.lastError ?? '');
+      expect(terminal.lastRunStatus).toBe('error');
+      expect(prefixed?.[2]).toBe(reason);
+      const runs = await json<Array<{ status: string; error: string | null; rootSessionId: string | null }>>(`/agent-schedules/${schedule.id}/runs`);
+      expect(runs).toHaveLength(1);
+      expect(runs[0]).toMatchObject({ status: 'error', error: terminal.lastError, rootSessionId: id });
+      // Session diagnostics: the runner writes its exact reason to lastPreview; the stream bridge
+      // records the engine's native error in statusMessage. Both must carry the same bounded reason.
+      const session = await snapshot(id) as Session & { lastPreview?: string | null };
+      expect(session.status).toBe('error');
+      expect(session.lastPreview).toBe(reason);
+      expect(session.statusMessage).toBe('Dayflow provider guard held this request (history_ambiguous).');
+      // The real engine guard produced it: native assistant error + the permitted pwd really ran.
+      const native = await (await fetch(`${ENGINE}/session/${encodeURIComponent(sdk)}/message`, { signal: AbortSignal.timeout(10_000) })).json() as Array<{
+        info: { role: string; error?: { data?: { message?: string } } }; parts: Array<{ type: string; state?: { status?: string; output?: string } }>;
+      }>;
+      const cwd = realpathSync(String(row(id).cwd));
+      expect(native.some((m) => m.parts.some((p) => p.type === 'tool' && p.state?.status === 'completed' && (p.state.output ?? '').includes(cwd)))).toBe(true);
+      expect(native.filter((m) => m.info.role === 'assistant').at(-1)?.info.error?.data?.message)
+        .toBe('Dayflow provider guard held this request (history_ambiguous).');
+      await pause(2000);
+      expect(await captures(`SDMR:PWD:${marker}`)).toHaveLength(1); // the post-tool attempt never reached the provider
+      expect(row(id)).toMatchObject({ dayflow_context_nonreuse_code: 'dayflow_receiving_context_changed',
+        dayflow_context_nonreuse_at: (archived.after as { dayflow_context_nonreuse_at: string }).dayflow_context_nonreuse_at });
+      await evidence('A4', 'error', { realEngineGuard: true, taskLastError: true, runHistory: true, sessionStatus: true,
+        pwdExecuted: true, singleProviderRequest: true, markerRetained: true, category: prefixed?.[1] === 'infra_config' });
+    } finally {
+      await release();
+    }
+  }, 300_000);
+
   it('S4 interactive_owned_chat_ordinary_and_memory_fenced', async () => {
     const { id } = await interactive(await profile());
-    const preference = 'Synthetic gradient slide preference: center the subject in the photo pane and use a soft gradient behind slide text';
-    const observation = 'Synthetic dayflow gradient slide observation XYZZY';
+    // Run tag early in the text: note paths derive from the leading content, and retained
+    // fixtures from earlier runs must not collide. Asserted substrings are unchanged.
+    const run = tag();
+    const preference = `Synthetic gradient slide preference ${run}: center the subject in the photo pane and use a soft gradient behind slide text`;
+    const observation = `Synthetic dayflow ${run} gradient slide observation XYZZY`;
     for (const input of [
       { kind: 'preference', content: preference, tags: ['sdmr-synthetic'] },
       { kind: 'context', content: observation, source: 'dayflow', tags: ['dayflow', 'activity-observation', 'sdmr-synthetic'] },
@@ -316,6 +434,73 @@ function bodyFree(value: unknown): boolean {
       interactiveOwnerOne: true, ordinaryMemoryPresent: true, dayflowFenced: true, resumeAnswered: true, provenanceBodyFree: true,
       memoryOwnedByUser1: ownerOne,
     });
+  }, 240_000);
+
+  it('S6 memory_odds_continuation_canonical_update_abstain_receipts', async () => {
+    const { id } = await interactive(await profile());
+    const run = tag();
+    // Run tag leads the text so retained notes from earlier runs never share a vault path.
+    const v1 = `Odds fixture ${run}: football betting odds lines use OddsAPI with cached markets`;
+    const v2 = `Odds fixture ${run}: football betting odds lines use OddsAPI with live markets`;
+    const note = await remember(v1, 'fact', ['sdmr-synthetic']);
+    const forbidden = [v1, v2, 'cached markets', 'live markets', 'Look up football', 'evidenceText', 'excerpt', 'queryTokens'];
+    const m1 = tag();
+    // The run word is shared by this run's note and prompt only: retained notes from earlier runs
+    // (same text, other run words) cannot outrank it under the 2-item budget. Assertions unchanged.
+    const first = await memoryTurn(id, `Look up football betting odds using OddsAPI ${run} SDMR:ECHO:${m1}`, `SDMR_ECHO ${m1}`);
+    expect(first.requests.some((r) => r.systemText.includes(v1) && r.systemText.includes('UNTRUSTED'))).toBe(true);
+    expect(first.added).toHaveLength(1);
+    expect(first.added[0]).toMatchObject({ decision: 'injected' });
+    expect(admitted(first.added[0]).map((c) => c.sourceId)).toContain(note.path);
+    // Current canonical update through the real edit-in-place API; the id is unchanged.
+    expect((await api(`/agent-memory/${encodeURIComponent(note.id)}`, { method: 'PATCH', body: JSON.stringify({ content: v2 }) })).ok).toBe(true);
+    const thanks = await memoryTurn(id, 'thanks', 'SDMR_ECHO none');
+    expect(thanks.requests.every((r) => !r.systemText.includes(`Odds fixture ${run}`))).toBe(true);
+    expect(thanks.added).toHaveLength(1);
+    expect(thanks.added[0].decision).toBe('abstained');
+    const lines = await memoryTurn(id, 'what about lines', 'SDMR_ECHO none');
+    expect(lines.requests.some((r) => r.lastUserText.includes('what about lines') && r.systemText.includes(v2))).toBe(true);
+    expect(lines.requests.every((r) => !r.systemText.includes(v1))).toBe(true);
+    expect(lines.added).toHaveLength(1);
+    expect(lines.added[0]).toMatchObject({ query_mode: 'continuation', decision: 'injected' });
+    expect(admitted(lines.added[0]).map((c) => c.sourceId)).toContain(note.path);
+    for (const receipt of [first.added[0], lines.added[0]]) {
+      expect(receipt.injected_count ?? 0).toBeLessThanOrEqual(2);
+      expect(receipt.injected_chars ?? 0).toBeLessThanOrEqual(1200);
+    }
+    const all = JSON.stringify(receipts(id));
+    for (const text of forbidden) expect(all).not.toContain(text);
+    await evidence('S6', 'answered', { oddsLeadAtProvider: true, canonicalUpdateConsumed: true, abstainedOnThanks: true,
+      continuationMode: true, receiptPerTurn: true, receiptsBodyFree: true, budgetsKept: true, fenceHeader: true });
+  }, 240_000);
+
+  it('S7 memory_writing_archive_section_and_voice_continuation', async () => {
+    const { id } = await interactive(await profile());
+    const run = tag();
+    const style = `For every volunteer email ${run} use warm direct language. Keep paragraphs short and avoid ceremonial greetings.`;
+    const archive = `# Historical notes ${run}\n## Workout plan\nSquats recovery lifting unrelated workout.\n## Writing style profile\n${style}\n## Football lookup\nUnrelated football scores and betting archive.`;
+    const note = await remember(archive, 'preference', ['archive', 'sdmr-synthetic']);
+    const m1 = tag();
+    const draft = await memoryTurn(id, `draft volunteer email ${run} for Saturday setup SDMR:ECHO:${m1}`, `SDMR_ECHO ${m1}`);
+    const sent = draft.requests.find((r) => r.systemText.includes(style));
+    expect(sent).toBeDefined();
+    expect(sent!.systemText).toContain('Writing style profile');
+    expect(sent!.systemText).toMatch(/updated \d{4}-\d{2}-\d{2}/);
+    expect(sent!.systemText).not.toContain('Squats');
+    expect(sent!.systemText).not.toContain('football scores');
+    expect(draft.added).toHaveLength(1);
+    expect(admitted(draft.added[0])).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reason: 'applicable_preference_section' }),
+    ]));
+    expect(admitted(draft.added[0]).map((c) => c.sourceId)).toContain(note.path);
+    const voice = await memoryTurn(id, 'use my voice for that', 'SDMR_ECHO none');
+    expect(voice.requests.some((r) => r.lastUserText.includes('use my voice') && r.systemText.includes(style))).toBe(true);
+    expect(voice.added).toHaveLength(1);
+    expect(voice.added[0].query_mode).toBe('continuation');
+    const all = JSON.stringify(receipts(id));
+    for (const text of [style, 'Writing style profile', 'Squats', 'draft volunteer email', 'excerpt', 'evidenceText']) expect(all).not.toContain(text);
+    await evidence('S7', 'answered', { writingSectionAtProvider: true, otherSectionsExcluded: true,
+      sectionReason: true, voiceContinuation: true, receiptsBodyFree: true });
   }, 240_000);
 
   it('S5 approval_still_required', async () => {

@@ -257,6 +257,7 @@ export type ProviderSnapshot = {
       releaseDate?: string;
       family?: string;
       reasoning?: boolean;
+      variants?: string[];
       capabilities?: {
         input?: { text?: boolean };
         output?: { text?: boolean };
@@ -2026,6 +2027,7 @@ export class OpencodeClientService {
             release_date?: unknown;
             family?: unknown;
             reasoning?: unknown;
+            variants?: Record<string, unknown>;
           };
           const price = (v: unknown): number | undefined =>
             typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined;
@@ -2051,6 +2053,7 @@ export class OpencodeClientService {
               ? { releaseDate: model.release_date } : {}),
             ...(typeof model.family === 'string' && model.family ? { family: model.family } : {}),
             ...(typeof model.reasoning === 'boolean' ? { reasoning: model.reasoning } : {}),
+            variants: model.variants && typeof model.variants === 'object' ? Object.keys(model.variants) : [],
             ...(model.capabilities ? {
               capabilities: {
                 input: { text: model.capabilities.input?.text === true },

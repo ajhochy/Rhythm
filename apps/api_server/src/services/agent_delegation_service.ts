@@ -1,3 +1,4 @@
+import { syncAutoAccountSessionProvenance } from './decision/capacity_router';
 import { AppError } from '../errors/app_error';
 import {
   CODING_WORKFLOW_ADAPTER,
@@ -483,6 +484,7 @@ export async function delegateToAgentAsync(
     effectiveCwd,
     profileScope.mcpRoleConfig?.allowedToolsJson ?? null,
   );
+  if (childRow) syncAutoAccountSessionProvenance(childRow);
   if (!childRow) {
     throw AppError.internal('failed to persist async delegated child session');
   }

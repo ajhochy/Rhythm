@@ -142,7 +142,14 @@ function evidence(caseId: string, data: Record<string, unknown>): void {
   }, 240_000);
 
   it('R2 unreachable classifier is a recorded fallback and the turn still answers', async () => {
-    await configure({ backend: 'systemone', systemone: { baseUrl: 'http://127.0.0.1:8019', model: 'kev-latest' }, timeoutMs: 1000 });
+    // This suite is the legacy (default-engine) shadow path; a shared sandbox may carry routing.engine=grid
+    // from grid suites, so pin it. The unreachable endpoint must be a closed loopback port the sandbox
+    // transport guard forwards, so the failure is a real ECONNREFUSED rather than an in-process refusal.
+    const unreachable = 'http://127.0.0.1:7483';
+    expect(await fetch(`${unreachable}/health`, { signal: AbortSignal.timeout(2000) })
+      .then(() => 'listening', (err: { cause?: { code?: string } }) => err?.cause?.code ?? 'unknown')).toBe('ECONNREFUSED');
+    await configure({ backend: 'systemone', systemone: { baseUrl: unreachable, model: 'kev-latest' }, timeoutMs: 1000,
+      routing: { scope: 'first_prompt', engine: 'legacy' } });
     const id = await session();
     const marker = randomUUID().slice(0, 8);
     await turn(id, `SDMR:ECHO:${marker} What tasks are due today?`, `SDMR_ECHO ${marker}`);

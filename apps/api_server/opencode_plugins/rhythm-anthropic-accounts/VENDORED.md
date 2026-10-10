@@ -23,6 +23,8 @@ so we vendor + surgically modify rather than reimplement.
 
 ## Local modifications
 
+- `dist/accounts.js` — durable `pinned` session flags suppress same-provider fallback and ignore spillover overrides; cross-provider exhaustion reporting is unchanged.
+
 - `package.json` — `name` → `rhythm-anthropic-accounts` (nothing else).
 - `dist/accounts.js` — NEW module: read-only store reader (mtime-cached),
   `resolveForSession(sessionId)` (session override map → file `routing` →

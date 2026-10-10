@@ -710,6 +710,35 @@ describe('Dayflow authenticated shared composition', () => {
     };
   }
 
+  it('accepts scheduler renewal of retained history but still fails a changed consent generation', async () => {
+    const renewal = { expiresAt: '2031-01-01T00:00:00.000Z' };
+    for (const [change, reusable] of [[renewal, true], [{ ...renewal, consentGeneration: 'consent:revoked-then-regranted' }, false]] as const) {
+      const db = receivingDb();
+      try {
+        const records = new DayflowReceivingContextRepository(db);
+        const binding = records.findByActiveTool({ ownerUserId: 7, sdkSessionId: 'sdk:1', sdkTurnId: 'turn:1', sdkUserMessageId: 'user:1' })!;
+        const retained = canonicalCandidate();
+        expect(records.append(binding, [retained])).toBe(true);
+        const page = { schemaVersion: 1, status: 'available', references: [], candidates: [{ ...retained, reference: { ...retained.reference, ...change } }], nextCursor: null };
+        const guard = new DayflowReceivingHistoryGuard({
+          records,
+          authority: {} as never,
+          reader: {
+            readQualifiedEvidence: async () => page as never,
+            readQualifiedEvidenceWithAdmission: async () => ({ page, admission: null }) as never,
+            isQualifiedEvidenceAdmissionCurrent: () => false,
+            isReferenceWithinAutomaticWindow: () => true,
+          },
+        });
+        await expect(guard.revalidateBeforeSdk('sdk:1')).resolves.toBe(reusable);
+        expect((db.prepare(`SELECT dayflow_context_nonreuse_code AS code FROM agent_sessions WHERE id='session:1'`).get() as { code: string | null }).code)
+          .toBe(reusable ? null : 'dayflow_dependency_revalidation_failed');
+      } finally {
+        db.close();
+      }
+    }
+  });
+
   it('holds a real qualified producer admission when the live receiving tool is revoked during its final await', async () => {
     const stage = await beginCrossAuthorityRead();
     try {

@@ -1,5 +1,6 @@
 import {
   sameDayflowQualifiedEvidenceCandidate,
+  sameDayflowQualifiedEvidenceRenewal,
   type DayflowQualifiedEvidenceCandidate,
 } from '../contracts/dayflow_coordinator_reader_contract';
 import {
@@ -105,8 +106,9 @@ export class DayflowReceivingHistoryGuard implements DayflowSdkHistoryGuard {
       } catch {
         return this.fail(sdkSessionId);
       }
+      // Routine scheduler renewal must not brick the chat; any scope change still fails closed.
       if (page.status !== 'available' || !dependency.candidates.every((candidate) =>
-        page.candidates.some((current) => sameDayflowQualifiedEvidenceCandidate(candidate, current)))) {
+        page.candidates.some((current) => sameDayflowQualifiedEvidenceRenewal(candidate, current)))) {
         return this.fail(sdkSessionId);
       }
     }

@@ -27,9 +27,20 @@ export class RouterGridExhaustionStore {
   }
   markExhausted(provider: ClosedProvider, accountId: string, exhaustedUntil: number): void {
     if ((provider !== 'anthropic' && provider !== 'openai') || !accountId.trim() || !Number.isFinite(exhaustedUntil)) throw new Error('invalid_exhaustion');
-    const entries = this.list().filter(e => e.provider !== provider || e.accountId !== accountId);
-    if (exhaustedUntil > this.clock()) entries.push({ provider, accountId, exhaustedUntil });
+    if (exhaustedUntil <= this.clock()) return;
+    const active = this.list();
+    const previous = active.find(e => e.provider === provider && e.accountId === accountId);
+    const entries = active.filter(e => e !== previous);
+    entries.push({ provider, accountId, exhaustedUntil: Math.max(previous?.exhaustedUntil ?? 0, exhaustedUntil) });
     this.save(entries);
+  }
+  /** Only fresh, positive usage evidence may end a cooldown early. */
+  clearRecovered(provider: ClosedProvider, accountId: string, evidence: { fetchedAt: number; remaining: number }): void {
+    const now = this.clock();
+    if ((provider !== 'anthropic' && provider !== 'openai') || !accountId.trim() ||
+      !Number.isFinite(evidence.fetchedAt) || evidence.fetchedAt > now || now - evidence.fetchedAt > 15 * 60000 ||
+      !Number.isFinite(evidence.remaining) || evidence.remaining <= 0) throw new Error('invalid_recovery');
+    this.save(this.list().filter(e => e.provider !== provider || e.accountId !== accountId));
   }
   isExhausted(provider: ClosedProvider, accountId: string): boolean { return this.list().some(e => e.provider === provider && e.accountId === accountId); }
 }

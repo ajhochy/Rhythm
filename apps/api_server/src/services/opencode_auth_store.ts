@@ -38,6 +38,16 @@ export class OpencodeAuthStore {
     return providers;
   }
 
+  /** Key of an `api`-type auth entry, or null. Never logged or returned to clients. */
+  apiKey(provider: string): string | null {
+    try {
+      const entry = (JSON.parse(readFileSync(this.authPath, 'utf8')) as Record<string, unknown>)?.[provider] as { type?: unknown; key?: unknown } | undefined;
+      return entry?.type === 'api' && typeof entry.key === 'string' && entry.key ? entry.key : null;
+    } catch {
+      return null;
+    }
+  }
+
   private readAuthJsonProviders(): string[] {
     if (!existsSync(this.authPath)) return [];
     try {

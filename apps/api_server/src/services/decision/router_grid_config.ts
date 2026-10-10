@@ -2,6 +2,7 @@ import { readFileSync, statSync } from 'fs';
 import { dirname, join } from 'path';
 import defaults from './router_grid.default.json';
 import { decisionSettingsPath } from './decision_settings';
+import { validateRouterFreeConfig, type RouterFreeConfig } from './router_free_config';
 
 export type GridTier = 1 | 2 | 3 | 4;
 export type GridCategory = 'coding' | 'design' | 'knowledge';
@@ -9,9 +10,11 @@ export type ClosedProvider = 'anthropic' | 'openai';
 export interface GridCandidate { model: string; effort: string; cost_per_task: number }
 export type GridFallback = { action: 'queue_or_degrade'; degraded_model: string } | { models: string[] };
 export interface RouterGridConfig {
+  free_mode: RouterFreeConfig;
   version: string;
   reserve_pct: number;
   coding_t1_prefer_astra: boolean;
+  agent_auto_profiles: string[];
   classifier: { model: string; tier_thresholds: [number, number, number]; can_queue_min_p: number; security_min_p: number; rules_default_tier: GridTier };
   models: Record<string, { price_in: number; price_out: number; long_prompt_threshold?: number; peak?: 'weekday' }>;
   routing: Record<GridCategory, Record<GridTier, GridCandidate[]>>;
@@ -24,6 +27,16 @@ const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'ob
 const numberIn = (v: unknown, min: number, max = Infinity): v is number => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
 const text = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
 function requireValid(ok: unknown): asserts ok { if (!ok) throw new Error('invalid_router_grid_config'); }
+
+/** Walk arrays too: structuredClone alone would copy nested prototype keys unchecked. */
+function rejectPrototypeKeys(value: unknown): void {
+  if (!value || typeof value !== 'object') return;
+  requireValid(Array.isArray(value) || [Object.prototype, null].includes(Object.getPrototypeOf(value)));
+  for (const [key, child] of Object.entries(value)) {
+    requireValid(!['__proto__', 'constructor', 'prototype'].includes(key));
+    rejectPrototypeKeys(child);
+  }
+}
 
 /** Objects merge recursively, arrays replace; reject prototype keys at this file boundary. */
 function merge(base: unknown, override: unknown): any {
@@ -39,7 +52,11 @@ function merge(base: unknown, override: unknown): any {
 /** Strict merged validation; loader falls back atomically if any override is malformed. */
 export function normaliseRouterGridConfig(raw: unknown): RouterGridConfig {
   requireValid(object(raw));
+  rejectPrototypeKeys(raw);
   const c = merge(defaults, raw);
+  validateRouterFreeConfig(c.free_mode);
+  c.agent_auto_profiles ??= [];
+  requireValid(Array.isArray(c.agent_auto_profiles) && c.agent_auto_profiles.every(text));
   requireValid(text(c.version) && numberIn(c.reserve_pct, 0, 100) && typeof c.coding_t1_prefer_astra === 'boolean');
   requireValid(object(c.classifier));
   const f = c.classifier;
@@ -81,15 +98,19 @@ export function normaliseRouterGridConfig(raw: unknown): RouterGridConfig {
 export function defaultRouterGridConfig(): RouterGridConfig { return normaliseRouterGridConfig({}); }
 export function routerGridConfigPath(): string { return join(dirname(decisionSettingsPath()), 'router-grid.json'); }
 let cache: { path: string; mtimeMs: number; size: number; config: RouterGridConfig } | null = null;
-export function loadRouterGridConfig(path = routerGridConfigPath()): RouterGridConfig {
+export function loadRouterGridConfig(path = routerGridConfigPath(), reportReason: (reason: string) => void = reason => console.warn(reason)): RouterGridConfig {
   try {
     const st = statSync(path);
     if (cache?.path === path && cache.mtimeMs === st.mtimeMs && cache.size === st.size) return cache.config;
     const config = normaliseRouterGridConfig(JSON.parse(readFileSync(path, 'utf8')));
     cache = { path, mtimeMs: st.mtimeMs, size: st.size, config };
     return config;
-  } catch {
+  } catch (error) {
     cache = null;
+    // Fixed codes only: never expose a config body, path or parser exception.
+    const reason = error instanceof Error && error.message === 'invalid_router_free_config'
+      ? 'invalid_router_free_config' : 'router_grid_config_unavailable_or_invalid';
+    reportReason(reason);
     return defaultRouterGridConfig();
   }
 }

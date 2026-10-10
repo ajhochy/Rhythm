@@ -321,13 +321,22 @@ export function chooseCapacityRoute(input: CapacityRouteInput): CapacityRouteRes
 // ---------------------------------------------------------------------------
 
 const autoAccountSessions = new Set<string>();
+const pinnedAccountSessions = new Set<string>();
 
 /** With `provider`, only that provider's account counts as auto-picked. */
 export function markAutoAccountSession(sessionId: string, provider?: 'anthropic' | 'openai'): void {
+  if (provider && pinnedAccountSessions.has(`${sessionId}:${provider}`)) return;
   autoAccountSessions.add(provider ? `${sessionId}:${provider}` : sessionId);
 }
 
+/** Explicit user intent wins over both provider-specific and legacy generic markers. */
+export function unmarkAutoAccountSession(sessionId: string, provider: 'anthropic' | 'openai'): void {
+  autoAccountSessions.delete(`${sessionId}:${provider}`);
+  pinnedAccountSessions.add(`${sessionId}:${provider}`);
+}
+
 export function isAutoAccountSession(sessionId: string, provider?: 'anthropic' | 'openai'): boolean {
+  if (provider && pinnedAccountSessions.has(`${sessionId}:${provider}`)) return false;
   return (
     autoAccountSessions.has(sessionId) ||
     (provider !== undefined && autoAccountSessions.has(`${sessionId}:${provider}`))
@@ -336,6 +345,18 @@ export function isAutoAccountSession(sessionId: string, provider?: 'anthropic' |
 
 export function clearAutoAccountSessionsForTests(): void {
   autoAccountSessions.clear();
+  pinnedAccountSessions.clear();
+}
+
+function markAuthoritativeAutoAccountSession(sessionId: string, provider: 'anthropic' | 'openai'): void {
+  pinnedAccountSessions.delete(`${sessionId}:${provider}`);
+  autoAccountSessions.add(`${sessionId}:${provider}`);
+}
+
+export function syncAutoAccountSessionProvenance(session: { id: string; anthropicAccountSource?: string | null; openaiAccountSource?: string | null }): void {
+  for (const [provider, source] of [['anthropic', session.anthropicAccountSource], ['openai', session.openaiAccountSource]] as const) {
+    if (source === 'router') markAuthoritativeAutoAccountSession(session.id, provider); else unmarkAutoAccountSession(session.id, provider);
+  }
 }
 
 /** A cached snapshot older than this (or missing) triggers a background refresh. */
@@ -346,7 +367,7 @@ let refreshInFlight = false;
  * Fire-and-forget refresh of the usage cache (one Anthropic probe request per
  * refresh). Never awaited on the turn path, at most one in flight, errors swallowed.
  */
-function primeUsageCache(): void {
+export function primeUsageCache(): void {
   if (refreshInFlight) return;
   refreshInFlight = true;
   void Promise.resolve()
@@ -575,13 +596,13 @@ export async function switchAutoSessionAccount(opts: {
       if (!anthropicAccountsService.getAccount(opts.accountId)) return false;
       if (session.anthropicAccountId === opts.accountId) return false;
       repo.setAnthropicAccountId(session.id, opts.accountId);
-      if (session.sdkSessionId) anthropicAccountsService.setRouting(session.sdkSessionId, opts.accountId);
+      if (session.sdkSessionId) anthropicAccountsService.setRouting(session.sdkSessionId, opts.accountId, { pinned: false });
     } else {
       const { openaiAccountsService } = await import('../openai_accounts_service');
       if (!openaiAccountsService.getAccount(opts.accountId)) return false;
       if (session.openaiAccountId === opts.accountId) return false;
       repo.setOpenaiAccountId(session.id, opts.accountId);
-      if (session.sdkSessionId) openaiAccountsService.setRouting(session.sdkSessionId, opts.accountId);
+      if (session.sdkSessionId) openaiAccountsService.setRouting(session.sdkSessionId, opts.accountId, { pinned: false });
     }
     return true;
   } catch (err) {

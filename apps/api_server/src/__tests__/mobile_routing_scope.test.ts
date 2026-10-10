@@ -304,9 +304,9 @@ describe('mobile session state PATCH modelMode', () => {
 describe('routing config', () => {
   it('defaults, PUT round-trip, validation and env lock', () => {
     const v0 = buildConfigView();
-    expect(v0.routing).toEqual({ scope: 'first_prompt', escalateMinConfidence: 0.75, minConfidence: 0.55, lowConfidenceTier: null });
+    expect(v0.routing).toEqual({ engine: 'legacy', scope: 'first_prompt', escalateMinConfidence: 0.75, minConfidence: 0.55, lowConfidenceTier: null });
     const v1 = updateConfig({ routing: { scope: 'escalate_only', escalateMinConfidence: 0.9 } });
-    expect(v1.routing).toEqual({ scope: 'escalate_only', escalateMinConfidence: 0.9, minConfidence: 0.55, lowConfidenceTier: null });
+    expect(v1.routing).toEqual({ engine: 'legacy', scope: 'escalate_only', escalateMinConfidence: 0.9, minConfidence: 0.55, lowConfidenceTier: null });
     expect(v1.effective.routing).toEqual({ scope: 'escalate_only', escalateMinConfidence: 0.9, minConfidence: 0.55, lowConfidenceTier: 'keep' });
 
     const code = (fn: () => unknown) => {

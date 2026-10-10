@@ -235,6 +235,20 @@ export class AgentScheduledTasksRepository {
     return (rows as Record<string, unknown>[]).map(rowToModel);
   }
 
+  /** Free Mode D4: bring a capacity-deferred, still-enabled task forward to now (a fresh full run, never a replay). */
+  async advanceDeferredRunAsync(id: string, nowIso: string): Promise<boolean> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `UPDATE agent_scheduled_tasks SET next_run_at = $1, updated_at = $1
+         WHERE id = $2 AND enabled = TRUE AND last_run_status = 'queued' AND (next_run_at IS NULL OR next_run_at > $1)`, [nowIso, id]);
+      return (result.rowCount ?? 0) === 1;
+    }
+    return getDb().prepare(
+      `UPDATE agent_scheduled_tasks SET next_run_at = ?, updated_at = ?
+       WHERE id = ? AND enabled = 1 AND last_run_status = 'queued' AND (next_run_at IS NULL OR next_run_at > ?)`,
+    ).run(nowIso, nowIso, id, nowIso).changes === 1;
+  }
+
   async updateNextRunAsync(id: string, nextRunAt: string | null, lastRunAt: string, lastRunStatus: string, lastError?: string): Promise<void> {
     const now = new Date().toISOString();
     if (env.dbClient === 'postgres') {

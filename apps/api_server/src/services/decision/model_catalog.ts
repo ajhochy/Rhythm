@@ -41,6 +41,7 @@ export interface RoutableModel {
   releaseDate: string | null;
   contextLimit: number | null;
   reasoning: boolean | null;
+  variants: string[];
   keyless: boolean;
 }
 
@@ -284,6 +285,7 @@ function buildLive(
         releaseDate: model.releaseDate ?? null,
         contextLimit: model.contextLimit ?? null,
         reasoning: model.reasoning ?? null,
+        variants: model.variants ?? [],
         keyless,
         excluded: excluded.has(modelKey(provider.id, model.id)),
         enabled,
@@ -357,6 +359,7 @@ async function buildStatic(
         releaseDate: null,
         contextLimit: null,
         reasoning: null,
+        variants: [],
         keyless,
         excluded: excluded.has(key),
         // Static table is only used when the engine is unreachable: honor explicit hides only.

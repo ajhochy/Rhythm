@@ -2588,6 +2588,50 @@ export function runMigrations(db: Database.Database): void {
     );
   }
 
+  // Grid continuation ledger: deliberately body-free and available on both backends.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_router_grid_attempts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      classification_json TEXT NOT NULL,
+      result_json TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_router_grid_attempts_session_id
+      ON agent_router_grid_attempts(session_id,id);
+  `);
+  // Free Mode held turns: owner-scoped original input, separate from body-free Free/attempt receipts.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_held_turns (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      owner_user_id INTEGER,
+      origin TEXT NOT NULL CHECK (origin IN ('desktop','prompt_api','mobile')),
+      input_text TEXT NOT NULL,
+      options_json TEXT NOT NULL,
+      profile_id TEXT,
+      permission_mode TEXT,
+      classification_source TEXT,
+      status TEXT NOT NULL CHECK (status IN ('pending','claimed','dispatched','superseded','cancelled','rejected','recovery_required','failed')),
+      reason TEXT,
+      dispatch_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_held_turns_session_status
+      ON agent_held_turns(session_id,status,created_at);
+  `);
+  // Free structured-extraction owner opt-in (authoritative server-side proof; set only by the owner).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_free_opt_ins (
+      owner_user_id INTEGER NOT NULL,
+      task_kind TEXT NOT NULL CHECK (task_kind IN ('structured_extraction')),
+      enabled INTEGER NOT NULL CHECK (enabled IN (0,1)),
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (owner_user_id, task_kind)
+    );
+  `);
+
   // Local decision engine — agent_decision_log: one row per shadow/applied
   // decision (model routing, tool ranking, memory ranking) so the rollout can
   // be judged on agreement, latency and calibration before flipping to 'on'.
@@ -2641,6 +2685,12 @@ export function runMigrations(db: Database.Database): void {
   // Keep in sync with postgres_bootstrap.ts.
   if (!sessColsForAcct.includes('openai_account_id')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN openai_account_id TEXT`);
+  }
+  if (!sessColsForAcct.includes('anthropic_account_source')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN anthropic_account_source TEXT`);
+  }
+  if (!sessColsForAcct.includes('openai_account_source')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN openai_account_source TEXT`);
   }
   if (!cfgColsForAcct.includes('default_openai_account_id')) {
     db.exec(`ALTER TABLE agent_configs ADD COLUMN default_openai_account_id TEXT`);
@@ -3421,6 +3471,9 @@ If someone asks for creative work that needs a local capability:
   // session (first_prompt scope reuses it). NULL = not routed yet.
   if (!agentSessionColsModelMode.includes('router_decided_at')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN router_decided_at TEXT`);
+  }
+  if (!agentSessionColsModelMode.includes('router_variant')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN router_variant TEXT`);
   }
 
   // Delegated-session isolation repair. Only a child still classified Chat

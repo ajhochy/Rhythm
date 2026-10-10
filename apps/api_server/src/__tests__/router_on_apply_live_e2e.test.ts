@@ -9,8 +9,9 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
 import { assertLiveE2EIsolation } from './_live_e2e_guard';
@@ -29,7 +30,7 @@ let socket: WebSocket | undefined;
 
 type Row = { sessionId: string | null; status: string; chosen: string | null; confidence: number | null;
   model: string | null; latencyMs: number | null; mode: string; applied: boolean; detail: Record<string, unknown> };
-type Captured = { lastUserText: string; body: { model?: string } };
+type Captured = { lastUserText: string; headers: { authorization?: string }; body: { model?: string; reasoning_effort?: string; reasoning?: { effort?: string } } };
 const pause = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 
 async function api(path: string, init: RequestInit = {}): Promise<Response> {
@@ -66,7 +67,7 @@ async function session(modelMode: 'auto' | 'fixed'): Promise<string> {
   }) });
   cleanup.profiles.push(id);
   await json('/system/refresh', { method: 'POST' });
-  const cwd = mkdtempSync('/private/tmp/rhythm-sdmr-on-');
+  const cwd = mkdtempSync(join(tmpdir(), 'rhythm-sdmr-on-'));
   cleanup.dirs.push(cwd);
   const created = await json<{ id: string }>('/agent-sessions', { method: 'POST', body: JSON.stringify({
     agentId: id, cwd, name: `Synthetic router ON ${id}`, modelMode,
@@ -75,7 +76,7 @@ async function session(modelMode: 'auto' | 'fixed'): Promise<string> {
   return created.id;
 }
 /** Send one WS turn; return elapsed ms and the model id the engine sent to the provider. */
-async function turn(sessionId: string, text: string): Promise<{ ms: number; model: string | undefined }> {
+async function turn(sessionId: string, text: string): Promise<{ ms: number; model: string | undefined; captured?: Captured }> {
   const tag = randomUUID().slice(0, 8);
   const started = Date.now();
   socket!.send(JSON.stringify({ v: 1, type: 'session.input', id: sessionId, data: `${text} [ref SDMR:ECHO:${tag}]` }));
@@ -85,10 +86,11 @@ async function turn(sessionId: string, text: string): Promise<{ ms: number; mode
     return t.messages.some((m) => m.role === 'output' && (m.strippedText ?? m.rawText ?? '').includes(`SDMR_ECHO ${tag}`)) ? true : undefined;
   }, 'answered turn');
   const captured = await (await fetch(`${PROVIDER}/_sdmr/requests`)).json() as Captured[];
-  return { ms: Date.now() - started, model: captured.find((r) => r.lastUserText.includes(`SDMR:ECHO:${tag}`))?.body.model };
+  const request = captured.find((r) => r.lastUserText.includes(`SDMR:ECHO:${tag}`));
+  return { ms: Date.now() - started, model: request?.body.model, captured: request };
 }
 async function snapshot(id: string) {
-  return (await json<{ session: { routerDecidedAt?: string | null; providerId?: string | null; modelId?: string | null } }>(
+  return (await json<{ session: { routerDecidedAt?: string | null; routerVariant?: string | null; providerId?: string | null; modelId?: string | null; openaiAccountId?: string | null } }>(
     `/agent-sessions/${id}`)).session;
 }
 function evidence(caseId: string, data: Record<string, unknown>): void {
@@ -132,9 +134,7 @@ const ROUTER_ON = {
     socket?.close();
     await configure({ backend: 'local', remoteDataConsent: false, openaiDecisions: { apiKey: '' },
       features: { model_routing: 'off' } }).catch(() => undefined);
-    for (const id of cleanup.sessions.reverse()) await api(`/agent-sessions/${id}/hard`, { method: 'DELETE' }).catch(() => undefined);
-    for (const id of cleanup.profiles.reverse()) await api(`/agent-configs/${id}`, { method: 'DELETE' }).catch(() => undefined);
-    for (const dir of cleanup.dirs) rmSync(dir, { recursive: true, force: true });
+    // Operator constraint: preserve profiles, sessions and temporary fixture files.
     provider?.kill('SIGTERM');
   }, 60_000);
 
@@ -167,6 +167,38 @@ const ROUTER_ON = {
     expect(applied.length).toBeGreaterThan(0);
     evidence('O4', { movedOffBaseline: applied });
   });
+
+  // G2 fixtures (sandbox-only, fake accounts): engine openai/gpt-6-luna points to
+  // this loopback provider, advertises [low,medium,high]; cached usage contains
+  // g2-fake-account with token g2-fake-account-token. No real account is allowed.
+  (process.env.RHYTHM_LIVE_GRID === '1' ? it : it.skip)('G2 grid first turn and follow-up repeat ledger model, effort and fake account token', async () => {
+    const catalog = await json<{ catalog?: { models: Array<{ providerID: string; modelID: string }> } }>('/agent-decisions/config');
+    expect(catalog.catalog?.models.some(m => m.providerID === 'openai' && m.modelID === 'gpt-6-luna')).toBe(true);
+    await configure({ backend: 'openai_decisions', remoteDataConsent: true,
+      openaiDecisions: { baseUrl: PROVIDER, model: 'gpt-6-luna', apiKey: 'sdmr-synthetic-only' },
+      features: { model_routing: 'on', capacity_routing: 'off' }, routing: { engine: 'grid', scope: 'first_prompt' },
+      excludedModels: (catalog.catalog?.models ?? []).filter(m => `${m.providerID}/${m.modelID}` !== 'openai/gpt-6-luna').map(m => `${m.providerID}/${m.modelID}`) });
+    try {
+      const id = await session('auto');
+      // Explicit fake account pin limits selection to this account. It must be
+      // operator-seeded in the sanitized sandbox fixtures, never copied from live data.
+      await json(`/agent-sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ openaiAccountId: 'g2-fake-account' }) });
+       const first = await turn(id, 'Extract two names from a short list.');
+      expect(first.model, 'fixture must actually route the synthetic OpenAI model').toBe('gpt-6-luna');
+      expect(first.captured, 'fixture must capture a real engine/provider request').toBeDefined();
+      const [ledger] = await rows(id); const stored = await snapshot(id);
+      expect(ledger.detail).toMatchObject({ engine: 'grid', provider: 'openai', accountId: 'g2-fake-account', effortRequested: 'max', effortApplied: 'high' });
+      expect(ledger.detail.model).toBe(`openai/${first.model}`);
+      expect(stored).toMatchObject({ providerId: 'openai', modelId: first.model, routerVariant: 'high', openaiAccountId: ledger.detail.accountId });
+      expect(first.captured?.body.reasoning_effort ?? first.captured?.body.reasoning?.effort).toBe(ledger.detail.effortApplied);
+      expect(first.captured?.headers.authorization).toBe('Bearer g2-fake-account-token');
+      const followUp = await turn(id, 'Thanks.');
+      expect(await rows(id)).toHaveLength(1);
+      expect(followUp.model).toBe(first.model);
+      expect(followUp.captured?.body.reasoning_effort ?? followUp.captured?.body.reasoning?.effort).toBe(stored.routerVariant);
+      expect(followUp.captured?.headers.authorization).toBe(first.captured?.headers.authorization);
+    } finally { await configure({ ...ROUTER_ON, routing: { engine: 'legacy', scope: 'first_prompt' } }); }
+  }, 240_000);
 
   it('O5 a fixed (pinned) session is never classified and keeps its model', async () => {
     const id = await session('fixed');

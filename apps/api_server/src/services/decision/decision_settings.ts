@@ -47,6 +47,7 @@ export interface DecisionSettings {
   remoteDataConsent: boolean;
   features: Record<DecisionFeatureKey, DecisionFeatureSetting>;
   routing: {
+    engine: 'legacy' | 'grid';
     scope: DecisionRoutingScope;
     escalateMinConfidence: number;
     /** Below this classifier confidence the tier is not applied as-is. */
@@ -101,6 +102,7 @@ export function defaultDecisionSettings(): DecisionSettings {
       memory_ranking: 'default', capacity_routing: 'default',
     },
     routing: {
+      engine: 'legacy',
       scope: DEFAULT_ROUTING_SCOPE,
       escalateMinConfidence: DEFAULT_ESCALATE_MIN_CONFIDENCE,
       minConfidence: DEFAULT_ROUTING_MIN_CONFIDENCE,
@@ -202,6 +204,7 @@ export function normaliseDecisionSettings(raw: unknown): DecisionSettings {
     ];
   }
   const routing = asObj(r.routing);
+  if (routing.engine === 'grid') out.routing.engine = 'grid';
   if ((DECISION_ROUTING_SCOPES as readonly unknown[]).includes(routing.scope)) {
     out.routing.scope = routing.scope as DecisionRoutingScope;
   }

@@ -73,11 +73,16 @@ describe('Slice B automatic relevance contract (synthetic only)', () => {
     const resolve = (retrieval as any).resolveAutomaticMemoryQuery;
     expect(typeof resolve).toBe('function');
     expect(resolve('resume', ['[Async delegation update] telescope violet optics', '<system> telescope violet optics', prompt, 'Inspect amber camera lenses'])).toEqual({
-      mode: 'continuation', query: 'resume', evidenceText: `resume\n${prompt}\nInspect amber camera lenses`,
+      mode: 'continuation', query: 'calibrate violet telescope optics', evidenceText: `resume\n${prompt}`,
     });
     expect(resolve(prompt, [])).toEqual({ mode: 'current', query: prompt, evidenceText: prompt });
     expect(resolve('yes', Array(6).fill('okay').concat(prompt)).mode).toBe('abstain');
     expect(resolve('resume', [prompt + ' x'.repeat(1000)]).evidenceText.length).toBeLessThanOrEqual(607);
+    const longTask = 'Calibrate violet telescope optics chromatic aberration astrophotography mirror collimation alignment temperature humidity';
+    const continuation = resolve('resume', [longTask, 'Inspect amber camera lenses']);
+    expect(continuation.mode).toBe('continuation');
+    expect(continuation.query.length).toBeLessThanOrEqual(80);
+    expect(continuation.evidenceText).toBe(`resume\n${longTask}`);
   });
 
   it('B1: a short message reads as a follow-up only when a substantive prior exists', () => {
@@ -123,8 +128,9 @@ describe('Slice B automatic relevance contract (synthetic only)', () => {
     db.prepare(`INSERT INTO agent_session_messages(session_id, role, raw_text, stripped_text) VALUES (?, ?, ?, ?)`).run('s', 'input', 'resume', 'resume');
     const result = await prepareAutomaticMemoryPreface({ query: 'resume', sessionId: 's', ownerUserId: 1 });
     expect(result?.memoryIds).toEqual([m.id]);
-    // Only the current message is searched; the persisted prior decides relevance.
-    expect(search.mock.calls[0][0]).toBe('resume');
+    // Continuations search the persisted substantive task, never the bare acknowledgement.
+    expect(search.mock.calls[0][0]).toBe('calibrate violet telescope optics');
+    expect(search.mock.calls[0][0].length).toBeLessThanOrEqual(80);
     expect((result as any).queryMode).toBe('continuation');
   });
 

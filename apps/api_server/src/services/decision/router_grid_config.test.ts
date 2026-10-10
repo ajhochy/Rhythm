@@ -1,10 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { describe, expect, it } from 'vitest';
+import { mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import * as mod from './router_grid_config';
-const dirs: string[] = [];
-afterEach(() => dirs.splice(0).forEach(d => rmSync(d, { recursive: true, force: true })));
+// Evidence retained in TMPDIR: this run prohibits even test cleanup deletion.
 function api() { expect(mod, 'config exports must exist').not.toBeNull(); return mod!; }
 describe('grid config rejects unsafe overrides and resolves aliases', () => {
   it('defaults retain calibrated thresholds, reserve, all category/tier routes', () => {
@@ -19,7 +18,7 @@ describe('grid config rejects unsafe overrides and resolves aliases', () => {
     expect(c.routing.knowledge[4]).toEqual(c.routing.coding[4]); expect(c.routing.coding[2]).toHaveLength(2);
   });
   it('mtime cache reloads changed override and falls back on malformed or missing file', () => {
-    const d = mkdtempSync(join(tmpdir(), 'grid-config-')); dirs.push(d); const p = join(d, 'router-grid.json');
+    const d = mkdtempSync(join(tmpdir(), 'grid-config-')); const p = join(d, 'router-grid.json');
     writeFileSync(p, '{"reserve_pct":20}'); const a = api().loadRouterGridConfig(p);
     expect(a.reserve_pct).toBe(20); expect(api().loadRouterGridConfig(p)).toBe(a);
     writeFileSync(p, '{"reserve_pct":25.5}'); expect(api().loadRouterGridConfig(p).reserve_pct).toBe(25.5);

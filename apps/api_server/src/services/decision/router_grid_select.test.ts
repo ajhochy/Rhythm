@@ -43,10 +43,43 @@ describe('grid spec — exact routes catch wrong order, reserve, rules and fallb
     expect(await classifier!.classifyRouterGrid('edit code', configModule!.defaultRouterGridConfig(), client)).toMatchObject({ tier: 2, category: 'coding', source: 'rules', reason: 'http_429' });
   });
   it('AT11: tied quota picks earliest reset', () => expect(run(4, 'coding', { accounts: accounts().map(a => ({ ...a, quotaRemainingPct: 80 })) })).toMatchObject({ accountId: 'a2' }));
-  it('unknown usage eligible but below known, including zero at tier 1', () => {
+  it('zero-c4: unknown usage wins over exhausted zero, even at tier 1', () => {
     const a = accounts().filter(a => a.provider === 'anthropic').map(a => ({ ...a, quotaRemainingPct: a.id === 'a1' ? null : 0 }));
-    expect(run(1, 'coding', { accounts: a })).toMatchObject({ accountId: 'a2' });
+    expect(run(1, 'coding', { accounts: a })).toMatchObject({ accountId: 'a1' });
     expect(run(4, 'coding', { accounts: a })).toMatchObject({ accountId: 'a1' });
+  });
+  it.each([0, -1])('zero-c1: tier 1 rejects sole known %s without a cooldown', quotaRemainingPct => {
+    const a: selector.GridAccount = { id: 'spent', provider: 'anthropic', quotaRemainingPct, resetsAt: null, exhaustedUntil: null };
+    const trace: selector.GridTrace[] = [];
+    expect(selector.pickGridAccount('anthropic', 1, [a], 15, now, trace)).toBeNull();
+    expect(trace).toEqual([{ action: 'skip_account', tier: 1, accountId: 'spent', reason: 'exhausted' }]);
+    expect(a.exhaustedUntil).toBeNull();
+    expect(a.quotaRemainingPct).toBe(quotaRemainingPct);
+  });
+  it('zero-c2: tier 1 all known zero cannot route closed accounts; falls back only when usable', () => {
+    const a = accounts().map(a => ({ ...a, quotaRemainingPct: 0 }));
+    expect(run(1, 'coding', { accounts: a, openrouterUsable: false })).toMatchObject({ kind: 'none', reason: 'no_usable_route' });
+    expect(run(1, 'coding', { accounts: a })).toMatchObject({ kind: 'route', provider: 'openrouter', accountId: null });
+  });
+  it.each([2, 3, 4] as const)('zero-c5: tier %s skips known zero as exhausted, not reserve', tier => {
+    const trace: selector.GridTrace[] = [];
+    expect(selector.pickGridAccount('openai', tier, [{ id: 'spent', provider: 'openai', quotaRemainingPct: 0, resetsAt: null, exhaustedUntil: null }], 15, now, trace)).toBeNull();
+    expect(trace).toEqual([{ action: 'skip_account', tier, accountId: 'spent', reason: 'exhausted' }]);
+  });
+  it('zero-c6: tier 1 positive 0.1 remains eligible and outranks unknown', () => {
+    const a: selector.GridAccount[] = [
+      { id: 'unknown', provider: 'anthropic', quotaRemainingPct: null, resetsAt: now, exhaustedUntil: null },
+      { id: 'positive', provider: 'anthropic', quotaRemainingPct: 0.1, resetsAt: null, exhaustedUntil: null },
+    ];
+    expect(selector.pickGridAccount('anthropic', 1, a, 15, now)?.id).toBe('positive');
+  });
+  it('zero-c7: positive quota and unknown quota still obey per-account cooldown', () => {
+    const a: selector.GridAccount[] = [
+      { id: 'cooling', provider: 'anthropic', quotaRemainingPct: 12, resetsAt: null, exhaustedUntil: now + 1 },
+      { id: 'unknown', provider: 'anthropic', quotaRemainingPct: null, resetsAt: null, exhaustedUntil: now + 1 },
+      { id: 'ready', provider: 'anthropic', quotaRemainingPct: 0.1, resetsAt: null, exhaustedUntil: now },
+    ];
+    expect(selector.pickGridAccount('anthropic', 1, a, 15, now)?.id).toBe('ready');
   });
   it('unavailable models are rule skips and step up normally with reserve exemption', () => expect(run(4, 'coding', { availableModels: new Set(['anthropic/claude-sonnet-5-5']), accounts: accounts().map(a => ({ ...a, quotaRemainingPct: 15 })) })).toMatchObject({ model: 'anthropic/claude-sonnet-5-5', tierUsed: 1, effort: 'xhigh' }));
   it('OpenRouter unusable or unavailable -> none', () => {

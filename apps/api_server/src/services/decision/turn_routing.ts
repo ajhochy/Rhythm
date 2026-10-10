@@ -5,6 +5,8 @@ import { logger } from '../../utils/logger';
 import { getRouteTierClassifier, routeModelForTier } from './model_catalog';
 import type { ModelRoute } from '../agent_model_resolver';
 import type { DecisionOpts } from './decision_engine';
+import { loadDecisionSettings } from './decision_settings';
+import type { OpenAIDecisionsClient } from './openai_decisions_client';
 import {
   applyScopeToDecision,
   scopePersistsPick,
@@ -16,10 +18,16 @@ export interface TurnRoutingSessionRow {
   id: string;
   modelMode: 'auto' | 'fixed' | string;
   routerDecidedAt: string | null;
+  routerVariant?: string | null;
   providerId: string | null;
   modelId: string | null;
   anthropicAccountId?: string | null;
+  anthropicAccountSource?: 'router' | 'pinned' | null;
   openaiAccountId?: string | null;
+  openaiAccountSource?: 'router' | 'pinned' | null;
+  /** Free Mode hold identity only (descriptor owner/reference); never routing input. */
+  ownerUserId?: number | null;
+  scheduledTaskId?: string | null;
 }
 
 export interface RouteTurnForSessionInput {
@@ -36,15 +44,20 @@ export interface RouteTurnForSessionInput {
   /** Auto (router) mode for THIS turn (row mode, or the frame's modelMode). */
   sessionAuto: boolean;
   client?: DecisionOpts['client'];
+  gridClient?: OpenAIDecisionsClient;
 }
 
 export interface RouteTurnForSessionResult {
+  variant?: string;
+  gridAccountId?: string | null;
   route: ModelRoute | undefined;
   /** True when routing (router or capacity) changed the route from the baseline. */
   applied: boolean;
   source: 'router' | 'capacity' | 'baseline';
   requestedSource: RequestedSource | string;
   requestedTier: string | null;
+  /** Free Mode F1: the caller MUST NOT dispatch this turn (nothing was sent to any model). */
+  held?: import('./router_free_runtime').FreeHold;
 }
 
 /**
@@ -61,6 +74,16 @@ export interface RouteTurnForSessionResult {
 export async function routeTurnForSession(
   input: RouteTurnForSessionInput,
 ): Promise<RouteTurnForSessionResult> {
+  const settings = loadDecisionSettings();
+  if (settings.routing.engine === 'grid' && (settings.features.model_routing === 'on' || settings.features.model_routing === 'shadow')) {
+    const { routeGridTurn } = await import('./router_grid_turn');
+    return routeGridTurn(input, settings.features.model_routing);
+  }
+  const gridSession = input.sessionAuto && !!input.sessionRow?.routerDecidedAt &&
+    (!!input.sessionRow.routerVariant || settings.routing.engine === 'grid');
+  const carriedVariant = gridSession && input.sessionRow?.providerId === input.baseRoute?.providerID &&
+    input.sessionRow?.modelId === input.baseRoute?.modelID && ['auto', 'agent_default'].includes(input.requestedSource)
+      ? input.sessionRow?.routerVariant ?? undefined : undefined;
   let route = input.baseRoute;
   let requestedSource: RequestedSource | string = input.requestedSource;
   let requestedTier: string | null = input.requestedTier ?? null;
@@ -140,7 +163,7 @@ export async function routeTurnForSession(
 
   // Usage-capacity routing (AGENT_DECISION_CAPACITY_ROUTING): no-op when off.
   try {
-    if (route) {
+    if (route && !gridSession) {
       const { applyCapacityRouting, switchAutoSessionAccount, usageProviderFor } =
         await import('./capacity_router');
       const capUsage = usageProviderFor(route.providerID);
@@ -179,6 +202,7 @@ export async function routeTurnForSession(
   }
 
   return {
+    ...(carriedVariant ? { variant: carriedVariant } : {}),
     route,
     applied: source !== 'baseline',
     source,

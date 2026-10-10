@@ -262,6 +262,10 @@ export function mergeConfig(base: DecisionSettings, body: unknown): DecisionSett
   if (body.routing !== undefined) {
     if (!isObj(body.routing)) bad('invalid_routing_scope', 'routing must be an object.');
     const r = body.routing as Record<string, unknown>;
+    if (r.engine !== undefined) {
+      if (r.engine !== 'legacy' && r.engine !== 'grid') bad('invalid_body', 'routing.engine must be legacy or grid.');
+      next.routing.engine = r.engine as 'legacy' | 'grid';
+    }
     if (r.scope !== undefined) {
       if (typeof r.scope !== 'string' || !(DECISION_ROUTING_SCOPES as readonly string[]).includes(r.scope)) {
         bad('invalid_routing_scope', 'routing.scope must be first_prompt, escalate_only or every_prompt.');

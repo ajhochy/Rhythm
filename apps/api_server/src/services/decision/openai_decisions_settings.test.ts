@@ -12,7 +12,7 @@ describe('Slice E acceptance: OpenAI Decisions settings', () => {
       saved.local = { baseUrl: 'http://127.0.0.1:2', model: 'local-saved', scoreScale: 'probability' };
       saved.timeoutMs = 2456; saved.remoteDataConsent = true;
       saved.features = { model_routing: 'on', memory_ranking: 'shadow', tool_ranking: 'off', capacity_routing: 'default' };
-      saved.routing = { scope: 'escalate_only', minConfidence: 0.8, escalateMinConfidence: 0.9, lowConfidenceTier: 'standard' };
+      saved.routing = { engine: 'legacy', scope: 'escalate_only', minConfidence: 0.8, escalateMinConfidence: 0.9, lowConfidenceTier: 'standard' };
       saved.tiers = { mode: 'manual', cheapMaxOutputUsd: 3, frontierMinOutputUsd: 30 };
       saved.tierOverrides = { 'openai/saved': 'frontier' }; saved.excludedModels = ['openai/excluded'];
       // Legacy files predate the additive section; all their existing fields must survive.

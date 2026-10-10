@@ -126,3 +126,99 @@ can use tools (files, email, calendar, web, code, other agents). Pick the LOWEST
 reliably do this request well. Judge the work it requires, not the length of the message or its
 subject area. When unsure between two tiers, pick the higher (harder) one." Levels index 0..3 =
 tier4..tier1 with the descriptions in the G1 brief. Thresholds `tier_thresholds = [0.1, 0.35, 2.25]`.
+
+## Free Mode addendum (AJ, 2026-10-08) — new required work, not implicitly waived
+
+Free Mode is a separate downstream path when all four subscription accounts are exhausted and paid
+OpenRouter is unusable/budget-limited (or skip_paid_openrouter). Reset times do not prove capacity:
+passing a reset makes the account eligible for a usage refresh; a fresh positive capacity signal exits
+Free Mode. use_free_for_tier4 defaults false. All model ids, ordered grids, supported efforts, text-only
+lists, probation, Ling flag, budgets and limits belong under free_mode in the router grid config.
+
+Implementation boundaries:
+- Deterministic policy + token-bucket/daily budget/circuit-breaker are a separate module; pure policy can
+  be tested while existing paid runtime wiring is in progress. Integration has ONE owner: manager.
+- Privacy is checked BEFORE calling a free classifier. contains_private_data from a later classifier is
+  insufficient: that would already disclose data. Any known-private or unknown/uninspected attachment
+  queues for paid capacity; it never reaches free classification, images helper or shadow/probation.
+  The classifier adds contains_private_data but cannot waive a preflight hold.
+- Tier1 may queue; if cannot queue it is degraded and requires an observable verification PASS before
+  its result is released. EVERY free output needs verification. v1 currently has no generic task verifier,
+  so free execution cannot be enabled merely because pure selection tests pass. Queue/hold without a
+  configured verifier is safer than displaying unverified output. Do not claim an LLM judge = proof of
+  arbitrary tool-side effects.
+- No real-user request goes to space-bunny-free, including copied/shadow requests. Probation never gets
+  real work; synthetic evaluation only until explicit human promotion and privacy permissions.
+- The shared free budget counts classifier, image helper, answering, verification (when free), retries,
+  and probation calls. A helper+answer+verification must reserve the full call budget before starting.
+- Queue is durable; Tier1 first then age, reuse classification, cancellation/owner/consent rechecked on
+  dequeue. No automatic replay of destructive tools or jobs that have already partially executed.
+- Retry circuits distinguish provider failure from a cancelled task. Three failures in ten minutes open
+  for fifteen. Exhausted lists get at most one delayed retry (60s), random /free last and degraded, then
+  queue. Every failure/retry records the actual selected model, not just the /free alias.
+- Free mode settings remain disabled while assembling the build. Live app routing stays off.
+
+Free-mode acceptance scenarios (required): paid OpenRouter capacity prevents free entry; paid unusable
+enters; T2 coding Small Inkling then Inkling if circuit open; any private/unknown-private task queues
+before ANY free call; T1 queue vs degraded+verification; screenshot helper then text model only for
+non-private inspected images; empty200 advances candidate; daily20%-remaining queues T4; account recovery
+exits and drains T1-first; Ling false excluded; only space-bunny responsive still queues. Config
+defaults rpm20/day50/reserve25%, use_free_for_tier4=false, ling_verified_free=false, shadow_test=false.
+
+## Free Mode runtime status (2026-10-09 r10): F1 + F2 implemented and live-proven on the synthetic sandbox;
+F3 verifier interface present with an empty registry, so Free execution remains impossible. See ledger "final-r10".
+
+F3 observable-proof design (required before any verifier is registered): a verifier is per task class and checks
+side effects, never text quality: e.g. coding = repo test command exit 0 on a clean checkout plus diff limited to
+requested paths; file/format extraction = schema validation of the produced file; calendar/email drafts = created
+object exists via its API and matches requested fields. Each needs a synthetic fixture where a wrong output FAILS.
+No LLM judge, no canned PASS, hold-only tests never count as Free execution. Privacy must be provably `false` first,
+which needs a local detector that does not exist yet.
+
+## Free Mode runtime: staged integration plan (manager, 2026-10-09; superseded by status above)
+
+Existing: pure policy (`router_free_policy.ts`), state/budget/circuit store (`router_free_state.ts`), config
+(`router_free_config.ts`, `free_mode` in grid config) - units only. No runtime caller exists.
+Hook: `routeGridTurn` (router_grid_turn.ts) when `selectRoute` returns `kind:'none'`. Manual callers:
+ws_gateway.ts:633 (via turn_routing.routeTurnForSession), agent_runner.ts:1240, mobile_prompt_routing.ts:74.
+GitNexus: UNKNOWN (not indexed). Manual risk: HIGH (every prompt dispatch path). Disabled by default.
+
+- F1 hold/queue (no free model call at all; v1 has no verifier, so this is the only legal Free behavior):
+  free_mode.enabled AND determineFreeMode(active) -> privacy preflight (any private/unknown attachment
+  queues) -> durable body-free descriptor via RouterFreeStateStore (session, owner, tier from durable or
+  rules classification - no remote/free classifier call, createdAt, consent generation) -> new result
+  outcome `queued:'free_mode_no_verifier'`. All three callers must NOT dispatch; session status queued with
+  a bounded message; scheduler run recorded `blocked`. Budget0: no paid OpenRouter fallback.
+- F2 drain: on fresh positive capacity (usage refresh/exhaustion expiry), determineFreeMode inactive ->
+  sortFreeQueue (T1 first, then age) -> recheck not cancelled/archived, owner and consent unchanged ->
+  redispatch once on the normal paid path; never replay partially executed turns or destructive tools.
+- F3 verifier: interface + config; free execution stays disabled until a configured verifier exists.
+- Proof (synthetic, loopback only): grid sandbox override `free_mode.enabled`, all four synthetic accounts
+  known-zero via grid fake-provider control, OpenRouter unauthed; WS + scheduled prompt -> zero provider
+  requests, session queued, descriptor persisted body-free; two queued sessions (T3 then T1); restore
+  positive usage -> T1 drains first, each exactly one paid dispatch; cancelled session never dispatched.
+  Plus units for each caller's no-dispatch contract. Requires owner review before merge.
+
+## Manager checkpoint / new constraints (AJ watcher, 2026-10-08)
+
+No file deletion, worktree removal, branch cleanup or temp cleanup. Preserve evidence. No live-host
+restart/kill, unrelated-process management, unauthorized online access or main merge. Existing two
+coding writers remain sole owners of paid wiring and new free-policy modules; do not duplicate them.
+A disjoint sandbox-tools agent adds opt-in preserve-files teardown before the manager stops sandbox.
+
+Static review on 03aad82d found REQUIRED repairs before runtime gate:
+1. Account-default provenance: create must mark auto when neither requested nor profile account was
+   supplied, regardless of whether legacy capacity mode made a choice. Store default is not a pin.
+2. Explicit account PATCH must revoke auto eligibility per provider, even when choosing same id;
+   preserve the other provider's state and ensure grid reselection cannot overwrite the new pin.
+3. markExhausted must ignore past deadlines and preserve max(existing,new) active cooldown. Clearing
+   requires a separate positively confirmed recovery operation, not a stale exhaustion event.
+
+Manager attempted to send steering to the EXISTING writers through local session control; request
+was refused 401. No credentials bypassed and no replacement/duplicate writers were started. These
+repairs are held at the single integration boundary after the existing wiring writer finishes.
+
+Current acceptance status: core synthetic tests PASS (391 before free addendum); shared multi-question
+Decisions transport was checked against real API with explicit prior authorization; paid runtime
+model+effort+account grid NOT RUN; Free Mode runtime/verifier/queue NOT RUN; installed candidate NOT
+BUILT. No global enablement from synthetic tests.

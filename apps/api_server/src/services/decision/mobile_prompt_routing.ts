@@ -2,6 +2,9 @@ import { AgentSessionsRepository } from '../../repositories/agent_sessions_repos
 import { logger } from '../../utils/logger';
 import type { DecisionOpts } from './decision_engine';
 
+/** Free Mode F1 result: the proxy must refuse the prompt instead of forwarding it. */
+export class FreeModeHeld { constructor(readonly message: string) {} }
+
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === 'object' && !Array.isArray(v);
 
@@ -83,6 +86,12 @@ export async function routeMobilePromptBody(input: {
       ...(input.client ? { client: input.client } : {}),
     });
 
+    if (routing.held) {
+      const { recordHeldTurn } = await import('./router_free_held_turns');
+      await recordHeldTurn({ sessionId: row.id, origin: 'mobile', inputText: promptTextFromParts(input.body),
+        options: { parts: Array.isArray(input.body.parts) ? input.body.parts : [] } }).catch(() => undefined);
+      return new FreeModeHeld(routing.held.message);
+    }
     let target: { providerID: string; modelID: string } | null = null;
     if (routing.applied && routing.route) {
       target = { providerID: routing.route.providerID, modelID: routing.route.modelID };
@@ -90,8 +99,9 @@ export async function routeMobilePromptBody(input: {
       // Later prompts reuse the stored / persisted router pick.
       target = { providerID: row.providerId, modelID: row.modelId };
     }
-    if (!target) return input.body;
-    return { ...input.body, model: target };
+    if (!target && !routing.variant) return input.body;
+    return { ...input.body, ...(target ? { model: target } : {}),
+      ...(input.body.variant === undefined && routing.variant ? { variant: routing.variant } : {}) };
   } catch (err) {
     logger.warn(`[mobile_prompt_routing] routing failed; forwarding original body: ${String(err)}`);
     return input.body;

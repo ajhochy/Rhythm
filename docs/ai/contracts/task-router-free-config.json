@@ -1,0 +1,17 @@
+{
+  "issue": 1611,
+  "date": "2026-10-08",
+  "test_command": "HOME=/private/tmp/sdmr-grid-sandbox/home TMPDIR=/private/tmp/sdmr-grid-sandbox/tmp DB_PATH=/private/tmp/sdmr-grid-sandbox/rhythm.db ./node_modules/.bin/vitest run src/services/decision/router_free_config.test.ts src/services/decision/router_grid_config.test.ts src/services/decision/router_free_policy.test.ts src/services/decision/router_free_state.test.ts src/services/decision/router_grid_select.test.ts src/services/decision/router_grid_classifier.test.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "task-router-free-config-c02", "text": "Ordered grids", "mode": "unit", "test": "apps/api_server/src/services/decision/router_free_config.test.ts: c02", "status": "pass" },
+    { "criterion_id": "task-router-free-config-c03", "text": "Numeric policy/state parameters must come from config, not hardcoded defaults.", "mode": "unit", "test": "apps/api_server/src/services/decision/router_free_config.test.ts: c03,c08,c10", "status": "pass" },
+    { "criterion_id": "task-router-free-config-c04", "text": "Put EVERY free model id, ordered list, effort support and numeric limit under a new `free_mode` key in router_grid.default.json and normalize/validate via router_grid_config same existing override router-grid.json.", "mode": "unit", "test": "apps/api_server/src/services/decision/router_free_config.test.ts: c02,c04,c09", "status": "pass" },
+    { "criterion_id": "task-router-free-config-c05", "text": "Strict settings boundary rejects malformed modelids/arrays/tierkeys/limits/negative/NaN/unsupported effort lists/prototypekeys", "mode": "unit", "test": "apps/api_server/src/services/decision/router_free_config.test.ts: c05,c10,c11", "status": "pass" },
+    { "criterion_id": "task-router-free-config-c06", "text": "malformed override falls back atomically to DISABLEDfree default, report reason without config body.", "mode": "unit", "test": "apps/api_server/src/services/decision/router_free_config.test.ts: c06", "status": "pass" },
+    { "criterion_id": "task-router-free-config-c07", "text": "Test tables exact order, alias normalization, no policy hardcoded IDs, safe disabled defaults, Ling flag, LFM condition preserved, unknown or billed model NOT treated verifiedfree, old paid configbehavior unchanged, malformedoverride can't enablefree.", "mode": "unit", "test": "apps/api_server/src/services/decision/router_free_config.test.ts: c02-c11; router_grid_config.test.ts; router_free_policy.test.ts; router_free_state.test.ts", "status": "pass" },
+    { "criterion_id": "task-router-free-config-c09", "text": "keep allfresh/privacy/verification guards from policy, verify no runtime activation.", "mode": "unit", "test": "apps/api_server/src/services/decision/router_free_config.test.ts: c07,c09,c11; router_free_policy.test.ts", "status": "pass" }
+  ],
+  "not_tested": [],
+  "remaining_integration": "NOT RUN: execution, classifier calls, verifier, live queue draining, runtime wiring and installed app. Explicitly excluded from config-only scope."
+}

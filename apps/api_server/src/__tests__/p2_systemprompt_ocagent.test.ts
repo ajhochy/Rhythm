@@ -295,6 +295,26 @@ describe('P2 — WS path: system_prompt + ocAgent forwarded in promptAsync body'
     expect(opts).toMatchObject({ system: 'You are a worship planning assistant.' });
   });
 
+  it('WS path: running as own agent (engine agent === profile scope id) OMITS the duplicate system override', async () => {
+    const scopeModule = await import('../services/agent_profile_scope');
+    vi.spyOn(scopeModule, 'resolveProfileScope').mockResolvedValue({
+      model: { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+      mcpRoleConfig: null,
+      allowedSkillsJson: null,
+      systemPrompt: 'You are a theological researcher.',
+      ocAgent: 'own-profile',
+      modelTierHint: null,
+    });
+
+    await sendWsInput('sess-p2-ws-own', 'sdk-p2-ws-own', 'Research Romans 8', { agent: 'own-profile' });
+
+    expect(mockPromptAsync).toHaveBeenCalledOnce();
+    const opts = mockPromptAsync.mock.calls[0][4] as Record<string, unknown>;
+    // agent forwarded; the .md body is the single source of the profile prompt
+    expect(opts).toMatchObject({ agent: 'own-profile' });
+    expect(Object.prototype.hasOwnProperty.call(opts, 'system')).toBe(false);
+  });
+
   it('WS path: profile ocAgent forwarded as agent when no per-turn override', async () => {
     const scopeModule = await import('../services/agent_profile_scope');
     vi.spyOn(scopeModule, 'resolveProfileScope').mockResolvedValue({

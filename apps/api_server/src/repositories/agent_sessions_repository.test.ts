@@ -486,3 +486,16 @@ describe('AgentSessionsRepository', () => {
     });
   });
 });
+it('native child create and replay inherit parent account provenance with exact SQL bindings', () => {
+  const db2 = new Database(':memory:'); runMigrations(db2); const previous = setDb(db2); const repo2 = new AgentSessionsRepository();
+  try {
+    const parent = repo2.insert({ agentKind: 'claude-code', taskId: null, cwd: '/parent', name: 'Parent', modelMode: 'auto',
+      anthropicAccountId: 'anthropic-parent', anthropicAccountSource: 'router', openaiAccountId: 'openai-parent', openaiAccountSource: 'pinned' });
+    repo2.setSdkSessionId(parent.id, 'sdk-parent-provenance');
+    const child = repo2.upsertChildSession('sdk-child-provenance', 'sdk-parent-provenance', 'Child', '/child')!;
+    expect(child).toMatchObject({ anthropicAccountId: 'anthropic-parent', anthropicAccountSource: 'router', openaiAccountId: 'openai-parent', openaiAccountSource: 'pinned' });
+    db2.prepare('UPDATE agent_sessions SET anthropic_account_source=NULL, openai_account_source=NULL WHERE id=?').run(child.id);
+    const replay = repo2.upsertChildSession('sdk-child-provenance', 'sdk-parent-provenance', 'Child replay', '/child')!;
+    expect(replay).toMatchObject({ anthropicAccountSource: 'router', openaiAccountSource: 'pinned' });
+  } finally { setDb(previous); db2.close(); }
+});

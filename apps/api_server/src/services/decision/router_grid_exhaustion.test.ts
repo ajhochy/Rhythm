@@ -1,12 +1,35 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import * as mod from './router_grid_exhaustion';
 import * as selector from './router_grid_select';
 const dirs: string[] = [];
-afterEach(() => dirs.splice(0).forEach(d => rmSync(d, { recursive: true, force: true })));
+afterEach(() => { dirs.length = 0; }); // Operator requires preserved fixtures.
 describe('grid exhaustion store and cached snapshot adapter', () => {
+  it('repair-c2: only fresh positive recovery explicitly clears the target account', () => {
+    const p = join(mkdtempSync(join(tmpdir(), 'grid-recovery-')), 'state.json');
+    const store = new mod.RouterGridExhaustionStore(p, () => 1000000);
+    store.markExhausted('openai', 'a', 2000000); store.markExhausted('anthropic', 'a', 2000000);
+    for (const evidence of [{ fetchedAt: 1000000, remaining: 0 }, { fetchedAt: 0, remaining: 1 },
+      { fetchedAt: 1000001, remaining: 1 }, { fetchedAt: NaN, remaining: 1 }, { fetchedAt: 1000000, remaining: NaN }]) {
+      expect(() => store.clearRecovered('openai', 'a', evidence)).toThrow('invalid_recovery');
+      expect(store.isExhausted('openai', 'a')).toBe(true);
+    }
+    store.clearRecovered('openai', 'a', { fetchedAt: 1000000, remaining: 1 });
+    expect(store.isExhausted('openai', 'a')).toBe(false); expect(store.isExhausted('anthropic', 'a')).toBe(true);
+  });
+  it('repair-c2: stale shorter, past and invalid resets cannot clear or shorten active exhaustion', () => {
+    const p = join(mkdtempSync(join(tmpdir(), 'grid-repair-')), 'state.json');
+    const store = new mod.RouterGridExhaustionStore(p, () => 1000);
+    store.markExhausted('openai', 'a', 5000);
+    store.markExhausted('openai', 'a', 2000);
+    expect(store.list()[0].exhaustedUntil).toBe(5000);
+    store.markExhausted('openai', 'a', 500);
+    expect(store.list()[0].exhaustedUntil).toBe(5000);
+    expect(() => store.markExhausted('openai', 'a', NaN)).toThrow('invalid_exhaustion');
+    expect(store.list()[0].exhaustedUntil).toBe(5000);
+  });
   it('exhaustion survives fresh store, expires and prunes on disk, provider-scoped', () => {
     expect(mod, 'store export must exist').not.toBeNull();
     const d = mkdtempSync(join(tmpdir(), 'grid-exhaustion-')); dirs.push(d); const p = join(d, 'exhaustion.json');

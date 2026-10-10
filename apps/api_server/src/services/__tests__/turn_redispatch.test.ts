@@ -64,6 +64,12 @@ beforeEach(() => {
 });
 
 describe('happy path — exhausted report on a spinning in-flight turn', () => {
+  it('G2 W5: provider rewrite strips the old model variant from replayed opts', async () => {
+    retainTurn(SID, { sdkSessionId: SDK, data: 'Synthetic', cwd: '/tmp', sdkOpts: { permissionMode: 'default', variant: 'xhigh' } });
+    noteUserMessage(SID, MSG); beginHandoff(SID); decideHandoff(SID, 'openai', 'gpt-5.3-codex');
+    const deps = makeDeps(); expect(await redispatchTurn(SID, deps)).toBe(true);
+    expect(deps.prompt.mock.calls[0][4]).toEqual({ permissionMode: 'default' });
+  });
   it('decide → proceed → abort + revert + re-prompt on the new provider (same engine session)', async () => {
     seedTurn();
     beginHandoff(SID);

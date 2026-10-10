@@ -894,7 +894,7 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
           // global resource cap and retry on the next scheduler tick instead
           // of waiting for the task's next normal recurrence.
           const resultNextRun = capacityDeferred
-            ? new Date(Date.now() + CAPACITY_RETRY_MS).toISOString()
+            ? new Date(Date.now() + (result.retryAfterMs ?? CAPACITY_RETRY_MS)).toISOString()
             : nextRun;
           try {
             await repo.updateNextRunAsync(task.id, resultNextRun, runStart, status, errMsg);

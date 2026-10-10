@@ -195,6 +195,21 @@ export function sameDayflowQualifiedEvidenceCandidate(
     JSON.stringify(left.reference) === JSON.stringify(right.reference);
 }
 
+/**
+ * Retained-history revalidation only: scheduler renewal re-attests the identical
+ * canonical note and scope and advances nothing but `expiresAt`. Callers must
+ * compare against a current (unexpired, active) page; exposure identity stays exact.
+ */
+export function sameDayflowQualifiedEvidenceRenewal(
+  retained: DayflowQualifiedEvidenceCandidate,
+  current: DayflowQualifiedEvidenceCandidate,
+): boolean {
+  return sameDayflowQualifiedEvidenceCandidate(
+    { ...retained, reference: { ...retained.reference, expiresAt: current.reference.expiresAt } },
+    current,
+  );
+}
+
 export function parseDayflowCanonicalSourceKey(value: unknown): string {
   if (typeof value !== 'string' || !CANONICAL_SOURCE_KEY.test(value) || value.includes('..') || value.includes('//')) {
     throw new Error('invalid Dayflow qualification receipt');

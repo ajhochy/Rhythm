@@ -252,5 +252,121 @@
       }
     }
   },
-  "task_type_overrides": {}
+  "task_type_overrides": {},
+  "free_mode": {
+    "enabled": false,
+    "skip_paid_openrouter": false,
+    "use_free_for_tier4": false,
+    "ling_verified_free": false,
+    "shadow_test": false,
+    "rpm_limit": 20,
+    "daily_request_limit": 50,
+    "daily_reserve_pct": 25,
+    "paid_openrouter_budget_usd": 0,
+    "daily_reset_hour_utc": 0,
+    "daily_reset_minute_utc": 0,
+    "breaker_failures": 3,
+    "failure_window_ms": 600000,
+    "breaker_open_ms": 900000,
+    "retry_delay_ms": 60000,
+    "max_queue_entries": 1000,
+    "shadow_sampling_denominator": 20,
+    "promotion_min_results": 30,
+    "effort_support": {
+      "openrouter/thinkingmachines/inkling:free": ["none", "minimal", "low", "medium", "high", "max"],
+      "openrouter/thinkingmachines/inkling-small:free": ["none", "minimal", "low", "medium", "high", "max"],
+      "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free": ["medium", "high"],
+      "openrouter/nvidia/nemotron-3-super-120b-a12b:free": ["low", "medium"]
+    },
+    "thinking_support": { "openrouter/poolside/laguna-s-2.1:free": true },
+    "grid": {
+      "coding": {
+        "1": [
+          { "model": "openrouter/thinkingmachines/inkling-small:free", "effort": "max" },
+          { "model": "openrouter/thinkingmachines/inkling:free", "effort": "max" },
+          { "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free", "effort": "high" }
+        ],
+        "2": [
+          { "model": "openrouter/thinkingmachines/inkling-small:free", "effort": "max" },
+          { "model": "openrouter/thinkingmachines/inkling:free", "effort": "max" },
+          { "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free", "effort": "high" },
+          { "model": "openrouter/poolside/laguna-s-2.1:free", "thinking": true }
+        ],
+        "3": [
+          { "model": "openrouter/thinkingmachines/inkling-small:free", "effort": "medium" },
+          { "model": "openrouter/poolside/laguna-s-2.1:free", "thinking": true },
+          { "model": "openrouter/nvidia/nemotron-3-super-120b-a12b:free", "effort": "medium" },
+          { "model": "openrouter/cohere/north-mini-code:free" }
+        ],
+        "4": [
+          { "model": "openrouter/nvidia/nemotron-3.5-lightning:free" },
+          { "model": "openrouter/cohere/north-mini-code:free" },
+          { "model": "openrouter/poolside/laguna-xs-2.1:free" }
+        ]
+      },
+      "knowledge": {
+        "1": [
+          { "model": "openrouter/thinkingmachines/inkling:free", "effort": "max" },
+          { "model": "openrouter/thinkingmachines/inkling-small:free", "effort": "max" }
+        ],
+        "2": [
+          { "model": "openrouter/thinkingmachines/inkling:free", "effort": "max" },
+          { "model": "openrouter/thinkingmachines/inkling-small:free", "effort": "max" },
+          { "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free", "effort": "high" }
+        ],
+        "3": [
+          { "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free", "effort": "medium" },
+          { "model": "openrouter/thinkingmachines/inkling-small:free", "effort": "medium" },
+          { "model": "openrouter/nvidia/nemotron-3-super-120b-a12b:free", "effort": "medium" }
+        ],
+        "4": [
+          { "model": "openrouter/nvidia/nemotron-3.5-lightning:free" },
+          { "model": "openrouter/nvidia/nemotron-3-super-120b-a12b:free", "effort": "low" },
+          { "model": "openrouter/liquid/lfm-2.5-2.6b:free", "condition": "extraction_or_formatting_only" }
+        ]
+      },
+      "design": {
+        "1": [{ "model": "openrouter/thinkingmachines/inkling:free", "effort": "max" }],
+        "2": [
+          { "model": "openrouter/thinkingmachines/inkling:free", "effort": "max" },
+          { "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free", "effort": "high" },
+          { "model": "openrouter/thinkingmachines/inkling-small:free", "effort": "max" }
+        ],
+        "3": [
+          { "model": "openrouter/thinkingmachines/inkling-small:free", "effort": "high" },
+          { "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free", "effort": "medium" }
+        ],
+        "4": [
+          { "model": "openrouter/nvidia/nemotron-3.5-lightning:free" },
+          { "model": "openrouter/nvidia/nemotron-3-super-120b-a12b:free", "effort": "low" }
+        ]
+      }
+    },
+    "text_only": [
+      "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+      "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+      "openrouter/nvidia/nemotron-3.5-lightning:free",
+      "openrouter/poolside/laguna-s-2.1:free",
+      "openrouter/poolside/laguna-xs-2.1:free",
+      "openrouter/cohere/north-mini-code:free",
+      "openrouter/liquid/lfm-2.5-2.6b:free"
+    ],
+    "image_helper": {
+      "model": "openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "prompt": "Describe this image in exhaustive detail for a model that cannot see it: layout, text content verbatim, colors, spacing, components, and any data shown."
+    },
+    "optional_ling": { "model": "openrouter/inclusionai/ling-3.1-flash" },
+    "probation": ["opencode/space-bunny-free", "openrouter/apodex/apodex-1.1-mini:free", "openrouter/dots-studio/dots-3-note-preview:free"],
+    "forbidden_real": ["opencode/space-bunny-free"],
+    "random_fallback": { "model": "openrouter/openrouter/free" },
+    "classifier_free_start_index": 3,
+    "classifier_chain": [
+      { "kind": "paid_decisions_api", "model": "gpt-6-luna" },
+      { "kind": "paid_model", "model": "anthropic/claude-haiku-5-5", "effort": "low" },
+      { "kind": "paid_model", "model": "openrouter/xiaomi/mimo-v2.6-flash" },
+      { "kind": "free_model", "model": "openrouter/nvidia/nemotron-3.5-lightning:free", "requires_public_preflight": true },
+      { "kind": "free_model", "model": "openrouter/thinkingmachines/inkling-small:free", "effort": "low", "requires_public_preflight": true },
+      { "kind": "rules", "tier": 2 }
+    ]
+  }
 }

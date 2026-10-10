@@ -23,6 +23,7 @@ import { logger } from '../utils/logger';
 import { ATTACHMENT_UNAVAILABLE, normalizePartAttachments } from './attachment_hosting';
 import {
   promptTextFromParts,
+  FreeModeHeld,
   routeMobilePromptBody,
 } from './decision/mobile_prompt_routing';
 import {
@@ -1499,6 +1500,7 @@ export class MobileOpenCodeProxy {
           body: createScopedBody,
         })
         : createScopedBody;
+      if (scopedBody instanceof FreeModeHeld) throw new AppError(503, 'FREE_MODE_HELD', scopedBody.message);
       let bodyWithAutomaticMemory = scopedBody;
       if (
         operation.operationId === 'session.prompt_async' &&

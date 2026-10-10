@@ -13,6 +13,7 @@ ENGINE_PORT="${RHYTHM_SANDBOX_ENGINE_PORT:-4097}"
 GATEWAY_PORT="${RHYTHM_SANDBOX_GATEWAY_PORT:-4099}"
 RELAY_ENABLED="${RHYTHM_SANDBOX_RELAY:-0}"
 RELAY_PORT="${RHYTHM_SANDBOX_RELAY_PORT:-4100}"
+PRESERVE_FILES="${RHYTHM_SANDBOX_PRESERVE_FILES-0}"
 PID_FILE="$SB/api_server.pid"
 ENGINE_PID_FILE="$SB/opencode_engine.pid"
 LOG_FILE="$SB/api_server.log"
@@ -100,6 +101,9 @@ if [[ "$RELAY_ENABLED" == 1 ]]; then
 fi
 
 fail() { printf 'sandbox: %s\n' "$*" >&2; exit 1; }
+
+[[ "$PRESERVE_FILES" == 0 || "$PRESERVE_FILES" == 1 ]] ||
+  fail 'RHYTHM_SANDBOX_PRESERVE_FILES must be 0 or 1'
 
 # `env -i` is intentional, but these explicit offline/test-mode switches are
 # safe inputs that the engine and api_server need during deterministic live
@@ -697,7 +701,9 @@ stop() {
   if [[ "$RELAY_ENABLED" == 1 ]]; then
     [[ -z "$(listener "$RELAY_PORT")" ]] || fail "sandbox relay port :$RELAY_PORT is still occupied"
   fi
-  rm -f "$PID_FILE" "$ENGINE_PID_FILE" "$RELAY_PID_FILE" "$FOREGROUND_PID_FILE" "$SHUTDOWN_FILE" "$SHUTDOWN_ACK_FILE"
+  if [[ "$PRESERVE_FILES" == 0 ]]; then
+    rm -f "$PID_FILE" "$ENGINE_PID_FILE" "$RELAY_PID_FILE" "$FOREGROUND_PID_FILE" "$SHUTDOWN_FILE" "$SHUTDOWN_ACK_FILE"
+  fi
 }
 
 restart() {
@@ -780,7 +786,14 @@ restart_engine() {
   [[ -x "$ENGINE_BIN" ]] || fail "sandbox engine binary is missing: $ENGINE_BIN"
   stop_recorded_engine_if_needed
   require_free_port "$ENGINE_PORT"
-  rm -f "$ENGINE_PID_FILE"
+  if [[ "$PRESERVE_FILES" == 1 ]]; then
+    # Keep old identity evidence before launch_engine replaces the active PID.
+    if [[ -f "$ENGINE_PID_FILE" ]]; then
+      cp "$ENGINE_PID_FILE" "$(mktemp "$ENGINE_PID_FILE.preserved.XXXXXX")"
+    fi
+  else
+    rm -f "$ENGINE_PID_FILE"
+  fi
   launch_engine
   kill -0 "$api_pid" 2>/dev/null || fail "sandbox API PID exited during engine restart"
   printf 'Sandbox engine restarted without restarting api_server (PID %s).\n' "$api_pid"
@@ -789,8 +802,12 @@ restart_engine() {
 down() {
   preserve_diagnostics
   stop
-  rm -rf "$SB"
-  printf 'Sandbox removed: %s\n' "$SB"
+  if [[ "$PRESERVE_FILES" == 1 ]]; then
+    printf 'Sandbox stopped; files preserved: %s\n' "$SB"
+  else
+    rm -rf "$SB"
+    printf 'Sandbox removed: %s\n' "$SB"
+  fi
 }
 
 status() {

@@ -75,6 +75,16 @@ const PROBE_TIMEOUT_MS = 12_000;
 const credsBridge = new CredentialsBridgeService();
 
 let _cache: { snapshot: UsageBudgetSnapshot; at: number } | null = null;
+type UsageBudgetRefreshListener = (snapshot: UsageBudgetSnapshot) => void | Promise<void>;
+const refreshListeners = new Set<UsageBudgetRefreshListener>();
+/** Fresh provider snapshots only: cache hits/fallbacks never signal paid recovery. */
+export function subscribeUsageBudgetRefresh(listener: UsageBudgetRefreshListener): () => void {
+  refreshListeners.add(listener); return () => refreshListeners.delete(listener);
+}
+async function publishFreshSnapshot(snapshot: UsageBudgetSnapshot): Promise<void> {
+  for (const result of await Promise.allSettled([...refreshListeners].map(listener => listener(snapshot))))
+    if (result.status === 'rejected') logger.warn(`[UsageBudget] refresh listener failed: ${String(result.reason)}`);
+}
 let _inflight: Promise<UsageBudgetSnapshot> | null = null;
 
 function readAuthJson(): Record<string, unknown> {
@@ -456,6 +466,7 @@ export async function getUsageBudget(opts?: {
     try {
       const snapshot = await buildSnapshot();
       _cache = { snapshot, at: Date.now() };
+      await publishFreshSnapshot(snapshot);
       return snapshot;
     } catch (err) {
       logger.warn(`[UsageBudget] snapshot failed: ${String(err)}`);

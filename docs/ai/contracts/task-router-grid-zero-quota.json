@@ -1,0 +1,16 @@
+{
+  "issue": "task-router-grid-zero-quota",
+  "date": "2026-10-08",
+  "test_command": "env -i HOME=/private/tmp/sdmr-grid-sandbox/home TMPDIR=/private/tmp/sdmr-grid-sandbox/tmp DB_PATH=/private/tmp/sdmr-grid-sandbox/rhythm.db PATH=/opt/homebrew/bin:/usr/bin:/bin RHYTHM_LIVE_E2E=1 node node_modules/vitest/vitest.mjs run src/services/decision/router_grid_select.test.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "zero-c1", "text": "tier1 soleknown0/no cooldown -> null", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "zero-c2", "text": "tier1bothknown0 -> no closedroute/fallback OR", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "zero-c3", "text": "tier1known12 accepted (existingAT4)", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "zero-c4", "text": "mixedzero+unknown -> unknown notzero", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "zero-c5", "text": "tiers2-4known0 stillskip", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "zero-c6", "text": "boundarypositive0.1 allowed tier1", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" },
+    { "criterion_id": "zero-c7", "text": "Keep per-account cooldown and unknownranking", "mode": "unit", "test": "apps/api_server/src/services/decision/router_grid_select.test.ts", "status": "pass" }
+  ],
+  "not_tested": []
+}

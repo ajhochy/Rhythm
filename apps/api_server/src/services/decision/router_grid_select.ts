@@ -36,6 +36,7 @@ export function pickGridAccount(provider: ClosedProvider, tier: GridTier, accoun
   const eligible = accounts.filter(a => {
     if (a.provider !== provider) return false;
     const reason = a.exhaustedUntil !== null && a.exhaustedUntil > now ? 'exhausted'
+      : a.quotaRemainingPct !== null && Number.isFinite(a.quotaRemainingPct) && a.quotaRemainingPct <= 0 ? 'exhausted'
       : tier !== 1 && a.quotaRemainingPct !== null && a.quotaRemainingPct <= reservePct ? 'reserve' : null;
     if (reason) trace.push({ action: 'skip_account', tier, accountId: a.id, reason });
     return !reason;

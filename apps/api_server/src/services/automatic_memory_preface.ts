@@ -48,10 +48,19 @@ export async function prepareAutomaticMemoryPreface(input: {
     }
   }
   let preface: MemoryPreface;
+  let priorMemoryIds: string[] = [];
+  if (enabled && resolveAutomaticMemoryQuery(input.query, priorUserTexts).mode === 'continuation') {
+    try {
+      priorMemoryIds = new AgentMemoryTurnReceiptsRepository().recentTaskMemoryIds(input.sessionId);
+    } catch {
+      // No usable receipt history: retrieve against the resolved substantive task.
+    }
+  }
   try {
     preface = await buildMemoryPreface(input.query, input.ownerUserId, {
       enabled,
       priorUserTexts,
+      priorMemoryIds,
       // The function stays as the final defense; `genericAdmission` makes the
       // same policy decide membership BEFORE each lane's shortlist/budget.
       automaticAdmission: isAutomaticMemoryAdmissionAllowed,
