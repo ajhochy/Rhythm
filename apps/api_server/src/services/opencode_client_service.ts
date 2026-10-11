@@ -5375,9 +5375,9 @@ function validFiniteExecutionPermissionRules(
   /**
    * Idempotently register the rhythm MCP server into opencode.json with the
    * live production token + URL. Adds when absent, rewrites + reconnects when
-   * the token/URL changed, no-ops when identical. `opts.configPath` overrides
-   * the default (~/.config/opencode/opencode.json) for tests; `opts.register`
-   * controls whether to also register live with a running engine.
+   * the token/URL changed. Identical persistence still refreshes native config;
+   * only explicit offline registration is a no-op. `opts.configPath` overrides
+   * the managed engine config path; `opts.register` controls native registration.
    */
   async ensureRhythmMcp(
     apiToken: string,
@@ -5389,8 +5389,10 @@ function validFiniteExecutionPermissionRules(
     const { join, dirname } = require('path') as typeof import('path');
     const { homedir } = require('os') as typeof import('os');
 
-    const configPath =
-      opts?.configPath ??
+    const managedPath = process.env.RHYTHM_OPENCODE_CONFIG_PATH?.trim() ||
+      (process.env.OPENCODE_CONFIG_DIR?.trim()
+        ? join(process.env.OPENCODE_CONFIG_DIR.trim(), 'opencode.json') : undefined);
+    const configPath = opts?.configPath ?? managedPath ??
       join(homedir(), '.config', 'opencode', 'opencode.json');
 
     // #804 — memory MCP tools talk to the LOCAL agent server (RHYTHM_AGENT_URL),
@@ -5427,15 +5429,18 @@ function validFiniteExecutionPermissionRules(
 
     const mcpSection = (parsed.mcp as Record<string, unknown> | undefined) ?? {};
     const existing = mcpSection.rhythm;
-    if (JSON.stringify(existing) === JSON.stringify(desired)) {
+    const changed = JSON.stringify(existing) !== JSON.stringify(desired);
+    if (!changed && opts?.register === false) {
       return { changed: false, registered: false };
     }
 
-    mcpSection.rhythm = desired;
-    parsed.mcp = mcpSection;
-    mkdirSync(dirname(configPath), { recursive: true });
-    writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
-    logger.info('[OpencodeClientService] ensureRhythmMcp: persisted rhythm config');
+    if (changed) {
+      mcpSection.rhythm = desired;
+      parsed.mcp = mcpSection;
+      mkdirSync(dirname(configPath), { recursive: true });
+      writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+      logger.info('[OpencodeClientService] ensureRhythmMcp: persisted rhythm config');
+    }
     // #723 — rhythm was just (re-)persisted; clear any stale removal marker.
     this.markMcpPresent('rhythm');
     // #1221 — ensure is an explicit (re)install of the core rhythm server, so also
@@ -5445,22 +5450,32 @@ function validFiniteExecutionPermissionRules(
     this.writeMcpDeletion(
       'rhythm',
       false,
-      opts?.deletionPath ?? (opts?.configPath ? join(dirname(opts.configPath), 'mcp-deletions.json') : undefined),
+      opts?.deletionPath ?? (opts?.configPath !== undefined || managedPath
+        ? join(dirname(configPath), 'mcp-deletions.json') : undefined),
     );
 
     let registered = false;
     if (opts?.register !== false) {
       try {
         const client = this.requireClient();
-        await client.mcp.add({ body: { name: 'rhythm', config: desired } });
+        const raw = await client.mcp.add({ body: { name: 'rhythm', config: desired } });
+        if (raw.error) throw new AppError(502, 'SDK_ERROR', 'ensureRhythmMcp: native registration refused');
+        const data = raw.data;
+        const rhythm = data?.rhythm;
+        if (!data || typeof data !== 'object' || Array.isArray(data) ||
+          !rhythm || typeof rhythm !== 'object' || Array.isArray(rhythm) || rhythm.status !== 'connected') {
+          throw new AppError(502, 'SDK_ERROR', 'ensureRhythmMcp: native connection unavailable');
+        }
+        // MCP.add connects instance state; trusted admission reads Config's
+        // independent persisted cache. Invalidate it even for identical bytes.
+        if (!(await this.reloadConfig())) throw new AppError(502, 'SDK_ERROR', 'ensureRhythmMcp: native config reload failed');
         registered = true;
       } catch (err) {
-        logger.warn(
-          `[OpencodeClientService] ensureRhythmMcp: live registration skipped: ${err instanceof Error ? err.message : String(err)}`,
-        );
+        if (err instanceof AppError && err.code === 'SDK_ERROR') throw err;
+        throw new AppError(502, 'SDK_ERROR', 'ensureRhythmMcp: native registration failed');
       }
     }
-    return { changed: true, registered };
+    return { changed, registered };
   }
 
   /**

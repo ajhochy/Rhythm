@@ -136,7 +136,7 @@ export class QualificationFixtureService {
       authedProviders:async()=>['openai'],catalog:async()=>({source:'live' as const,fetchedAt:new Date().toISOString(),curatedCount:1,tiers:{mode:'manual' as const,cheapMaxOutputUsd:0,frontierMinOutputUsd:1,derivedFromModels:1},models:[{providerID:'openai',modelID:'gpt-6.1-sol',name:'Invented Sol inventory',family:'gpt',tier:'standard' as const,tierSource:'override' as const,costInputUsd:1,costOutputUsd:1,releaseDate:null,contextLimit:100000,reasoning:true,variants:['xhigh'],keyless:false}]})};
   }
   private async dayflow(f:Fixture):Promise<NonNullable<Fixture['dayflow']>>{
-    const root=join(this.m.fixtureRoot,'dayflow',f.id),memoryRoot=join(root,'memory');mkdirSync(memoryRoot,{recursive:true,mode:0o700});
+    const root=join(this.m.fixtureRoot,'dayflow',f.id),memoryRoot=join(this.m.fixtureRoot,'memory');mkdirSync(root,{recursive:true,mode:0o700});mkdirSync(memoryRoot,{recursive:true,mode:0o700});
     const journal=join(root,'timeline.sqlite'),db=new Database(journal),date=new Date(Date.now()-86400000).toISOString().slice(0,10),canary='invented_amber_schedule_'+f.id.replaceAll('-','');
     db.exec('CREATE TABLE timeline_cards(id INTEGER PRIMARY KEY,start_ts INTEGER,end_ts INTEGER,title TEXT,summary TEXT,detailed_summary TEXT,category TEXT,subcategory TEXT,metadata TEXT,is_deleted INTEGER)');
     db.prepare("INSERT INTO timeline_cards VALUES(1,?,?,?,?,?,'work','fixture','{}',0)").run(Date.parse(date+'T12:00:00Z')/1000,Date.parse(date+'T12:30:00Z')/1000,'Invented rehearsal schedule',canary+' rehearsal at 15:30','Invented activity fixture only.');db.close();chmodSync(journal,0o600);
