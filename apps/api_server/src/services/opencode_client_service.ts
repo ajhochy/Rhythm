@@ -1194,6 +1194,39 @@ export const MANAGED_READ_ONLY_PERMISSION = [
   { permission: 'rhythm_rhythm_search_memory', pattern: '*', action: 'allow' },
 ] as const;
 
+export type McpAllowlistBody = { servers: string[]; tools: string[]; deferred?: boolean; deferredServers?: string[] };
+type PermissionRuleBody = { permission: string; pattern: string; action: string };
+
+/**
+ * Keep explicitly allowed MCP tools reachable under a deny-all session policy.
+ *
+ * The engine defers MCP tools behind its `mcp_dispatch` tool unless the
+ * allowlist says `deferred: false`. A session whose permissions end in a
+ * wildcard deny also disables `mcp_dispatch`, so every MCP tool it explicitly
+ * allows becomes unreachable: the engine falls back to eager schemas for its
+ * builtins in that case, but not for MCP tools. The coordinator coding manager
+ * (allowed only `rhythm_delegate_async`) and managed read-only sessions
+ * (allowed only `rhythm_search_memory`) were both left with no usable tool.
+ *
+ * Opting those sessions out of deferral exposes each allowlisted MCP tool
+ * directly, where the engine checks it against the session permissions by its
+ * own name. That grants nothing new: allowing `mcp_dispatch` instead would let
+ * the dispatcher reach whatever it can dispatch.
+ */
+export function reachableMcpAllowlist(
+  allowlist: McpAllowlistBody | undefined,
+  permission: unknown,
+): McpAllowlistBody | undefined {
+  if (!allowlist || allowlist.deferred === false || !Array.isArray(permission)) return allowlist;
+  // The engine evaluates with findLast, so the last rule covering the
+  // dispatcher decides whether it is usable.
+  const governing = [...(permission as PermissionRuleBody[])].reverse()
+    .find(rule => rule && (rule.permission === '*' || rule.permission === 'mcp_dispatch') && rule.pattern === '*');
+  if (governing?.action !== 'deny') return allowlist;
+  const { deferredServers: _ignored, ...rest } = allowlist;
+  return { ...rest, deferred: false };
+}
+
 /**
  * Narrow internal-only session rules for a finite coordinator execution
  * authority. Ordinary callers cannot construct this through an HTTP payload.
@@ -2568,6 +2601,9 @@ function validFiniteExecutionPermissionRules(
           { permission: 'bash',pattern: p.command.shellCommand,action: 'ask' },
         ];
         body.mcpAllowlist = { servers: [],tools: manager?['rhythm_rhythm_delegate_async','rhythm_rhythm_delegation_status']:[] };
+      }
+      if (body.mcpAllowlist !== undefined) {
+        body.mcpAllowlist = reachableMcpAllowlist(body.mcpAllowlist as McpAllowlistBody, body.permission);
       }
       // #775 (skill-scope): pass the per-session skill allowlist on the create body.
       // The fork reads `skillAllowlist.skills` to scope the model's available skills.

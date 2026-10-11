@@ -90,19 +90,30 @@ export class CoordinatorCodingExecutionService {
     const profile = session?.profileId ? this.configs.getById(session.profileId) : null;
     const current = this.records.get({...binding,ownerUserId:auth.user.id});
     const base = session ? this.workspace(session.cwd) : null;
-    if (!session || !profile || !base || current.kind !== 'found') return null;
+    // The endpoint deliberately returns one generic hold to the model, which
+    // left every failure indistinguishable. Name the blocking gate in the
+    // local server log only: operators get a reason, the model still learns
+    // nothing it could use to probe the checks.
+    const held = (gate: string) => { console.warn(`[coding-proposal] held: ${gate}`); return null; };
+    if (!session) return held('session_missing');
+    if (!profile) return held('profile_missing');
+    if (!base) return held(`workspace_rejected cwd=${session.cwd}`);
+    if (current.kind !== 'found') return held(`conversation_${current.kind}`);
     const goals = current.conversation.goals.filter(g => (g.id === selector || g.objective === selector) && g.state === 'captured');
-    if (goals.length !== 1) return null;
-    let catalog;try{catalog=await opencodeClient.providerSnapshot();}catch{return null;}
+    if (goals.length !== 1) return held(`goal_matches=${goals.length}`);
+    let catalog;try{catalog=await opencodeClient.providerSnapshot();}catch{return held('provider_snapshot_failed');}
     const chain = {} as CoordinatorCodingExecutionProposal['chain'];
     chain.transport = 'rhythm_delegate_async';
     for (const [role,id] of [['manager','workflow-orchestrator'],['worker','coding-agent']] as const) {
       const config = this.configs.getById(id), scope = await resolveProfileScope(id);
-      if (!config || !config.reasoningEffort || !scope.model) return null;
+      if (!config) return held(`${id}_profile_missing`);
+      if (!config.reasoningEffort) return held(`${id}_no_reasoning_effort`);
+      if (!scope.model) return held(`${id}_no_resolved_model`);
       chain[role] = {profileId:id,revision:config.revision??1,policyFingerprint:hash(JSON.stringify(config)),
         providerId:scope.model.providerID,modelId:scope.model.modelID,
         modelVersion:scope.model.modelID,reasoningEffort:config.reasoningEffort};
-      if(!codingEffortVariant(chain[role],catalog))return null;
+      if(!codingEffortVariant(chain[role],catalog))
+        return held(`${id}_no_effort_variant ${scope.model.providerID}/${scope.model.modelID}@${config.reasoningEffort}`);
     }
     const executable=realpathSync(process.execPath),loader=realpathSync(require.resolve('tsx'));
     const proposedAt=new Date().toISOString(),pins=codingEvaluatorPins();
@@ -126,7 +137,8 @@ export class CoordinatorCodingExecutionService {
         writableByWorker:false,capture:'immutable_allowed_bytes_v1',criteria:['open','done','omitted','empty_no_match','order','unsupported_status','input_preservation']},
       proposedAt,expiresAt:new Date(Date.parse(proposedAt)+900000).toISOString()};
     p.normalizedIntentHash=codingExecutionIntentHash(p);
-    return this.isCurrent(p)?parseCodingExecutionProposal(p):null;
+    if (!this.isCurrent(p)) return held('not_current');
+    return parseCodingExecutionProposal(p) ?? held('schema_parse_failed');
   }
 
   async dispatchManager(p: CoordinatorCodingExecutionProposal, scope: CodingGrantScope): Promise<boolean> {
