@@ -1,15 +1,59 @@
-# Rhythm current state
+# Rhythm — project state
 
-Qualify the THREE original deliverables against signed /Applications/Rhythm-Qualification-0.18.69.app, sourcea426383e08ea4a665837b1d2dea85c94563393cd. **All three remain unqualified overall.** Branchcodex/rhythm-deliverables-completion-20261010, no PR/merge/public release. This pass changes evidence/logs and authorized isolated profile controls only.
+**Focus:** Repairing the four deliverables (Coordinator coding workflow,
+workflow-skill loading, Router/Memory/Dayflow, routing UI).
 
-Current at 2026-10-11T17:26:22.396460+00:00: desktop79237, API79760 on4001/4002, engine79782 on4096, nativebootfddd6711-4663-4388-a3db-3fbe2419f92a. Actual API/native stores are under private fresh fixturejomyodm3; no normal user native paths open. Signature/build/native identities match. Earlier normal-config/shared-native-store incidents are preserved, not erased by this fresh lane.
+**Branch:** `codex/rhythm-deliverables-completion-20261010` · no PR open.
 
-Coordinator **FAIL admission**, downstream **BLOCKED**. User-approved four controls loaded at workflowrevision10; exact startup cwd bound. Real Sol6.1 status/proposal tools completed; server held proposal, no signed card/approval/coding manager/worker/edit/tests/artifact. Installed source spreads extra authority-binding fields into a closed-schema proposal; diagnosis is source inference supporting actual live failure, no fix/bypass applied. Read-only user-started planning child succeeded2031tokens but result quarantined; Coordination displayed stale running/zero even afterRefresh. No current evaluator platform hold; actual worker-artifact check NOT RUN.
+## In progress
 
-Review **FAIL loaded instructions**: actual /skill omits repaired acceptance/workflow/coding/verification skills, including after restart; earlier user-HOME skill proof inapplicable. Profile revisions10/6/3/6 and exact prompts recorded. Full six-rule compliance/universal engine guarantees NOT RUN.
+Four product defects repaired and demonstrated live against an isolated
+sandbox (API `:4098`, engine `:4097`); see
+`docs/ai/runs/2026-10-11-deliverables-repair-four-fixes.md`.
 
-Router/Memory/Dayflow **FAIL overall**. Actual Grid Sol6.1/xhigh/openai-1 choice after normal relaunch persists supported runtime restart,18messages/7dispatches unchanged; one supportedReconnect needed. Pre-relaunch router catalog missed authenticated OpenAI and kept baseline; failure retained. Latest CURRENT livefixtures8PASS/6Dayflow fixture-setup refusalsprimary_designation→BLOCKED; earlier fresh14PASS separate. Current corrupt case has0SDK/provider and independently empty nativehistory. Normal UI creates ownerNULL/history_ambiguous failure. Memory relevance FAIL with unrelated note; canonical/budget/body-free and TRUE bare continuation after retirement abstention PASS bounded. Exact4notes cleaned. UI3price tiers/localreranker label mismatches actual4rankGrid; recommendation only.
+1. Coding-execution proposals were unparseable — the construction site spread
+   the 7-field foreground binding into a 22-key exact schema, so no approval
+   card could ever be created. Fixed and guarded.
+2. AGENT_LOCAL no-bearer requests created sessions with `owner_user_id` NULL.
+   Fixed at the bypass; ambiguous ownership still fails closed.
+3. The credentials watcher never attached when `auth.json` was absent, so a
+   first sign-in fired nothing and the catalogue stayed stale until relaunch.
+   Fixed; the misleading "watching" log is gone.
+4. The four workflow skills existed nowhere in Rhythm's skill store. Seeded via
+   `config_seeds`, marker bumped to `config_seeds_v4` for backfill.
 
-Smallest next: narrow closed-proposal field mapping repair and qualify installed candidate with genuine same-chat approval; load repaired skills; address ownership/relevance/catalog/status wiring. Coding recovery/duplicates/cancellation/stale/revoked checks cannot run without real codingreceipt. Freepubliccoding, S3resume-existing, broadproviderquality/private-crossuserMemoryquality unproven. Host remains running.
+## Blocked (precise missing action)
 
-Evidence/report: /Users/ajhochhalter/Documents/Codex/2026-10-10/rhythm-deliverables-completion/simple-qualification-report.md and qualification-69-live-evidence-report.md. Current run: docs/ai/runs/2026-10-11-installed-69-isolated-closeout.md.
+- **Coordinator happy path** — needs a live model turn plus a real human
+  approval inside Rhythm. The proposal envelope is bound to the engine's
+  pinned key and a live tool call, so it cannot be driven from outside, and
+  approval must not be fabricated.
+- **Desktop UI checks** — the isolated shell profile stops at "Sign in to
+  Rhythm — Continue with Google". An interactive-smoke instance is attached to
+  the sandbox (pid may be stale) awaiting that sign-in.
+- **Router UI (deliverable 4)** — canonical policy confirmed but not
+  implemented; see risks below.
+
+## Risks / stale facts
+
+- `CLAUDE.md` calls `apps/web` a non-shipping prototype. The shipped Electron
+  bundle serves it from `Resources/app/web/dist`. The Flutter client is not
+  what the qualification candidate runs.
+- Canonical routing policy is `GridCategory('coding'|'design'|'knowledge') ×
+  GridTier(1..4)` → ordered `{model, effort, cost_per_task}`, with tier 4
+  easiest and tier 1 hardest. The shipped UI instead shows Cheap/Standard/
+  Frontier price buckets. The labels "Simple/Routine/Complex/Demanding" do not
+  exist in the repo.
+- `resolveProposal` still has no integration coverage; the existing proposal
+  test builds terms from a helper and never reaches the construction site.
+
+## Test status
+
+`tsc --noEmit` clean. api_server suite: 8993 passed / 36 failed / 385 skipped.
+The 36 failures are pre-existing and were A/B-verified against the pre-change
+middleware.
+
+## Next step
+
+Have a human sign in to the isolated profile, then drive one Coordinator
+request to a real approval card and approve it.
