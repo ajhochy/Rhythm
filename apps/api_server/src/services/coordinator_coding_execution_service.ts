@@ -147,13 +147,20 @@ export class CoordinatorCodingExecutionService {
   }
 
   async dispatchManager(p: CoordinatorCodingExecutionProposal, scope: CodingGrantScope): Promise<boolean> {
-    if (!this.isCurrent(p)) return false;
+    // Each exit is logged locally: a consumed approval is never retried, so a
+    // swallowed reason here costs the human a whole new approval to diagnose.
+    if (!this.isCurrent(p)) { console.warn('[coding-dispatch] held: not_current'); return false; }
     try {
       const result=await delegateToAgentAsync({authenticatedUserId:p.ownerUserId,callerAgentConfigId:p.profileId,
         callerSessionId:p.sessionId,targetAgentConfigId:'workflow-orchestrator',cwd:p.workspace.canonicalRoot,isolateWorktree:false,
         prompt:`${p.objective}\nYou are the single PLAN manager. Delegate exactly one coding-agent via rhythm_delegate_async to implement optional open/done filtering in src/selectTasks.ts, preserving inputs and order, throwing on unsupported status. The worker alone may edit ${p.workspace.writablePaths.join(', ')} and run exactly ${p.command.shellCommand}. No other commands, descendants, retries, commit, push or installation. Wait for its completion once, then report actual results. Independent evaluation and original-chat delivery are server-owned. Soft aggregate allowance ${p.limits.totalSoftTokens} tokens including your completion; worker 300s, task 600s.`});
-      return result.status==='dispatched' && !!new CoordinatorCodingGrantJournal().read(scope)?.state.manager;
-    } catch {return false;}
+      const bound = !!new CoordinatorCodingGrantJournal().read(scope)?.state.manager;
+      if (result.status !== 'dispatched' || !bound) console.warn(`[coding-dispatch] held: status=${result.status} managerBound=${bound}`);
+      return result.status==='dispatched' && bound;
+    } catch (error) {
+      console.warn(`[coding-dispatch] held: threw ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+      return false;
+    }
   }
 
   /** Called only for already signed decisions by the existing approval continuation owner. */

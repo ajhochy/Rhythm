@@ -36,16 +36,47 @@ function codingGrantSchemaPresent(): boolean {
     .some(column => column.name === 'coding_grant_json');
 }
 
+/**
+ * Grant rows that bind this session.
+ *
+ * A coordinator user has ONE primary root chat, and every coding run leaves
+ * its grant row behind. Callers require exactly one match, so counting every
+ * historical grant made the first run the last: the next dispatch from the
+ * same root threw "coding delegation held". The watchdog only revokes a grant
+ * that still has an active delegation at its deadline, so grants from runs
+ * that finished, or whose dispatch failed, were never revoked either.
+ *
+ * A root therefore owns a grant only while it can still run: not revoked, and
+ * either inside its approval window or holding an active delegation. A child
+ * (manager or worker) always resolves its own grant, revoked or not, so its
+ * operations keep failing closed against that grant rather than being treated
+ * as ordinary work.
+ */
+function grantScopesFor(localSessionId: string): CodingGrantScope[] {
+  const rows = getDb().prepare(`SELECT root_session_id AS sessionId, command_key AS commandKey,
+    owner_user_id AS ownerUserId, project_id AS projectId, coding_grant_json AS raw FROM coordinator_conversation_commands
+    WHERE coding_grant_json IS NOT NULL AND (root_session_id=? OR
+      json_extract(coding_grant_json,'$.manager.localId')=? OR json_extract(coding_grant_json,'$.worker.localId')=?)`)
+    .all(localSessionId, localSessionId, localSessionId) as Array<CodingGrantScope & { raw: string }>;
+  const now = Date.now();
+  return rows.filter(row => {
+    let state: { manager?: { localId?: string } | null; worker?: { localId?: string } | null; revokedAt?: string | null; approvalId?: string };
+    try { state = JSON.parse(row.raw); } catch { return true; } // unreadable: keep it, so the caller fails closed as ambiguous
+    if (state.manager?.localId === localSessionId || state.worker?.localId === localSessionId) return true;
+    if (state.revokedAt) return false;
+    const approval = state.approvalId ? new AgentApprovalsRepository().getById(state.approvalId) : null;
+    if (approval?.expiresAt && Date.parse(approval.expiresAt) > now) return true;
+    return !!getDb().prepare(`SELECT 1 FROM agent_async_delegations WHERE coding_root_session_id=? AND coding_operation_key=?
+      AND status IN ('dispatched','waking') LIMIT 1`).get(row.sessionId, row.commandKey);
+  }).map(({ raw: _raw, ...scope }) => scope);
+}
+
 /** Called for both SSE asks and queued/recovered asks. null means ordinary, never grant. */
 export function codingGrantPermission(localSessionId: string, sdkSessionId: string,
   operation: CodingProtectedOperation): CodingOperationDecision | null {
   try {
     if (!codingGrantSchemaPresent()) return null; // no grant can be persisted on an unmigrated ordinary runtime
-    const rows = getDb().prepare(`SELECT root_session_id AS sessionId, command_key AS commandKey,
-      owner_user_id AS ownerUserId, project_id AS projectId FROM coordinator_conversation_commands
-      WHERE coding_grant_json IS NOT NULL AND (root_session_id=? OR
-        json_extract(coding_grant_json,'$.manager.localId')=? OR json_extract(coding_grant_json,'$.worker.localId')=?) LIMIT 2`)
-      .all(localSessionId,localSessionId,localSessionId) as CodingGrantScope[];
+    const rows = grantScopesFor(localSessionId);
     if (rows.length === 0) return null;
     if (rows.length !== 1) return { reply: 'reject', reason: 'binding_ambiguous' };
     const scope = rows[0];
@@ -69,10 +100,7 @@ export function codingGrantPermission(localSessionId: string, sdkSessionId: stri
 /** Ordinary delegate callers cannot pass grant IDs. Exact durable parent membership selects it. */
 export function codingGrantDelegation(callerLocalId: string, callerSdkId: string, ownerUserId: number) {
   if (!codingGrantSchemaPresent()) return null;
-  const rows = getDb().prepare(`SELECT root_session_id AS sessionId,command_key AS commandKey,
-    owner_user_id AS ownerUserId,project_id AS projectId FROM coordinator_conversation_commands
-    WHERE coding_grant_json IS NOT NULL AND (root_session_id=? OR json_extract(coding_grant_json,'$.manager.localId')=?
-      OR json_extract(coding_grant_json,'$.worker.localId')=?) LIMIT 2`).all(callerLocalId,callerLocalId,callerLocalId) as CodingGrantScope[];
+  const rows = grantScopesFor(callerLocalId);
   if (rows.length === 0) return null;
   if (rows.length !== 1 || rows[0].ownerUserId !== ownerUserId) throw new Error('coding delegation held');
   const scope = rows[0];

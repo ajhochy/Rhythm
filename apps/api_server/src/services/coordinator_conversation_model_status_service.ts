@@ -266,10 +266,11 @@ export class CoordinatorConversationModelStatusService {
         const scope: CodingGrantScope = { sessionId: coding.sessionId,ownerUserId: coding.ownerUserId,
           projectId: coding.projectId,commandKey: `coding-execution:${coding.proposalId}` };
         const reserved = new CoordinatorCodingGrantJournal().reserveManager(scope,a.approval_id,coding,current);
-        if (reserved === 'held') return held();
+        if (reserved === 'held') { console.warn('[coding-start] held: reserve_refused'); return held(); }
         if (reserved === 'replay') return { schemaVersion: 1 as const,status: 'held' as const,
           text: 'This exact coding operation is already reserved. No approval, child or prompt was repeated; inspect its recorded state.' };
-        if (!current() || !(await composition.dispatchManager(coding,scope))) return held();
+        if (!current()) { console.warn('[coding-start] held: not_current_after_reserve'); return held(); }
+        if (!(await composition.dispatchManager(coding,scope))) return held();
         return { schemaVersion: 1 as const,status: 'started' as const,
           text: 'Exact approved coding operation dispatched; root and manager remain plan. Execution and independent verification are not completion claims.' };
       }
