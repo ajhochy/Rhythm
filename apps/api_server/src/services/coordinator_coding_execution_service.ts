@@ -101,6 +101,11 @@ export class CoordinatorCodingExecutionService {
     if (current.kind !== 'found') return held(`conversation_${current.kind}`);
     const goals = current.conversation.goals.filter(g => (g.id === selector || g.objective === selector) && g.state === 'captured');
     if (goals.length !== 1) return held(`goal_matches=${goals.length}`);
+    // The start path reserves the goal's ONE delegation and refuses a goal that
+    // already holds it. Without the same check here, a card could be proposed
+    // and human-approved that could never start.
+    if (this.records.hasGoalDelegation({...binding,ownerUserId:auth.user.id}, goals[0].id, current.conversation))
+      return held('goal_already_delegated');
     let catalog;try{catalog=await opencodeClient.providerSnapshot();}catch{return held('provider_snapshot_failed');}
     const chain = {} as CoordinatorCodingExecutionProposal['chain'];
     chain.transport = 'rhythm_delegate_async';

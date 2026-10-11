@@ -328,7 +328,8 @@ export class CoordinatorConversationsRepository {
     }
   }
 
-  private hasGoalDelegation(scope: CoordinatorConversationScope, goalId: string, conversation: CoordinatorConversation): boolean {
+  /** Whether a goal already holds its one Coding Workflow delegation (shared by propose and reserve). */
+  hasGoalDelegation(scope: CoordinatorConversationScope, goalId: string, conversation: CoordinatorConversation): boolean {
     return this.isNormalized(scope)
       ? !!this.db.prepare(`SELECT 1 FROM coordinator_conversation_commands
           WHERE root_session_id=? AND goal_id=? AND role='manager' LIMIT 1`).get(scope.sessionId, goalId)
