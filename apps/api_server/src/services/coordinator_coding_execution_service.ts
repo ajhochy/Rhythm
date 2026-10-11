@@ -107,7 +107,13 @@ export class CoordinatorCodingExecutionService {
     const executable=realpathSync(process.execPath),loader=realpathSync(require.resolve('tsx'));
     const proposedAt=new Date().toISOString(),pins=codingEvaluatorPins();
     const p: CoordinatorCodingExecutionProposal = {schemaVersion:1,purpose:'coordinator_coding_execution_v1',proposalId:randomUUID(),
-      ownerUserId:auth.user.id,...binding,profileId:profile.id,profileRevision:profile.revision??1,scopeFingerprint:hash(JSON.stringify(profile)),
+      // ponytail: project only the three permitted identifiers. The runtime
+      // foreground binding also carries cwd/kind/sdkUserMessageId, and the
+      // closed proposal schema is exact-key, so spreading it made every
+      // proposal unparseable. Caller still re-checks all three against the
+      // same binding, so no authority check is weakened by narrowing here.
+      ownerUserId:auth.user.id,sessionId:binding.sessionId,projectId:binding.projectId,sdkSessionId:binding.sdkSessionId,
+      profileId:profile.id,profileRevision:profile.revision??1,scopeFingerprint:hash(JSON.stringify(profile)),
       controlRevision:current.conversation.controlRevision,goalId:goals[0].id,goalRevision:goals[0].revision,objective:goals[0].objective,
       normalizedIntentHash:'',workspace:{id:binding.projectId,generation:1,canonicalRoot:session.cwd,baseDigest:base,readablePaths:paths,
         writablePaths:['src/selectTasks.ts','tests/selectTasks.test.mjs']},chain,

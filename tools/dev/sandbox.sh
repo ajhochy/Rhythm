@@ -604,7 +604,10 @@ build_engine() {
   fi
   [[ "${RHYTHM_SANDBOX_SKIP_ENGINE_BUILD:-0}" == 0 ]] ||
     fail 'RHYTHM_SANDBOX_SKIP_ENGINE_BUILD must be 0 or 1'
-  (cd "$ENGINE_DIR" && env -i "${runtime_env[@]}" "${build_env[@]}" "MODELS_DEV_API_JSON=$ROOT/apps/opencode_fork/packages/opencode/test/tool/fixtures/models-api.json" \
+  # ponytail: bash 3.2 + `set -u` treats an unset array as unbound, so a
+  # non-preservation build (where build_env is never assigned) aborted here
+  # before ever invoking the builder. Expand only when the array exists.
+  (cd "$ENGINE_DIR" && env -i "${runtime_env[@]}" ${build_env[@]+"${build_env[@]}"} "MODELS_DEV_API_JSON=$ROOT/apps/opencode_fork/packages/opencode/test/tool/fixtures/models-api.json" \
     bun --no-env-file run ./script/build.ts --single --skip-install --skip-embed-web-ui) >"$SB/engine-build.log" 2>&1
 }
 
