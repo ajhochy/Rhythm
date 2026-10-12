@@ -188,6 +188,10 @@ export class AgentApprovalsController {
       if (existing.securityAction === WORKFLOW_APPROVAL_ACTION && readWorkflowProposal(existing)?.ownerUserId !== actorUser.id) {
         throw AppError.forbidden('The exact workflow proposal belongs to another chat owner or is invalid');
       }
+      // Live: a card was approved 51 minutes after it expired and the run started.
+      if (body.status === 'approved' && existing.expiresAt && Date.parse(existing.expiresAt) <= Date.now()) {
+        throw AppError.forbidden('This approval expired; ask for a new proposal');
+      }
       if (!existing.decisionNonce) {
         throw AppError.forbidden(
           'Approval predates signed decisions and must be requested again',
