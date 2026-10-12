@@ -1,3 +1,4 @@
+import { encodeCoordinatorCallbackMarker } from '../contracts/coordinator_callback_marker';
 import { codingEffortVariant } from './coordinator_coding_effort';
 import { createHash } from 'node:crypto';
 
@@ -657,6 +658,7 @@ export class AsyncDelegationCompletionService {
       console.warn(`[coding-callback] held: claim_shape claimed=${claimed.length} activeNative=${activeNative.length} bridge=${bridgeClaimed.length}`);
       this.delegationsRepo.releaseClaims(ids);return;}
     let codingCallback: ReturnType<typeof codingGrantDelegation> = null;
+    let codingCallbackReason: string | null = null;
     if (claimed.length === 1 && activeNative.length === 0 && bridgeClaimed.length === 0) {
       const coded = getDb().prepare('SELECT coding_delivery_mode FROM agent_async_delegations WHERE id=?').get(claimed[0].id) as {coding_delivery_mode:string|null};
       if (coded?.coding_delivery_mode === 'coding_worker_v1') {
@@ -674,6 +676,13 @@ export class AsyncDelegationCompletionService {
           const binding = getDb().prepare('SELECT callback_dispatch_id FROM coordinator_conversation_commands WHERE root_session_id=? AND command_key=?')
             .get(codingCallback.scope.sessionId,codingCallback.scope.commandKey) as {callback_dispatch_id:string|null};
           if (binding?.callback_dispatch_id) throw new Error('one coding callback already prepared; never replay');
+          // promptAsync refuses a coordinator_callback_v1 context without this
+          // marker, and coordinatorDelegationCallbackReason only issues it for a
+          // root waking on its manager, so every worker->manager callback was
+          // refused before preparing. The marker is shape, not authority: its
+          // consumers re-verify a root workflow-orchestrator binding.
+          codingCallbackReason = encodeCoordinatorCallbackMarker(claimed[0].id);
+          if (!codingCallbackReason) throw new Error('coding callback held: delegation id cannot be marked');
           const exact = codingCallback;
           callbackContext = { kind:'coordinator_callback_v1', validate:async () => exact.current(),
             onPrepared: b => exact.current() && exact.journal.recordCallbackPrepared(exact.scope,b) };
@@ -704,7 +713,8 @@ export class AsyncDelegationCompletionService {
         routeAuthed: null,
         finalProviderId: profileScope.model?.providerID ?? null,
         finalModelId: profileScope.model?.modelID ?? null,
-        ...(coordinatorCallbackReason ? { reasonCode: coordinatorCallbackReason } : {}),
+        ...(coordinatorCallbackReason ?? codingCallbackReason
+          ? { reasonCode: (coordinatorCallbackReason ?? codingCallbackReason)! } : {}),
       };
       // Ordinary completions keep the exact historical call shape; only the
       // exact prepared callback appends its final-boundary freshness hook.
@@ -736,6 +746,7 @@ export class AsyncDelegationCompletionService {
         if (enqueued) codingCallback.journal.recordCallbackOutcome(codingCallback.scope,'accepted');
         else {
           codingCallback.journal.recordCallbackOutcome(codingCallback.scope,'unknown');
+          console.warn(`[coding-callback] engine did not accept the worker callback for ${parentSessionId}; claim held`);
           deliveryUnknown = true; return;
         } // exact prepared anchor, never marker/prose retry
       }
