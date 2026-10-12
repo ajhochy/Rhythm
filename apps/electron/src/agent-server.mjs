@@ -160,6 +160,12 @@ export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, human
     if(electronDbPath()!==dbPathValue)throw new Error('qualification database differs');
     env.DB_CLIENT='sqlite';
     env.XDG_CONFIG_HOME=join(m.fixtureRoot,'xdg-config');
+    // The engine derives its data/cache/state dirs (opencode.db, auth.json, logs) from
+    // these, else from HOME: config alone left the 0.18.69 qualification engine
+    // writing the user's regular ~/.local/share/opencode/opencode.db.
+    env.XDG_DATA_HOME=join(m.fixtureRoot,'xdg-data');
+    env.XDG_CACHE_HOME=join(m.fixtureRoot,'xdg-cache');
+    env.XDG_STATE_HOME=join(m.fixtureRoot,'xdg-state');
     env.OPENCODE_TEST_HOME=join(m.fixtureRoot,'engine-home');
     env.OPENCODE_CONFIG_DIR=join(m.fixtureRoot,'opencode-config');
     env.RHYTHM_MANAGED_SKILLS_DIR=join(env.OPENCODE_CONFIG_DIR,'skills');

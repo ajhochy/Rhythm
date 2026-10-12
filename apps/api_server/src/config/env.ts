@@ -12,13 +12,14 @@ const qualificationStartup=loadQualificationFixtureAuthority();
 if(qualificationStartup){
   const root=qualificationStartup.fixtureRoot;
   const isolated:Record<string,string>={DB_CLIENT:'sqlite',DB_PATH:qualificationStartup.dbPath,
-    XDG_CONFIG_HOME:path.join(root,'xdg-config'),OPENCODE_TEST_HOME:path.join(root,'engine-home'),OPENCODE_CONFIG_DIR:path.join(root,'opencode-config'),RHYTHM_OPENCODE_CONFIG_PATH:path.join(root,'opencode-config','opencode.json'),
+    XDG_CONFIG_HOME:path.join(root,'xdg-config'),XDG_DATA_HOME:path.join(root,'xdg-data'),XDG_CACHE_HOME:path.join(root,'xdg-cache'),XDG_STATE_HOME:path.join(root,'xdg-state'),OPENCODE_TEST_HOME:path.join(root,'engine-home'),OPENCODE_CONFIG_DIR:path.join(root,'opencode-config'),RHYTHM_OPENCODE_CONFIG_PATH:path.join(root,'opencode-config','opencode.json'),
     RHYTHM_ORG_INSTRUCTIONS_FILE:path.join(root,'org-instructions.md'),RHYTHM_MANAGED_SKILLS_DIR:path.join(root,'opencode-config','skills'),RHYTHM_LEGACY_MANAGED_SKILLS_DIR:path.join(root,'legacy-managed-skills'),
     MEMORY_VAULT_PATH:path.join(root,'memory'),MEMORY_VAULT_SUBDIR:'',LIVE_ARTIFACT_STORAGE_DIR:path.join(root,'live-artifacts'),
     RHYTHM_ACCOUNTS_FILE:path.join(root,'anthropic-accounts.json'),RHYTHM_OPENAI_ACCOUNTS_FILE:path.join(root,'openai-accounts.json'),RHYTHM_DECISION_ROUTER_FILE:path.join(root,'decision-router.json'),RHYTHM_MANAGED_TOOL_ROOT:path.join(root,'managed-tools'),RHYTHM_TOOL_ARTIFACT_ROOT:path.join(root,'tool-artifacts')};
   for(const [key,value] of Object.entries(isolated))process.env[key]=value;
-  // The engine's existing managed credential broker stays in its normal data
-  // store. Only new owned SDK sessions may be used by this qualification DB.
+  // The engine's data/cache/state (opencode.db, auth.json) are isolated too: sharing
+  // them let the 0.18.69 qualification engine write the user's regular opencode.db.
+  // Model turns here therefore need a fresh sign-in; credentials are never copied.
 }
 
 export type DbClient = 'sqlite' | 'postgres';
