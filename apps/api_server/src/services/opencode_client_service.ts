@@ -36,6 +36,7 @@ import {
 import type { DispatchInput } from '../models/model_provenance';
 import { getDb } from '../database/db';
 import { ModelProvenanceRepository } from '../repositories/model_provenance_repository';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { isCoordinatorCallbackProvenance } from '../contracts/coordinator_callback_marker';
 import type { AuthContext } from '../middleware/auth_middleware';
 import type {
@@ -1193,6 +1194,32 @@ export const MANAGED_READ_ONLY_PERMISSION = [
   { permission: 'rhythm_search_memory', pattern: '*', action: 'allow' },
   { permission: 'rhythm_rhythm_search_memory', pattern: '*', action: 'allow' },
 ] as const;
+
+/**
+ * A session's `error` status describes its LAST turn. Once the engine accepts a
+ * new turn, that error no longer describes the session.
+ *
+ * Only the WebSocket input path used to clear it (OPC-M1-4); coordinator
+ * messages, the prompt API and delegation/approval wakes all start turns
+ * through promptAsync without doing so. The session.idle handler deliberately
+ * never overwrites `error` (#1045, so a failing turn's own idle cannot hide its
+ * error), so an error became permanent: the live coordinator root kept a stale
+ * Anthropic failure for hours of successful OpenAI turns, and session
+ * permission authority then refused its approved coding manager as a child of
+ * a "stopped" parent.
+ *
+ * Cleared only after acceptance, so a dispatch that fails leaves the error in
+ * place, and a turn that fails sets it again.
+ */
+function clearStaleTurnError(sdkSessionId: string): void {
+  try {
+    const repo = new AgentSessionsRepository();
+    const local = repo.findBySdkSessionId(sdkSessionId);
+    if (local?.status === 'error') repo.clearErrorStatus(local.id);
+  } catch (err) {
+    logger.warn(`[OpencodeClientService] could not clear stale error status for ${sdkSessionId}: ${String(err)}`);
+  }
+}
 
 export type McpAllowlistBody = { servers: string[]; tools: string[]; deferred?: boolean; deferredServers?: string[] };
 type PermissionRuleBody = { permission: string; pattern: string; action: string };
@@ -3656,12 +3683,14 @@ function validFiniteExecutionPermissionRules(
         // success. The generated fork client uses the 204 branch below.
         settleDispatch(dispatchId, 'accepted');
         exportWorkflowOutcome('accepted');
+        clearStaleTurnError(sessionId);
         return true;
       }
       const httpStatus = raw.response?.status;
       if (httpStatus === 204) {
         settleDispatch(dispatchId, 'accepted');
         exportWorkflowOutcome('accepted');
+        clearStaleTurnError(sessionId);
         return true;
       }
       settleDispatch(dispatchId, 'rejected');
