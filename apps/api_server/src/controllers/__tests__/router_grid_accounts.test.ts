@@ -1,3 +1,4 @@
+import { tmpdir } from 'os'; // TMPDIR is unset on Linux CI
 import Database from 'better-sqlite3';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 const boundary = vi.hoisted(() => ({ defaults: true, routing: vi.fn() }));
@@ -37,13 +38,13 @@ async function call(method: 'create' | 'update', body: Record<string, unknown>, 
 }
 it.each([true, false])('repair-c1: store default/null is auto with capacity Shadow (defaults=%s)', async defaults => {
   boundary.defaults = defaults;
-  const row = await call('create', { cwd: process.env.TMPDIR, name: 'fake', modelMode: 'auto' });
+  const row = await call('create', { cwd: tmpdir(), name: 'fake', modelMode: 'auto' });
   expect(new AgentSessionsRepository().findById(row.id)?.anthropicAccountId).toBe(defaults ? 'a' : null);
   expect(capacity.isAutoAccountSession(row.id, 'anthropic')).toBe(true);
   expect(capacity.isAutoAccountSession(row.id, 'openai')).toBe(true);
 });
 it.each(['anthropic', 'openai'] as const)('repair-c1: explicit same-id PATCH revokes only %s even with legacy generic marker', async provider => {
-  const row = await call('create', { cwd: process.env.TMPDIR, name: 'fake', modelMode: 'auto' });
+  const row = await call('create', { cwd: tmpdir(), name: 'fake', modelMode: 'auto' });
   capacity.markAutoAccountSession(row.id);
   capacity.markAutoAccountSession(row.id, 'anthropic'); capacity.markAutoAccountSession(row.id, 'openai');
   const key = provider === 'anthropic' ? 'anthropicAccountId' : 'openaiAccountId';
@@ -57,7 +58,7 @@ it('repair-c1: requested and profile accounts remain pins', async () => {
   const profiles = new AgentConfigsRepository(); profiles.insert({ id: 'fake', label: 'Fake', icon: 'F' });
   profiles.update('fake', { defaultAnthropicAccountId: 'a', defaultOpenaiAccountId: 'o' });
   for (const body of [{ anthropicAccountId: 'a', openaiAccountId: 'o' }, { agentId: 'fake' }]) {
-    const row = await call('create', { cwd: process.env.TMPDIR, name: 'fake', ...body });
+    const row = await call('create', { cwd: tmpdir(), name: 'fake', ...body });
     expect(capacity.isAutoAccountSession(row.id, 'anthropic')).toBe(false);
     expect(capacity.isAutoAccountSession(row.id, 'openai')).toBe(false);
   }

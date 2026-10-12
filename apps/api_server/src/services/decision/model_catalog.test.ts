@@ -92,6 +92,7 @@ describe('providerSnapshot pass-through', () => {
       cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
       releaseDate: '2026-04-16', family: 'fam', reasoning: true,
       variants: ['low', 'high'],
+      variantEffects: { low: {}, high: {} },
       capabilities: { input: { text: true }, output: { text: true }, toolcall: true },
     });
     expect(nested.cost).toEqual({ input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 });

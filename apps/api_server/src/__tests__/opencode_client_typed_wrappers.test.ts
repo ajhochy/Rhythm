@@ -12,7 +12,7 @@
  */
 
 import Database from 'better-sqlite3';
-import { afterAll, beforeAll, describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, it, expect, vi, beforeEach } from 'vitest';
 import { env } from '../config/env';
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
@@ -674,7 +674,14 @@ describe('issue-716: addMcp persists new server to opencode.json before calling 
   let sdkClient: ReturnType<typeof makeRealSdkClient> & { mcp: { add: ReturnType<typeof vi.fn> } };
   let reloadConfig: ReturnType<typeof vi.spyOn>;
 
+  // opencodeConfigFile() prefers RHYTHM_OPENCODE_CONFIG_PATH, then XDG_CONFIG_HOME,
+  // before the homedir these tests stub. GitHub's ubuntu runners export
+  // XDG_CONFIG_HOME, so clear both or the write escapes tmpDir.
+  afterEach(() => vi.unstubAllEnvs());
+
   beforeEach(() => {
+    vi.stubEnv('RHYTHM_OPENCODE_CONFIG_PATH', '');
+    vi.stubEnv('XDG_CONFIG_HOME', '');
     svc = new OpencodeClientService();
     reloadConfig = vi.spyOn(svc, 'reloadConfig').mockResolvedValue(true);
     // Extend the fake client with the mcp.add method that addMcp needs.

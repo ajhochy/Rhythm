@@ -483,7 +483,8 @@ cleanup_failed_up() {
     if ! preservation_enabled; then
       preserve_diagnostics || true
     fi
-    stop >/dev/null 2>&1 || true
+    # Subshell: a refused cleanup (`fail` exits) must not replace the original status.
+    (stop) >/dev/null 2>&1 || true
   fi
   exit "$status"
 }
@@ -830,7 +831,9 @@ stop() {
       fail 'refusing unsafe foreground holder record'
     holder_pid="$(<"$FOREGROUND_PID_FILE")"
     [[ "$holder_pid" =~ ^[1-9][0-9]*$ ]] || fail 'invalid foreground holder PID'
-    if kill -0 "$holder_pid" 2>/dev/null; then
+    if [[ "$holder_pid" == "$$" ]]; then
+      : # This launcher is the holder, cleaning up its own failed run: nobody to ask.
+    elif kill -0 "$holder_pid" 2>/dev/null; then
       if ((live_api_pid > 0)); then sandbox_ownership recordSandboxEngineOwnership "$live_api_pid"; fi
       # Outside API-alive branch: a failed replacement still needs its exact
       # proven original holder to acknowledge normal shutdown, never a PID kill.
@@ -855,7 +858,7 @@ stop() {
   if [[ -f "$FOREGROUND_PID_FILE" ]]; then
     holder_pid="$(<"$FOREGROUND_PID_FILE")"
     for _ in {1..50}; do
-      [[ -e "$SHUTDOWN_ACK_FILE" ]] && break
+      [[ -e "$SHUTDOWN_ACK_FILE" || "$holder_pid" == "$$" ]] && break
       kill -0 "$holder_pid" 2>/dev/null || break
       sleep 0.1
     done

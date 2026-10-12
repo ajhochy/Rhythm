@@ -1,3 +1,4 @@
+import { tmpdir } from 'os'; // TMPDIR is unset on Linux CI
 import Database from 'better-sqlite3';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 const boundary = vi.hoisted(() => ({ routing: vi.fn(), cascade: vi.fn(async () => ({ outcome: 'terminal' })) }));
@@ -41,7 +42,7 @@ async function spill(body: Record<string, unknown>) {
   return res;
 }
 it.each(['anthropic', 'openai'] as const)('c16: stale same-provider %s spillover cannot move an explicit pin', async provider => {
-  const row = await call('create', { cwd: process.env.TMPDIR, name: 'synthetic', anthropicAccountId: 'a', openaiAccountId: 'o' });
+  const row = await call('create', { cwd: tmpdir(), name: 'synthetic', anthropicAccountId: 'a', openaiAccountId: 'o' });
   boundary.routing.mockClear();
   const res = await spill({ sdkSessionId: 'synthetic-sdk', providerID: provider, toAccountId: provider === 'anthropic' ? 'b' : 'p' });
   expect(res.status).toHaveBeenCalledWith(202);
@@ -49,7 +50,7 @@ it.each(['anthropic', 'openai'] as const)('c16: stale same-provider %s spillover
   expect(new AgentSessionsRepository().findById(row.id)?.[provider === 'anthropic' ? 'anthropicAccountId' : 'openaiAccountId']).toBe(provider === 'anthropic' ? 'a' : 'o');
 });
 it.each(['anthropic', 'openai'] as const)('c17: automatic %s spillover persists unpinned provenance', async provider => {
-  const row = await call('create', { cwd: process.env.TMPDIR, name: 'synthetic' });
+  const row = await call('create', { cwd: tmpdir(), name: 'synthetic' });
   const account = provider === 'anthropic' ? 'b' : 'p';
   await spill({ sdkSessionId: 'synthetic-sdk', providerID: provider, toAccountId: account });
   expect(boundary.routing).toHaveBeenLastCalledWith('synthetic-sdk', account, { pinned: false });
@@ -57,7 +58,7 @@ it.each(['anthropic', 'openai'] as const)('c17: automatic %s spillover persists 
   expect(new AgentSessionsRepository().findById(row.id)?.[provider === 'anthropic' ? 'anthropicAccountId' : 'openaiAccountId']).toBe(account);
 });
 it('c18: pinned Anthropic exhaustion still invokes the cross-provider cascade without account writes', async () => {
-  await call('create', { cwd: process.env.TMPDIR, name: 'synthetic', anthropicAccountId: 'a' });
+  await call('create', { cwd: tmpdir(), name: 'synthetic', anthropicAccountId: 'a' });
   boundary.routing.mockClear();
   await spill({ sdkSessionId: 'synthetic-sdk', fromAccountId: 'a', exhausted: true });
   expect(boundary.cascade).toHaveBeenCalledWith(expect.any(String), { providerID: 'anthropic', message: 'anthropic provider exhausted', fromAccountId: 'a' });
@@ -89,14 +90,14 @@ it.each(['requested', 'profile', 'default'])('c11: %s account provenance reaches
   profiles.update('synthetic', { defaultAnthropicAccountId: 'a', defaultOpenaiAccountId: 'o' });
   const body = source === 'requested' ? { anthropicAccountId: 'a', openaiAccountId: 'o' }
     : source === 'profile' ? { agentId: 'synthetic' } : {};
-  const row = await call('create', { cwd: process.env.TMPDIR, name: 'synthetic', ...body });
+  const row = await call('create', { cwd: tmpdir(), name: 'synthetic', ...body });
   for (const [provider, account] of [['anthropic', 'a'], ['openai', 'o']] as const) {
     expect(isAutoAccountSession(row.id, provider)).toBe(source === 'default');
     expect(boundary.routing).toHaveBeenCalledWith('synthetic-sdk', account, { pinned: source !== 'default' });
   }
 });
 it.each(['anthropic', 'openai'] as const)('c12: explicit %s PATCH pins; same-account grid reapply cannot clear it', async provider => {
-  const row = await call('create', { cwd: process.env.TMPDIR, name: 'synthetic' });
+  const row = await call('create', { cwd: tmpdir(), name: 'synthetic' });
   const account = provider === 'anthropic' ? 'a' : 'o';
   await call('update', { [provider === 'anthropic' ? 'anthropicAccountId' : 'openaiAccountId']: account }, row.id);
   expect(isAutoAccountSession(row.id, provider)).toBe(false);
@@ -105,7 +106,7 @@ it.each(['anthropic', 'openai'] as const)('c12: explicit %s PATCH pins; same-acc
   expect(boundary.routing).toHaveBeenLastCalledWith('synthetic-sdk', account, { pinned: true });
 });
 it.each(['anthropic', 'openai'] as const)('c13: automatic %s grid and capacity switches clear pin provenance', async provider => {
-  const row = await call('create', { cwd: process.env.TMPDIR, name: 'synthetic' });
+  const row = await call('create', { cwd: tmpdir(), name: 'synthetic' });
   const next = provider === 'anthropic' ? 'b' : 'p';
   await applyGridAccount(row.id, provider, next);
   expect(boundary.routing).toHaveBeenLastCalledWith('synthetic-sdk', next, { pinned: false });
@@ -115,7 +116,7 @@ it.each(['anthropic', 'openai'] as const)('c13: automatic %s grid and capacity s
   expect(new AgentSessionsRepository().findById(row.id)?.[provider === 'anthropic' ? 'anthropicAccountId' : 'openaiAccountId']).toBe(original);
 });
 it('explicit same-account pin fails truthfully when durable provenance insert fails', async () => {
-  const row = await call('create', { cwd: process.env.TMPDIR, name: 'synthetic pin failure' });
+  const row = await call('create', { cwd: tmpdir(), name: 'synthetic pin failure' });
   const account = row.anthropicAccountId;
   const attempts = new (await import('../../services/decision/router_grid_attempts_repository')).RouterGridAttemptsRepository();
   await attempts.append(row.id, { tier: 4, category: 'knowledge', canQueue: false, securitySensitive: false, estInputTokens: 1, source: 'rules', reason: 'ok' },

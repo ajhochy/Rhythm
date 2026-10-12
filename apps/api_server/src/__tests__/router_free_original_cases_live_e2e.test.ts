@@ -30,7 +30,8 @@ const design={id:'design_image',kind:'image_design',label:'Synthetic public imag
 const knowledge='SDMRX:knowledge_t1 Public fixture item costs $42.';
 const fields=[{name:'item',type:'string',required:true},{name:'price',type:'number',required:true}];
 const span=(src:string,s:string)=>({start:src.indexOf(s),end:src.indexOf(s)+s.length});
-let provider:ChildProcess|undefined; const router=JSON.parse(readFileSync(`${APP}/decision-router.json`,'utf8'));
+let provider:ChildProcess|undefined; // Read only when the live gate is on: the sandbox file does not exist in CI / default runs.
+const router=LIVE?JSON.parse(readFileSync(`${APP}/decision-router.json`,'utf8')):{};
 const pause=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 const api=async(path:string,body:unknown)=>{const r=await fetch(BASE+path,{method:'POST',headers:auth,body:JSON.stringify(body),signal:AbortSignal.timeout(60_000)});expect(r.status).toBe(200);return r.json() as Promise<Record<string,unknown>>};
 const register=(tag:string,spec:unknown)=>fetch(`${PROVIDER}/_sdmr/reply/${tag}`,{method:'POST',body:JSON.stringify(spec)});

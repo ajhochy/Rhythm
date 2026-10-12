@@ -45,6 +45,9 @@ vi.mock('../services/opencode_engine', () => {
       createSession: vi.fn().mockResolvedValue({ id: 'sdk-session-1' }),
       getSession: vi.fn(async (id: string) => ({ id })),
       promptAsync: (...args: unknown[]) => promptAsync(...args),
+      // ws_gateway checks Dayflow SDK-history reuse before forwarding (c6002804);
+      // these fixture sessions carry no Dayflow history, so the real guard passes.
+      assertDayflowSdkHistoryMayBeReused: vi.fn().mockResolvedValue(undefined),
       updateSessionAllowlist: vi.fn().mockResolvedValue(undefined),
       updateSessionSkillAllowlist: vi.fn().mockResolvedValue(undefined),
       ensureReady: vi.fn().mockResolvedValue(true),
