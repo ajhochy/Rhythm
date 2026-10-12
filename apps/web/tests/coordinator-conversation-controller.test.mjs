@@ -375,6 +375,8 @@ test('a malformed successful transport response remains an exact same-command re
   const requestBodies = [];
   let messageAttempt = 0;
   const fetcher = async (url, init) => {
+    // The controller also reads the coding-run list after opening; it is not a message.
+    if (url.endsWith('/runs')) return { status: 200, json: async () => ({ kind: 'runs', runs: [] }) };
     const body = JSON.parse(init.body);
     requestBodies.push(body);
     if (url.endsWith('/open')) {
@@ -425,6 +427,8 @@ test('a bounded timeout retains the same immutable command for a later retry', a
   const messages = [];
   let messageAttempt = 0;
   const fetcher = async (url, init) => {
+    // The controller also reads the coding-run list after opening; it is not a message.
+    if (url.endsWith('/runs')) return { status: 200, json: async () => ({ kind: 'runs', runs: [] }) };
     const body = JSON.parse(init.body);
     if (url.endsWith('/open')) {
       return { status: 201, json: async () => ({ kind: 'created', conversation: conversation() }) };
