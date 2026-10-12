@@ -32,6 +32,7 @@ const transcriptSource = compile(new URL('../src/components/Transcript.tsx', imp
   .replace("from '../gateway/auth'", `from '${emptyStub}'`)
   .replace("from '../gateway/user-preferences'", `from '${emptyStub}'`)
   .replace("from './FocusDialog'", `from '${emptyStub}'`)
+  .replace("from './permission-superseded'", `from '${dataModule(compile(new URL('../src/components/permission-superseded.ts', import.meta.url)))}'`)
   .replace("from './AttachmentThumbnail'", `from '${dataModule('export const AttachmentThumbnail=()=>null;')}'`)
   .replace('function MessageUsage(', 'export function MessageUsage(')
   .replace('function RichBlock(', 'export function RichBlock(');

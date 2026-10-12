@@ -11,6 +11,7 @@ import { Timestamp } from './Timestamp';
 import { blockSource, canonicalText, sessionLabel, type RichTranscriptBlock, type RichTranscriptMessage } from '../gateway/sessions';
 import { FocusDialog } from './FocusDialog';
 import { AttachmentThumbnail } from './AttachmentThumbnail';
+import { permissionSupersededByTool } from './permission-superseded';
 
 function MarkdownText({ content }: { content: string }) {
   return <SafeMarkdown content={content} />;
@@ -127,7 +128,7 @@ function QuestionCard() {
 // createdAt) come from apps/api_server/src/services/opencode_stream_bridge.ts:359-391
 // (registerPermission's `permission.asked` frame). Each card owns only its reply state;
 // pending-decisions holds canonical requests independently of the legacy Session fields.
-function LivePermissionCard({ sessionId, permission }: { sessionId: string; permission: LivePermissionRequest }) {
+function LivePermissionCard({ sessionId, permission, superseded = false }: { sessionId: string; permission: LivePermissionRequest; superseded?: boolean }) {
   const auth = useAuthUser();
   const preferenceUserId = auth?.user.id ?? 'fixture';
   const [requireDestructiveModal, setRequireDestructiveModal] = useState(() => readLocalUserPreferences(preferenceUserId).requireDestructiveModal);
@@ -163,6 +164,9 @@ function LivePermissionCard({ sessionId, permission }: { sessionId: string; perm
       </div>
     </section>
   );
+  // The tool already ran: say so instead of claiming the agent is blocked. The
+  // original request stays reachable in case the engine is in fact still waiting.
+  if (superseded) return <details className="tool-block" data-testid="permission-superseded"><summary><Icon name="check" size={14} /><span>The <strong>{permission.tool}</strong> call completed; this permission request is no longer blocking it.</span></summary>{card}</details>;
   if (!shouldEscalatePermission(requireDestructiveModal, permission.tool)) return card;
   return <FocusDialog
     open
@@ -525,5 +529,5 @@ export function Transcript({ coordinatorStatus, coordinatorTranscript }: {
     </section>
   );
   };
-  return <><div className="transcript-scroll" ref={viewport} onScroll={remember} onWheel={(event) => { const position = positions.current.get(activeKey.current); if (!position) return; if (event.deltaY < 0) { position.wheelUnpinned = true; position.pinned = false; } else if (event.deltaY > 0) position.wheelUnpinned = false; }} role="region" tabIndex={0} aria-label="Transcript reading area">{renderContent()}{sessionGatewayMode === 'live' && !liveChildView && <>{[...pending.permissions.values()].map(permission => <LivePermissionCard key={`${selected.id}:${permission.permissionID}`} sessionId={selected.id} permission={permission} />)}{[...pending.questions.values()].map(question => <LiveQuestionCard key={`${selected.id}:${question.requestId}`} sessionId={selected.id} question={question} />)}</>}{!liveChildView && coordinatorStatus}</div>{newOutput && <button className="primary-button transcript-new-output" type="button" onClick={jumpToLatest}>New output</button>}</>;
+  return <><div className="transcript-scroll" ref={viewport} onScroll={remember} onWheel={(event) => { const position = positions.current.get(activeKey.current); if (!position) return; if (event.deltaY < 0) { position.wheelUnpinned = true; position.pinned = false; } else if (event.deltaY > 0) position.wheelUnpinned = false; }} role="region" tabIndex={0} aria-label="Transcript reading area">{renderContent()}{sessionGatewayMode === 'live' && !liveChildView && <>{[...pending.permissions.values()].map(permission => <LivePermissionCard key={`${selected.id}:${permission.permissionID}`} sessionId={selected.id} permission={permission} superseded={permissionSupersededByTool(permission, messages)} />)}{[...pending.questions.values()].map(question => <LiveQuestionCard key={`${selected.id}:${question.requestId}`} sessionId={selected.id} question={question} />)}</>}{!liveChildView && coordinatorStatus}</div>{newOutput && <button className="primary-button transcript-new-output" type="button" onClick={jumpToLatest}>New output</button>}</>;
 }

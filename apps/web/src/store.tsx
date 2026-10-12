@@ -730,8 +730,14 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
         } : session));
         return;
       }
-      if (event.type === 'permission.replied' && event.sessionId && event.permissionID) {
-        const { sessionId, permissionID } = event;
+      // The server can settle a request itself (recovery poll, mode change, coding
+      // authority) and then sends permission.resolved, never permission.replied: the
+      // card stayed up although the tool had already run.
+      const resolvedId = event.type === 'permission.resolved' ? (event as { permissionId?: unknown }).permissionId : undefined;
+      if ((event.type === 'permission.replied' && event.sessionId && event.permissionID)
+        || (event.type === 'permission.resolved' && event.sessionId && typeof resolvedId === 'string' && resolvedId)) {
+        const sessionId = event.sessionId!;
+        const permissionID = (event.type === 'permission.resolved' ? resolvedId : event.permissionID) as string;
         removeDecision(sessionId, 'permissions', permissionID);
         setSessions((current) => current.map((session) => session.id === sessionId && session.livePermission?.permissionID === permissionID ? { ...session, livePermission: undefined } : session));
         return;

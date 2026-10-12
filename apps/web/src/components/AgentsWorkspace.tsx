@@ -189,6 +189,7 @@ export function AgentsWorkspace() {
     coordinatorScope,
     gateway.domains.coordinatorConversations,
     auth?.user.id ? `user:${auth.user.id}` : 'desktop-local',
+    gateway.domains.workstreams,
   );
   // A server-ready primary root can remain intentionally SDK-less after a
   // normal restart. Treat its coordinator state as authoritative only for

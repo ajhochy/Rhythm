@@ -7,6 +7,7 @@ import type {
   CoordinatorTaskContextItem,
 } from '../gateway/coordinator-conversations';
 import type { CoordinatorConversationViewState, CoordinatorPlanConsent } from './use-coordinator-conversation';
+import { managedRunView } from './managed-run-view';
 
 type Props = {
   state: CoordinatorConversationViewState;
@@ -96,24 +97,6 @@ function phaseLabel(state: CoordinatorConversationViewState): string | undefined
   return state.notice?.message;
 }
 
-function managedWorkBudgetLine(budget: Record<string, unknown>): string {
-  const actual = typeof budget.actualTokens === 'number' && Number.isFinite(budget.actualTokens) ? budget.actualTokens : undefined;
-  const authorized = typeof budget.authorizedTokens === 'number' && Number.isFinite(budget.authorizedTokens) ? budget.authorizedTokens : undefined;
-  if (actual !== undefined && authorized !== undefined) return `Budget: ${actual.toLocaleString()} actual of ${authorized.toLocaleString()} authorized tokens.`;
-  if (actual !== undefined) return `Budget: ${actual.toLocaleString()} actual tokens reported by the server.`;
-  return budget.holdReason === null ? 'Budget: server reports no current hold.' : 'Budget status reported by the server.';
-}
-
-function managedJobLine(jobs: unknown[]): string {
-  const states = jobs.flatMap((job) => {
-    if (!job || typeof job !== 'object' || Array.isArray(job)) return [];
-    const state = (job as Record<string, unknown>).state;
-    return typeof state === 'string' && ['queued', 'claimed', 'running', 'unknown', 'succeeded', 'failed', 'cancelled'].includes(state) ? [state] : [];
-  });
-  if (!states.length) return jobs.length ? `${jobs.length} server job${jobs.length === 1 ? '' : 's'} reported.` : 'No server job is reported yet.';
-  return `Server job status: ${states.join(', ')}.`;
-}
-
 export function CoordinatorConversationCard({
   state,
   onRefresh,
@@ -151,9 +134,18 @@ export function CoordinatorConversationCard({
     state.conversation &&
     state.reviewedConflictRevision === state.conversation.controlRevision,
   );
-  const activePlanGoal = state.conversation?.goals.find((goal) => goal.id === planningGoalId);
+  const managedRun = state.plannedWorkstream;
+  const runPurpose = (state.conversation?.continuations?.find((continuation) =>
+    continuation.workstreamId === managedRun?.workstream.id) as { purpose?: string } | undefined)?.purpose;
+  const run = managedRun ? managedRunView(managedRun, runPurpose) : undefined;
+  // One run at a time: no new start while a request is in flight or the server reports an active run.
+  const startBlocked = busy || Boolean(state.pendingPlan) || Boolean(run?.active);
+  const activePlanGoal = startBlocked
+    ? undefined
+    : state.conversation?.goals.find((goal) => goal.id === planningGoalId && !goal.linkedWorkstreamId);
   const submitPlan = () => {
     if (!activePlanGoal || !onPreparePlan || (planningPurpose === 'workflow' && !workflowReady)) return;
+    setPlanningGoalId(undefined);
     onPreparePlan(activePlanGoal.id, {
       totalTokenAuthorization: Number(totalTokenAuthorization),
       maxTurns: Number(maxTurns) as CoordinatorPlanAdmission['maxTurns'],
@@ -203,14 +195,14 @@ export function CoordinatorConversationCard({
                 </button>
               ) : null}
               {onPreparePlan && (state.conversation?.schemaVersion === 3 || state.conversation?.schemaVersion === 4) && state.conversation.primaryOwnerRoot === true && !goal.linkedWorkstreamId ? (
-                <button className="link-button" type="button" disabled={busy || Boolean(state.pendingPlan)} onClick={() => setPlanningGoalId((current) => current === goal.id ? undefined : goal.id)}>
+                <button className="link-button" type="button" disabled={startBlocked} onClick={() => setPlanningGoalId((current) => current === goal.id ? undefined : goal.id)}>
                   {planningGoalId === goal.id ? 'Hide managed planning consent' : 'Plan this goal'}
                 </button>
               ) : null}
               {onContinuePlan && (state.conversation?.schemaVersion === 3 || state.conversation?.schemaVersion === 4) && state.conversation.primaryOwnerRoot === true ? state.conversation?.continuations?.filter((continuation) =>
                 continuation.goalId === goal.id && continuation.status === 'consumed' && continuation.consumedTurns < continuation.maxTurns,
               ).map((continuation) => (
-                <button key={continuation.authorizationId} className="link-button" type="button" disabled={busy || Boolean(state.pendingPlan)} onClick={() => onContinuePlan(goal.id, continuation.authorizationId)}>
+                <button key={continuation.authorizationId} className="link-button" type="button" disabled={startBlocked} onClick={() => onContinuePlan(goal.id, continuation.authorizationId)}>
                   Continue managed work
                 </button>
               )) : null}
@@ -251,11 +243,16 @@ export function CoordinatorConversationCard({
           </div>
         </form>
       ) : null}
-      {state.plannedWorkstream ? (
-        <section className="coordinator-managed-status" aria-label="Latest managed-work status">
-          <strong>Latest managed-work response</strong>
-          <p>{state.plannedWorkstream.workstream.state} · {state.plannedWorkstream.readiness.available ? 'server reports ready' : 'server reports a readiness hold'}</p>
-          <small>{managedJobLine(state.plannedWorkstream.jobs)} {managedWorkBudgetLine(state.plannedWorkstream.budget)} Execution status is not criterion verification.</small>
+      {managedRun && run ? (
+        <section className="coordinator-managed-status" aria-label="Managed run status" data-testid="coordinator-managed-run">
+          <strong>{run.active ? 'Managed run in progress' : 'Finished managed run — view only'}</strong>
+          <p>{run.state}</p>
+          <small>{run.kind} {run.usage}</small>
+          {run.result ? <p className="coordinator-managed-result" data-testid="coordinator-managed-result">{run.result}</p> : null}
+          <small>{run.active
+            ? 'A new start is unavailable until this run ends.'
+            : 'Starting new work needs a separate, new authorization.'} Execution status is not criterion verification.</small>
+          <button className="link-button" type="button" onClick={() => onInspectWorkstream(managedRun.workstream.id)}>Inspect this run</button>
         </section>
       ) : null}
       {holds.length ? <ul className="coordinator-holds" aria-label="Coordination holds">{holds.map((line, index) => <li key={line + index}>{line}</li>)}</ul> : null}

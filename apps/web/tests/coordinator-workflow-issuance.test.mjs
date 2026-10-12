@@ -91,6 +91,9 @@ test('workflow is not the default and existing purposes send byte-identical bodi
   assert.equal(tree.root.findAllByProps({ 'aria-label': 'Acknowledge coding workflow' }).length, 0);
   await budgetAck(tree);
   await submit(tree);
+  // A submitted consent form closes; another start needs the goal reopened.
+  assert.equal(tree.root.findAllByProps({ 'data-testid': 'coordinator-prepare-plan' }).length, 0);
+  await act(async () => { tree.root.findByProps({ children: 'Plan this goal' }).props.onClick(); });
   await selectPurpose(tree, 'execute');
   await act(async () => {
     tree.root.findAllByType('input').filter((i) => i.props.type === 'checkbox')[1].props.onChange({ target: { checked: true } });
@@ -173,5 +176,27 @@ test('acknowledged workflow with a reference yields exactly one request with the
   await refused.open(scope);
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(await refused.preparePlan(scope, 'goal-a', { ...base, purpose: 'workflow' }), false);
+  await act(async () => { tree.unmount(); });
+});
+
+test('an open consent form cannot start again once the goal is linked; finished runs are view-only and honest', async () => {
+  const consents = [];
+  const tree = await openCard((_id, consent) => consents.push(consent));
+  const linked = { ...conv(2), goals: [{ ...goal, state: 'linked', linkedWorkstreamId: 'ws-1' }], continuations: [{ authorizationId: 'a', goalId: 'goal-a', workstreamId: 'ws-1', status: 'consumed', maxTurns: 1, consumedTurns: 1, expiresAt: '2026-10-11T00:00:00.000Z', purpose: 'decompose' }] };
+  const props = { onRefresh: blank, onRetry: blank, onReviewConflict: blank, onBeginNewMessageAfterReview: blank, onReturnToNormal: blank, onInspectWorkstream: blank, onPreparePlan: (_id, consent) => consents.push(consent) };
+  const running = { workstream: { id: 'ws-1', state: 'running', lastJobId: 'j' }, readiness: { available: true }, jobs: [{ id: 'j', state: 'running' }], budget: { actualTokens: 0, authorizedTokens: 20000 } };
+  await act(async () => { tree.update(React.createElement(CoordinatorConversationCard, { ...props, state: { ...cardState, conversation: linked, plannedWorkstream: running } })); });
+  // Old card: the form stayed mounted with an enabled Start button after the goal linked.
+  assert.equal(tree.root.findAllByProps({ 'data-testid': 'coordinator-prepare-plan' }).length, 0);
+  const text = () => JSON.stringify(tree.toJSON());
+  assert.match(text(), /Managed run in progress/);
+  assert.match(text(), /Read-only planning run/);
+  assert.doesNotMatch(text(), /0 actual/);
+  const finished = { ...running, workstream: { ...running.workstream, state: 'ready' }, jobs: [{ id: 'j', state: 'succeeded', usage: { totalTokens: 2031 }, application: { status: 'quarantined' } }], budget: { actualTokens: 2031, authorizedTokens: 20000 } };
+  await act(async () => { tree.update(React.createElement(CoordinatorConversationCard, { ...props, state: { ...cardState, conversation: linked, plannedWorkstream: finished } })); });
+  assert.match(text(), /Finished managed run — view only/);
+  assert.match(text(), /2,031 actual tokens/);
+  assert.match(text(), /quarantined/);
+  assert.equal(consents.length, 0);
   await act(async () => { tree.unmount(); });
 });

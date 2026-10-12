@@ -18,6 +18,7 @@ import {
   type CoordinatorConversationResult,
   type CoordinatorConversationScope,
 } from '../gateway/coordinator-conversations';
+import { managedRunView } from './managed-run-view';
 
 export type CoordinatorConversationPhase =
   | 'inactive'
@@ -62,6 +63,20 @@ export type CoordinatorConversationViewState = {
 };
 
 export type CoordinatorPlanConsent = Omit<CoordinatorPlanAdmission, 'commandKey'>;
+
+/** Narrow read of GET /agent-workstreams/:id; the authoritative run record. */
+export type ManagedRunReader = {
+  get(projectId: string, workstreamId: string): Promise<unknown>;
+};
+
+function asManagedRun(value: unknown): CoordinatorPlannedWorkstream | undefined {
+  const view = value as Partial<CoordinatorPlannedWorkstream> | null;
+  return view && typeof view === 'object' && typeof view.workstream?.id === 'string' &&
+    typeof view.workstream.state === 'string' && Array.isArray(view.jobs) &&
+    typeof view.budget === 'object' && view.budget !== null && typeof view.readiness?.available === 'boolean'
+    ? view as CoordinatorPlannedWorkstream
+    : undefined;
+}
 
 export type CoordinatorSendResult = {
   accepted: boolean;
@@ -278,7 +293,32 @@ export class CoordinatorConversationController {
   constructor(
     private readonly gatewayFor: () => CoordinatorConversationGateway | undefined,
     private readonly journal: CoordinatorConversationJournal = createCoordinatorConversationJournal(),
+    private readonly workstreamsFor: () => ManagedRunReader | undefined = () => undefined,
   ) {}
+
+  /**
+   * Replace the managed-run view with the server's current workstream record.
+   * The planned response is only a dispatch-time snapshot (running, zero
+   * usage); without this re-read Refresh never reconciled a finished run.
+   */
+  async reconcileManagedRun(scope: CoordinatorConversationScope): Promise<boolean> {
+    const key = coordinatorScopeKey(scope);
+    const record = this.records.get(key);
+    const reader = this.workstreamsFor();
+    const workstreamId = record?.plannedWorkstream?.workstream.id ??
+      record?.conversation?.goals.filter((goal) => goal.linkedWorkstreamId).at(-1)?.linkedWorkstreamId;
+    if (!reader || !workstreamId || key !== this.activeKey) return false;
+    const epoch = this.activeEpoch;
+    try {
+      const status = asManagedRun(await reader.get(scope.projectId, workstreamId));
+      if (!status || this.activeKey !== key || this.activeEpoch !== epoch || !this.records.get(key)?.enabled) return false;
+      this.update(key, (next) => { next.plannedWorkstream = status; });
+      return true;
+    } catch {
+      // Keep the last server view; the card labels it as the latest response.
+      return false;
+    }
+  }
 
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -789,6 +829,7 @@ export class CoordinatorConversationController {
       },
     );
     if (refreshed && readCanonicalHistory) void this.loadCanonicalHistory(scope);
+    if (refreshed) void this.reconcileManagedRun(scope);
     return refreshed;
   }
 
@@ -1225,15 +1266,18 @@ export function useCoordinatorConversation(
   scope: CoordinatorConversationScope | null,
   gateway: CoordinatorConversationGateway | undefined,
   _actorIdentity?: string | null,
+  workstreams?: ManagedRunReader,
 ) {
   const scopeRef = useRef(scope);
   const gatewayRef = useRef(gateway);
+  const workstreamsRef = useRef(workstreams);
+  workstreamsRef.current = workstreams;
   const controllerRef = useRef<CoordinatorConversationController | null>(null);
   const [, publish] = useState(0);
   scopeRef.current = scope;
   gatewayRef.current = gateway;
   if (!controllerRef.current) {
-    controllerRef.current = new CoordinatorConversationController(() => gatewayRef.current);
+    controllerRef.current = new CoordinatorConversationController(() => gatewayRef.current, undefined, () => workstreamsRef.current);
   }
   const controller = controllerRef.current;
   const key = coordinatorScopeKey(scope);
@@ -1294,6 +1338,16 @@ export function useCoordinatorConversation(
   }, [controller]);
 
   const state = scope ? controller.get(scope) : inactive;
+  // ponytail: 10s poll only while the server reports an active run; push events would replace it.
+  const runActive = Boolean(state.plannedWorkstream && managedRunView(state.plannedWorkstream).active);
+  useEffect(() => {
+    if (!runActive) return;
+    const timer = setInterval(() => {
+      const requestedScope = scopeRef.current;
+      if (requestedScope) void controller.reconcileManagedRun(requestedScope);
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, [controller, key, runActive]);
   return useMemo(() => ({
     state,
     open,

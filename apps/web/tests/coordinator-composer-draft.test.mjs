@@ -72,6 +72,10 @@ new Function('require', 'module', 'exports', ts.transpileModule(composerSource, 
 );
 
 const cardSource = await readFile(new URL('../src/components/CoordinatorConversationCard.tsx', import.meta.url), 'utf8');
+const runViewModule = { exports: {} };
+new Function('require', 'module', 'exports', ts.transpileModule(await readFile(new URL('../src/components/managed-run-view.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText)(() => { throw new Error('managed-run-view has no imports'); }, runViewModule, runViewModule.exports);
 const cardModule = { exports: {} };
 new Function('require', 'module', 'exports', ts.transpileModule(cardSource, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
@@ -80,6 +84,7 @@ new Function('require', 'module', 'exports', ts.transpileModule(cardSource, {
     if (id === 'react') return React;
     if (id === 'react/jsx-runtime') return requireFromMobile('react/jsx-runtime');
     if (id.endsWith('.css')) return {};
+    if (id === './managed-run-view') return runViewModule.exports;
     throw new Error('Unexpected coordinator card test import: ' + id);
   },
   cardModule,
