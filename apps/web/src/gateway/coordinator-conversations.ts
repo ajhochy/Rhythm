@@ -7,6 +7,12 @@ import type { GatewayMode } from '.';
  */
 export const COORDINATOR_CONVERSATIONS_PATH = '/coordinator-conversations';
 export const COORDINATOR_REQUEST_TIMEOUT_MS = 10_000;
+/**
+ * A message waits for the engine to accept the turn; a cold engine (first turn,
+ * plugins loading) took longer than 10s live, so the UI reported a timeout and
+ * blocked the composer although the server had completed the turn.
+ */
+export const COORDINATOR_MESSAGE_TIMEOUT_MS = 60_000;
 
 export type CoordinatorConversationScope = {
   /** Local view-pointer only. The server derives the actual actor. */
@@ -610,7 +616,7 @@ function isAbort(error: unknown): boolean {
 export function createLiveCoordinatorConversationGateway(
   apiBase: string,
   fetcher: typeof fetch,
-  timeoutMs = COORDINATOR_REQUEST_TIMEOUT_MS,
+  timeoutMs?: number,
   taskToken?: string,
 ): CoordinatorConversationGateway {
   const authorization = taskToken?.trim();
@@ -633,7 +639,7 @@ export function createLiveCoordinatorConversationGateway(
     const timeout = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, timeoutMs);
+    }, timeoutMs ?? (operation === 'message' ? COORDINATOR_MESSAGE_TIMEOUT_MS : COORDINATOR_REQUEST_TIMEOUT_MS));
     try {
       const response = await fetcher(endpoint(apiBase, operation), {
         method: 'POST',
