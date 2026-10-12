@@ -118,6 +118,8 @@ export async function buildConfigViewWithCatalog(settings: DecisionSettings = lo
           costInputUsd: m.costInputUsd,
           releaseDate: m.releaseDate,
           contextLimit: m.contextLimit,
+          // Effort variants the engine exposes; Grid clamps a candidate's effort to these.
+          variants: m.variants,
           excluded: m.excluded,
           enabled: m.enabled,
         }))

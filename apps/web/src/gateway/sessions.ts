@@ -104,6 +104,8 @@ export type RouterCatalogModel = {
   releaseDate?: string | null; contextLimit?: number | null; excluded: boolean;
   /** false = available but not enabled in Models curation, so not routable. Absent (older engines) = enabled. */
   enabled?: boolean;
+  /** Effort variants the engine exposes for this model (Grid clamps to these). */
+  variants?: string[];
 };
 export type RouterTierMode = 'auto' | 'manual';
 export type RouterTierThresholds = { mode?: RouterTierMode; cheapMaxOutputUsd: number; frontierMinOutputUsd: number; derivedFromModels?: number };
@@ -121,6 +123,7 @@ export type RouterConfig = {
   timeoutMs: number;
   remoteDataConsent: boolean;
   features: Record<RouterFeatureKey, RouterFeatureMode>;
+  routing?: { engine: 'legacy' | 'grid' };
   lockedByEnv: string[];
   /** Live model catalog the router chooses among; absent/empty when the engine is not running. */
   catalog?: RouterCatalog | null;
@@ -137,10 +140,44 @@ export type RouterConfigInput = {
   timeoutMs?: number;
   remoteDataConsent?: boolean;
   features?: Partial<Record<RouterFeatureKey, RouterFeatureMode>>;
+  routing?: { engine?: 'legacy' | 'grid' };
   tiers?: RouterTierInput;
   /** Keyed "provider/model"; replaces the saved overrides. */
   tierOverrides?: Record<string, RouterTier>;
   excludedModels?: string[];
+};
+export type GridCategory = 'coding' | 'design' | 'knowledge';
+export type GridTier = 1 | 2 | 3 | 4;
+export type GridCandidate = { model: string; effort: string; cost_per_task: number };
+export type GridFallback = { action: 'queue_or_degrade'; degraded_model: string } | { models: string[] };
+/** GET /agent-decisions/grid — the router-grid.json policy the Grid engine loads per turn. */
+export type RouterGridView = {
+  source: 'file' | 'defaults' | 'defaults_after_invalid_file'; invalidReason: string | null; version: string;
+  reserve_pct: number; coding_t1_prefer_astra: boolean;
+  classifier: { model: string; tier_thresholds: [number, number, number]; can_queue_min_p: number; security_min_p: number; rules_default_tier: GridTier };
+  models: Record<string, { price_in: number; price_out: number; long_prompt_threshold?: number; peak?: 'weekday' }>;
+  routing: Record<GridCategory, Record<GridTier, GridCandidate[]>>;
+  openrouter_fallback: Record<GridCategory, Record<GridTier, GridFallback>>;
+  aliases: Partial<Record<GridCategory, GridCategory>>;
+  efforts: string[];
+  accounts: Array<{ provider: 'anthropic' | 'openai'; id: string; label: string | null; status: string | null }>;
+  exhaustion: Array<{ provider: 'anthropic' | 'openai'; accountId: string; exhaustedUntil: number }>;
+};
+/** PUT body: routing/fallback replace whole categories; classifier merges. */
+export type RouterGridInput = {
+  routing?: Partial<Record<GridCategory, Record<GridTier, GridCandidate[]> | `SAME_AS:${GridCategory}`>>;
+  openrouter_fallback?: Partial<Record<GridCategory, Record<GridTier, GridFallback>>>;
+  reserve_pct?: number; coding_t1_prefer_astra?: boolean;
+  classifier?: Partial<RouterGridView['classifier']>;
+};
+export type GridTraceStep = { action: string; tier: number; model?: string; accountId?: string; reason?: string };
+export type RouterGridDecision = {
+  at: string; mode: string; status: string; applied: boolean; sessionId: string | null;
+  kind: string | null; reason: string | null; category: string | null; tier: number | null; tierUsed: number | null;
+  classifierSource: string | null; classifierReason: string | null;
+  model: string | null; provider: string | null; effortRequested: string | null; effortApplied: string | null;
+  accountId: string | null; accountSource: string | null; degraded: boolean; errorName: string | null;
+  trace: GridTraceStep[]; served: { servedModelId: string; requestModelId: string | null; at: string } | null;
 };
 export type RouterTestResult = { ok: boolean; backend?: string; model?: string; latencyMs?: number; ranked?: Array<{ text: string; score: number }>; message?: string; tier?: string; probabilities?: Record<string, number> };
 export type TurnOverride = { profileId?: string; modelOverride?: { providerId: string; modelId: string } };
@@ -224,6 +261,10 @@ export interface SessionGateway {
   getRouterConfig?(): Promise<RouterConfig>;
   saveRouterConfig?(input: RouterConfigInput): Promise<RouterConfig>;
   testRouterConfig?(draft: RouterConfigInput): Promise<RouterTestResult>;
+  // Grid routing policy — /agent-decisions/grid (same file the Grid engine reads per turn).
+  getRouterGrid?(): Promise<RouterGridView>;
+  saveRouterGrid?(input: RouterGridInput): Promise<RouterGridView>;
+  lastGridDecision?(): Promise<RouterGridDecision | null>;
   archive?(localId: string, archived: boolean): Promise<void>;
   fork?(localId: string, messageId: string): Promise<Session>;
   summarize?(localId: string): Promise<void>;
@@ -748,6 +789,9 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
       return routerConfigResponse<RouterConfig>(request('/agent-decisions/config'));
     },
     testRouterConfig: async (draft) => routerConfigResponse<RouterTestResult>(request('/agent-decisions/config/test', { method: 'POST', body: JSON.stringify(draft) })),
+    getRouterGrid: async () => routerConfigResponse<RouterGridView>(request('/agent-decisions/grid')),
+    saveRouterGrid: async (input) => routerConfigResponse<RouterGridView>(request('/agent-decisions/grid', { method: 'PUT', body: JSON.stringify(input) })),
+    lastGridDecision: async () => (await routerConfigResponse<{ decision: RouterGridDecision | null }>(request('/agent-decisions/grid/last-decision'))).decision,
     projectLabels: async () => (await response<unknown[]>('Load projects', request('/projects?includeArchived=true')))
       .map(mapAgentProject),
     createProject: async (input) => {
