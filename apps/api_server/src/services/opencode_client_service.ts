@@ -1200,31 +1200,35 @@ type PermissionRuleBody = { permission: string; pattern: string; action: string 
 /**
  * Keep explicitly allowed MCP tools reachable under a deny-all session policy.
  *
- * The engine defers MCP tools behind its `mcp_dispatch` tool unless the
- * allowlist says `deferred: false`. A session whose permissions end in a
- * wildcard deny also disables `mcp_dispatch`, so every MCP tool it explicitly
- * allows becomes unreachable: the engine falls back to eager schemas for its
- * builtins in that case, but not for MCP tools. The coordinator coding manager
+ * The engine reaches MCP tools through its `mcp_dispatch` tool. A session whose
+ * permissions end in a wildcard deny also denies `mcp_dispatch`, so every MCP
+ * tool it explicitly allows becomes unreachable. The coordinator coding manager
  * (allowed only `rhythm_delegate_async`) and managed read-only sessions
  * (allowed only `rhythm_search_memory`) were both left with no usable tool.
  *
- * Opting those sessions out of deferral exposes each allowlisted MCP tool
- * directly, where the engine checks it against the session permissions by its
- * own name. That grants nothing new: allowing `mcp_dispatch` instead would let
- * the dispatcher reach whatever it can dispatch.
+ * Allowing the dispatcher grants nothing beyond the explicit allows: it lists
+ * only allowlisted MCP keys, every dispatched MCP call is still asked under its
+ * own key, and builtins reached through it keep the same Permission.disabled
+ * filter, so the wildcard deny still blocks them. Exposing the MCP tools
+ * eagerly instead (deferred:false) was tried and is worse: OpenAI strict
+ * function schemas make the model fill every optional field, and the live
+ * manager sent targetRuntime "hermes", empty ids and a model override.
+ *
+ * Only applied when the wildcard deny is what blocks the dispatcher (an
+ * explicit `mcp_dispatch` deny is respected) and the session allowlists MCP
+ * tools, so sessions with no MCP grant keep their builtins exposed directly.
  */
-export function reachableMcpAllowlist(
-  allowlist: McpAllowlistBody | undefined,
+export function reachableMcpDispatcher(
   permission: unknown,
-): McpAllowlistBody | undefined {
-  if (!allowlist || allowlist.deferred === false || !Array.isArray(permission)) return allowlist;
+  allowlist: McpAllowlistBody | undefined,
+): unknown {
+  if (!Array.isArray(permission) || !allowlist || (allowlist.tools.length === 0 && allowlist.servers.length === 0)) return permission;
   // The engine evaluates with findLast, so the last rule covering the
   // dispatcher decides whether it is usable.
   const governing = [...(permission as PermissionRuleBody[])].reverse()
     .find(rule => rule && (rule.permission === '*' || rule.permission === 'mcp_dispatch') && rule.pattern === '*');
-  if (governing?.action !== 'deny') return allowlist;
-  const { deferredServers: _ignored, ...rest } = allowlist;
-  return { ...rest, deferred: false };
+  if (governing?.permission !== '*' || governing.action !== 'deny') return permission;
+  return [...permission, { permission: 'mcp_dispatch', pattern: '*', action: 'allow' }];
 }
 
 /**
@@ -2602,8 +2606,8 @@ function validFiniteExecutionPermissionRules(
         ];
         body.mcpAllowlist = { servers: [],tools: manager?['rhythm_rhythm_delegate_async','rhythm_rhythm_delegation_status']:[] };
       }
-      if (body.mcpAllowlist !== undefined) {
-        body.mcpAllowlist = reachableMcpAllowlist(body.mcpAllowlist as McpAllowlistBody, body.permission);
+      if (body.permission !== undefined) {
+        body.permission = reachableMcpDispatcher(body.permission, body.mcpAllowlist as McpAllowlistBody | undefined);
       }
       // #775 (skill-scope): pass the per-session skill allowlist on the create body.
       // The fork reads `skillAllowlist.skills` to scope the model's available skills.
