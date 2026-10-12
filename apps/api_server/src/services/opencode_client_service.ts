@@ -1221,6 +1221,20 @@ function clearStaleTurnError(sdkSessionId: string): void {
   }
 }
 
+/**
+ * Session-internal tools a bounded coding manager or worker keeps under its
+ * wildcard deny. Their profiles require them - the live coding-agent prompt
+ * makes the acceptance-contract skill mandatory "Phase 0" and tracks phases in
+ * TodoWrite - and the worker, denied both, correctly refused the approved task
+ * as BLOCKED. `skill` loads instruction text only from the session's own skill
+ * allowlist (enforced by the engine separately); `todowrite` writes only the
+ * session's to-do list. Neither touches files, commands or the network.
+ */
+const CODING_SESSION_INSTRUCTION_TOOLS = [
+  { permission: 'skill', pattern: '*', action: 'allow' },
+  { permission: 'todowrite', pattern: '*', action: 'allow' },
+] as const;
+
 export type McpAllowlistBody = { servers: string[]; tools: string[]; deferred?: boolean; deferredServers?: string[] };
 type PermissionRuleBody = { permission: string; pattern: string; action: string };
 
@@ -2634,11 +2648,13 @@ function validFiniteExecutionPermissionRules(
         // Ask candidates only. Expiry/revocation cannot survive in an engine allow cache.
         body.permission = manager ? [
           {permission:'*',pattern:'*',action:'deny'},
+          ...CODING_SESSION_INSTRUCTION_TOOLS,
           {permission:'rhythm_rhythm_delegate_async',pattern:'*',action:'allow'},
           {permission:'rhythm_rhythm_delegation_status',pattern:'*',action:'allow'},
         ] : [
           { permission: '*',pattern: '*',action: 'deny' },
           { permission: 'external_directory',pattern: '*',action: 'deny' },
+          ...CODING_SESSION_INSTRUCTION_TOOLS,
           ...p.workspace.readablePaths.flatMap(file => patterns(file).map(pattern=>({ permission: 'read',pattern,action: 'ask' }))),
           ...p.workspace.writablePaths.flatMap(file => ['edit','write'].flatMap(permission => patterns(file).map(pattern=>({ permission,pattern,action: 'ask' })))),
           { permission: 'bash',pattern: p.command.shellCommand,action: 'ask' },

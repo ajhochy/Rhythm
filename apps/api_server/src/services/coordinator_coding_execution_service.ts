@@ -137,7 +137,7 @@ export class CoordinatorCodingExecutionService {
         loaderDigest:hash(readFileSync(loader)),argv:['--import',loader,'--test','tests/selectTasks.test.mjs'],env:{},
         shellCommand:[executable,'--import',loader,'--test','tests/selectTasks.test.mjs'].map(value=>"'"+value.replaceAll("'","'\"'\"'")+"'").join(' ')},
       limits:{managerAttempts:1,workerAttempts:1,concurrentWorkers:1,automaticRetries:0,managerCompletionWakes:1,rootCompletionWakes:0,
-        taskWallSeconds:600,workerWallSeconds:300,totalSoftTokens:75000,includesManagerCompletion:true},
+        taskWallSeconds:600,workerWallSeconds:300,totalSoftTokens:300000,includesManagerCompletion:true},
       acceptance:{evaluatorId:'selectTasks-independent-v1',version:1,evaluatorDigest:pins.evaluatorDigest,runnerDigest:pins.runnerDigest,
         writableByWorker:false,capture:'immutable_allowed_bytes_v1',criteria:['open','done','omitted','empty_no_match','order','unsupported_status','input_preservation']},
       proposedAt,expiresAt:new Date(Date.parse(proposedAt)+900000).toISOString()};
