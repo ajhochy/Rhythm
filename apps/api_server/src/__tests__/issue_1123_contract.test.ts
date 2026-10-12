@@ -338,6 +338,25 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
     );
   });
 
+  it('wake uses the parent session stored model before its profile model', async () => {
+    // Live: a root pinned to openai kept waking on its profile's signed-out
+    // anthropic model, and every completion wake was rejected.
+    seedProfile({ id: 'manager', manager: true, delegates: ['specialist'] });
+    seedProfile({ id: 'specialist' });
+    const parent = seedSession({ agentKind: 'manager', sdkId: 'sdk-parent' });
+    getDb().prepare("UPDATE agent_sessions SET provider_id='openai', model_id='gpt-6.1-sol' WHERE id=?").run(parent.id);
+    const child = new AgentSessionsRepository().upsertChildSession('sdk-child', 'sdk-parent', 'Async child (@specialist subagent)', '/tmp')!;
+    new AgentAsyncDelegationsRepository().create({ parentSessionId: parent.id, childSessionId: child.id, targetAgentConfigId: 'specialist' });
+    new AgentSessionMessagesRepository().append(child.id, 'output', 'specialist finished', 'specialist finished');
+
+    await new AsyncDelegationCompletionService().onChildIdle(child.id);
+
+    expect(engineSpies.promptAsync).toHaveBeenCalledWith(
+      'sdk-parent', expect.anything(), { providerID: 'openai', modelID: 'gpt-6.1-sol' }, '/tmp', expect.anything(),
+      undefined, undefined, expect.objectContaining({ resolvedProviderId: 'openai', resolvedModelId: 'gpt-6.1-sol' }),
+    );
+  });
+
   it('issue-1175-c9: restart recovery recognizes an accepted deterministic wake and never prompts twice', async () => {
     seedProfile({ id: 'manager', manager: true, delegates: ['specialist'] });
     seedProfile({ id: 'specialist' });

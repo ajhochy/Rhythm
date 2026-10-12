@@ -194,4 +194,26 @@ describe('C1/C2 coding terminal and durable eligibility UNIT, not genuine model 
     expect(row).toEqual({callback_dispatch_id:'callback-unit',callback_sdk_user_message_id:'msg_callback_unit',callback_acceptance:'accepted'});
     expect(boundary.prompts).not.toHaveBeenCalled(); // metadata proof, no real approval/inference claim
   });
+  it('a waking worker callback that was never prepared is released for retry, not parked forever', async () => {
+    // Live: the first manager wake failed before onPrepared, the claim stayed
+    // 'waking' with no callback id, and reconcile returned false on every flush.
+    const item = seed();
+    db.prepare(`UPDATE agent_async_delegations SET status='waking' WHERE id=?`).run(item.id);
+    const reconcile = (item.service as unknown as { reconcileWakingClaims(p: unknown): Promise<boolean> })
+      .reconcileWakingClaims.bind(item.service);
+    await reconcile({ id: 'manager-unit' });
+    expect(new AgentAsyncDelegationsRepository().findById(item.id)?.status).toBe('completed');
+  });
+
+  it('a prepared but unproven worker callback stays held', async () => {
+    const item = seed();
+    db.prepare(`UPDATE agent_async_delegations SET status='waking' WHERE id=?`).run(item.id);
+    db.prepare(`UPDATE coordinator_conversation_commands SET initial_dispatch_id='mgr',initial_sdk_user_message_id='msg_mgr',
+      callback_dispatch_id='cb',callback_sdk_user_message_id='msg_cb',
+      callback_acceptance='unknown' WHERE command_key='operation-unit'`).run();
+    const reconcile = (item.service as unknown as { reconcileWakingClaims(p: unknown): Promise<boolean> })
+      .reconcileWakingClaims.bind(item.service);
+    expect(await reconcile({ id: 'manager-unit' })).toBe(false);
+    expect(new AgentAsyncDelegationsRepository().findById(item.id)?.status).toBe('waking');
+  });
 });

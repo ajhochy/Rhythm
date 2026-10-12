@@ -494,7 +494,14 @@ export class AsyncDelegationCompletionService {
       return;
     }
 
-    const profileScope = await resolveProfileScope(parentAgentConfigId);
+    const resolvedScope = await resolveProfileScope(parentAgentConfigId);
+    // Same precedence as an ordinary turn: the session's stored model, else
+    // the profile's. Waking with the profile model alone sent a root pinned to
+    // a working provider back to its profile's signed-out one, so every
+    // completion wake was rejected.
+    const profileScope = parent.providerId && parent.modelId
+      ? { ...resolvedScope, model: { providerID: parent.providerId, modelID: parent.modelId } }
+      : resolvedScope;
     const executionBlockReason = this.parentExecutionBlockReason(
       parentAgentConfigId,
     );
@@ -1278,7 +1285,14 @@ export class AsyncDelegationCompletionService {
       if (coded?.coding_delivery_mode === 'coding_worker_v1') {
         if(!coded.root_session_id || !coded.command_key)return false;
         if (coded.callback_acceptance !== 'accepted') {
-          if (!coded.callback_sdk_user_message_id || JSON.stringify(await opencodeClient.getEngineIdentity()) !== coded.engine_identity) return false;
+          // No prepared id proves nothing was sent: promptAsync never exposes a
+          // callback before onPrepared durably records it. Release for retry;
+          // holding it parked the worker's result forever.
+          if (!coded.callback_sdk_user_message_id) {
+            console.warn(`[coding-callback] released unprepared waking claim ${item.id}`);
+            this.delegationsRepo.releaseClaims([item.id]); continue;
+          }
+          if (JSON.stringify(await opencodeClient.getEngineIdentity()) !== coded.engine_identity) return false;
           let cursor: string | undefined;
           let proven = false;
           const seen = new Set<string>();
