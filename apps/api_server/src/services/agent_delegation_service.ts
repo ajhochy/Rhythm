@@ -310,6 +310,30 @@ function parseSkillNames(allowedSkillsJson: string | null): string[] | undefined
  * interactive manager gets an immediate acknowledgement and a later pushed
  * completion through AsyncDelegationCompletionService.
  */
+/**
+ * Server-authored scope note prepended to a bounded coding worker's prompt,
+ * derived only from the signed proposal - it grants nothing.
+ *
+ * The coding-agent profile is general purpose: it asks the worker to read
+ * memory files (AGENTS.md, docs/ai/...), run GitNexus impact analysis and
+ * record notes under docs/ai/runs/. A bounded run permits none of that, and
+ * nothing said those steps were waived, so the live worker read both of its
+ * declared files and then stopped as BLOCKED when listing the workspace was
+ * refused. This tells it, from the server rather than via the manager's
+ * paraphrase, that such steps are waived and such refusals are expected.
+ */
+function boundedWorkerScopeNote(p: { workspace: { canonicalRoot: string; readablePaths: string[]; writablePaths: string[] }; command: { shellCommand: string } }): string {
+  return [
+    'BOUNDED CODING RUN - server scope note (authoritative for this task):',
+    `- Workspace: ${p.workspace.canonicalRoot}`,
+    `- You may read only: ${p.workspace.readablePaths.join(', ')}`,
+    `- You may edit only: ${p.workspace.writablePaths.join(', ')}`,
+    `- You may run only: ${p.command.shellCommand}`,
+    '- Profile steps that need anything else are WAIVED for this run: memory files (AGENTS.md, docs/ai/*), run notes under docs/ai/runs/, GitNexus impact analysis, listing directories, commits. Skip them and continue.',
+    '- A refused read or command outside the lists above is expected and is NOT a blocker. Report BLOCKED only if you cannot read, edit or run the items listed above.',
+  ].join('\n');
+}
+
 export async function delegateToAgentAsync(
   input: AgentDelegationInput,
 ): Promise<AsyncAgentDelegationResult> {
@@ -409,9 +433,12 @@ export async function delegateToAgentAsync(
       throw AppError.forbidden('coding model scope held');
   }
   const skillNames = parseSkillNames(profileScope.allowedSkillsJson);
-  const scopedPrompt = input.context?.trim()
+  const delegatedPrompt = input.context?.trim()
     ? `${input.context.trim()}\n\n${prompt}`
     : prompt;
+  const scopedPrompt = coding?.role === 'worker'
+    ? `${boundedWorkerScopeNote(coding.proposal)}\n\n${delegatedPrompt}`
+    : delegatedPrompt;
   const childTitle = `Async delegation: ${target.label} (@${targetId} subagent)`;
   // Typed preflight BEFORE the optional worktree: exact expected project and the
   // current admission. The post-worktree block below is deliberately kept as the
