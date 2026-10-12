@@ -233,6 +233,17 @@ test('pending approvals send the cloud bearer and human-approval capability to t
   expect(calls).toEqual([{ url: 'http://127.0.0.1:4098/agent-approvals?status=pending', authorization: 'Bearer disposable-cloud-token', capability: 'disposable-capability' }]);
 });
 
+test('deciding an expired approval shows the expiry, not a generic access-denied', async () => {
+  // Regression: every 403 read "Approval access denied…", so an expired card looked like an identity problem.
+  const { createLiveApprovalGateway } = await import(path.resolve(import.meta.dirname, '../../src/gateway/approvals.ts'));
+  const reply = (message: string) => async () => new Response(JSON.stringify({ error: { code: 'FORBIDDEN', message } }), { status: 403, headers: { 'content-type': 'application/json' } });
+  const material = { capability: 'c', signature: 's' };
+  await expect(createLiveApprovalGateway('http://x', 't', reply('This approval expired; ask for a new proposal')).decide('a', 'approved', material))
+    .rejects.toThrow('This approval expired; ask for a new proposal');
+  await expect(createLiveApprovalGateway('http://x', 't', reply('Forbidden')).decide('a', 'approved', material))
+    .rejects.toThrow(/Approval access denied/);
+});
+
 test('slice-2-c7: failed live requests cannot return fixture data', async () => {
   // Regression caught: a live network failure resolves with seeded fixture content.
   const gateway = await loadGateway();

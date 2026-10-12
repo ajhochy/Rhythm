@@ -38,6 +38,20 @@ describe('#1382 approval lane taxonomy', () => {
     await closeServer();
   });
 
+  it('leaves expired cards out of the pending queue (an Approve click on them can only 403)', async () => {
+    const repository = new AgentApprovalsRepository();
+    const at = (ms: number) => new Date(Date.now() + ms).toISOString();
+    const live = repository.create({ action: 'Live card', expiresAt: at(60_000) });
+    const expired = repository.create({ action: 'Expired card', expiresAt: at(-60_000) });
+    const list = async (status: string) => ((await (await fetch(`${baseUrl}/agent-approvals?status=${status}`, {
+      headers: { Authorization: `Bearer ${bearer}`, ...credentials.capabilityHeader },
+    })).json()) as Array<{ id: string }>).map((row) => row.id);
+
+    expect(await list('pending')).toContain(live.id);
+    expect(await list('pending')).not.toContain(expired.id);
+    expect(await list('all')).toContain(expired.id);
+  });
+
   it('adds a lane and reason to every listed approval without changing stored fields', async () => {
     const repository = new AgentApprovalsRepository();
     const taint = repository.create({

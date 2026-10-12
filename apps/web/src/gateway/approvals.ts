@@ -52,7 +52,11 @@ const failureText = (status: number): string => {
 async function response<T>(pending: Promise<Response>): Promise<T> {
   try {
     const result = await pending;
-    if (!result.ok) throw new ApprovalGatewayError(result.status, failureText(result.status));
+    if (!result.ok) {
+      // An expired card's 403 is not an access problem; show the server's reason instead.
+      const reason = result.status === 403 ? await result.json().then((b) => b?.error?.message, () => undefined) : undefined;
+      throw new ApprovalGatewayError(result.status, typeof reason === 'string' && /expired/i.test(reason) ? reason : failureText(result.status));
+    }
     return result.status === 204 ? undefined as T : await result.json() as T;
   } catch (error) {
     if (error instanceof ApprovalGatewayError) throw error;

@@ -146,8 +146,13 @@ export class AgentApprovalsRepository {
   list(status: AgentApprovalStatus | null = 'pending'): AgentApproval[] {
     const rows = status
       ? (getDb()
-          .prepare('SELECT * FROM agent_approvals WHERE status = ? ORDER BY created_at DESC')
-          .all(status) as Record<string, unknown>[])
+          .prepare(
+            // An expired pending card can never be approved, so the queue doesn't show it (history still does).
+            `SELECT * FROM agent_approvals WHERE status = ?
+               AND (? <> 'pending' OR expires_at IS NULL OR expires_at > ?)
+             ORDER BY created_at DESC`,
+          )
+          .all(status, status, new Date().toISOString()) as Record<string, unknown>[])
       : (getDb().prepare('SELECT * FROM agent_approvals ORDER BY created_at DESC').all() as Record<
           string,
           unknown

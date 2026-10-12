@@ -248,7 +248,7 @@ interface ApprovalSecurityRow {
 }
 
 const sessions = new AgentSessionsRepository();
-const APPROVAL_TTL_MS = 10 * 60 * 1000;
+const APPROVAL_TTL_MS = 60 * 60 * 1000;
 const SAFE_DIAGNOSTIC_CLASSES = new Set([
   'override-instruction',
   'hidden-html-comment',
