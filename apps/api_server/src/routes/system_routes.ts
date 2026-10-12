@@ -23,7 +23,7 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { requireAuth } from '../middleware/auth_middleware';
-import { env } from '../config/env';
+import { env, opencodeConfigFile } from '../config/env';
 import { opencodeClient } from '../services/opencode_engine';
 import { streamBridge } from '../services/opencode_stream_bridge';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
@@ -123,7 +123,7 @@ async function providerConfigStatus(): Promise<{
   try {
     const snapshot = JSON.parse(
       readFileSync(
-        join(homedir(), '.config/opencode/opencode.json'),
+        opencodeConfigFile(),
         'utf8',
       ),
     );

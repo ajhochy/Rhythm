@@ -13,7 +13,7 @@ if(qualificationStartup){
   const root=qualificationStartup.fixtureRoot;
   const isolated:Record<string,string>={DB_CLIENT:'sqlite',DB_PATH:qualificationStartup.dbPath,
     XDG_CONFIG_HOME:path.join(root,'xdg-config'),XDG_DATA_HOME:path.join(root,'xdg-data'),XDG_CACHE_HOME:path.join(root,'xdg-cache'),XDG_STATE_HOME:path.join(root,'xdg-state'),RHYTHM_API_LOG_PATH:path.join(root,'logs','api_server.log'),OPENCODE_TEST_HOME:path.join(root,'engine-home'),OPENCODE_CONFIG_DIR:path.join(root,'opencode-config'),RHYTHM_OPENCODE_CONFIG_PATH:path.join(root,'opencode-config','opencode.json'),
-    RHYTHM_ORG_INSTRUCTIONS_FILE:path.join(root,'org-instructions.md'),RHYTHM_MANAGED_SKILLS_DIR:path.join(root,'opencode-config','skills'),RHYTHM_LEGACY_MANAGED_SKILLS_DIR:path.join(root,'legacy-managed-skills'),
+    RHYTHM_ORG_INSTRUCTIONS_FILE:path.join(root,'org-instructions.md'),RHYTHM_MANAGED_SKILLS_DIR:path.join(root,'opencode-config','skills'),RHYTHM_MANAGED_COMMANDS_DIR:path.join(root,'opencode-config','commands'),RHYTHM_LEGACY_MANAGED_SKILLS_DIR:path.join(root,'legacy-managed-skills'),
     MEMORY_VAULT_PATH:path.join(root,'memory'),MEMORY_VAULT_SUBDIR:'',LIVE_ARTIFACT_STORAGE_DIR:path.join(root,'live-artifacts'),
     RHYTHM_ACCOUNTS_FILE:path.join(root,'anthropic-accounts.json'),RHYTHM_OPENAI_ACCOUNTS_FILE:path.join(root,'openai-accounts.json'),RHYTHM_DECISION_ROUTER_FILE:path.join(root,'decision-router.json'),RHYTHM_MANAGED_TOOL_ROOT:path.join(root,'managed-tools'),RHYTHM_TOOL_ARTIFACT_ROOT:path.join(root,'tool-artifacts')};
   for(const [key,value] of Object.entries(isolated))process.env[key]=value;
@@ -29,6 +29,16 @@ if(qualificationStartup){
  */
 export function opencodeDataFile(name: string): string {
   return path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'opencode', name);
+}
+
+/**
+ * The opencode.json Rhythm manages. RHYTHM_OPENCODE_CONFIG_PATH wins (qualification
+ * points it at its fixture); several writers hard-coded ~/.config and rewrote the
+ * user's real file from a qualification build.
+ */
+export function opencodeConfigFile(): string {
+  const override = process.env.RHYTHM_OPENCODE_CONFIG_PATH?.trim();
+  return override || path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'opencode', 'opencode.json');
 }
 
 export type DbClient = 'sqlite' | 'postgres';

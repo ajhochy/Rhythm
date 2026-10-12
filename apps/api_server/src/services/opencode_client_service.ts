@@ -28,7 +28,7 @@ import {
   ensureOmlxProviderConfig,
   detectAndUnloadCompetingOllamaModel,
 } from './local_omlx_provider';
-import { env, resolveWebsearchConfig, opencodeDataFile } from '../config/env';
+import { env, resolveWebsearchConfig, opencodeDataFile, opencodeConfigFile } from '../config/env';
 import {
   clearTrustedMcpVerifier,
   initializeTrustedMcpVerifier,
@@ -5382,7 +5382,7 @@ function validFiniteExecutionPermissionRules(
     const { join, dirname } = require('path') as typeof import('path');
     const { homedir } = require('os') as typeof import('os');
 
-    const configPath = join(homedir(), '.config', 'opencode', 'opencode.json');
+    const configPath = opencodeConfigFile();
 
     let parsed: Record<string, unknown> = {};
     if (existsSync(configPath)) {
@@ -5460,7 +5460,7 @@ function validFiniteExecutionPermissionRules(
     const { existsSync, readFileSync } = require('fs') as typeof import('fs');
     const { join } = require('path') as typeof import('path');
     const { homedir } = require('os') as typeof import('os');
-    const configPath = join(homedir(), '.config', 'opencode', 'opencode.json');
+    const configPath = opencodeConfigFile();
     if (!existsSync(configPath)) {
       return {};
     }
@@ -5493,7 +5493,7 @@ function validFiniteExecutionPermissionRules(
       (process.env.OPENCODE_CONFIG_DIR?.trim()
         ? join(process.env.OPENCODE_CONFIG_DIR.trim(), 'opencode.json') : undefined);
     const configPath = opts?.configPath ?? managedPath ??
-      join(homedir(), '.config', 'opencode', 'opencode.json');
+      opencodeConfigFile();
 
     // #804 — memory MCP tools talk to the LOCAL agent server (RHYTHM_AGENT_URL),
     // not the prod Settings URL (RHYTHM_API_URL). Pin the agent base to the
@@ -5614,7 +5614,7 @@ function validFiniteExecutionPermissionRules(
 
     const configPath =
       opts?.configPath ??
-      join(homedir(), '.config', 'opencode', 'opencode.json');
+      opencodeConfigFile();
 
     if (!existsSync(configPath)) {
       return { changed: false };
@@ -5709,7 +5709,7 @@ function validFiniteExecutionPermissionRules(
 
     const configPath =
       opts?.configPath ??
-      join(homedir(), '.config', 'opencode', 'opencode.json');
+      opencodeConfigFile();
 
     let parsed: Record<string, unknown> = {};
     if (existsSync(configPath)) {
@@ -5931,7 +5931,7 @@ function validFiniteExecutionPermissionRules(
     const { readFileSync } = require('fs') as typeof import('fs');
     const { join } = require('path') as typeof import('path');
     const { homedir } = require('os') as typeof import('os');
-    const configPath = join(homedir(), '.config', 'opencode', 'opencode.json');
+    const configPath = opencodeConfigFile();
     const read = (): string | null => {
       if (this._removedPendingRestart.has('rhythm') || this.readMcpDeletions().has('rhythm')) return null;
       const config = JSON.parse(readFileSync(configPath, 'utf8')).mcp?.rhythm;
@@ -6009,7 +6009,7 @@ function validFiniteExecutionPermissionRules(
     const { join, dirname } = require('path') as typeof import('path');
     const { homedir } = require('os') as typeof import('os');
 
-    const configPath = join(homedir(), '.config', 'opencode', 'opencode.json');
+    const configPath = opencodeConfigFile();
 
     if (!existsSync(configPath)) {
       // Nothing to remove — server was dynamically added only (not in config).
