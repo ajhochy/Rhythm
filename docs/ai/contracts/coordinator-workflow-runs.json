@@ -1,0 +1,80 @@
+{
+  "issue": "coordinator-workflow-runs",
+  "generated": "2026-10-12",
+  "plan": "docs/ai/plans/2026-10-12-coordinator-workflow-runs.md",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "coordinator-workflow-runs-c1a",
+      "text": "rhythm_start_coordinator_goal on a captured goal dispatches exactly one workflow-orchestrator child whose cwd is a NEW worktree of the repo, permission mode bypassPermissions.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/coordinator_workflow_runs.test.ts",
+      "test_id": "coordinator-workflow-runs-c1a",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "coordinator-workflow-runs-c1b",
+      "text": "A bypass run outside an isolated worktree is refused before any child exists.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/coordinator_workflow_runs.test.ts",
+      "test_id": "coordinator-workflow-runs-c1b",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "coordinator-workflow-runs-c1c",
+      "text": "The repo is taken only from the user-authored goal text and must be exactly one git work tree; otherwise the start is held and no child is created.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/coordinator_workflow_runs.test.ts",
+      "test_id": "coordinator-workflow-runs-c1c",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "coordinator-workflow-runs-c1d",
+      "text": "startCodingWorkflow passes the goal's repo to the dispatch, replays without a second child, and a goal naming no repo returns repo_required without dispatching.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/coordinator_conversation_navigation.test.ts",
+      "test_id": "coordinator-workflow-runs-c1d",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "coordinator-workflow-runs-c2",
+      "text": "Two goals -> two children running at once in separate worktrees/branches.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Concurrency against the real engine is shown in the live sandbox demo; no per-parent cap exists in code (c3 covers two running rows)."
+    },
+    {
+      "criterion_id": "coordinator-workflow-runs-c3",
+      "text": "The run list returns one row per dispatched goal with objective, worktree, live branch, status running|needs_you|finished|failed|unknown, reported flag, and usage summed over the run's session tree.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/coordinator_workflow_runs.test.ts",
+      "test_id": "coordinator-workflow-runs-c3",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "coordinator-workflow-runs-c4",
+      "text": "Coordinator card shows the run list and polls while any run is running/needs_you.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Verified in the live sandbox browser demo + web typecheck."
+    },
+    {
+      "criterion_id": "coordinator-workflow-runs-c5",
+      "text": "Each completion wake block names its run's branch and worktree; delivery stays exactly-once across a sandbox restart.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/coordinator_workflow_runs.test.ts",
+      "test_id": "coordinator-workflow-runs-c5",
+      "status": "pending",
+      "reason": "Restart exactly-once is proven live in the sandbox demo."
+    },
+    {
+      "criterion_id": "coordinator-workflow-runs-c6",
+      "text": "Bounded layer removed; typecheck clean; api_server suite no new failures vs baseline (31 failed tests / 38 failed files at ff0e8c84).",
+      "mode": "integration",
+      "test_file": "apps/api_server (full vitest suite)",
+      "test_id": "suite diff vs scratch baseline",
+      "status": "pending"
+    }
+  ],
+  "not_tested": ["coordinator-workflow-runs-c2", "coordinator-workflow-runs-c4"]
+}

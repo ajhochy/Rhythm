@@ -1610,23 +1610,7 @@ export class CoordinatorConversationsRepository {
      * replace an unused or settled finite record.
      */
     replaceInvalidatedAuthority?: boolean;
-    /** Internal synchronous approval consumption + final proof, in the authority CAS transaction. */
-    authorize?: () => boolean;
   }): CoordinatorConversationAuthorityWrite {
-    if (input.authorize) {
-      const { authorize, ...ordinary } = input;
-      try {
-        return this.db.transaction(() => {
-          if (authorize() !== true) throw new GoalAuthorizationRefused(null);
-          const written = this.setContinuationAuthority(ordinary);
-          if (written.kind !== 'updated') throw new GoalAuthorizationRefused(written);
-          return written;
-        })();
-      } catch (error) {
-        if (!(error instanceof GoalAuthorizationRefused)) throw error;
-        return error.refusal as CoordinatorConversationAuthorityWrite ?? this.authorityReread(input);
-      }
-    }
     const snapshot = this.record(input);
     const current = snapshot.result;
     if (current.kind !== 'found') return current;
@@ -1901,21 +1885,12 @@ export class CoordinatorConversationsRepository {
     scope: CoordinatorConversationScope,
   ): boolean {
     const permission = authority.permissionAuthority;
-    const workflow = authority.purpose === 'workflow';
     if (!(permission !== null &&
-      (workflow ? permission.schemaVersion === 2 : permission.schemaVersion === 1) &&
+      permission.schemaVersion === 1 &&
       permission.parent.sessionId === scope.sessionId &&
       permission.worker.parentSessionId === scope.sessionId &&
       permission.worker.permissionMode === 'default' &&
-      permission.worker.managedReadOnly === (workflow ? false : true) &&
-      (!workflow || (
-        authority.schemaVersion === 6 && authority.workflow?.kind === 'coding_workflow' &&
-        authority.workflow.targetAgentConfigId === 'workflow-orchestrator' &&
-        permission.workflow?.parentSessionId === scope.sessionId &&
-        permission.workflow.permissionMode === permission.parent.permissionMode &&
-        permission.workflow.approvalBypassExplicit === permission.parent.approvalBypassExplicit &&
-        permission.workflow.targetAgentConfigId === 'workflow-orchestrator'
-      )) &&
+      permission.worker.managedReadOnly === true &&
       (permission.parent.permissionMode !== 'bypassPermissions' || permission.parent.approvalBypassExplicit === true))) {
       return false;
     }

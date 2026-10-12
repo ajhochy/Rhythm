@@ -48,16 +48,11 @@ const conv = (rev = 1) => ({
 });
 const cardState = { enabled: true, phase: 'ready', conversation: conv() };
 
-const set = (tree, label, value) => act(async () => {
-  tree.root.findByProps({ 'aria-label': label }).props.onChange({ target: { value, checked: value } });
-});
-const submitBtn = (tree) => tree.root.findByProps({ 'data-testid': 'coordinator-prepare-plan' });
 const submit = (tree) => act(async () => { tree.root.findByType('form').props.onSubmit({ preventDefault() {} }); });
 const budgetAck = (tree) => act(async () => {
   tree.root.findAllByType('input').find((i) => i.props.type === 'checkbox' && !i.props['aria-label']).props.onChange({ target: { checked: true } });
 });
 
-// Test 1 harness needs the workflow fields hidden by default, so open without touching them.
 async function openCard(onPreparePlan) {
   let tree;
   await act(async () => {
@@ -83,12 +78,11 @@ function wire(consentList) {
 }
 const base = { totalTokenAuthorization: 20000, maxTurns: 1, maxWallTimeSeconds: 90, expiresInSeconds: 900, acknowledgesSoftTotalTokenAuthorization: true };
 
-test('workflow is not the default and existing purposes send byte-identical bodies', async () => {
+test('existing purposes send byte-identical bodies', async () => {
   const consents = [];
   const tree = await openCard((_id, consent) => consents.push(consent));
   const select = tree.root.findByProps({ 'aria-label': 'Managed-work purpose' });
   assert.equal(select.props.value, 'decompose');
-  assert.equal(tree.root.findAllByProps({ 'aria-label': 'Acknowledge coding workflow' }).length, 0);
   await budgetAck(tree);
   await submit(tree);
   await selectPurpose(tree, 'execute');
@@ -112,64 +106,16 @@ test('workflow is not the default and existing purposes send byte-identical bodi
   await act(async () => { tree.unmount(); });
 });
 
-test('workflow selected without acknowledgement or reference disables send and issues nothing', async () => {
-  const consents = [];
-  const tree = await openCard((_id, consent) => consents.push(consent));
-  await budgetAck(tree);
-  await selectPurpose(tree, 'workflow');
-  const ack = () => tree.root.findByProps({ 'aria-label': 'Acknowledge coding workflow' });
-  assert.equal(ack().props.checked, false);
-  assert.equal(submitBtn(tree).props.disabled, true);
-  await set(tree, 'Selected reference ID', 'src-1');
-  await set(tree, 'Selected reference version', 'v1');
-  assert.equal(submitBtn(tree).props.disabled, true); // reference set, ack still off
-  await submit(tree);
-  assert.deepEqual(consents, []);
-  await act(async () => { tree.unmount(); });
-});
-
-test('acknowledged workflow with a reference yields exactly one request with the exact DTO; a pending fence blocks a second', async () => {
-  const consents = [];
-  const tree = await openCard((_id, consent) => consents.push(consent));
-  await budgetAck(tree);
-  await selectPurpose(tree, 'workflow');
-  await set(tree, 'Selected reference ID', ' src-1 ');
-  await set(tree, 'Selected reference version', 'v1');
-  await act(async () => { tree.root.findByProps({ 'aria-label': 'Acknowledge coding workflow' }).props.onChange({ target: { checked: true } }); });
-  assert.equal(submitBtn(tree).props.disabled, false);
-  await submit(tree);
-  assert.equal(consents.length, 1);
-
-  const requests = [];
-  const controller = new CoordinatorConversationController(() => ({
-    open: async () => ({ kind: 'replay', conversation: conv() }),
-    status: async () => ({ kind: 'status', conversation: conv(), context: null }),
-    message: async () => { throw new Error('no'); },
-    preparePlan: async (input) => { requests.push(input); throw new Error('response lost'); },
-  }), createMemoryCoordinatorConversationJournal());
-  const scope = { actorKey: 'user:7', projectId: 'project-a', sessionId: 'root-a' };
-  await controller.open(scope);
-  await new Promise((r) => setTimeout(r, 0));
-  assert.equal(await controller.preparePlan(scope, 'goal-a', consents[0]), false); // wire failed, attempt pending
-  assert.equal(await controller.preparePlan(scope, 'goal-a', consents[0]), false); // fence
-  assert.equal(requests.length, 1);
-
-  const { bodies, gw } = wire();
-  await gw.preparePlan({ sessionId: 'root-a', projectId: 'project-a', expectedControlRevision: 1, goalId: 'goal-a', admission: requests[0].admission }).catch(() => {});
-  assert.equal(JSON.stringify(bodies), JSON.stringify([{
-    sessionId: 'root-a', projectId: 'project-a', expectedControlRevision: 1, goalId: 'goal-a',
-    admission: {
-      commandKey: requests[0].admission.commandKey, ...base, purpose: 'workflow',
-      acknowledgesCodingWorkflowCoverage: true,
-      workflowCheck: { kind: 'selected_reference_summary_v1', sourceId: 'src-1', expectedVersion: 'v1' },
-    },
-  }]));
-  // controller refuses an unacknowledged workflow consent outright
+test('the retired workflow purpose is not offered and the controller refuses it', async () => {
+  const tree = await openCard(blank);
+  const options = tree.root.findByProps({ 'aria-label': 'Managed-work purpose' }).findAllByType('option').map((o) => o.props.value);
+  assert.deepEqual(options, ['decompose', 'continue', 'execute']);
   const refused = new CoordinatorConversationController(() => ({
     open: async () => ({ kind: 'replay', conversation: conv() }),
     status: async () => ({ kind: 'status', conversation: conv(), context: null }),
     preparePlan: async () => { throw new Error('must not reach wire'); },
   }), createMemoryCoordinatorConversationJournal());
+  const scope = { actorKey: 'user:7', projectId: 'project-a', sessionId: 'root-a' };
   await refused.open(scope);
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(await refused.preparePlan(scope, 'goal-a', { ...base, purpose: 'workflow' }), false);

@@ -37,7 +37,7 @@ async function contract() {
   const context = await new CoordinatorConversationContextAssembler({
     ...createCoordinatorConversationContextAdapters({}),
     codingWorkflowCapability: {
-      read: () => computeCodingWorkflowCapability({ configs, projectAuthorized: true, enrollmentAvailable: true }),
+      read: () => computeCodingWorkflowCapability({ configs, projectAuthorized: true }),
     },
   }).assemble({ conversation, now: NOW });
   const service = new CoordinatorConversationService({ repository: {} as never, context: {} as never }) as unknown as {
@@ -59,7 +59,7 @@ describe('G2 S5-C capability in the Secretary prompt', () => {
     profile('workflow-orchestrator'); profile('verification-gate');
     const { context, system } = await contract();
     expect(system).toContain(renderCodingWorkflowCapabilityLine(context.codingWorkflow!));
-    expect(system).toContain('Coding Workflow lane: available; supported checks: selected_reference_summary_v1; cross-project execution: unsupported.');
+    expect(system).toContain('Coding Workflow lane: available; cross-project execution: unsupported.');
     expect(system).toContain('"codingWorkflowLane":{"available":true,"reason":null');
   });
 
@@ -73,11 +73,9 @@ describe('G2 S5-C capability in the Secretary prompt', () => {
     expect(after.fingerprint).not.toBe(before.fingerprint);
   });
 
-  it('server composes the capability adapter and the B membership proof', () => {
+  it('server composes the capability adapter', () => {
     const source = readFileSync(path.join(__dirname, '..', 'server.ts'), 'utf8');
     expect(source).toMatch(/codingWorkflowCapability:\s*\{\s*read:\s*\(scope\)\s*=>\s*computeCodingWorkflowCapability\(\{/);
     expect(source).toMatch(/projectAuthorized:\s*ownerProjectAccess\(scope\.ownerUserId,\s*scope\.projectId\)/);
-    const admission = source.slice(source.indexOf('dayflowProviderAdmission = new DayflowProviderAdmissionService({'));
-    expect(admission.slice(0, 2500)).toMatch(/workflowMembership:\s*\{\s*hasMember:[\s\S]*?hasCoordinatorWorkflowMember\(/);
   });
 });

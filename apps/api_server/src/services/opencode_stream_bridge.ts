@@ -443,6 +443,13 @@ export class OpencodeStreamBridge {
     });
   }
 
+  /** Local session ids waiting on a person: an unanswered permission or question. */
+  listWaitingSessionIds(): Set<string> {
+    const ids = new Set(this.listPendingPermissions().map((permission) => permission.sessionId));
+    for (const [key, question] of this.pendingQuestions) ids.add(key.slice(0, -(question.requestId.length + 1)));
+    return ids;
+  }
+
   /** Remove a pending permission after it is resolved. */
   clearPendingPermission(localSessionId: string, permissionId: string): void {
     this.pendingPermissions.delete(`${localSessionId}:${permissionId}`);

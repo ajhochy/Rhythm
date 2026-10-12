@@ -9,6 +9,7 @@ import {
 } from '../repositories/agent_configs_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { liveGitBranch } from './coordinator_goal_runs';
 import { CoordinatorConversationsRepository } from '../repositories/coordinator_conversations_repository';
 import type { AgentSession } from '../models/agent_session';
 import { env } from '../config/env';
@@ -470,33 +471,8 @@ export class AsyncDelegationCompletionService {
       }
     }
 
-    // The bound Coding Workflow manager's exact single callback mints a native
-    // user anchor that must be durable BEFORE exposure, with or without a
-    // Dayflow receiver. An unrelated/mixed callback never reaches this branch.
-    const workflowJob = coordinatorCallbackReason && singleCoordinatorWake
-      ? bridgeRepo.findLiveCoordinatorWorkflowJobByDelegation(singleCoordinatorWake.id)
-      : null;
-    const callbackContext = callbackFreshness || workflowJob
-      ? {
-        kind: 'coordinator_callback_v1' as const,
-        validate: async () => (callbackFreshness ? await callbackFreshness() : true) &&
-          (!workflowJob || bridgeRepo.findLiveCoordinatorWorkflowJobByDelegation(singleCoordinatorWake!.id) !== null),
-        ...(workflowJob ? {
-          onPrepared: (binding: { dispatchId: string; sdkUserMessageId: string }): boolean => {
-            try {
-              bridgeRepo.recordCoordinatorWorkflowCallbackAnchor({
-                delegationId: singleCoordinatorWake!.id,
-                dispatchId: binding.dispatchId,
-                sdkUserMessageId: binding.sdkUserMessageId,
-                now: new Date().toISOString(),
-              });
-              return true;
-            } catch {
-              return false;
-            }
-          },
-        } : {}),
-      }
+    const callbackContext = callbackFreshness
+      ? { kind: 'coordinator_callback_v1' as const, validate: callbackFreshness }
       : null;
 
     this.wakeInFlight.add(parentSessionId);
@@ -1217,9 +1193,18 @@ export class AsyncDelegationCompletionService {
       const childReference = delegation.forceUntrusted
         ? 'external runtime'
         : delegation.childSessionId ?? 'unknown';
+      // A coordinator run works in its own worktree: name its branch so each
+      // report can be tied to the branch it describes.
+      const child = delegation.forceUntrusted || !delegation.childSessionId
+        ? null
+        : new AgentSessionsRepository().findById(delegation.childSessionId);
+      const branch = child?.worktreePath
+        ? liveGitBranch(child.worktreePath) ?? child.worktreeBranch
+        : null;
+      const where = branch ? ` on branch ${branch} (worktree ${child!.worktreePath})` : '';
       return (
         `- @${delegation.targetAgentConfigId} ` +
-        `(delegated child session ${childReference}) ${outcome}`
+        `(delegated child session ${childReference})${where} ${outcome}`
       );
     });
     return (

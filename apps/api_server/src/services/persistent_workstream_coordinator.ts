@@ -5,11 +5,6 @@ import { AppError } from '../errors/app_error';
 import {
   parseManagedWorkstreamStructuredProposal,
   type ManagedWorkstreamStructuredProposal,
-  SELECTED_REFERENCE_RECEIPT_BASES,
-  SELECTED_REFERENCE_SOURCE_CRITERION,
-  SELECTED_REFERENCE_SUMMARY_CRITERION,
-  workflowCriterionReceiptId,
-  type WorkflowCriterionReceipt,
   type WorkstreamReferenceInput,
   type WorkstreamRunPolicy,
 } from '../contracts/agent_workstream_contract';
@@ -26,7 +21,6 @@ import {
   AgentBridgeJobsRepository,
   type AgentBridgeJobRow,
   type CoordinatorBudgetState,
-  type CoordinatorWorkflowMembership,
   type CoordinatorLegacyCapacityAssessment,
   type LegacyCoordinatorCapacityRow,
 } from '../shared_agents/delegation_jobs_repository';
@@ -56,10 +50,7 @@ import {
 import {
   WorkstreamArtifactAuthorityResolver,
   WorkstreamArtifactResolutionError,
-  checkSelectedReferenceSummary,
-  selectedReferenceCurrent,
   type QualifiedWorkstreamArtifact,
-  type SelectedReferenceExpectation,
 } from './workstream_artifact_verifier';
 import {
   resolveProfileMcpScope,
@@ -69,24 +60,10 @@ import {
 } from './agent_profile_scope';
 import type { FiniteExecutionPermissionRule } from './coordinator_finite_execution_scope';
 import type {
-  BoundSessionLifecycleInspection,
   OpencodeClientService,
   OpencodeEngineIdentity,
   PersistedManagedConsentAuthority,
 } from './opencode_client_service';
-import {
-  CODING_WORKFLOW_BOUNDS,
-  CODING_WORKFLOW_DISPATCH_REASON,
-  parseCodingWorkflowDispatchReceipt,
-  type CodingWorkflowCoverageIds,
-  type CodingWorkflowCoverageResult,
-  type CodingWorkflowAuthorization,
-  type CodingWorkflowDispatchReceipt,
-  type CodingWorkflowHoldReason,
-  type CodingWorkflowRootTurn,
-} from '../contracts/coordinator_conversation_contract';
-import { AgentAsyncDelegationsRepository } from '../repositories/agent_async_delegations_repository';
-import { ModelProvenanceRepository } from '../repositories/model_provenance_repository';
 import { opencodeSessionMap } from './opencode_engine';
 
 const ACTIVE_JOB_STATES = new Set(['queued', 'claimed', 'running', 'unknown']);
@@ -186,25 +163,6 @@ export interface CoordinatorFiniteConversationAuthority {
   };
 }
 
-/**
- * Server-private handoff to the pre-existing async Coding Workflow route. It
- * is attached only after a finite ordinal has been durably reserved and this
- * coordinator job has claimed one host-global slot.  It contains no bearer,
- * caller-selected target, path, model, tool or permission.
- */
-export interface CoordinatorWorkflowDispatchInput {
-  authorization: CodingWorkflowAuthorization;
-  dispatch(input: {
-    ownerUserId: number;
-    projectId: string;
-    workstream: AgentWorkstream;
-    job: AgentBridgeJobRow;
-    parent: AgentSession;
-    targetProfile: AgentConfig;
-    targetProfileScope: ProfileScope;
-  }): Promise<'accepted' | 'unknown' | 'rejected'>;
-}
-
 /** Status-only post-reconciliation event; it deliberately carries no prose. */
 export interface CoordinatorTerminalObserver {
   onCoordinatorTerminal(input: {
@@ -278,8 +236,6 @@ export interface WorkstreamRunRequest {
   softTokenBudgetAcknowledged: true;
   policy: WorkstreamRunPolicy;
   references: WorkstreamReferenceInput[];
-  /** Internal-only fixed G2 manager route; no HTTP parser accepts this field. */
-  workflow?: CoordinatorWorkflowDispatchInput;
 }
 
 /**
@@ -336,13 +292,6 @@ export interface PersistentWorkstreamCoordinatorDependencies {
   profileScopeResolver?: (profileId: string) => Promise<ProfileScope>;
   /** C2 composition may consume only a reconciled finite conversation turn. */
   terminalObserver?: CoordinatorTerminalObserver;
-  /**
-   * G2: complete manager + descendants + charged callback accounting. Absent
-   * means a workflow job's usage is never known (it holds, never advances).
-   */
-  workflowCoverage?: Pick<CodingWorkflowCoverageInspector, 'inspect'>;
-  /** G2 reviewer identification (exact async delegation target). */
-  delegations?: Pick<AgentAsyncDelegationsRepository, 'findByChildSessionId'>;
   hostEpoch?: string;
 }
 
@@ -958,172 +907,6 @@ export class PersistentWorkstreamCoordinator {
     await this.reconcileJob(workstream, job);
   }
 
-  /**
-   * G2 `selected_reference_summary_v1` checked result for one reconciled
-   * workflow job. Model output, a stop step, a valid proposal or a callback
-   * never resolve a criterion: only this method's fresh server resolution
-   * (plus, for the brief, the deterministic citation check and the enrolled
-   * independent reviewer's verdict) writes the receipt, through the existing
-   * criterion transaction. Re-entrant: an already applied job replays its
-   * outcome; it never dispatches anything itself.
-   */
-  async checkWorkflowResult(input: {
-    ownerUserId: number;
-    projectId: string;
-    workstreamId: string;
-    jobId: string;
-    expectation: SelectedReferenceExpectation;
-    /** Synchronous same-goal authority proof, re-run after every await. */
-    current(): boolean;
-  }): Promise<CodingWorkflowCheckOutcome> {
-    const hold = (reason: string): CodingWorkflowCheckOutcome => ({ kind: 'hold', reason });
-    const read = () => {
-      const workstream = this.workstreams.find(input.ownerUserId, input.projectId, input.workstreamId);
-      const job = this.jobs.getNativeForWorkstream({
-        localUserId: input.ownerUserId, workstreamId: input.workstreamId, jobId: input.jobId,
-      });
-      return { workstream, job };
-    };
-    if (!input.current()) return hold('authority_changed');
-    const { workstream, job } = read();
-    const record = job ? codingWorkflowRecord(job) : null;
-    if (
-      !workstream || !job || !record || workstream.lastJobId !== job.id || job.state !== 'succeeded' ||
-      job.host_epoch !== this.hostEpoch || job.cancel_requested_at !== null
-    ) return hold('job_not_checkable');
-    if (['paused', 'cancelled'].includes(workstream.state)) return hold(`workstream_${workstream.state}`);
-    const application = jsonRecord(job.native_application_json);
-    const priorReceipts = application?.status === 'applied' && Array.isArray(application.workflowReceipts)
-      ? application.workflowReceipts as WorkflowCriterionReceipt[]
-      : null;
-    if (priorReceipts) {
-      // Duplicate terminal / concurrent sweep: replay the durable outcome only
-      // while the workstream is still exactly the applied revision.
-      if (workstream.revision !== Number(application!.workstreamRevision) + 1) return hold('application_superseded');
-      return priorReceipts[0]?.criterionId === SELECTED_REFERENCE_SUMMARY_CRITERION
-        ? { kind: 'final', workstreamRevision: workstream.revision }
-        : { kind: 'intermediate', workstreamRevision: workstream.revision };
-    }
-    if (application?.status !== 'quarantined') return hold('application_fenced');
-    if (this.jobs.coordinatorBudgetState({ localUserId: input.ownerUserId, workstreamId: input.workstreamId }).holdReason !== null) {
-      return hold('usage_incomplete_or_budget_hold');
-    }
-    const status = (id: string) => workstream.checkpoint.criteria.find((candidate) => candidate.id === id)?.status;
-    const criterionId = status(SELECTED_REFERENCE_SOURCE_CRITERION) === 'pending'
-      ? SELECTED_REFERENCE_SOURCE_CRITERION
-      : status(SELECTED_REFERENCE_SOURCE_CRITERION) === 'verified' && status(SELECTED_REFERENCE_SUMMARY_CRITERION) === 'pending'
-        ? SELECTED_REFERENCE_SUMMARY_CRITERION
-        : null;
-    const reference = workstream.checkpoint.references.find((candidate) => candidate.sourceId === input.expectation.sourceId);
-    if (!criterionId || !reference || reference.expectedVersion !== input.expectation.observedVersion) {
-      return hold('criterion_unavailable');
-    }
-
-    let review: WorkflowCriterionReceipt['review'] = null;
-    if (criterionId === SELECTED_REFERENCE_SUMMARY_CRITERION) {
-      const reviewed = await this.readWorkflowReview(job, input.expectation);
-      if ('reason' in reviewed) return hold(reviewed.reason);
-      review = reviewed;
-    }
-    // The fresh server resolution is the last await before the CAS.
-    let resolved: QualifiedWorkstreamArtifact;
-    try {
-      resolved = await this.artifactResolver.resolveReference({
-        ownerUserId: input.ownerUserId,
-        projectId: input.projectId,
-        workstreamId: input.workstreamId,
-        workstreamRevision: workstream.revision,
-        reference,
-      });
-    } catch {
-      return hold('source_unavailable');
-    }
-    if (!selectedReferenceCurrent(input.expectation, resolved)) return hold('source_changed');
-    const after = read();
-    if (
-      !input.current() || !after.workstream || !after.job || after.workstream.revision !== workstream.revision ||
-      after.workstream.lastJobId !== job.id || after.job.native_application_json !== job.native_application_json ||
-      after.job.state !== 'succeeded'
-    ) return hold('changed_during_check');
-    const receipt: WorkflowCriterionReceipt = {
-      schemaVersion: 1,
-      kind: 'selected_reference_summary_v1',
-      criterionId,
-      bases: SELECTED_REFERENCE_RECEIPT_BASES[criterionId],
-      sourceId: input.expectation.sourceId,
-      canonicalId: resolved.receipt.canonicalId,
-      observedVersion: resolved.receipt.observedVersion,
-      observedHash: resolved.receipt.observedHash,
-      sourceInstance: resolved.receipt.sourceInstance!,
-      review,
-    };
-    const outcome = this.jobs.applyCoordinatorCriteria({
-      localUserId: input.ownerUserId,
-      projectId: input.projectId,
-      workstreamId: input.workstreamId,
-      jobId: job.id,
-      expectedRevision: workstream.revision,
-      currentEpoch: this.hostEpoch,
-      authorityCurrent: this.resultAuthorityReason(after.workstream, after.job) === null,
-      criteria: [{ criterionId, criterionStatus: 'verified', receiptId: workflowCriterionReceiptId(receipt) }],
-      workflowReceipts: [receipt],
-      application: { authority: 'server_checked_selected_reference_summary_v1' },
-      now: new Date().toISOString(),
-    });
-    if (outcome.outcome !== 'applied') return hold(`criterion_${outcome.outcome}`);
-    const applied = this.workstreams.find(input.ownerUserId, input.projectId, input.workstreamId);
-    if (!applied) return hold('workstream_missing');
-    return criterionId === SELECTED_REFERENCE_SUMMARY_CRITERION
-      ? { kind: 'final', workstreamRevision: applied.revision }
-      : { kind: 'intermediate', workstreamRevision: applied.revision };
-  }
-
-  /**
-   * The manager's cited brief and the exactly-one covered `verification-gate`
-   * async child's strict verdict. Reviewer identity comes from the durable
-   * delegation row + the job's covered descendant set, never from text.
-   */
-  private async readWorkflowReview(
-    job: AgentBridgeJobRow,
-    expectation: SelectedReferenceExpectation,
-  ): Promise<NonNullable<WorkflowCriterionReceipt['review']> | { reason: string }> {
-    const result = jsonRecord(job.native_result_json);
-    const coverage = result?.workflowCoverage as { descendantSdkSessionIds?: unknown } | null | undefined;
-    const descendants = Array.isArray(coverage?.descendantSdkSessionIds) ? coverage!.descendantSdkSessionIds as string[] : null;
-    const manager = job.native_child_session_id ? this.sessions.findById(job.native_child_session_id) : null;
-    if (!descendants || !manager?.cwd || !manager.sdkSessionId) return { reason: 'review_coverage_unavailable' };
-    const delegations = this.dependencies.delegations ?? new AgentAsyncDelegationsRepository();
-    const reviewers = descendants.flatMap((sdkSessionId) => {
-      const child = this.sessions.findBySdkSessionId(sdkSessionId);
-      const delegation = child ? delegations.findByChildSessionId(child.id) : null;
-      return child?.cwd && child.parentSessionId === manager.id && delegation?.parentSessionId === manager.id &&
-        delegation.targetAgentConfigId === 'verification-gate'
-        ? [child]
-        : [];
-    });
-    if (reviewers.length !== 1) return { reason: reviewers.length === 0 ? 'review_absent' : 'review_ambiguous' };
-    const reviewer = reviewers[0];
-    let managerMessages: Array<{ info: unknown; parts?: unknown }> | null;
-    let reviewerMessages: Array<{ info: unknown; parts?: unknown }> | null;
-    try {
-      managerMessages = await this.listAllMessages(manager.sdkSessionId, manager.cwd);
-      reviewerMessages = await this.listAllMessages(reviewer.sdkSessionId!, reviewer.cwd!);
-    } catch {
-      return { reason: 'review_messages_unavailable' };
-    }
-    const brief = managerMessages ? closingAssistantText(managerMessages, job.native_sdk_user_message_id) : null;
-    const verdict = reviewerMessages ? closingAssistantText(reviewerMessages, null) : null;
-    if (!brief || !verdict) return { reason: 'review_messages_unavailable' };
-    const checked = checkSelectedReferenceSummary({ expectation, managerText: brief.text, reviewerText: verdict.text });
-    if (!checked.ok) return { reason: checked.reason };
-    return {
-      managerTerminalMessageId: brief.messageId,
-      reviewerSdkSessionId: reviewer.sdkSessionId!,
-      reviewerTerminalMessageId: verdict.messageId,
-      summarySha256: checked.summarySha256,
-    };
-  }
-
   /** Shared explicit/saved-consent admission; only the public wrapper owns bearer auth. */
   private async runNextAuthorized(
     authority: WorkstreamDispatchAuthority,
@@ -1132,21 +915,6 @@ export class PersistentWorkstreamCoordinator {
     input: WorkstreamRunRequest,
   ): Promise<WorkstreamStatusView> {
     const ownerUserId = authority.ownerUserId;
-    const workflow = input.workflow;
-    if (workflow) {
-      // The workflow adapter is a private finite-consumer branch, never an
-      // alternate public Run-next shape. It must be tied to the consumed
-      // authority/ordinal and fixed manager profile before any row/session or
-      // engine operation.
-      if (
-        authority.kind !== 'conversation_finite' ||
-        input.policy.outputContract !== 'coding_workflow_durable_consumer_v1' ||
-        input.targetProfileId !== 'workflow-orchestrator' ||
-        workflow.authorization.workstreamId !== workstreamId ||
-        workflow.authorization.authorizationId !== authority.authorizationId ||
-        !Number.isSafeInteger(workflow.authorization.ordinal) || workflow.authorization.ordinal < 1
-      ) throw AppError.forbidden('workflow finite authority is invalid');
-    }
     if (input.softTokenBudgetAcknowledged !== true) {
       throw AppError.badRequest('Run next requires explicit acknowledgement of the soft total-token authorization');
     }
@@ -1441,29 +1209,17 @@ export class PersistentWorkstreamCoordinator {
       return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
     }
 
-    if (workflow) {
-      await this.dispatchWorkflowManager({
-        authority,
-        workstream: queued,
-        parent,
-        profile: currentProfile,
-        profileScope,
-        job: claim.row,
-        workflow,
-      });
-    } else {
-      await this.dispatchFreshWorker({
-        authority,
-        workstream: queued,
-        parent,
-        profile: currentProfile,
-        profileScope,
-        job: claim.row,
-        assembled,
-        declaredReferences: input.references,
-        finiteExecutionScope,
-      });
-    }
+    await this.dispatchFreshWorker({
+      authority,
+      workstream: queued,
+      parent,
+      profile: currentProfile,
+      profileScope,
+      job: claim.row,
+      assembled,
+      declaredReferences: input.references,
+      finiteExecutionScope,
+    });
     return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
   }
 
@@ -2478,10 +2234,9 @@ export class PersistentWorkstreamCoordinator {
     acknowledgedByUserId: number,
     acknowledgedAt: string,
   ): Record<string, unknown> {
-    const workflow = input.workflow;
     return {
       schemaVersion: 1,
-      executionKind: workflow ? 'coding_workflow_durable_consumer' : 'read_only_managed_worker',
+      executionKind: 'read_only_managed_worker',
       targetProfileId: profile.id,
       targetProfileRevision: profile.revision ?? 1,
       parentSessionId: parent.id,
@@ -2525,19 +2280,6 @@ export class PersistentWorkstreamCoordinator {
         observedVersion: reference.observedVersion,
         observedHash: reference.observedHash,
       })),
-      ...(workflow ? {
-        // The prepared/accepted delivery and every native provider member are
-        // appended by the existing job repository under its byte-bounded CAS.
-        // This initial descriptor is intentionally identity-only.
-        workflow: {
-          schemaVersion: 1,
-          kind: 'coding_workflow',
-          authorization: workflow.authorization,
-          prepared: null,
-          delivery: 'unprepared',
-          membership: [],
-        },
-      } : {}),
     };
   }
 
@@ -2780,84 +2522,6 @@ export class PersistentWorkstreamCoordinator {
     }
   }
 
-  /**
-   * The G2 path uses the already-owned async delegation manager, not a second
-   * managed worker.  The private callback is responsible for the atomic
-   * prepared binding before prompt exposure; this coordinator only retains the
-   * ordinary job/workstream lifecycle and fails closed around it.
-   */
-  private async dispatchWorkflowManager(input: {
-    authority: WorkstreamDispatchAuthority;
-    workstream: AgentWorkstream;
-    parent: AgentSession;
-    profile: AgentConfig;
-    profileScope: ProfileScope;
-    job: AgentBridgeJobRow;
-    workflow: CoordinatorWorkflowDispatchInput;
-  }): Promise<void> {
-    const { authority, workstream, parent, profile, profileScope, job, workflow } = input;
-    if (authority.kind !== 'conversation_finite' || !authority.stillAuthorized()) {
-      this.markUnknown(workstream, job, 'workflow_authority_changed_before_dispatch');
-      return;
-    }
-    const current = this.jobs.getNativeForWorkstream({
-      localUserId: workstream.ownerUserId,
-      workstreamId: workstream.id,
-      jobId: job.id,
-    });
-    if (
-      !current || current.state !== 'claimed' || current.host_epoch !== this.hostEpoch ||
-      current.parent_session_id !== parent.id || current.target_agent_id !== profile.id ||
-      current.workstream_revision !== workstream.revision || !this.dispatchStillAuthorized(workstream, job.id, profile)
-    ) {
-      if (current) this.markUnknown(workstream, current, 'workflow_dispatch_binding_changed');
-      return;
-    }
-    let outcome: 'accepted' | 'unknown' | 'rejected';
-    try {
-      outcome = await workflow.dispatch({
-        ownerUserId: workstream.ownerUserId,
-        projectId: workstream.projectId,
-        workstream,
-        job: current,
-        parent,
-        targetProfile: profile,
-        targetProfileScope: profileScope,
-      });
-    } catch {
-      outcome = 'unknown';
-    }
-    const latest = this.jobs.getNativeForWorkstream({
-      localUserId: workstream.ownerUserId,
-      workstreamId: workstream.id,
-      jobId: job.id,
-    });
-    if (!latest) return;
-    if (outcome === 'accepted' && latest.state === 'running' && authority.stillAuthorized()) {
-      this.publishRuntime(workstream, job.id, 'running', null, {
-        expectedStates: ['queued', 'running'], executorEpoch: this.hostEpoch,
-      });
-      return;
-    }
-    if (outcome === 'rejected' || latest.state === 'failed') {
-      this.publishRuntime(workstream, job.id, 'blocked', 'workflow_delivery_rejected', {
-        expectedStates: ['queued', 'running', 'blocked'], executorEpoch: this.hostEpoch,
-      });
-      return;
-    }
-    // A thrown transport call or any missing/changed durable prepared receipt
-    // may have reached the engine.  Preserve the consumed ordinal as unknown;
-    // neither this path nor a later scheduler pass retries it.
-    if (latest.state === 'unknown') {
-      // The durable outcome hook already fenced the job; project it honestly.
-      this.publishRuntime(workstream, job.id, 'unknown', 'native_status_unknown', {
-        expectedStates: ['queued', 'running', 'blocked', 'unknown'], executorEpoch: this.hostEpoch,
-      });
-      return;
-    }
-    this.markUnknown(workstream, latest, 'workflow_delivery_unknown');
-  }
-
   private async reconcileJob(
     workstream: AgentWorkstream,
     job: AgentBridgeJobRow,
@@ -3063,45 +2727,8 @@ export class PersistentWorkstreamCoordinator {
       providerID?: unknown; modelID?: unknown; finish?: unknown; tokens?: unknown; cost?: unknown;
     };
     const policy = this.policyFor(applyingJob);
-    let usage = usageFromAssistantSteps(infos, policy);
+    const usage = usageFromAssistantSteps(infos, policy);
     const errored = !!info.error;
-    // G2: the manager's own steps are never the workflow's whole cost. Only a
-    // complete manager + descendants + charged-callback inspection is usage.
-    let workflowCoverage: CodingWorkflowCoverageIds | null = null;
-    let workflowCoverageHold: string | null = null;
-    const workflowRecord = codingWorkflowRecord(applyingJob);
-    if (workflowRecord && usage && errored) {
-      // An errored manager turn is terminal but never a closed accounting
-      // group: record it failed with usage explicitly NOT complete (budget
-      // stays unknown), rather than waiting forever or claiming a total.
-      usage = { ...usage, status: 'manager_only_incomplete' };
-    } else if (workflowRecord && usage) {
-      const coverage = this.dependencies.workflowCoverage
-        ? await this.dependencies.workflowCoverage.inspect({
-          receipt: codingWorkflowReceipt(workflowRecord),
-          rootTurns: codingWorkflowRootTurns(workflowRecord),
-          managerMembership: Array.isArray(workflowRecord.membership)
-            ? workflowRecord.membership as CoordinatorWorkflowMembership[] : undefined,
-          current: () => this.currentCoordinatorTerminalJob(workstream, applyingJob) !== null,
-        })
-        : { status: 'hold' as const, reason: 'scope_unsupported' as const, coverage: null, usage: null };
-      if (coverage.status === 'hold' && TRANSIENT_WORKFLOW_HOLDS.has(coverage.reason)) {
-        // A still-open charged turn: keep the reservation and re-read on the
-        // next existing sweep/observation. Nothing is completed or released.
-        return;
-      }
-      if (coverage.status === 'complete') {
-        usage = {
-          ...coverage.usage,
-          authorizedTokens: policy?.maxTokens ?? null,
-          overshoot: policy ? coverage.usage.totalTokens > policy.maxTokens : null,
-        };
-        workflowCoverage = coverage.coverage;
-      } else {
-        usage = null;
-        workflowCoverageHold = coverage.reason;
-      }
-    }
     // No raw assistant text is retained. A finite C2 worker may carry one
     // exact, bounded JSON proposal; all other prose/tool-shaped output is a
     // non-authoritative hold for continuation purposes.
@@ -3138,7 +2765,6 @@ export class PersistentWorkstreamCoordinator {
           ? { schemaVersion: 1, state: 'parsed', criteria: structuredProposal.criteria, nextAction: structuredProposal.nextAction }
           : { schemaVersion: 1, state: 'unavailable' }
         : null,
-      ...(workflowRecord ? { workflowCoverage, workflowCoverageHold } : {}),
     };
     if (!usage) {
       // A recheck cannot trade an existing unknown/cancellation receipt for a
@@ -3150,7 +2776,7 @@ export class PersistentWorkstreamCoordinator {
         workstreamId: workstream.id,
         jobId: applyingJob.id,
         result,
-        reason: workflowCoverageHold ? 'workflow_coverage_incomplete' : 'turn_usage_incomplete',
+        reason: 'turn_usage_incomplete',
         now,
       });
       this.publishRuntime(workstream, applyingJob.id, 'unknown', 'usage_unknown_ack_required', {
@@ -3648,66 +3274,6 @@ function tokenCount(value: unknown): number | null {
     : null;
 }
 
-/** Holds that mean "a charged turn is still open": re-read later, never complete. */
-const TRANSIENT_WORKFLOW_HOLDS = new Set<CodingWorkflowHoldReason>([
-  'turn_not_terminal', 'turn_incomplete', 'session_busy', 'pending_interaction', 'lifecycle_changed',
-  'native_tree_changed',
-]);
-
-type CodingWorkflowJobRecord = Record<string, unknown> & { prepared: Record<string, unknown> };
-
-/** The exact durable workflow block of a coordinator job, or null for every other lane. */
-function codingWorkflowRecord(job: AgentBridgeJobRow): CodingWorkflowJobRecord | null {
-  const workflow = jsonRecord(job.native_metadata_json)?.workflow;
-  if (!workflow || typeof workflow !== 'object' || Array.isArray(workflow)) return null;
-  const record = workflow as Record<string, unknown>;
-  return record.kind === 'coding_workflow' && record.prepared && typeof record.prepared === 'object'
-    ? record as CodingWorkflowJobRecord
-    : null;
-}
-
-/** The typed dispatch receipt re-derived from durable job JSON (strictly re-parsed by the inspector). */
-function codingWorkflowReceipt(record: CodingWorkflowJobRecord): unknown {
-  const prepared = record.prepared;
-  return {
-    schemaVersion: 1,
-    adapter: 'coding_workflow_v1',
-    authorization: record.authorization,
-    owner: prepared.owner,
-    delegation: prepared.delegation,
-    dispatch: { ...(prepared.dispatch as Record<string, unknown>), delivery: record.delivery },
-    engine: prepared.engine,
-  };
-}
-
-/** Exact charged callback anchors persisted before their exposure; never inferred. */
-function codingWorkflowRootTurns(record: CodingWorkflowJobRecord): unknown {
-  const anchors = Array.isArray(record.callbackAnchors) ? record.callbackAnchors as Array<Record<string, unknown>> : [];
-  return anchors.map((anchor) => ({ dispatchId: anchor.dispatchId, sdkUserMessageId: anchor.sdkUserMessageId }));
-}
-
-/** Text of the one closing assistant step answering `parentId` (null when absent/ambiguous). */
-function closingAssistantText(
-  messages: Array<{ info: unknown; parts?: unknown }>,
-  parentId: string | null,
-): { messageId: string; text: string } | null {
-  const closing = messages.filter((message) => {
-    const info = message.info as { role?: unknown; parentID?: unknown; finish?: unknown; id?: unknown };
-    return info.role === 'assistant' && info.finish === 'stop' && typeof info.id === 'string' &&
-      (parentId === null || info.parentID === parentId);
-  });
-  if (closing.length !== 1) return null;
-  const parts = Array.isArray(closing[0].parts) ? closing[0].parts as Array<{ type?: unknown; text?: unknown }> : [];
-  return {
-    messageId: (closing[0].info as { id: string }).id,
-    text: parts.filter((part) => part.type === 'text' && typeof part.text === 'string').map((part) => part.text).join('\n'),
-  };
-}
-
-export type CodingWorkflowCheckOutcome =
-  | { kind: 'intermediate' | 'final'; workstreamRevision: number }
-  | { kind: 'hold'; reason: string };
-
 function usageFromAssistantSteps(
   infos: Array<{ tokens?: unknown; cost?: unknown }>,
   policy: WorkstreamRunPolicy | null,
@@ -3763,406 +3329,4 @@ function usageFromAssistantSteps(
     overshoot: policy ? totalTokens > policy.maxTokens : null,
     cost,
   };
-}
-
-// ── Coding Workflow coverage inspection (G2 first adapter) ─────────────────────
-
-/** Existing owned-engine read ports only; no new endpoint. */
-export interface CodingWorkflowInspectionEngine {
-  getEngineIdentity(): Promise<OpencodeEngineIdentity | null>;
-  getSession(sdkId: string): Promise<{ id: string; parentID?: string; directory?: string } | null>;
-  listChildrenStrict(sdkId: string, directory: string): Promise<Array<{ id: string; parentID: string; directory: string }> | null>;
-  listMessagesPageStrict(
-    sdkId: string,
-    directory: string,
-    options?: { limit?: number; before?: string },
-  ): Promise<{ messages: Array<{ info: Record<string, unknown>; parts?: unknown }>; nextCursor: string | null } | null>;
-  inspectBoundSessionLifecycles(sdkSessionIds: string[], directory: string): Promise<BoundSessionLifecycleInspection>;
-}
-
-export interface CodingWorkflowInspectionInput {
-  /** The typed receipt exported at the actual SDK boundary (re-parsed strictly here). */
-  receipt: unknown;
-  /**
-   * Exact persisted dispatch anchors of the root/review turns charged to this
-   * ordinal (including any charged automatic callback/review). Never lastN, a
-   * timestamp or an oldest/newest row.
-   */
-  rootTurns: unknown;
-  /** Exact durable job enrollment; absent or malformed cannot cover additional manager turns. */
-  managerMembership?: readonly CoordinatorWorkflowMembership[];
-  /** Synchronous owner/epoch/permission/admission proof, run after the last await. */
-  current(): boolean;
-}
-
-interface NativeNode { id: string; parentID: string; directory: string; depth: number }
-
-/**
- * Complete manager + recursive native descendants + exact root/review accounting.
- * Anything missing, malformed, ambiguous, pending, changed or over a bound is a
- * hold with no usage figure: there is no fabricated zero and no manager-only total.
- */
-export class CodingWorkflowCoverageInspector {
-  constructor(private readonly dependencies: {
-    engine: CodingWorkflowInspectionEngine;
-    sessions: Pick<AgentSessionsRepository, 'findById'>;
-    delegations: Pick<AgentAsyncDelegationsRepository, 'findById'>;
-    dispatches: Pick<ModelProvenanceRepository, 'get'> & Partial<Pick<ModelProvenanceRepository, 'findUniqueForSdkUserMessage'>>;
-    probeTimeoutMs?: number;
-  }) {}
-
-  async inspect(input: CodingWorkflowInspectionInput): Promise<CodingWorkflowCoverageResult> {
-    const hold = (reason: CodingWorkflowHoldReason, coverage: CodingWorkflowCoverageIds | null = null): CodingWorkflowCoverageResult =>
-      ({ status: 'hold', reason, coverage, usage: null });
-    const receipt = parseCodingWorkflowDispatchReceipt(input.receipt);
-    if (!receipt) return hold('receipt_invalid');
-    if (receipt.dispatch.delivery !== 'accepted') return hold('delivery_unknown');
-    const rootTurns = parseRootTurns(input.rootTurns);
-    if (!rootTurns) return hold('root_turns_missing');
-
-    const binding = this.localBinding(receipt, rootTurns);
-    if (binding.kind !== 'ok') return hold(binding.reason);
-    const ids = (descendants: string[] = [], turns: CodingWorkflowRootTurn[] = []): CodingWorkflowCoverageIds => ({
-      managerSessionId: receipt.delegation.managerSessionId,
-      managerSdkSessionId: receipt.delegation.managerSdkSessionId,
-      descendantSdkSessionIds: [...descendants].sort(),
-      rootTurns: turns,
-    });
-
-    const engine = this.dependencies.engine;
-    const before = await this.bounded(engine.getEngineIdentity());
-    if (!before) return hold('engine_identity_unavailable');
-    if (before.bootId !== receipt.engine.bootId) return hold('engine_identity_changed');
-
-    const manager = await this.bounded(engine.getSession(receipt.delegation.managerSdkSessionId));
-    if (
-      !manager || manager.id !== receipt.delegation.managerSdkSessionId ||
-      manager.parentID !== receipt.owner.rootSdkSessionId ||
-      typeof manager.directory !== 'string' || manager.directory.length === 0
-    ) return hold('native_metadata_unavailable', ids());
-    const managerNode: NativeNode = {
-      id: manager.id, parentID: manager.parentID, directory: manager.directory, depth: 0,
-    };
-
-    const tree = await this.enumerate(managerNode);
-    if (tree.kind !== 'ok') return hold(tree.reason, ids());
-    const descendants = tree.nodes;
-    const descendantIds = descendants.map((node) => node.id);
-    const covered = ids(descendantIds);
-
-    const lifecycle = await this.lifecycle([managerNode, ...descendants]);
-    if (lifecycle !== 'ok') return hold(lifecycle, covered);
-
-    const steps: Array<Record<string, unknown>> = [];
-    const sessionsWithSteps = new Set<string>();
-    // Charge the original dispatch and each exactly enrolled automatic callback
-    // as separate closed groups. An unrelated manager turn remains uncovered.
-    const managerMessages = await this.readAll(managerNode.id, managerNode.directory);
-    if (managerMessages.kind !== 'ok') return hold(managerMessages.reason, covered);
-    const managerAssistants = managerMessages.messages.filter((message) => message.info.role === 'assistant');
-    if (managerAssistants.length === 0) return hold('accounting_missing', covered);
-    const managerGroups = groupByParent(managerAssistants);
-    const assistantIds = managerAssistants.map((message) => message.info.id);
-    if (!managerGroups || assistantIds.some((id) => typeof id !== 'string' || id.length === 0) ||
-        new Set(assistantIds).size !== assistantIds.length ||
-        !managerGroups.some((group) => group[0].info.parentID === receipt.dispatch.sdkUserMessageId)) {
-      return hold('uncovered_assistant_turn', covered);
-    }
-    const callbackGroups = managerGroups.filter((group) => group[0].info.parentID !== receipt.dispatch.sdkUserMessageId);
-    if (!callbackGroups.every((group) => this.managerCallbackBound(receipt, input.managerMembership, group))) {
-      return hold('uncovered_assistant_turn', covered);
-    }
-    if (managerAssistants.some((message) => !completedStep(message.info))) return hold('turn_incomplete', covered);
-    if (managerGroups.some((group) => turnGroupClosure(group) !== 'closed')) return hold('turn_not_terminal', covered);
-    steps.push(...managerAssistants.map((message) => message.info));
-    sessionsWithSteps.add(managerNode.id);
-
-    // Every actual native descendant is charged for ALL of its assistant steps.
-    for (const node of descendants) {
-      const read = await this.readAll(node.id, node.directory);
-      if (read.kind !== 'ok') return hold(read.reason, covered);
-      const assistants = read.messages.filter((message) => message.info.role === 'assistant');
-      if (assistants.length === 0) return hold('accounting_missing', covered);
-      if (assistants.some((message) => !completedStep(message.info))) return hold('turn_incomplete', covered);
-      // A completed tool-calls STEP is not a closed TURN: every actual turn
-      // group (assistant steps sharing one user parent) must close exactly once.
-      const groups = groupByParent(assistants);
-      if (!groups) return hold('uncovered_assistant_turn', covered);
-      if (groups.some((group) => turnGroupClosure(group) !== 'closed')) return hold('turn_not_terminal', covered);
-      steps.push(...assistants.map((message) => message.info));
-      sessionsWithSteps.add(node.id);
-    }
-
-    // Root/review turns: exactly the promised persisted dispatch anchors.
-    if (rootTurns.length > 0) {
-      const rootRead = await this.readAll(receipt.owner.rootSdkSessionId, binding.rootDirectory);
-      if (rootRead.kind !== 'ok') return hold(rootRead.reason, covered);
-      for (const turn of rootTurns) {
-        const assistants = rootRead.messages.filter((message) =>
-          message.info.role === 'assistant' && message.info.parentID === turn.sdkUserMessageId);
-        if (assistants.length === 0) return hold('accounting_missing', covered);
-        if (assistants.some((message) => !completedStep(message.info))) return hold('turn_incomplete', covered);
-        // Same closed-turn proof for each exactly charged root/review anchor; no
-        // blanket idle requirement for unrelated root activity.
-        if (turnGroupClosure(assistants) !== 'closed') return hold('turn_not_terminal', covered);
-        steps.push(...assistants.map((message) => message.info));
-      }
-      sessionsWithSteps.add(receipt.owner.rootSdkSessionId);
-    }
-    const coverage = ids(descendantIds, rootTurns);
-
-    // Every await above can race the engine: re-prove the identity, the child
-    // set and the lifecycle, then the local/owner/epoch scope synchronously.
-    const afterTree = await this.enumerate(managerNode);
-    if (afterTree.kind !== 'ok') return hold(afterTree.reason, coverage);
-    if (canonicalTree(afterTree.nodes) !== canonicalTree(descendants)) return hold('native_tree_changed', coverage);
-    const finalLifecycle = await this.lifecycle([managerNode, ...afterTree.nodes]);
-    if (finalLifecycle !== 'ok') return hold(finalLifecycle === 'lifecycle_unavailable' ? 'lifecycle_unavailable' : 'lifecycle_changed', coverage);
-    const after = await this.bounded(engine.getEngineIdentity());
-    if (!after || after.bootId !== before.bootId) return hold('engine_identity_changed', coverage);
-
-    const summed = usageFromAssistantSteps(steps, null);
-    if (!summed) return hold('usage_incomplete', coverage);
-    let current = false;
-    try { current = input.current() === true; } catch { current = false; }
-    if (!current) return hold('scope_changed', coverage);
-    if (this.localBinding(receipt, rootTurns).kind !== 'ok' ||
-        !callbackGroups.every((group) => this.managerCallbackBound(receipt, input.managerMembership, group))) {
-      return hold('local_binding_changed', coverage);
-    }
-
-    return {
-      status: 'complete',
-      coverage,
-      engineBootId: after.bootId,
-      usage: {
-        schemaVersion: 1,
-        status: 'actual',
-        basis: 'engine_assistant_turn_steps',
-        assistantStepCount: summed.assistantStepCount as number,
-        coveredSessionCount: sessionsWithSteps.size,
-        inputTokens: summed.inputTokens as number,
-        outputTokens: summed.outputTokens as number,
-        reasoningTokens: summed.reasoningTokens as number,
-        cacheReadTokens: summed.cacheReadTokens as number,
-        cacheWriteTokens: summed.cacheWriteTokens as number,
-        totalTokens: summed.totalTokens as number,
-        cost: summed.cost as number | null,
-      },
-    };
-  }
-
-  /** Same-job enrollment plus a unique accepted automatic callback dispatch, re-proved after awaits. */
-  private managerCallbackBound(
-    receipt: CodingWorkflowDispatchReceipt,
-    membership: readonly CoordinatorWorkflowMembership[] | undefined,
-    assistants: Array<{ info: Record<string, unknown> }>,
-  ): boolean {
-    if (!Array.isArray(membership) || membership.length > 48 || assistants.length === 0) return false;
-    const anchor = assistants[0].info.parentID;
-    if (typeof anchor !== 'string' || anchor.length === 0) return false;
-    try {
-      const dispatch = this.dependencies.dispatches.findUniqueForSdkUserMessage?.(
-        receipt.delegation.managerSessionId, receipt.delegation.managerSdkSessionId, anchor,
-      );
-      if (!dispatch || dispatch.sessionId !== receipt.delegation.managerSessionId ||
-          dispatch.sdkSessionId !== receipt.delegation.managerSdkSessionId || dispatch.sdkUserMessageId !== anchor ||
-          dispatch.origin !== 'delegation_completion' || dispatch.requestedSource !== 'agent_config' ||
-          dispatch.outcome !== 'accepted') return false;
-      return assistants.every((assistant) => {
-        const members = membership.filter((item) => item &&
-          item.nativeSessionId === receipt.delegation.managerSdkSessionId &&
-          item.nativeUserMessageId === anchor && item.assistantMessageId === assistant.info.id);
-        if (members.length !== 1) return false;
-        const member = members[0];
-        return member.accountingKind === 'persisted_assistant' && member.parentMessageId === anchor &&
-          member.parentNativeSessionId === receipt.owner.rootSdkSessionId &&
-          [member.engineGeneration, member.runnerGeneration, member.requestIdentity].every((value) =>
-            safeIdentifier(value) !== null) &&
-          Number.isSafeInteger(member.attempt) && member.attempt >= 0 && member.attempt <= 100 &&
-          ['answer', 'compaction', 'summary'].includes(member.purpose);
-      });
-    } catch { return false; }
-  }
-
-  /** Exact synchronous local joins: owner/project/root/manager/delegation/dispatch/root anchors. */
-  private localBinding(
-    receipt: CodingWorkflowDispatchReceipt,
-    rootTurns: CodingWorkflowRootTurn[],
-  ): { kind: 'ok'; rootDirectory: string } | { kind: 'hold'; reason: CodingWorkflowHoldReason } {
-    const changed = { kind: 'hold', reason: 'local_binding_changed' } as const;
-    try {
-      const { sessions, delegations, dispatches } = this.dependencies;
-      const root = sessions.findById(receipt.owner.rootSessionId);
-      const manager = sessions.findById(receipt.delegation.managerSessionId);
-      if (
-        !root || !manager || root.ownerUserId !== receipt.owner.ownerUserId ||
-        root.projectId !== receipt.owner.projectId || root.sdkSessionId !== receipt.owner.rootSdkSessionId ||
-        root.parentSessionId !== null || typeof root.cwd !== 'string' || root.cwd.length === 0 ||
-        manager.ownerUserId !== receipt.owner.ownerUserId ||
-        manager.projectId !== receipt.owner.projectId ||
-        manager.parentSessionId !== root.id || manager.sdkSessionId !== receipt.delegation.managerSdkSessionId
-      ) return changed;
-      const delegation = delegations.findById(receipt.delegation.delegationId);
-      if (
-        !delegation || delegation.parentSessionId !== root.id || delegation.childSessionId !== manager.id ||
-        delegation.targetAgentConfigId !== 'workflow-orchestrator'
-      ) return changed;
-      const dispatch = dispatches.get(receipt.dispatch.dispatchId);
-      if (
-        !dispatch || dispatch.sessionId !== manager.id || dispatch.sdkSessionId !== manager.sdkSessionId ||
-        dispatch.sdkUserMessageId !== receipt.dispatch.sdkUserMessageId || dispatch.origin !== 'delegation' ||
-        dispatch.reasonCode !== CODING_WORKFLOW_DISPATCH_REASON || dispatch.outcome !== 'accepted'
-      ) return changed;
-      for (const turn of rootTurns) {
-        const row = dispatches.get(turn.dispatchId);
-        if (
-          !row || row.sessionId !== root.id || row.sdkSessionId !== root.sdkSessionId ||
-          row.sdkUserMessageId !== turn.sdkUserMessageId || row.outcome !== 'accepted'
-        ) return { kind: 'hold', reason: 'root_turn_unbound' };
-      }
-      return { kind: 'ok', rootDirectory: root.cwd };
-    } catch {
-      return changed;
-    }
-  }
-
-  /** Bounded BFS over actual native parent edges; excess or a cycle is a hold, never a partial tree. */
-  private async enumerate(
-    manager: NativeNode,
-  ): Promise<{ kind: 'ok'; nodes: NativeNode[] } | { kind: 'hold'; reason: CodingWorkflowHoldReason }> {
-    const seen = new Set<string>([manager.id]);
-    const nodes: NativeNode[] = [];
-    const directories = new Set<string>([manager.directory]);
-    const queue: NativeNode[] = [manager];
-    while (queue.length > 0) {
-      const node = queue.shift()!;
-      const children = await this.bounded(this.dependencies.engine.listChildrenStrict(node.id, node.directory));
-      if (!children) return { kind: 'hold', reason: 'native_tree_unavailable' };
-      for (const child of children) {
-        if (child.parentID !== node.id || !child.id || !child.directory) {
-          return { kind: 'hold', reason: 'descendant_identity_missing' };
-        }
-        if (seen.has(child.id)) return { kind: 'hold', reason: 'native_tree_cycle' };
-        const depth = node.depth + 1;
-        directories.add(child.directory);
-        if (
-          depth > CODING_WORKFLOW_BOUNDS.maxDepth || nodes.length + 1 > CODING_WORKFLOW_BOUNDS.maxDescendants ||
-          directories.size > CODING_WORKFLOW_BOUNDS.maxDirectories
-        ) return { kind: 'hold', reason: 'native_tree_bounds_exceeded' };
-        seen.add(child.id);
-        const next = { id: child.id, parentID: child.parentID, directory: child.directory, depth };
-        nodes.push(next);
-        queue.push(next);
-      }
-    }
-    return { kind: 'ok', nodes };
-  }
-
-  /** Strict lifecycle per owned directory batch (<=100 ids): known, idle/absent, nothing pending. */
-  private async lifecycle(nodes: NativeNode[]): Promise<'ok' | CodingWorkflowHoldReason> {
-    const byDirectory = new Map<string, string[]>();
-    for (const node of nodes) byDirectory.set(node.directory, [...(byDirectory.get(node.directory) ?? []), node.id]);
-    for (const [directory, sessionIds] of byDirectory) {
-      for (let offset = 0; offset < sessionIds.length; offset += 100) {
-        const batch = sessionIds.slice(offset, offset + 100);
-        const inspection = await this.bounded(this.dependencies.engine.inspectBoundSessionLifecycles(batch, directory));
-        if (!inspection?.available) return 'lifecycle_unavailable';
-        for (const id of batch) {
-          if (!inspection.knownSessionIds.includes(id)) return 'lifecycle_unavailable';
-          if (inspection.pendingQuestionSessionIds.includes(id) || inspection.pendingPermissionSessionIds.includes(id)) {
-            return 'pending_interaction';
-          }
-          const status = inspection.statusBySessionId[id];
-          if (status && status.type === 'busy') return 'session_busy';
-          if (status && status.type !== 'idle') return 'lifecycle_changed';
-        }
-      }
-    }
-    return 'ok';
-  }
-
-  /** Every cursor page to the engine's explicit end; a failed/repeated/over-cap page is a hold. */
-  private async readAll(
-    sdkSessionId: string,
-    directory: string,
-  ): Promise<{ kind: 'ok'; messages: Array<{ info: Record<string, unknown>; parts?: unknown }> } | { kind: 'hold'; reason: CodingWorkflowHoldReason }> {
-    const messages: Array<{ info: Record<string, unknown>; parts?: unknown }> = [];
-    const cursors = new Set<string>();
-    let before: string | undefined;
-    for (let page = 0; page < CODING_WORKFLOW_BOUNDS.maxMessagePagesPerSession; page += 1) {
-      const result = await this.bounded(this.dependencies.engine.listMessagesPageStrict(
-        sdkSessionId, directory, { limit: 100, ...(before === undefined ? {} : { before }) },
-      ));
-      if (!result) return { kind: 'hold', reason: 'messages_unavailable' };
-      messages.push(...result.messages);
-      if (!result.nextCursor) return { kind: 'ok', messages };
-      if (cursors.has(result.nextCursor)) return { kind: 'hold', reason: 'message_pages_incomplete' };
-      cursors.add(result.nextCursor);
-      before = result.nextCursor;
-    }
-    return { kind: 'hold', reason: 'message_pages_incomplete' };
-  }
-
-  private bounded<T>(pending: Promise<T>): Promise<T | null> {
-    const timeoutMs = this.dependencies.probeTimeoutMs ?? STATUS_PROBE_TIMEOUT_MS;
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => resolve(null), timeoutMs);
-      pending.then(
-        (value) => { clearTimeout(timeout); resolve(value); },
-        () => { clearTimeout(timeout); resolve(null); },
-      );
-    });
-  }
-}
-
-function parseRootTurns(value: unknown): CodingWorkflowRootTurn[] | null {
-  if (!Array.isArray(value) || value.length > CODING_WORKFLOW_BOUNDS.maxRootTurns) return null;
-  const turns: CodingWorkflowRootTurn[] = [];
-  const seen = new Set<string>();
-  for (const item of value) {
-    const record = asRecord(item);
-    if (
-      !record || Object.keys(record).length !== 2 ||
-      typeof record.dispatchId !== 'string' || record.dispatchId.length === 0 ||
-      typeof record.sdkUserMessageId !== 'string' || record.sdkUserMessageId.length === 0 ||
-      seen.has(record.dispatchId) || seen.has(record.sdkUserMessageId)
-    ) return null;
-    seen.add(record.dispatchId);
-    seen.add(record.sdkUserMessageId);
-    turns.push({ dispatchId: record.dispatchId, sdkUserMessageId: record.sdkUserMessageId });
-  }
-  return turns;
-}
-
-/** Assistant steps grouped by their user-message parent; null when any step has no usable parent. */
-function groupByParent(assistants: Array<{ info: Record<string, unknown> }>): Array<Array<{ info: Record<string, unknown> }>> | null {
-  const groups = new Map<string, Array<{ info: Record<string, unknown> }>>();
-  for (const message of assistants) {
-    const parent = message.info.parentID;
-    if (typeof parent !== 'string' || parent.length === 0) return null;
-    groups.set(parent, [...(groups.get(parent) ?? []), message]);
-  }
-  return [...groups.values()];
-}
-
-/**
- * Supported terminal policy for ONE completed turn group: exactly one step with
- * finish `stop` and no step carrying an engine error. A group with no `stop`
- * (only tool-calls/length/other finishes), several `stop`s (ambiguous) or any
- * error is `unclosed`; the caller holds with usage=null rather than guessing
- * success or summing a smaller total. Coverage is not an outcome claim.
- */
-function turnGroupClosure(group: Array<{ info: Record<string, unknown> }>): 'closed' | 'unclosed' {
-  if (group.some((message) => message.info.error !== undefined && message.info.error !== null)) return 'unclosed';
-  return group.filter((message) => message.info.finish === 'stop').length === 1 ? 'closed' : 'unclosed';
-}
-
-function completedStep(info: Record<string, unknown>): boolean {
-  const time = asRecord(info.time);
-  return !!time && typeof time.completed === 'number';
-}
-
-function canonicalTree(nodes: NativeNode[]): string {
-  return JSON.stringify(nodes.map((node) => `${node.id}<${node.parentID}@${node.directory}`).sort());
 }

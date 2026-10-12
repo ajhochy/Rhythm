@@ -17,15 +17,6 @@ import {
   isNativeWorkstreamDeliveryScope,
   type NativeWorkstreamDeliveryScope,
 } from './native_workstream_wake_contract';
-import type { CodingWorkflowAuthorization, CodingWorkflowEngineIdentity } from '../contracts/coordinator_conversation_contract';
-import type { WorkflowBinding } from '../contracts/dayflow_provider_admission_contract';
-import {
-  SELECTED_REFERENCE_RECEIPT_BASES,
-  SELECTED_REFERENCE_SOURCE_CRITERION,
-  SELECTED_REFERENCE_SUMMARY_CRITERION,
-  workflowCriterionReceiptId,
-  type WorkflowCriterionReceipt,
-} from '../contracts/agent_workstream_contract';
 
 export type LegacyAgentBridgeJobDirection = 'rhythm_to_hermes' | 'hermes_to_rhythm';
 export type AgentBridgeJobDirection = LegacyAgentBridgeJobDirection | 'rhythm_to_native';
@@ -215,58 +206,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const SAFE_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const COORDINATOR_BACKGROUND_CAPACITY = 2;
 const LEGACY_CAPACITY_SNAPSHOT_LIMIT = 100;
-const WORKFLOW_MEMBERSHIP_LIMIT = 48;
-/**
- * The Coding Workflow manager's async delegation IS its native coordinator job
- * (one capacity unit, counted on the native side). Excludes exactly the
- * delegations bound by a live workflow job; terminal jobs stop excluding.
- */
-const NOT_LIVE_WORKFLOW_DELEGATION = `NOT IN (
-  SELECT json_extract(j.native_metadata_json,'$.workflow.prepared.delegation.delegationId')
-  FROM agent_bridge_jobs j
-  WHERE j.direction='rhythm_to_native' AND j.native_execution_kind='coordinator'
-    AND j.state IN ('claimed','running','unknown')
-    AND json_extract(j.native_metadata_json,'$.workflow.kind')='coding_workflow'
-    AND json_extract(j.native_metadata_json,'$.workflow.prepared.delegation.delegationId') IS NOT NULL)`;
-
-/**
- * Server-private, pre-exposure binding for the fixed Coding Workflow manager.
- * It deliberately contains identities only; the delegated prompt/result never
- * enters the coordinator ledger.
- */
-export interface CoordinatorWorkflowPreparedBinding {
-  authorization: CodingWorkflowAuthorization;
-  workflowBinding: WorkflowBinding;
-  owner: {
-    ownerUserId: number;
-    projectId: string;
-    rootSessionId: string;
-    rootSdkSessionId: string;
-  };
-  delegation: {
-    delegationId: string;
-    managerSessionId: string;
-    managerSdkSessionId: string;
-    nativeParentSdkSessionId: string;
-  };
-  dispatch: { dispatchId: string; sdkUserMessageId: string };
-  engine: CodingWorkflowEngineIdentity;
-}
-
-export interface CoordinatorWorkflowMembership {
-  nativeSessionId: string;
-  parentNativeSessionId: string;
-  nativeUserMessageId: string;
-  engineGeneration: string;
-  runnerGeneration: string;
-  purpose: 'answer' | 'compaction' | 'summary';
-  attempt: number;
-  requestIdentity: string;
-  accountingKind: 'persisted_assistant' | 'unmetered_auxiliary';
-  assistantMessageId: string | null;
-  parentMessageId: string | null;
-}
-
 interface LegacyCoordinatorCapacitySqlRow {
   delegation_id: string;
   delegation_status: 'dispatched' | 'waking';
@@ -352,22 +291,6 @@ function parseRecord(value: string | null): Record<string, unknown> | null {
   }
 }
 
-function workflowId(value: unknown): value is string {
-  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(value);
-}
-
-function sameJson(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function serializedMetadata(value: Record<string, unknown>): string {
-  const text = JSON.stringify(value);
-  if (Buffer.byteLength(text, 'utf8') > 65_536) {
-    throw new BridgeJobError('native_metadata_too_large', 400);
-  }
-  return text;
-}
-
 function finiteNonNegative(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
     ? value
@@ -402,28 +325,6 @@ function actualUsageTokens(row: AgentBridgeJobRow): number | null {
   if (usage?.status !== 'actual') return null;
   const total = finiteNonNegative(usage.totalTokens);
   if (total === null || !Number.isSafeInteger(total)) return null;
-  // A Coding Workflow job spans the manager, native descendants and callback
-  // turns: a partial sum would under-charge, so usage must cover the manager
-  // plus every persisted-assistant member session or it is unknown.
-  const workflow = parseRecord(row.native_metadata_json)?.workflow;
-  if (workflow && typeof workflow === 'object' && !Array.isArray(workflow)) {
-    const record = workflow as Record<string, unknown>;
-    if (record.kind === 'coding_workflow') {
-      const sessions = new Set<string>();
-      const prepared = record.prepared as { workflowBinding?: { managerSdkSessionId?: unknown } } | null | undefined;
-      if (typeof prepared?.workflowBinding?.managerSdkSessionId === 'string') {
-        sessions.add(prepared.workflowBinding.managerSdkSessionId);
-      }
-      for (const item of Array.isArray(record.membership) ? record.membership : []) {
-        const m = item as Record<string, unknown> | null;
-        if (m?.accountingKind === 'persisted_assistant' && typeof m.nativeSessionId === 'string') {
-          sessions.add(m.nativeSessionId);
-        }
-      }
-      const covered = usage.coveredSessionCount;
-      if (typeof covered !== 'number' || !Number.isSafeInteger(covered) || covered < sessions.size) return null;
-    }
-  }
   return total;
 }
 
@@ -465,35 +366,6 @@ function hasValidCoordinatorPolicy(row: AgentBridgeJobRow): boolean {
     Number.isSafeInteger(record.maxTokens) && (record.maxTokens as number) > 0 &&
     Number.isSafeInteger(record.maxWallTimeSeconds) && (record.maxWallTimeSeconds as number) >= 30 &&
     coordinatorAuthorizationTokens(row) !== null;
-}
-
-/**
- * Exactly one fixed criterion, in order, carrying its exact server bases and
- * bound to the workstream's own stored reference/version.
- */
-function workflowSubsetReceipted(
-  checkpoint: AgentWorkstreamCheckpoint,
-  requested: Map<string, CoordinatorCriterionInput>,
-  receipts: WorkflowCriterionReceipt[] | undefined,
-): boolean {
-  if (requested.size !== 1 || !Array.isArray(receipts) || receipts.length !== 1) return false;
-  const [criterion] = [...requested.values()];
-  const receipt = receipts[0];
-  const status = (id: string) => checkpoint.criteria.find((candidate) => candidate.id === id)?.status;
-  const unresolved = (id: string) => status(id) === 'pending' || status(id) === 'blocked';
-  const ordered = criterion.criterionId === SELECTED_REFERENCE_SOURCE_CRITERION
-    ? unresolved(SELECTED_REFERENCE_SOURCE_CRITERION) && unresolved(SELECTED_REFERENCE_SUMMARY_CRITERION)
-    : criterion.criterionId === SELECTED_REFERENCE_SUMMARY_CRITERION &&
-      status(SELECTED_REFERENCE_SOURCE_CRITERION) === 'verified' && unresolved(SELECTED_REFERENCE_SUMMARY_CRITERION);
-  const reference = checkpoint.references.find((candidate) => candidate.sourceId === receipt?.sourceId);
-  return Boolean(
-    ordered && receipt && receipt.schemaVersion === 1 && receipt.kind === 'selected_reference_summary_v1' &&
-    receipt.criterionId === criterion.criterionId && criterion.criterionStatus === 'verified' &&
-    sameJson(receipt.bases, SELECTED_REFERENCE_RECEIPT_BASES[receipt.criterionId]) &&
-    (receipt.criterionId === SELECTED_REFERENCE_SUMMARY_CRITERION) === (receipt.review !== null) &&
-    reference && reference.expectedVersion === receipt.observedVersion &&
-    /^[0-9a-f]{64}$/.test(receipt.observedHash) && criterion.receiptId === workflowCriterionReceiptId(receipt),
-  );
 }
 
 function parseCheckpointForApplication(value: string): AgentWorkstreamCheckpoint | null {
@@ -684,29 +556,6 @@ export class AgentBridgeJobsRepository {
     `).get(input.jobId, input.localUserId, input.workstreamId) as AgentBridgeJobRow | undefined ?? null;
   }
 
-  /**
-   * Server-private G2 lookup used only by the strict native provider gate.
-   * The job id comes from the owned engine's schema-2 frame and is still
-   * rejoined to owner/project/root metadata before it can admit anything.
-   */
-  findCoordinatorWorkflowJob(jobId: string): AgentBridgeJobRow | null {
-    if (!workflowId(jobId)) return null;
-    return this.db.prepare(`
-      SELECT * FROM agent_bridge_jobs
-       WHERE id=? AND direction='rhythm_to_native' AND native_execution_kind='coordinator'
-    `).get(jobId) as AgentBridgeJobRow | undefined ?? null;
-  }
-
-  /** Exact durable member proof for the provider finalizer (membership precedes the request). */
-  hasCoordinatorWorkflowMember(jobId: string, nativeSessionId: string, nativeUserMessageId: string): boolean {
-    const workflow = parseRecord(this.findCoordinatorWorkflowJob(jobId)?.native_metadata_json ?? null)?.workflow as
-      { membership?: unknown } | undefined;
-    return Array.isArray(workflow?.membership) && workflow.membership.some((item) => {
-      const member = item as Record<string, unknown> | null;
-      return member?.nativeSessionId === nativeSessionId && member.nativeUserMessageId === nativeUserMessageId;
-    });
-  }
-
   listNativeForWorkstream(input: {
     localUserId: number;
     workstreamId: string;
@@ -767,7 +616,7 @@ export class AgentBridgeJobsRepository {
       if (!asyncTable) return { available: true, totalActive: 0, rows: [] };
       const total = this.db.prepare(`SELECT COUNT(*) AS count
         FROM agent_async_delegations
-        WHERE status IN ('dispatched','waking') AND id ${NOT_LIVE_WORKFLOW_DELEGATION}`).get() as { count: number };
+        WHERE status IN ('dispatched','waking')`).get() as { count: number };
       const rows = this.db.prepare(`SELECT
           d.id AS delegation_id,
           d.status AS delegation_status,
@@ -785,7 +634,7 @@ export class AgentBridgeJobsRepository {
         FROM agent_async_delegations d
         LEFT JOIN agent_sessions p ON p.id=d.parent_session_id
         LEFT JOIN agent_sessions c ON c.id=d.child_session_id
-        WHERE d.status IN ('dispatched','waking') AND d.id ${NOT_LIVE_WORKFLOW_DELEGATION}
+        WHERE d.status IN ('dispatched','waking')
         ORDER BY d.created_at ASC, d.id ASC
         LIMIT ?`).all(LEGACY_CAPACITY_SNAPSHOT_LIMIT) as LegacyCoordinatorCapacitySqlRow[];
       return {
@@ -816,7 +665,7 @@ export class AgentBridgeJobsRepository {
       FROM agent_async_delegations d
       LEFT JOIN agent_sessions p ON p.id=d.parent_session_id
       LEFT JOIN agent_sessions c ON c.id=d.child_session_id
-      WHERE d.id=? AND d.status IN ('dispatched','waking') AND d.id ${NOT_LIVE_WORKFLOW_DELEGATION}`).get(id) as LegacyCoordinatorCapacitySqlRow | undefined;
+      WHERE d.id=? AND d.status IN ('dispatched','waking')`).get(id) as LegacyCoordinatorCapacitySqlRow | undefined;
     return row ? legacyCapacityRow(row) : null;
   }
 
@@ -837,7 +686,7 @@ export class AgentBridgeJobsRepository {
       if (!asyncTable) return 0;
       const total = (this.db.prepare(`SELECT COUNT(*) AS count
         FROM agent_async_delegations
-        WHERE status IN ('dispatched','waking') AND id ${NOT_LIVE_WORKFLOW_DELEGATION}`).get() as { count: number }).count;
+        WHERE status IN ('dispatched','waking')`).get() as { count: number }).count;
       const assessment = input.assessment;
       if (
         !assessment ||
@@ -968,309 +817,6 @@ export class AgentBridgeJobsRepository {
     ) as AgentBridgeJobRow | undefined;
     if (!row) throw new BridgeJobError('native_dispatch_already_bound');
     return row;
-  }
-
-  /**
-   * The G2 manager's local child, durable delegation, engine identity and
-   * minted native anchor are one atomic coordinator-job receipt.  This runs
-   * from the private synchronous prompt hook; if it cannot commit, the SDK
-   * call is refused.  It is not a delivery claim.
-   */
-  bindCoordinatorWorkflowPrepared(input: {
-    localUserId: number;
-    workstreamId: string;
-    jobId: string;
-    binding: CoordinatorWorkflowPreparedBinding;
-    now: string;
-  }): AgentBridgeJobRow {
-    const { binding } = input;
-    if (
-      !workflowId(input.workstreamId) || !workflowId(input.jobId) ||
-      !Number.isSafeInteger(input.localUserId) || input.localUserId < 1 ||
-      !workflowId(binding.authorization.authorizationId) || !workflowId(binding.authorization.goalId) ||
-      !workflowId(binding.authorization.workstreamId) || !workflowId(binding.owner.projectId) ||
-      binding.workflowBinding.schemaVersion !== 1 || !workflowId(binding.workflowBinding.jobId) ||
-      !workflowId(binding.workflowBinding.rootSdkSessionId) || !workflowId(binding.workflowBinding.managerSdkSessionId) ||
-      typeof binding.workflowBinding.expiresAt !== 'string' || Number.isNaN(new Date(binding.workflowBinding.expiresAt).valueOf()) ||
-      !workflowId(binding.owner.rootSessionId) || !workflowId(binding.owner.rootSdkSessionId) ||
-      !workflowId(binding.delegation.delegationId) || !workflowId(binding.delegation.managerSessionId) ||
-      !workflowId(binding.delegation.managerSdkSessionId) || !workflowId(binding.delegation.nativeParentSdkSessionId) ||
-      !workflowId(binding.dispatch.dispatchId) || !workflowId(binding.dispatch.sdkUserMessageId) ||
-      !workflowId(binding.engine.bootId) || !Number.isSafeInteger(binding.engine.pid)
-    ) throw new BridgeJobError('workflow_prepared_binding_invalid', 400);
-    if (
-      binding.authorization.workstreamId !== input.workstreamId ||
-      binding.workflowBinding.jobId !== input.jobId ||
-      binding.workflowBinding.rootSdkSessionId !== binding.owner.rootSdkSessionId ||
-      binding.workflowBinding.managerSdkSessionId !== binding.delegation.managerSdkSessionId ||
-      binding.owner.ownerUserId !== input.localUserId ||
-      binding.delegation.nativeParentSdkSessionId !== binding.owner.rootSdkSessionId ||
-      binding.delegation.managerSdkSessionId === binding.owner.rootSdkSessionId
-    ) throw new BridgeJobError('workflow_prepared_binding_mismatch');
-    return this.db.transaction(() => {
-      const current = this.getNativeForWorkstream(input);
-      if (!current || current.native_execution_kind !== 'coordinator' || current.host_epoch === null) {
-        throw new BridgeJobError('native_job_not_admissible');
-      }
-      if (current.parent_runtime_instance !== binding.engine.bootId ||
-          current.parent_session_id !== binding.owner.rootSessionId ||
-          current.workstream_project_id !== binding.owner.projectId) {
-        throw new BridgeJobError('workflow_prepared_binding_mismatch');
-      }
-      const metadata = parseRecord(current.native_metadata_json);
-      const workflow = metadata?.workflow;
-      const workflowRecord = workflow && typeof workflow === 'object' && !Array.isArray(workflow)
-        ? workflow as Record<string, unknown>
-        : null;
-      if (
-        !metadata || !workflowRecord || workflowRecord.schemaVersion !== 1 ||
-        workflowRecord.kind !== 'coding_workflow' || !sameJson(workflowRecord.authorization, binding.authorization) ||
-        !Array.isArray(workflowRecord.membership)
-      ) throw new BridgeJobError('workflow_metadata_unavailable');
-      const prepared = {
-        workflowBinding: binding.workflowBinding,
-        owner: binding.owner,
-        delegation: binding.delegation,
-        dispatch: binding.dispatch,
-        engine: binding.engine,
-      };
-      if (workflowRecord.prepared !== null && workflowRecord.prepared !== undefined) {
-        if (
-          !sameJson(workflowRecord.prepared, prepared) ||
-          current.native_child_session_id !== binding.delegation.managerSessionId ||
-          current.native_child_sdk_session_id !== binding.delegation.managerSdkSessionId ||
-          current.native_dispatch_id !== binding.dispatch.dispatchId ||
-          current.native_sdk_user_message_id !== binding.dispatch.sdkUserMessageId
-        ) throw new BridgeJobError('workflow_prepared_binding_conflict');
-        return current;
-      }
-      if (
-        current.state !== 'claimed' || current.native_child_session_id !== null ||
-        current.native_child_sdk_session_id !== null || current.native_dispatch_id !== null ||
-        current.native_sdk_user_message_id !== null
-      ) throw new BridgeJobError('workflow_prepared_binding_conflict');
-      const nextWorkflow = {
-        ...workflowRecord,
-        prepared,
-        delivery: 'prepared',
-        membership: workflowRecord.membership,
-      };
-      const next = { ...metadata, workflow: nextWorkflow };
-      const row = this.db.prepare(`UPDATE agent_bridge_jobs
-        SET native_child_session_id=?, native_child_sdk_session_id=?, native_dispatch_id=?, native_sdk_user_message_id=?,
-            state='running', native_started_at=COALESCE(native_started_at,?), native_progress_at=?,
-            native_metadata_json=?, updated_at=?
-        WHERE id=? AND direction='rhythm_to_native' AND native_execution_kind='coordinator'
-          AND local_user_id=? AND workstream_id=? AND state='claimed'
-          AND native_child_session_id IS NULL AND native_dispatch_id IS NULL
-        RETURNING *`).get(
-        binding.delegation.managerSessionId,
-        binding.delegation.managerSdkSessionId,
-        binding.dispatch.dispatchId,
-        binding.dispatch.sdkUserMessageId,
-        input.now,
-        input.now,
-        serializedMetadata(next),
-        input.now,
-        input.jobId,
-        input.localUserId,
-        input.workstreamId,
-      ) as AgentBridgeJobRow | undefined;
-      if (!row) throw new BridgeJobError('workflow_prepared_binding_conflict');
-      return row;
-    }).immediate();
-  }
-
-  /** Record the SDK delivery boundary without treating a prepared anchor as success. */
-  recordCoordinatorWorkflowDelivery(input: {
-    localUserId: number;
-    workstreamId: string;
-    jobId: string;
-    dispatchId: string;
-    sdkUserMessageId: string;
-    delivery: 'accepted' | 'unknown' | 'rejected';
-    now: string;
-  }): AgentBridgeJobRow {
-    return this.db.transaction(() => {
-      const current = this.getNativeForWorkstream(input);
-      if (!current || current.native_execution_kind !== 'coordinator') throw new BridgeJobError('native_job_not_found', 404);
-      const metadata = parseRecord(current.native_metadata_json);
-      const workflow = metadata?.workflow;
-      const record = workflow && typeof workflow === 'object' && !Array.isArray(workflow)
-        ? workflow as Record<string, unknown>
-        : null;
-      const prepared = record?.prepared;
-      if (!record || record.schemaVersion !== 1 || record.kind !== 'coding_workflow' ||
-          !prepared || typeof prepared !== 'object' || Array.isArray(prepared) ||
-          !(prepared as Record<string, unknown>).workflowBinding ||
-          !sameJson((prepared as Record<string, unknown>).dispatch, {
-            dispatchId: input.dispatchId, sdkUserMessageId: input.sdkUserMessageId,
-          }) || current.native_dispatch_id !== input.dispatchId ||
-          current.native_sdk_user_message_id !== input.sdkUserMessageId) {
-        throw new BridgeJobError('workflow_delivery_binding_mismatch');
-      }
-      const existing = record.delivery;
-      if (existing === input.delivery) return current;
-      if (existing !== 'prepared') throw new BridgeJobError('workflow_delivery_conflict');
-      const next = { ...metadata!, workflow: { ...record, delivery: input.delivery } };
-      const terminal = input.delivery === 'rejected';
-      const uncertain = input.delivery === 'unknown';
-      const row = this.db.prepare(`UPDATE agent_bridge_jobs
-        SET native_metadata_json=?, state=?, state_reason=?,
-            native_result_json=CASE WHEN ? THEN ? ELSE native_result_json END,
-            terminal_at=CASE WHEN ? THEN ? ELSE terminal_at END,
-            native_progress_at=?, updated_at=?
-        WHERE id=? AND direction='rhythm_to_native' AND native_execution_kind='coordinator'
-          AND local_user_id=? AND workstream_id=? AND state IN ('running','unknown','failed')
-        RETURNING *`).get(
-        serializedMetadata(next),
-        terminal ? 'failed' : uncertain ? 'unknown' : 'running',
-        // The table CHECK allows only the native state_reason vocabulary; the
-        // rejection reason lives in the result JSON instead.
-        uncertain ? 'native_status_unknown' : null,
-        // better-sqlite3 cannot bind booleans: a raw boolean threw here and the
-        // (swallowed) outcome was never recorded, leaving delivery 'prepared'.
-        uncertain || terminal ? 1 : 0,
-        uncertain
-          ? JSON.stringify({ schemaVersion: 1, status: 'unknown', reason: 'workflow_delivery_unknown' })
-          : terminal ? JSON.stringify({ schemaVersion: 1, status: 'failed', reason: 'workflow_delivery_rejected' }) : null,
-        terminal ? 1 : 0,
-        terminal ? input.now : null,
-        input.now,
-        input.now,
-        input.jobId,
-        input.localUserId,
-        input.workstreamId,
-      ) as AgentBridgeJobRow | undefined;
-      if (!row) throw new BridgeJobError('workflow_delivery_conflict');
-      return row;
-    }).immediate();
-  }
-
-  /**
-   * Append an exact native provider/accounting member. Duplicate retry is a
-   * replay; a conflicting payload for the same accounting step holds. No
-   * member is evicted when the bounded job metadata would overflow.
-   */
-  appendCoordinatorWorkflowMembership(input: {
-    localUserId: number;
-    workstreamId: string;
-    jobId: string;
-    member: CoordinatorWorkflowMembership;
-    now: string;
-  }): AgentBridgeJobRow {
-    const member = input.member;
-    if (
-      !workflowId(member.nativeSessionId) || !workflowId(member.parentNativeSessionId) ||
-      !workflowId(member.nativeUserMessageId) || !workflowId(member.engineGeneration) ||
-      !workflowId(member.runnerGeneration) || !workflowId(member.requestIdentity) ||
-      !Number.isSafeInteger(member.attempt) || member.attempt < 0 || member.attempt > 100 ||
-      !['answer', 'compaction', 'summary'].includes(member.purpose) ||
-      !['persisted_assistant', 'unmetered_auxiliary'].includes(member.accountingKind) ||
-      (member.accountingKind === 'persisted_assistant' &&
-        (!workflowId(member.assistantMessageId) || !workflowId(member.parentMessageId))) ||
-      (member.accountingKind === 'unmetered_auxiliary' &&
-        (member.assistantMessageId !== null || member.parentMessageId !== null))
-    ) throw new BridgeJobError('workflow_membership_invalid', 400);
-    return this.db.transaction(() => {
-      const current = this.getNativeForWorkstream(input);
-      if (!current || current.native_execution_kind !== 'coordinator') throw new BridgeJobError('native_job_not_found', 404);
-      const metadata = parseRecord(current.native_metadata_json);
-      const workflow = metadata?.workflow;
-      const record = workflow && typeof workflow === 'object' && !Array.isArray(workflow)
-        ? workflow as Record<string, unknown>
-        : null;
-      if (!record || record.schemaVersion !== 1 || record.kind !== 'coding_workflow' ||
-          record.delivery !== 'accepted' || !Array.isArray(record.membership)) {
-        throw new BridgeJobError('workflow_membership_unavailable');
-      }
-      const membership = record.membership as unknown[];
-      const anchorMembers = membership.filter((item) => {
-        const value = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : null;
-        return value?.nativeUserMessageId === member.nativeUserMessageId;
-      }) as Array<Record<string, unknown>>;
-      // Tool continuations retain the native user anchor but mint fresh
-      // persisted assistant steps. Their owned lineage/generations cannot change.
-      if (anchorMembers.some((value) =>
-        value.nativeSessionId !== member.nativeSessionId || value.parentNativeSessionId !== member.parentNativeSessionId ||
-        value.engineGeneration !== member.engineGeneration || value.runnerGeneration !== member.runnerGeneration ||
-        value.accountingKind !== member.accountingKind || value.parentMessageId !== member.parentMessageId
-      )) throw new BridgeJobError('workflow_membership_conflict');
-      const existing = anchorMembers.find((value) =>
-        value.assistantMessageId === member.assistantMessageId && value.attempt === member.attempt,
-      );
-      if (existing) {
-        if (!sameJson(existing, member)) throw new BridgeJobError('workflow_membership_conflict');
-        return current;
-      }
-      if (membership.length >= WORKFLOW_MEMBERSHIP_LIMIT) throw new BridgeJobError('workflow_membership_bounds');
-      const next = { ...metadata!, workflow: { ...record, membership: [...membership, member] } };
-      const row = this.db.prepare(`UPDATE agent_bridge_jobs
-        SET native_metadata_json=?, native_progress_at=?, updated_at=?
-        WHERE id=? AND direction='rhythm_to_native' AND native_execution_kind='coordinator'
-          AND local_user_id=? AND workstream_id=? AND state='running'
-        RETURNING *`).get(
-        serializedMetadata(next), input.now, input.now,
-        input.jobId, input.localUserId, input.workstreamId,
-      ) as AgentBridgeJobRow | undefined;
-      if (!row) throw new BridgeJobError('workflow_membership_conflict');
-      return row;
-    }).immediate();
-  }
-
-  /**
-   * The live workflow job whose manager is exactly this async delegation. A
-   * delegation not bound by a live (claimed/running/unknown) workflow job is
-   * unrelated and must never be attributed to one.
-   */
-  findLiveCoordinatorWorkflowJobByDelegation(delegationId: string): AgentBridgeJobRow | null {
-    if (!workflowId(delegationId)) return null;
-    return this.db.prepare(`
-      SELECT * FROM agent_bridge_jobs
-       WHERE direction='rhythm_to_native' AND native_execution_kind='coordinator'
-         AND state IN ('claimed','running','unknown')
-         AND json_extract(native_metadata_json,'$.workflow.kind')='coding_workflow'
-         AND json_extract(native_metadata_json,'$.workflow.delivery')='accepted'
-         AND json_extract(native_metadata_json,'$.workflow.prepared.delegation.delegationId')=?
-       LIMIT 1`).get(delegationId) as AgentBridgeJobRow | undefined ?? null;
-  }
-
-  /**
-   * Durable pre-exposure receipt for the bound manager's completion callback:
-   * the minted native user anchor, CAS'd onto the job JSON. A replay of the
-   * same anchor is idempotent; a different anchor for the same delegation
-   * holds.
-   */
-  recordCoordinatorWorkflowCallbackAnchor(input: {
-    delegationId: string;
-    dispatchId: string;
-    sdkUserMessageId: string;
-    now: string;
-  }): AgentBridgeJobRow {
-    if (!workflowId(input.delegationId) || !workflowId(input.dispatchId) || !workflowId(input.sdkUserMessageId)) {
-      throw new BridgeJobError('workflow_callback_anchor_invalid', 400);
-    }
-    return this.db.transaction(() => {
-      const current = this.findLiveCoordinatorWorkflowJobByDelegation(input.delegationId);
-      if (!current) throw new BridgeJobError('workflow_callback_unbound');
-      const metadata = parseRecord(current.native_metadata_json)!;
-      const record = metadata.workflow as Record<string, unknown>;
-      const anchors = Array.isArray(record.callbackAnchors) ? record.callbackAnchors as Array<Record<string, unknown>> : [];
-      const anchor = { delegationId: input.delegationId, dispatchId: input.dispatchId, sdkUserMessageId: input.sdkUserMessageId };
-      const existing = anchors.find((item) => item?.delegationId === input.delegationId);
-      if (existing) {
-        if (!sameJson(existing, anchor)) throw new BridgeJobError('workflow_callback_anchor_conflict');
-        return current;
-      }
-      if (anchors.length >= WORKFLOW_MEMBERSHIP_LIMIT) throw new BridgeJobError('workflow_membership_bounds');
-      const next = { ...metadata, workflow: { ...record, callbackAnchors: [...anchors, anchor] } };
-      const row = this.db.prepare(`UPDATE agent_bridge_jobs
-        SET native_metadata_json=?, native_progress_at=?, updated_at=?
-        WHERE id=? AND native_metadata_json=? AND state IN ('claimed','running','unknown')
-        RETURNING *`).get(serializedMetadata(next), input.now, input.now, current.id, current.native_metadata_json) as AgentBridgeJobRow | undefined;
-      if (!row) throw new BridgeJobError('workflow_callback_anchor_conflict');
-      return row;
-    }).immediate();
   }
 
   markCoordinatorUnknown(input: {
@@ -1476,11 +1022,6 @@ export class AgentBridgeJobsRepository {
     authorityCurrent?: boolean;
     criteria: CoordinatorCriterionInput[];
     application: Record<string, unknown>;
-    /**
-     * Coding Workflow jobs only: one server-written receipt per requested
-     * criterion. Without it a workflow job never resolves a criterion.
-     */
-    workflowReceipts?: WorkflowCriterionReceipt[];
     now: string;
   }): CoordinatorCriterionApplicationResult {
     return this.db.transaction<() => CoordinatorCriterionApplicationResult>(() => {
@@ -1547,16 +1088,7 @@ export class AgentBridgeJobsRepository {
       const unresolved = checkpoint.criteria.filter(
         (candidate) => candidate.status === 'pending' || candidate.status === 'blocked',
       );
-      const workflowJob = (parseRecord(job.native_metadata_json)?.workflow as { kind?: unknown } | undefined)?.kind ===
-        'coding_workflow';
-      if (workflowJob || input.workflowReceipts !== undefined) {
-        // The fixed two-step check applies exactly one server-receipted
-        // criterion per job; the other stays pending. Old lanes keep the
-        // all-unresolved rule below and can never carry workflow receipts.
-        if (!workflowJob || !workflowSubsetReceipted(checkpoint, requested, input.workflowReceipts)) {
-          return { outcome: 'criterion_unavailable', job };
-        }
-      } else if (unresolved.length === 0 || unresolved.length !== requested.size ||
+      if (unresolved.length === 0 || unresolved.length !== requested.size ||
           unresolved.some((candidate) => !requested.has(candidate.id))) {
         return { outcome: 'criterion_unavailable', job };
       }
@@ -1582,7 +1114,6 @@ export class AgentBridgeJobsRepository {
         schemaVersion: 1,
         status: 'applied',
         criteria: input.criteria.map((criterion) => ({ ...criterion })),
-        ...(input.workflowReceipts ? { workflowReceipts: input.workflowReceipts } : {}),
         workstreamRevision: input.expectedRevision,
         hostEpoch: input.currentEpoch,
       });

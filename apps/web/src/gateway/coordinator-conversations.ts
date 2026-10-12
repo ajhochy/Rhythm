@@ -136,13 +136,9 @@ export type CoordinatorPlanAdmission = {
   expiresInSeconds: number;
   acknowledgesSoftTotalTokenAuthorization: true;
   /** `execute` is a separately acknowledged, server-derived workspace scope. */
-  purpose: 'decompose' | 'continue' | 'execute' | 'workflow';
+  purpose: 'decompose' | 'continue' | 'execute';
   /** Required only for the fresh `execute` purpose; never inferred from prose. */
   acknowledgesScopedWorkspaceExecution?: true;
-  /** Required only for the `workflow` purpose (Coding Workflow); a deliberate user acknowledgement. */
-  acknowledgesCodingWorkflowCoverage?: true;
-  /** Required only for `workflow`: the user-selected reference the server validates. */
-  workflowCheck?: { kind: 'selected_reference_summary_v1'; sourceId: string; expectedVersion: string };
 };
 
 export type CoordinatorPreparePlanInput = Pick<CoordinatorConversationScope, 'sessionId' | 'projectId'> & {
@@ -249,6 +245,35 @@ export type CoordinatorMessageInput = Pick<CoordinatorConversationScope, 'sessio
   message: string;
 };
 
+export type CoordinatorGoalRunStatus = 'running' | 'needs_you' | 'finished' | 'failed' | 'unknown';
+
+/** One coding run started from a coordinator goal (server read model). */
+export interface CoordinatorGoalRun {
+  goalId: string;
+  objective: string;
+  repoPath: string | null;
+  childSessionId: string | null;
+  worktreePath: string | null;
+  branch: string | null;
+  status: CoordinatorGoalRunStatus;
+  reported: boolean;
+  usage: { totalTokens: number; inputTokens: number; outputTokens: number; cost: number };
+}
+
+const RUN_STATUSES = new Set(['running', 'needs_you', 'finished', 'failed', 'unknown']);
+
+function isGoalRun(value: unknown): value is CoordinatorGoalRun {
+  return isRecord(value) && string(value.goalId) && typeof value.objective === 'string' &&
+    RUN_STATUSES.has(value.status as string) && typeof value.reported === 'boolean' &&
+    (value.branch === null || typeof value.branch === 'string') &&
+    isRecord(value.usage) && typeof value.usage.totalTokens === 'number';
+}
+
+export function parseCoordinatorRunsResult(value: unknown, status: number): CoordinatorGoalRun[] | undefined {
+  return isRecord(value) && value.kind === 'runs' && status === 200 && Array.isArray(value.runs) &&
+    value.runs.every(isGoalRun) ? value.runs as CoordinatorGoalRun[] : undefined;
+}
+
 export interface CoordinatorConversationGateway {
   resolve?(input?: { projectId?: string }, signal?: AbortSignal): Promise<CoordinatorResolveResult>;
   setup?(input: { commandKey: string; profileId?: string }, signal?: AbortSignal): Promise<CoordinatorSetupResult>;
@@ -264,6 +289,7 @@ export interface CoordinatorConversationGateway {
     input: Pick<CoordinatorConversationScope, 'sessionId' | 'projectId'> & { limit: number; beforeId?: number },
     signal?: AbortSignal,
   ): Promise<CoordinatorHistoryResult>;
+  runs?(input: Pick<CoordinatorConversationScope, 'sessionId' | 'projectId'>, signal?: AbortSignal): Promise<CoordinatorGoalRun[]>;
   message(input: CoordinatorMessageInput, signal?: AbortSignal): Promise<CoordinatorConversationResult>;
   goals?(input: Omit<CoordinatorMessageInput, 'message'> & { objective: string }, signal?: AbortSignal): Promise<CoordinatorConversationResult>;
   preparePlan?(input: CoordinatorPreparePlanInput, signal?: AbortSignal): Promise<CoordinatorConversationResult>;
@@ -589,7 +615,7 @@ function malformedAcknowledgementError(status: number): CoordinatorTransportErro
 
 function endpoint(
   apiBase: string,
-  operation: 'resolve' | 'setup' | 'open' | 'status' | 'message' | 'history' | 'goals' | 'prepare-plan' | 'continue-plan',
+  operation: 'resolve' | 'setup' | 'open' | 'status' | 'message' | 'history' | 'runs' | 'goals' | 'prepare-plan' | 'continue-plan',
 ): string {
   return apiBase.replace(/\/$/, '') + COORDINATOR_CONVERSATIONS_PATH + '/' + operation;
 }
@@ -617,7 +643,7 @@ export function createLiveCoordinatorConversationGateway(
   // The trailing comma keeps this generic arrow unambiguous when a consumer
   // transpiles the source in TSX mode (as the source-level gateway tests do).
   const request = async <Result,>(
-    operation: 'resolve' | 'setup' | 'open' | 'status' | 'message' | 'history' | 'goals' | 'prepare-plan' | 'continue-plan',
+    operation: 'resolve' | 'setup' | 'open' | 'status' | 'message' | 'history' | 'runs' | 'goals' | 'prepare-plan' | 'continue-plan',
     payload: Record<string, unknown>,
     parse: (value: unknown, status: number) => Result | undefined,
     signal?: AbortSignal,
@@ -684,6 +710,8 @@ export function createLiveCoordinatorConversationGateway(
       limit: input.limit,
       ...(input.beforeId === undefined ? {} : { beforeId: input.beforeId }),
     }, (body, status) => parseCoordinatorHistoryResult(body, input, status), signal),
+    runs: (input, signal) => request('runs', { sessionId: input.sessionId, projectId: input.projectId },
+      parseCoordinatorRunsResult, signal),
     message: (input, signal) => request('message', {
       sessionId: input.sessionId,
       projectId: input.projectId,
@@ -713,16 +741,6 @@ export function createLiveCoordinatorConversationGateway(
         purpose: input.admission.purpose,
         ...(input.admission.purpose === 'execute'
           ? { acknowledgesScopedWorkspaceExecution: input.admission.acknowledgesScopedWorkspaceExecution }
-          : {}),
-        ...(input.admission.purpose === 'workflow'
-          ? {
-            acknowledgesCodingWorkflowCoverage: input.admission.acknowledgesCodingWorkflowCoverage,
-            workflowCheck: input.admission.workflowCheck && {
-              kind: input.admission.workflowCheck.kind,
-              sourceId: input.admission.workflowCheck.sourceId,
-              expectedVersion: input.admission.workflowCheck.expectedVersion,
-            },
-          }
           : {}),
       },
     }, (body, status) => parseCoordinatorPlanResult(body, input, status), signal),

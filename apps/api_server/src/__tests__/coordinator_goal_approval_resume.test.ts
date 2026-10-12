@@ -14,6 +14,9 @@
  */
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { CoordinatorContextRead } from '../contracts/coordinator_conversation_contract';
@@ -61,6 +64,10 @@ import {
   type HumanApprovalTestCredentials,
 } from './helpers/human_approval_test_credentials';
 import { createTrustedMcpTestSigner } from './helpers/trusted_mcp_test_proof';
+
+/** Coordinator goals name the repo their run works in; any dir with `.git` qualifies. */
+const GOAL_REPO = realpathSync(mkdtempSync(path.join(tmpdir(), 'coord-approval-repo-')));
+mkdirSync(path.join(GOAL_REPO, '.git'));
 
 const PROJECT = 'project-resume';
 const SDK = 'ses_root_resume';
@@ -200,7 +207,7 @@ describe('coordinator goal approval resume', () => {
 
     repo = new CoordinatorConversationsRepository(db, () => NOW);
     expect(repo.designatePrimaryOwnerRoot(scope()).kind).toBe('found');
-    const added = repo.addGoal({ ...scope(), expectedControlRevision: 1, commandKey: 'goal-1', objective: 'Fix the login bug' });
+    const added = repo.addGoal({ ...scope(), expectedControlRevision: 1, commandKey: 'goal-1', objective: `Fix the login bug in ${GOAL_REPO}` });
     goalId = (added as { goal: { id: string } }).goal.id;
 
     const assembler = new CoordinatorConversationContextAssembler({

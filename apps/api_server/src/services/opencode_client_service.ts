@@ -42,17 +42,14 @@ import type {
 import { hasManagedSdkSessionHistory } from '../repositories/managed_workstream_context_repository';
 import { hasDayflowSdkSessionHistory } from '../repositories/dayflow_receiving_context_repository';
 import type { DayflowSdkHistoryGuard } from './dayflow_receiving_history_guard';
-import { CODING_WORKFLOW_DISPATCH_REASON } from '../contracts/coordinator_conversation_contract';
 import {
   ENROLLMENT_REQUEST_BODY,
   PROVIDER_ADMISSION_BOUNDS,
   parseEnrollmentResponse,
   parseProviderFrameExportText,
-  parseWorkflowEnrollmentResponse,
   parseWorkflowProviderFrameExportText,
   type ProviderPendingExport,
   type ProviderUnavailableExport,
-  type WorkflowEnrollmentRequest,
   type WorkflowProviderPendingExport,
 } from '../contracts/dayflow_provider_admission_contract';
 
@@ -844,12 +841,6 @@ export interface CoordinatorForegroundPromptDispatchContext {
 export interface CoordinatorCallbackPromptDispatchContext {
   readonly kind: 'coordinator_callback_v1';
   validate(): boolean | Promise<boolean>;
-  /**
-   * Exact bound Coding Workflow callback only. When present the native anchor
-   * is minted even with no Dayflow receiver, its dispatch row is durable, and
-   * this synchronous hook must return true before any SDK exposure.
-   */
-  onPrepared?(binding: { dispatchId: string; sdkUserMessageId: string }): boolean;
 }
 
 function isCoordinatorForegroundPromptContext(
@@ -889,7 +880,7 @@ function isCoordinatorForegroundPromptContext(
  * await and is invoked again immediately before the SDK call.
  */
 export interface CoordinatorApprovalResumePromptDispatchContext {
-  readonly kind: 'coordinator_goal_approval_resume_v1' | 'coordinator_workflow_approval_resume_v1';
+  readonly kind: 'coordinator_goal_approval_resume_v1';
   validate(): boolean;
 }
 
@@ -903,7 +894,7 @@ function isCoordinatorApprovalResumePromptContext(
 ): value is CoordinatorApprovalResumePromptDispatchContext {
   return Boolean(
     value &&
-    (value.kind === 'coordinator_goal_approval_resume_v1' || value.kind === 'coordinator_workflow_approval_resume_v1') &&
+    value.kind === 'coordinator_goal_approval_resume_v1' &&
     typeof value.validate === 'function' &&
     typeof sessionId === 'string' && sessionId.length > 0 &&
     provenance &&
@@ -912,65 +903,7 @@ function isCoordinatorApprovalResumePromptContext(
     provenance.requestedSource === 'agent_config' &&
     provenance.routeAuthed == null &&
     typeof provenance.reasonCode === 'string' &&
-    (value.kind === 'coordinator_goal_approval_resume_v1'
-      ? APPROVAL_RESUME_REASON_CODE.test(provenance.reasonCode)
-      : /^workflow_approval_resume_[0-9a-f]{32}$/.test(provenance.reasonCode)),
-  );
-}
-
-/**
- * Internal-only typed context for ONE Coding Workflow async child (G2 first
- * adapter). It is a distinct kind, never promoted from a foreground, callback,
- * managed or approval-resume context and never authority by itself: the client
- * mints the real native user-message id, persists the exact dispatch row with it
- * BEFORE the SDK request, hands that identity to `onPrepared` synchronously, and
- * exports the delivery outcome. A thrown transport error is delivery `unknown`
- * (the engine may have enqueued it), not `rejected`.
- */
-export interface CodingWorkflowPromptDispatchContext {
-  readonly kind: 'coding_workflow_dispatch_v1';
-  validate(input: {
-    phase: 'prepare' | 'before_sdk' | 'sdk_exposure';
-    dispatchId?: string;
-    sdkUserMessageId?: string;
-  }): boolean | Promise<boolean>;
-  /** Synchronous freshness proof, run after the last await and immediately before the SDK call. */
-  isCurrent(): boolean;
-  /** Durable pre-SDK receipt. Returning anything but true holds the request. */
-  onPrepared?(binding: { dispatchId: string; sdkUserMessageId: string }): boolean;
-  /**
-   * The owning server has already made `onPrepared` durable.  This is the
-   * only await introduced between that receipt and SDK exposure: it installs
-   * the strict schema-2 native marker for the exact minted user anchor.  A
-   * false/throw is a closed refusal, never a fallback to an ordinary prompt.
-   */
-  enroll?(binding: { dispatchId: string; sdkUserMessageId: string }): Promise<boolean>;
-  /** Exactly once, only after the SDK request was attempted. */
-  onOutcome?(outcome: { delivery: 'accepted' | 'unknown' | 'rejected'; dispatchId: string; sdkUserMessageId: string }): void;
-}
-
-type CompleteCodingWorkflowPromptDispatchContext = CodingWorkflowPromptDispatchContext & Required<Pick<
-  CodingWorkflowPromptDispatchContext,
-  'onPrepared' | 'enroll' | 'onOutcome'
->>;
-
-function isCodingWorkflowPromptContext(
-  value: CodingWorkflowPromptDispatchContext | undefined,
-  sessionId: string,
-  provenance: DispatchInput | undefined,
-): value is CompleteCodingWorkflowPromptDispatchContext {
-  return Boolean(
-    value &&
-    value.kind === 'coding_workflow_dispatch_v1' &&
-    typeof value.validate === 'function' && typeof value.isCurrent === 'function' &&
-    typeof value.onPrepared === 'function' && typeof value.enroll === 'function' && typeof value.onOutcome === 'function' &&
-    provenance &&
-    provenance.sdkSessionId === sessionId &&
-    provenance.sessionId !== undefined && provenance.sessionId !== sessionId &&
-    provenance.origin === 'delegation' &&
-    provenance.requestedSource === 'agent_config' &&
-    provenance.routeAuthed == null &&
-    provenance.reasonCode === CODING_WORKFLOW_DISPATCH_REASON,
+    APPROVAL_RESUME_REASON_CODE.test(provenance.reasonCode),
   );
 }
 
@@ -1405,38 +1338,6 @@ export class OpencodeClientService {
       );
       if (!response.ok) return null;
       const parsed = parseEnrollmentResponse(JSON.parse(await response.text()), sdkSessionId);
-      return parsed.ok ? { engineGeneration: parsed.value.engineGeneration } : null;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Persist the private G2 marker before an SDK worker can expose a provider
-   * request. The engine echoes the exact binding/scope; any transport or
-   * parser failure remains an admission hold.
-   */
-  async enrollWorkflowProviderGuard(
-    sdkSessionId: string,
-    directory: string | undefined,
-    enrollment: WorkflowEnrollmentRequest,
-  ): Promise<{ engineGeneration: string } | null> {
-    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
-    if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' || !ownedUrl || !sdkSessionId) return null;
-    const query = directory ? `?directory=${encodeURIComponent(directory)}` : '';
-    try {
-      const response = await fetch(
-        `${ownedUrl}/session/${encodeURIComponent(sdkSessionId)}/rhythm-dayflow-guard${query}`,
-        {
-          method: 'POST',
-          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-          body: JSON.stringify(enrollment),
-          redirect: 'error',
-          signal: AbortSignal.timeout(PROVIDER_ADMISSION_BOUNDS.exchangeDeadlineMs),
-        },
-      );
-      if (!response.ok) return null;
-      const parsed = parseWorkflowEnrollmentResponse(JSON.parse(await response.text()), sdkSessionId, enrollment);
       return parsed.ok ? { engineGeneration: parsed.value.engineGeneration } : null;
     } catch {
       return null;
@@ -3095,7 +2996,6 @@ function validFiniteExecutionPermissionRules(
     foreground?: CoordinatorForegroundPromptDispatchContext,
     callback?: CoordinatorCallbackPromptDispatchContext,
     approvalResume?: CoordinatorApprovalResumePromptDispatchContext,
-    codingWorkflow?: CodingWorkflowPromptDispatchContext,
   ): Promise<boolean> {
     if (!this.client) return false;
     if (foreground && (managed || !isCoordinatorForegroundPromptContext(foreground, sessionId, provenance))) {
@@ -3104,23 +3004,14 @@ function validFiniteExecutionPermissionRules(
     // Exclusive and strictly qualified: never combined with, or promoted from,
     // the managed/foreground/callback contexts; any mismatch refuses this path.
     if (approvalResume && (
-      managed || foreground || callback || codingWorkflow ||
+      managed || foreground || callback ||
       !isCoordinatorApprovalResumePromptContext(approvalResume, sessionId, provenance)
-    )) {
-      return false;
-    }
-    // Same exclusivity for the Coding Workflow adapter: its own distinct kind,
-    // fixed provenance shape, and no other typed context alongside it.
-    if (codingWorkflow && (
-      managed || foreground || callback || approvalResume ||
-      !isCodingWorkflowPromptContext(codingWorkflow, sessionId, provenance)
     )) {
       return false;
     }
     if (callback && (
       managed || foreground || callback.kind !== 'coordinator_callback_v1' ||
       typeof callback.validate !== 'function' || !provenance ||
-      (callback.onPrepared !== undefined && typeof callback.onPrepared !== 'function') ||
       provenance.sdkSessionId !== sessionId || provenance.routeAuthed != null ||
       !isCoordinatorCallbackProvenance(provenance)
     )) {
@@ -3217,32 +3108,16 @@ function validFiniteExecutionPermissionRules(
         return false;
       }
     }
-    let workflowMessageID: string | undefined;
-    if (codingWorkflow) {
-      try {
-        if ((await codingWorkflow.validate({ phase: 'prepare' })) !== true) return false;
-        // The engine generates this id; it becomes the exact persisted native
-        // user-message identity. No mint = no request (never a late heuristic link).
-        workflowMessageID = await this.mintPromptAnchor(sessionId, directory) ?? undefined;
-        if (!workflowMessageID) return false;
-      } catch {
-        return false;
-      }
-    }
     if (callback && !managed && !foreground && !approvalResume) {
       // The exact durable child callback has routeAuthed null, so the optional
       // Dayflow anchor below never applies to it. When a Dayflow receiver is
       // active for this root, its real native user-message id must exist
       // before the SDK request: a missing anchor holds (the provider guard may
       // not guess a binding from a later oldest-unlinked heuristic).
-      // A bound workflow callback always needs its real anchor (charged root
-      // turn), receiver or not; the same id also serves a Dayflow binding.
-      const anchor = callback.onPrepared
-        ? (await this.mintPromptAnchor(sessionId, directory).catch(() => null)) ?? 'missing'
-        : await this.mintCallbackDayflowAnchor(sessionId, directory);
+      const anchor = await this.mintCallbackDayflowAnchor(sessionId, directory);
       if (anchor === 'missing') return false;
       dayflowMessageID = anchor ?? undefined;
-    } else if (!managed && !approvalResume && !codingWorkflow) {
+    } else if (!managed && !approvalResume) {
       dayflowMessageID = await this.maybeMintDayflowPromptAnchor(
         sessionId,
         directory,
@@ -3261,7 +3136,7 @@ function validFiniteExecutionPermissionRules(
         model,
         parts: sdkParts,
         ...(opts ?? {}),
-        ...(managedMessageID ? { messageID: managedMessageID } : foregroundMessageID ? { messageID: foregroundMessageID } : approvalMessageID ? { messageID: approvalMessageID } : workflowMessageID ? { messageID: workflowMessageID } : dayflowMessageID ? { messageID: dayflowMessageID } : {}),
+        ...(managedMessageID ? { messageID: managedMessageID } : foregroundMessageID ? { messageID: foregroundMessageID } : approvalMessageID ? { messageID: approvalMessageID } : dayflowMessageID ? { messageID: dayflowMessageID } : {}),
       },
       ...(directory ? { query: { directory } } : {}),
     };
@@ -3323,68 +3198,9 @@ function validFiniteExecutionPermissionRules(
         return false;
       }
     }
-    if (!dispatchId && codingWorkflow) {
-      try {
-        // The exact row, carrying the SAME native user-message id the SDK body
-        // carries, is durable BEFORE exposure; a write failure is a closed hold.
-        dispatchId = modelProvenanceRepo.insert({
-          ...provenance!,
-          sdkUserMessageId: workflowMessageID!,
-        }).id;
-      } catch {
-        return false;
-      }
-      let prepared = false;
-      try {
-        prepared = (await codingWorkflow.validate({
-          phase: 'before_sdk', dispatchId, sdkUserMessageId: workflowMessageID!,
-        })) === true && codingWorkflow.onPrepared({ dispatchId, sdkUserMessageId: workflowMessageID! }) === true;
-      } catch {
-        prepared = false;
-      }
-      if (!prepared) {
-        settleDispatch(dispatchId, 'rejected');
-        try { codingWorkflow.onOutcome({ delivery: 'rejected', dispatchId, sdkUserMessageId: workflowMessageID! }); } catch { /* durable consumer holds */ }
-        return false;
-      }
-      // The durable prepared receipt is deliberately synchronous; marker
-      // enrollment is the one owned-client await after it.  Authority is not
-      // carried across that await: 'sdk_exposure' and isCurrent re-prove it.
-      let enrolled = false;
-      try {
-        enrolled = (await codingWorkflow.enroll({
-          dispatchId,
-          sdkUserMessageId: workflowMessageID!,
-        })) === true;
-      } catch {
-        enrolled = false;
-      }
-      if (!enrolled) {
-        settleDispatch(dispatchId, 'rejected');
-        try { codingWorkflow.onOutcome({ delivery: 'rejected', dispatchId, sdkUserMessageId: workflowMessageID! }); } catch { /* durable consumer holds */ }
-        return false;
-      }
-      // ponytail: no extra 'before_sdk' here — the existing awaited
-      // 'sdk_exposure' validate + synchronous isCurrent below already re-prove
-      // authority after this await, keeping the accepted phase sequence.
-    }
     dispatchId ??= beginDispatch(dayflowMessageID && provenance
       ? { ...provenance, sdkUserMessageId: dayflowMessageID }
       : provenance);
-    if (callback?.onPrepared) {
-      // Durable pre-exposure receipt: no row/anchor or a refused hook = no SDK.
-      let prepared = false;
-      try {
-        prepared = Boolean(dispatchId && dayflowMessageID) &&
-          callback.onPrepared({ dispatchId: dispatchId!, sdkUserMessageId: dayflowMessageID! }) === true;
-      } catch {
-        prepared = false;
-      }
-      if (!prepared) {
-        settleDispatch(dispatchId, 'rejected');
-        return false;
-      }
-    }
     // Keep this immediately adjacent to the SDK exposure; `beforeDispatch`
     // and managed authority checks above may both have awaited.
     if (managed) {
@@ -3451,38 +3267,10 @@ function validFiniteExecutionPermissionRules(
       settleDispatch(dispatchId, 'rejected');
       return false;
     }
-    // Coding Workflow: the async authority re-check at SDK exposure, then the
-    // synchronous freshness proof with NO await between it and the SDK call.
-    if (codingWorkflow) {
-      let current = false;
-      try {
-        current = (await codingWorkflow.validate({
-          phase: 'sdk_exposure', dispatchId: dispatchId!, sdkUserMessageId: workflowMessageID!,
-        })) === true;
-      } catch {
-        current = false;
-      }
-      if (current) {
-        try { current = codingWorkflow.isCurrent() === true; } catch { current = false; }
-      }
-      if (!current) {
-        settleDispatch(dispatchId, 'rejected');
-        return false;
-      }
-    }
-    const exportWorkflowOutcome = (delivery: 'accepted' | 'unknown' | 'rejected'): void => {
-      if (!codingWorkflow) return;
-      try {
-        codingWorkflow.onOutcome({ delivery, dispatchId: dispatchId!, sdkUserMessageId: workflowMessageID! });
-      } catch (err) {
-        logger.warn('[OpencodeClientService] coding workflow outcome export failed:', err);
-      }
-    };
     try {
       const raw = await this.client.session.promptAsync(requestArgs);
       if (raw.error) {
         settleDispatch(dispatchId, 'rejected');
-        exportWorkflowOutcome('rejected');
         logger.error(`[OpencodeClientService] promptAsync error for ${sessionId}:`, raw.error);
         return false;
       }
@@ -3502,27 +3290,20 @@ function validFiniteExecutionPermissionRules(
         // Back-compat for older/fake SDK transports that returned a body on
         // success. The generated fork client uses the 204 branch below.
         settleDispatch(dispatchId, 'accepted');
-        exportWorkflowOutcome('accepted');
         return true;
       }
       const httpStatus = raw.response?.status;
       if (httpStatus === 204) {
         settleDispatch(dispatchId, 'accepted');
-        exportWorkflowOutcome('accepted');
         return true;
       }
       settleDispatch(dispatchId, 'rejected');
-      exportWorkflowOutcome('rejected');
       logger.warn(
         `[OpencodeClientService] promptAsync silent no-op for ${sessionId}: SDK returned neither data nor error (model may not be supported; HTTP status=${httpStatus ?? 'unknown'})`,
       );
       return false;
     } catch (err) {
-      // A thrown transport error after the request left is NOT proof it was
-      // refused: the Coding Workflow adapter keeps it `unknown`. Every other
-      // caller keeps its existing rejected settlement.
-      settleDispatch(dispatchId, codingWorkflow ? 'unknown' : 'rejected');
-      exportWorkflowOutcome('unknown');
+      settleDispatch(dispatchId, 'rejected');
       logger.error(`[OpencodeClientService] promptAsync failed for session ${sessionId}:`, err);
       return false;
     }
@@ -4964,40 +4745,6 @@ function validFiniteExecutionPermissionRules(
   }
 
   /**
-   * Strict direct-child read for exact accounting. Unlike {@link listChildren}, an
-   * absent/malformed body or any element without a usable id, parent and
-   * directory is `null` (never an authoritative empty list), and a transport
-   * or SDK error is also `null`.
-   */
-  async listChildrenStrict(
-    sdkId: string,
-    directory: string,
-  ): Promise<Array<{ id: string; parentID: string; directory: string }> | null> {
-    try {
-      const client = this.requireClient();
-      const raw = await client.session.children({
-        path: { id: sdkId },
-        query: { directory },
-      });
-      if (raw.error || !Array.isArray(raw.data)) return null;
-      const nodes: Array<{ id: string; parentID: string; directory: string }> = [];
-      for (const item of raw.data as unknown[]) {
-        if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
-        const record = item as Record<string, unknown>;
-        if (
-          typeof record.id !== 'string' || record.id.length === 0 ||
-          typeof record.parentID !== 'string' || record.parentID.length === 0 ||
-          typeof record.directory !== 'string' || record.directory.length === 0
-        ) return null;
-        nodes.push({ id: record.id, parentID: record.parentID, directory: record.directory });
-      }
-      return nodes;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
    * Strict message page for exact accounting: a response error, an absent or
    * non-array body, or any element without an `info` object carrying string
    * id/role is `null` — never silently an empty page. Cursor semantics match
@@ -5665,32 +5412,6 @@ function validFiniteExecutionPermissionRules(
       );
     }
     return raw.data === true;
-  }
-
-  /** Existing local core only: exact workflow recovery must never install or enable an MCP. */
-  async reconnectConfiguredLocalRhythmMcp(): Promise<boolean> {
-    const { readFileSync } = require('fs') as typeof import('fs');
-    const { join } = require('path') as typeof import('path');
-    const { homedir } = require('os') as typeof import('os');
-    const configPath = join(homedir(), '.config', 'opencode', 'opencode.json');
-    const read = (): string | null => {
-      if (this._removedPendingRestart.has('rhythm') || this.readMcpDeletions().has('rhythm')) return null;
-      const config = JSON.parse(readFileSync(configPath, 'utf8')).mcp?.rhythm;
-      if (!config || config.type !== 'local' || config.enabled === false || !Array.isArray(config.command) ||
-          config.command.length === 0 || config.command.some((value: unknown) => typeof value !== 'string' || !value.trim())) return null;
-      return JSON.stringify(config);
-    };
-    try {
-      const expected = read();
-      if (!expected) return false;
-      const status = (await this.listMcp()).rhythm?.status;
-      if (read() !== expected) return false;
-      if (status === 'configured') {
-        if (!(await this.reconnectMcp('rhythm')) || read() !== expected) return false;
-      } else if (status !== 'connected') return false;
-      const connected = (await this.listMcp()).rhythm?.status === 'connected';
-      return connected && read() === expected;
-    } catch { return false; }
   }
 
   /**

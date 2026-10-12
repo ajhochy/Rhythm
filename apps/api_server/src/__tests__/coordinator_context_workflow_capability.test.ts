@@ -19,14 +19,14 @@ function profile(id: string, over: Record<string, unknown> = {}) {
     allowedDelegatesJson: id === 'workflow-orchestrator' ? '["verification-gate"]' : null, ...over } as never);
 }
 
-function assemble(state: { authorized?: boolean; enrolled?: boolean } = {}) {
+function assemble(state: { authorized?: boolean } = {}) {
   const configs = new AgentConfigsRepository();
   const base = createCoordinatorConversationContextAdapters({});
   return new CoordinatorConversationContextAssembler({
     ...base,
     codingWorkflowCapability: {
       read: () => computeCodingWorkflowCapability({
-        configs, projectAuthorized: state.authorized ?? true, enrollmentAvailable: state.enrolled ?? true,
+        configs, projectAuthorized: state.authorized ?? true,
       }),
     },
   }).assemble({ conversation, now: NOW });
@@ -40,7 +40,7 @@ describe('coordinator context: coding-workflow lane capability', () => {
     profile('workflow-orchestrator'); profile('verification-gate');
     expect((await assemble()).codingWorkflow).toEqual({
       lane: 'coding_workflow', available: true, reason: null,
-      supportedChecks: ['selected_reference_summary_v1'], crossProject: 'unsupported',
+      crossProject: 'unsupported',
     });
   });
 
@@ -51,12 +51,11 @@ describe('coordinator context: coding-workflow lane capability', () => {
     });
   });
 
-  it('reports a disabled reviewer, an unauthorized project and no enrollment distinctly', async () => {
+  it('reports a disabled reviewer and an unauthorized project distinctly', async () => {
     profile('workflow-orchestrator'); profile('verification-gate', { enabled: false });
     expect((await assemble()).codingWorkflow?.reason).toBe("agent disabled: 'verification-gate'");
     db.prepare("UPDATE agent_configs SET enabled=1 WHERE id='verification-gate'").run();
     expect((await assemble({ authorized: false })).codingWorkflow?.reason).toContain('not authorized');
-    expect((await assemble({ enrolled: false })).codingWorkflow?.reason).toContain('enrollment');
   });
 
   it('an adapter cannot upgrade the fixed fields, and a throwing or malformed adapter reads unavailable', async () => {
@@ -64,8 +63,8 @@ describe('coordinator context: coding-workflow lane capability', () => {
     const run = (read: () => unknown) =>
       new CoordinatorConversationContextAssembler({ ...base, codingWorkflowCapability: { read } as never })
         .assemble({ conversation, now: NOW });
-    expect((await run(() => ({ available: true, reason: null, crossProject: 'supported', supportedChecks: ['anything'] }))).codingWorkflow)
-      .toMatchObject({ available: true, crossProject: 'unsupported', supportedChecks: ['selected_reference_summary_v1'] });
+    expect((await run(() => ({ available: true, reason: null, crossProject: 'supported' }))).codingWorkflow)
+      .toMatchObject({ available: true, crossProject: 'unsupported' });
     expect((await run(() => { throw new Error('x'); })).codingWorkflow).toMatchObject({ available: false });
     expect((await run(() => 'nope')).codingWorkflow).toMatchObject({ available: false });
   });
