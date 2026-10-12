@@ -9,7 +9,7 @@ import { opencodeClient } from './services/opencode_engine';
 import { managedChromeService } from './services/managed_chrome_service';
 import { MobilePtyProxy } from './services/mobile_pty_proxy';
 import { runAdvisoryCheck, formatStartupWarning } from './security/security_advisories';
-import { env, resolveLiveArtifactStorageDir } from './config/env';
+import { env, resolveLiveArtifactStorageDir, opencodeDataFile } from './config/env';
 import { validateHumanApprovalConfiguration } from './security/human_approval_security';
 
 // Load .env before deriving the AgentRunner transport guard below.
@@ -1592,7 +1592,7 @@ async function main() {
         const { homedir } = await import('os');
         const { join } = await import('path');
         authCredentialWatcher = new AuthCredentialWatcher({
-          path: join(homedir(), '.local', 'share', 'opencode', 'auth.json'),
+          path: opencodeDataFile('auth.json'),
           onReload: async () => {
             await opencodeClient.reloadCredentials();
           },

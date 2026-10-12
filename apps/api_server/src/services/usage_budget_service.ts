@@ -24,7 +24,7 @@ import { readFileSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { logger } from '../utils/logger';
-import { GEMINI_CODE_ASSIST_PROJECT_ID } from '../config/env';
+import { GEMINI_CODE_ASSIST_PROJECT_ID, opencodeDataFile } from '../config/env';
 import { CredentialsBridgeService } from './credentials_bridge_service';
 import { anthropicAccountsService } from './anthropic_accounts_service';
 import { openaiAccountsService, identityFromTokens } from './openai_accounts_service';
@@ -67,7 +67,7 @@ export interface UsageBudgetSnapshot {
   fetchedAt: string;
 }
 
-const AUTH_PATH = join(homedir(), '.local', 'share', 'opencode', 'auth.json');
+const AUTH_PATH = opencodeDataFile('auth.json');
 const ANTHROPIC_PROBE_MODEL = 'claude-haiku-4-5-20251001';
 const CACHE_TTL_MS = 60_000;
 const PROBE_TIMEOUT_MS = 12_000;

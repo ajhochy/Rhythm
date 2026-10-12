@@ -1,3 +1,4 @@
+import { opencodeDataFile } from '../config/env';
 import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -23,7 +24,7 @@ export class OpencodeAuthStore {
 
   constructor(authPath?: string, geminiCredsPath?: string) {
     this.authPath =
-      authPath ?? join(homedir(), '.local', 'share', 'opencode', 'auth.json');
+      authPath ?? opencodeDataFile('auth.json');
     this.geminiCredsPath =
       geminiCredsPath ?? join(homedir(), '.gemini', 'oauth_creds.json');
   }

@@ -28,7 +28,7 @@ import {
   ensureOmlxProviderConfig,
   detectAndUnloadCompetingOllamaModel,
 } from './local_omlx_provider';
-import { env, resolveWebsearchConfig } from '../config/env';
+import { env, resolveWebsearchConfig, opencodeDataFile } from '../config/env';
 import {
   clearTrustedMcpVerifier,
   initializeTrustedMcpVerifier,
@@ -2032,7 +2032,7 @@ export class OpencodeClientService {
    */
   private async restoreAuth(): Promise<void> {
     if(loadQualificationFixtureAuthority())return; // engine uses its existing broker in place; no API credential copy
-    const authPath = join(homedir(), '.local', 'share', 'opencode', 'auth.json');
+    const authPath = opencodeDataFile('auth.json');
     if (!existsSync(authPath)) return;
     try {
       const raw = readFileSync(authPath, 'utf8');

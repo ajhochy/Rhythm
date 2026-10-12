@@ -166,6 +166,7 @@ export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, human
     env.XDG_DATA_HOME=join(m.fixtureRoot,'xdg-data');
     env.XDG_CACHE_HOME=join(m.fixtureRoot,'xdg-cache');
     env.XDG_STATE_HOME=join(m.fixtureRoot,'xdg-state');
+    env.RHYTHM_API_LOG_PATH=join(m.fixtureRoot,'logs','api_server.log'); // not the user's ~/Library/Logs/Rhythm
     env.OPENCODE_TEST_HOME=join(m.fixtureRoot,'engine-home');
     env.OPENCODE_CONFIG_DIR=join(m.fixtureRoot,'opencode-config');
     env.RHYTHM_MANAGED_SKILLS_DIR=join(env.OPENCODE_CONFIG_DIR,'skills');
