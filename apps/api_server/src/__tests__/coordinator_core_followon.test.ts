@@ -63,6 +63,20 @@ describe('direct goal capture classifier', () => {
     ]) expect(ordinaryForegroundGoalCandidate(`  ${message}  `)).toBe(message);
   });
 
+  it('captures ordinary coding verbs the first list missed', () => {
+    // Live 0.18.73: "Please give selectTasks ... an optional status filter" was
+    // treated as chat, so no goal existed and no approval card could be made.
+    for (const message of [
+      'Please give selectTasks in src/selectTasks.ts an optional status filter',
+      'Add a status filter to selectTasks',
+      'Change the default timeout to 30 seconds',
+      'Refactor the importer into two modules',
+      'Rename getUser to fetchUser',
+      'Remove the unused export from utils.ts',
+      'Could you add input validation to the form?',
+    ]) expect(ordinaryForegroundGoalCandidate(message)).toBe(message);
+  });
+
   it('keeps questions, status requests, explanations and greetings as chat', () => {
     for (const message of [
       'How do I fix the login bug?',
