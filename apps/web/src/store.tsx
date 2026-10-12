@@ -790,7 +790,12 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
         sessionSocketRef.current?.send({ v: 1, type: 'session.subscribe', id });
         if (pendingSessionRef.current.id === id && pendingSessionRef.current.sdkSessionId) rehydratePendingPermission(id);
       }
-      void requestReconcile().catch(onError);
+      // A successful automatic reconcile ends the outage onError reported; only the
+      // manual Reconnect cleared it, so a runtime restart left "unavailable" over a
+      // live bridge. Other errors (a failed reply, a missing session) stay.
+      void requestReconcile().then(() => {
+        if (active) setLiveSessionError((current) => current === 'Session service unavailable' ? null : current);
+      }).catch(onError);
     };
     sessionSocketRef.current = sessionGateway.connect(onEvent, onError, () => {
       onReconnect();
