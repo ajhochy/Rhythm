@@ -48,7 +48,8 @@ export function hasAccounts() {
 /** Resolve {account, fallback} for a request. sessionId may be undefined (non-session calls). */
 export function resolveForSession(sessionId) {
     const store = readStore();
-    let override = sessionId ? overrides.get(sessionId) : undefined;
+    const pinned = !!sessionId && store.pinned?.[sessionId] === true;
+    let override = sessionId && !pinned ? overrides.get(sessionId) : undefined;
     if (override && cache.mtimeMs > override.storeMtimeMs) {
         // Store file rewritten since the spillover → file routing wins.
         overrides.delete(sessionId);
@@ -60,8 +61,10 @@ export function resolveForSession(sessionId) {
     const wantedId = override?.accountId ||
         (sessionId && store.routing?.[sessionId]) ||
         store.defaultAccountId;
-    const account = usable.find((a) => a.id === wantedId) ?? usable[0];
-    const fallback = usable.find((a) => a.id !== account.id);
+    const account = usable.find((a) => a.id === wantedId) ?? (pinned ? undefined : usable[0]);
+    if (!account)
+        return { account: undefined, fallback: undefined };
+    const fallback = pinned ? undefined : usable.find((a) => a.id !== account.id);
     return { account, fallback };
 }
 

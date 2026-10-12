@@ -107,6 +107,14 @@ try {
       if (restore) void restore().then((restored) => restored ? onAuthenticated(restored) : renderSignIn()).catch(renderSignIn);
       else renderSignIn();
     }
+  } else if (gatewayMode === 'live' && testOnlyToken && apiBase) {
+    // TEST-ONLY: name the token's user so user-scoped surfaces (the Rhythm
+    // Coordinator entry) work in a browser against an isolated sandbox.
+    void fetch(`${apiBase.replace(/\/$/, '')}/auth/me`, { headers: { authorization: `Bearer ${testOnlyToken}` } })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { user?: AuthUser } | null) => renderGateway(testOnlyToken, body?.user))
+      .catch(() => renderGateway(testOnlyToken))
+      .catch(renderStartupError);
   } else {
     renderGateway(testOnlyToken);
   }

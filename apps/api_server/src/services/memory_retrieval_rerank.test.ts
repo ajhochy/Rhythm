@@ -101,7 +101,7 @@ describe('memory_ranking rerank integration', () => {
     expect(listDecisions({ feature: 'memory_ranking' })).toHaveLength(0);
   });
 
-  it('on: reorders and admits a zero-overlap memory, with rerank provenance', async () => {
+  it('on: rejects zero-overlap memory despite high rerank confidence, with accepted rerank provenance', async () => {
     setMode('on');
     const client = fakeClient([['Teenagers', 0.92], ['Sunday evenings', 0.7], ['budget', 0.2]]);
     setRerankClientForTests(client);
@@ -110,14 +110,14 @@ describe('memory_ranking rerank integration', () => {
 
     expect(getRelevant).toHaveBeenCalledWith(QUERY, 1, 20); // wider pool
     expect(client.calls).toHaveLength(1); // single batch
-    expect(preface.memoryIds).toEqual(['sem', 'lex']);
-    expect(preface.items[0]).toMatchObject({ memoryId: 'sem', lane: 'rerank', score: 0.92, confidence: 0.92 });
+    expect(preface.memoryIds).toEqual(['lex']);
+    expect(preface.items[0]).toMatchObject({ memoryId: 'lex', lane: 'rerank', score: 0.7, confidence: 0.7 });
     expect(preface.items[0].reason).toContain('reranker');
-    expect(preface.text).toContain('Teenagers gather');
+    expect(preface.text).not.toContain('Teenagers gather');
 
     const [row] = listDecisions({ feature: 'memory_ranking' });
     expect(row).toMatchObject({
-      mode: 'on', status: 'ok', applied: true, chosen: 'sem,lex', baseline: 'lex,weak',
+      mode: 'on', status: 'ok', applied: true, chosen: 'lex', baseline: 'lex,weak',
       sessionId: 's1', model: 'fake-reranker', confidence: 0.92,
     });
     expect(row.detail).toMatchObject({ candidates: 3 });
@@ -165,7 +165,7 @@ describe('memory_ranking rerank integration', () => {
     expect(preface.items.every((i) => i.lane === 'fts')).toBe(true);
     const [row] = listDecisions({ feature: 'memory_ranking' });
     expect(row).toMatchObject({
-      mode: 'shadow', status: 'ok', applied: false, chosen: 'sem,lex', baseline: 'lex,weak', confidence: 0.95,
+      mode: 'shadow', status: 'ok', applied: false, chosen: 'lex', baseline: 'lex,weak', confidence: 0.95,
     });
   });
 
@@ -227,11 +227,11 @@ describe('memory_ranking rerank integration', () => {
       engraphClient,
       linkRepository,
     });
-    expect(preface.memoryIds).toEqual(['eg-mine']);
+    expect(preface.memoryIds).toEqual([]); // rank-only candidates still need displayed overlap
     expect(preface.semanticStatus).toBe('used');
     expect(client.calls[0].documents.join('\n')).not.toContain('OTHER-USER');
     const [row] = listDecisions({ feature: 'memory_ranking' });
-    expect(row).toMatchObject({ applied: true, chosen: 'eg-mine', baseline: '' });
+    expect(row).toMatchObject({ applied: true, chosen: '', baseline: '' });
   });
 
   it('uses a bounded native rank-only query while preserving the original FTS and reranker query', async () => {

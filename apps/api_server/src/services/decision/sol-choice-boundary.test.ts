@@ -7,7 +7,7 @@ import { runMigrations } from '../../database/migrations';
 import { setDb } from '../../database/db';
 import { listDecisions } from './decision_log';
 import { resetDecisionSettingsCacheForTests } from './decision_settings';
-import { routeTurnTier } from './model_router';
+import { routeTurnTier, waitForShadowRoutingForTests } from './model_router';
 import type { ChoiceClient } from './systemone_client';
 // Routing inputs are real; only the out-of-scope catalog can never run/network.
 vi.mock('./model_catalog', () => ({ routeModelForTier: async () => { throw new Error('unexpected downstream catalog'); } }));
@@ -25,7 +25,8 @@ beforeEach(() => {
   resetDecisionSettingsCacheForTests();
   db = new Database(':memory:'); runMigrations(db); prev = setDb(db);
 });
-afterEach(() => {
+afterEach(async () => {
+  await waitForShadowRoutingForTests();
   setDb(prev); db.close();
   for (const k of keys) saved[k] === undefined ? delete process.env[k] : process.env[k] = saved[k];
   resetDecisionSettingsCacheForTests(); rmSync(dir, { recursive: true, force: true });
@@ -47,7 +48,8 @@ describe('Sol actual ChoiceClient boundary', () => {
     it(name + ' must be held in ' + modeOverride, async () => {
         db.exec('DELETE FROM agent_decision_log');
         const result = await routeTurnTier({ ...baseline, modeOverride, choiceClient: client(over) });
-        expect(result).toMatchObject({ tier: null, applied: false, reason: 'error' });
+        expect(result).toMatchObject({ tier: null, applied: false, reason: modeOverride === 'shadow' ? 'shadow' : 'error' });
+        await waitForShadowRoutingForTests();
         const row = listDecisions()[0];
         expect(row).toMatchObject({ status: 'error', detail: { reason: 'malformed_response' } });
         expect(row.chosen ?? null).toBeNull();
@@ -57,7 +59,9 @@ describe('Sol actual ChoiceClient boundary', () => {
   for (const extra of [9, NaN]) {
     it(`unknown extra ${extra} cannot affect required-tier margin`, async () => {
       const result = await routeTurnTier({ ...baseline, modeOverride: 'shadow', choiceClient: client({ probabilities: { ...normal.probabilities, unknown: extra } }) });
-      expect(result).toMatchObject({ tier: null, applied: false, reason: 'shadow', confidence: 0.8 });
+      expect(result).toMatchObject({ tier: null, applied: false, reason: 'shadow' });
+      await waitForShadowRoutingForTests();
+      expect(listDecisions()[0].confidence).toBe(0.8);
       expect(listDecisions()[0].detail.margin).toBeCloseTo(0.65);
       expect(listDecisions()[0].detail.scores).toEqual(normal.probabilities);
     });
@@ -73,6 +77,7 @@ describe('Sol actual ChoiceClient boundary', () => {
     writeFileSync(process.env.RHYTHM_DECISION_ROUTER_FILE!, JSON.stringify({ backend: 'systemone', routing: { lowConfidenceTier: 'keep' } }));
     resetDecisionSettingsCacheForTests(); db.exec('DELETE FROM agent_decision_log');
     expect(await routeTurnTier({ ...baseline, modeOverride: 'shadow', choiceClient: client({ confidence: 0.4, probabilities: { cheap: 0.3, standard: 0.3, frontier: 0.4 } }) })).toMatchObject({ tier: null, applied: false, reason: 'shadow' });
+    await waitForShadowRoutingForTests();
     expect(listDecisions()[0].chosen).toBe('frontier');
   });
   it('explicit Astra session pin never calls classifier', async () => {

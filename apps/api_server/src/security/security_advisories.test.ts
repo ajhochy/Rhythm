@@ -10,6 +10,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+const { finishFixture } = require('../__tests__/helpers/preserved_fixture.cjs');
 import {
   checkAdvisories,
   loadAdvisories,
@@ -59,7 +60,7 @@ describe('checkAdvisories (#877)', () => {
   });
 
   afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
+    finishFixture(tempDir, () => rmSync(tempDir, { recursive: true, force: true }));
   });
 
   it('matches when an installed version exactly matches an advisory version', () => {

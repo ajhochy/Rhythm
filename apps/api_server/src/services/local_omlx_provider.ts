@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { logger } from '../utils/logger';
-import { env } from '../config/env';
+import { env, opencodeConfigFile } from '../config/env';
 
 /**
  * Minimal local mirror of opencode's `permission` config shape (see
@@ -144,7 +144,7 @@ export function ensureOmlxProviderConfig(opts?: {
   }
 
   const configPath =
-    opts?.configPath ?? join(homedir(), '.config', 'opencode', 'opencode.json');
+    opts?.configPath ?? opencodeConfigFile();
 
   let parsed: Record<string, unknown> = {};
   if (existsSync(configPath)) {

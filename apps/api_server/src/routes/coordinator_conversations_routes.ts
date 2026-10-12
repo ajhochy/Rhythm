@@ -30,6 +30,8 @@ export function createCoordinatorConversationsRouter(
   router.post('/status', (req, res, next) => void controller.status(req, res, next));
   router.post('/message', (req, res, next) => void controller.message(req, res, next));
   router.post('/history', (req, res, next) => controller.history(req, res, next));
+  router.post('/runs', (req, res, next) => void controller.runs(req, res, next));
+  router.post('/runs/cancel', (req, res, next) => void controller.cancelRun(req, res, next));
   router.post('/goals', (req, res, next) => controller.addGoal(req, res, next));
   router.post('/prepare-plan', (req, res, next) => void controller.preparePlan(req, res, next));
   router.post('/continue-plan', (req, res, next) => void controller.continuePlan(req, res, next));

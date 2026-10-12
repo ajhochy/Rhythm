@@ -178,7 +178,9 @@ export class AgentApprovalsRepository {
                WHEN session_id IS NOT NULL THEN ?
                ELSE NULL
              END
-         WHERE id = ? AND status = 'pending' AND decision_nonce = ?`,
+         WHERE id = ? AND status = 'pending' AND decision_nonce = ?
+           -- An expired card can still be rejected, never approved (expires_at is toISOString, so text order is time order).
+           AND (? <> 'approved' OR expires_at IS NULL OR expires_at > ?)`,
       )
       .run(
         status,
@@ -187,6 +189,8 @@ export class AgentApprovalsRepository {
         new Date().toISOString(),
         id,
         decisionNonce,
+        status,
+        new Date().toISOString(),
       );
     if (updated.changes !== 1) return null;
 

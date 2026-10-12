@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useGateway } from '../../gateway/context';
-import { createGenerationGuard, type RouterCatalogModel, type RouterConfig, type RouterTier } from '../../gateway/sessions';
+import { createGenerationGuard, type GridCategory, type RouterCatalogModel, type RouterConfig, type RouterGridInput, type RouterGridView, type RouterTier } from '../../gateway/sessions';
 import { Icon } from '../../icons';
 import type { BrowserColumn, ColumnItem } from '../ColumnBrowser';
 import { useSelectedId } from '../ListInspector';
+import { GridAccountsPanel, GridCategoryPanel, GridEnginePanel, GridLastDecisionPanel } from './GridRouting';
+import { GRID_CATEGORIES, gridEngineState, priceLabel } from './gridPolicy';
 import { RouterSettingsPanel } from './RouterSettingsPanel';
 import { TIERS, buildCatalogInput, effectiveTier, formatContext, formatUsd, isEnabled, modelKey, parseThresholds, toCatalogDraft, type CatalogDraft } from './routerCatalog';
 
 // Agent settings → Model routing, laid out like the Skills/Profiles editor:
 // sections → routing groups → models (searchable, sortable) → model inspector.
+// Grid groups edit router-grid.json (GET/PUT /agent-decisions/grid), the policy the Grid engine reads.
+// Legacy groups are the price-band router; price is never a capability ranking.
 // Model edits save immediately (PUT /agent-decisions/config merges partial bodies);
 // "Enabled" writes Models curation (PATCH /agent-models/visibility), the router's gate.
 
@@ -17,6 +21,9 @@ export const NO_CURATED_MODELS = 'No models are enabled in Models curation — t
 export const NOT_ENABLED_LABEL = 'Not enabled in Models curation';
 
 const GROUP_BACKEND = 'backend';
+const GROUP_GRID_ENGINE = 'grid:engine';
+const GROUP_GRID_LAST = 'grid:last';
+const GROUP_GRID_ACCOUNTS = 'grid:accounts';
 const GROUP_THRESHOLDS = 'thresholds';
 const SORTS = [
   { id: 'name', label: 'Name A→Z' },
@@ -67,6 +74,8 @@ export function useModelRouting({ active, onOpenCuration }: { active: boolean; o
   const gateway = useGateway();
   const sessions = gateway.domains.sessions;
   const [config, setConfig] = useState<RouterConfig | null>(null);
+  const [grid, setGrid] = useState<RouterGridView | null>(null);
+  const [gridError, setGridError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [groupId, setGroupId] = useSelectedId('settingsItem');
   const [modelId, setModelId] = useSelectedId('settingsModel');
@@ -85,7 +94,18 @@ export function useModelRouting({ active, onOpenCuration }: { active: boolean; o
     } catch (err) {
       if (guard.current.isCurrent(token)) setLoadError(err instanceof Error ? err.message : 'Router settings unavailable');
     }
+    if (!sessions.getRouterGrid) return;
+    try {
+      const next = await sessions.getRouterGrid();
+      if (guard.current.isCurrent(token)) { setGrid(next); setGridError(''); }
+    } catch (err) {
+      if (guard.current.isCurrent(token)) setGridError(err instanceof Error ? err.message : 'Grid policy unavailable');
+    }
   }, [sessions]);
+  const saveGrid = async (input: RouterGridInput) => {
+    if (!sessions?.saveRouterGrid) throw new Error('Grid policy editing needs the local agent service');
+    setGrid(await sessions.saveRouterGrid(input));
+  };
   useEffect(() => { if (active) void load(); }, [active, load]);
 
   const catalog = config?.catalog ?? null;
@@ -123,19 +143,31 @@ export function useModelRouting({ active, onOpenCuration }: { active: boolean; o
     const count = (list: RouterCatalogModel[]) => String(list.length);
     const providers = [...new Set(models.map((m) => m.providerID))].sort();
     const tiers = catalog?.tiers;
-    const groups: ColumnItem[] = [
-      { id: GROUP_BACKEND, title: 'Router backend', subtitle: config.effective ? `${config.effective.backend} · ${config.effective.model}` : config.backend, testId: 'router-group-backend' },
-      { id: GROUP_THRESHOLDS, title: 'Tier thresholds', subtitle: tiers ? `${tiers.mode === 'manual' ? 'Manual' : 'Auto'} · cheap ≤ ${formatUsd(tiers.cheapMaxOutputUsd)} · frontier ≥ ${formatUsd(tiers.frontierMinOutputUsd)}` : 'Catalog unavailable', testId: 'router-group-thresholds' },
-      ...(models.length ? [
-        { id: 'all', title: 'All models', badge: count(models), group: 'Models', testId: 'router-group-all' },
-        { id: 'routable', title: 'Routable', subtitle: 'Enabled and not excluded', badge: count(models.filter(routable)), group: 'Models', testId: 'router-group-routable' },
-        ...TIERS.map((tier) => ({ id: `tier:${tier}`, title: title(tier), badge: count(groupModels(`tier:${tier}`, models)), group: 'By tier', testId: `router-group-tier-${tier}` })),
-        ...providers.map((provider) => ({ id: `provider:${provider}`, title: provider, badge: count(groupModels(`provider:${provider}`, models)), group: 'By provider', testId: `router-group-provider-${provider}` })),
-        { id: 'excluded', title: 'Excluded', badge: count(groupModels('excluded', models)), group: 'Needs attention', testId: 'router-group-excluded' },
-        { id: 'disabled', title: 'Not enabled', subtitle: 'Off in Models curation', badge: count(groupModels('disabled', models)), group: 'Needs attention', testId: 'router-group-disabled' },
+    const engine = gridEngineState(config);
+    const gridGroups: ColumnItem[] = [
+      { id: GROUP_GRID_ENGINE, title: 'Engine & classifier', subtitle: engine.summary, group: 'Model routing', testId: 'router-group-grid-engine' },
+      { id: GROUP_GRID_LAST, title: 'Last decision', subtitle: 'Requested vs served, account, reason', group: 'Model routing', testId: 'router-group-grid-last' },
+      ...(grid ? [
+        ...GRID_CATEGORIES.map((c) => ({ id: `grid:${c}`, title: title(c), subtitle: grid.aliases[c] ? `Same as ${grid.aliases[c]}` : '4 difficulties · ordered candidates', group: 'Grid policy', testId: `router-group-grid-${c}` })),
+        { id: GROUP_GRID_ACCOUNTS, title: 'Accounts & exhaustion', subtitle: `Automatic vs pinned · reserve ${grid.reserve_pct}%`, group: 'Grid policy', testId: 'router-group-grid-accounts' },
       ] : []),
     ];
-    const selectedGroup = groups.some((g) => g.id === groupId) ? groupId! : models.length ? 'all' : GROUP_BACKEND;
+    const live = (id: string) => models.length ? groupModels(id, models) : [];
+    const groups: ColumnItem[] = [
+      ...gridGroups,
+      ...(models.length ? [
+        { id: 'all', title: 'All models', badge: count(models), group: 'Live models (both engines)', testId: 'router-group-all' },
+        { id: 'routable', title: 'Routable', subtitle: 'Enabled and not excluded', badge: count(models.filter(routable)), group: 'Live models (both engines)', testId: 'router-group-routable' },
+        ...providers.map((provider) => ({ id: `provider:${provider}`, title: provider, badge: count(live(`provider:${provider}`)), group: 'By provider', testId: `router-group-provider-${provider}` })),
+        { id: 'excluded', title: 'Excluded', badge: count(live('excluded')), group: 'Needs attention', testId: 'router-group-excluded' },
+        { id: 'disabled', title: 'Not enabled', subtitle: 'Off in Models curation', badge: count(live('disabled')), group: 'Needs attention', testId: 'router-group-disabled' },
+      ] : []),
+      // Legacy engine only: price bands, not capability. Grid ignores these.
+      { id: GROUP_THRESHOLDS, group: 'Legacy engine · price bands', title: 'Tier thresholds', subtitle: tiers ? `${tiers.mode === 'manual' ? 'Manual' : 'Auto'} · cheap ≤ ${formatUsd(tiers.cheapMaxOutputUsd)} · frontier ≥ ${formatUsd(tiers.frontierMinOutputUsd)}` : 'Catalog unavailable', testId: 'router-group-thresholds' },
+      ...(models.length ? TIERS.map((tier) => ({ id: `tier:${tier}`, title: title(tier), badge: count(live(`tier:${tier}`)), group: 'Legacy engine · price bands', testId: `router-group-tier-${tier}` })) : []),
+      { id: GROUP_BACKEND, title: 'Reranker backend', subtitle: `Tools, memory & legacy classifier · ${config.effective ? `${config.effective.backend} · ${config.effective.model}` : config.backend}`, group: 'Tool & memory reranker', testId: 'router-group-backend' },
+    ];
+    const selectedGroup = groups.some((g) => g.id === groupId) ? groupId! : GROUP_GRID_ENGINE;
     const curatedCount = catalog?.curatedCount ?? models.filter(isEnabled).length;
     const groupColumn: BrowserColumn = {
       kind: 'list', key: 'items', label: 'Model routing', testId: 'settings-column-items', items: groups,
@@ -150,7 +182,19 @@ export function useModelRouting({ active, onOpenCuration }: { active: boolean; o
       </div>,
     };
 
-    if (selectedGroup === GROUP_BACKEND) return [groupColumn, panel('inspector', 'Router backend', <RouterSettingsPanel onSaved={setConfig} />)];
+    if (selectedGroup.startsWith('grid:')) {
+      if (selectedGroup === GROUP_GRID_LAST) return [groupColumn, panel('inspector', 'Last decision', <GridLastDecisionPanel />)];
+      if (!grid) return [groupColumn, panel('inspector', 'Grid policy', gridError
+        ? <p role="alert" data-testid="grid-policy-error">{gridError} <button className="secondary-button" type="button" onClick={() => void load()}>Retry</button></p>
+        : <p className="router-settings-note" role="status">Loading Grid policy…</p>)];
+      const gridNotice = grid.source === 'defaults_after_invalid_file'
+        ? <p role="alert" className="router-catalog-error" data-testid="grid-policy-invalid">router-grid.json is invalid ({grid.invalidReason}); the router is using built-in defaults.</p> : null;
+      if (selectedGroup === GROUP_GRID_ENGINE) return [groupColumn, panel('inspector', 'Engine & classifier', <>{gridNotice}<GridEnginePanel config={config} grid={grid} onConfig={setConfig} save={saveGrid} /></>)];
+      if (selectedGroup === GROUP_GRID_ACCOUNTS) return [groupColumn, panel('inspector', 'Accounts & exhaustion', <>{gridNotice}<GridAccountsPanel grid={grid} save={saveGrid} /></>)];
+      const category = selectedGroup.slice(5) as GridCategory;
+      return [groupColumn, panel('inspector', title(category), <>{gridNotice}<GridCategoryPanel category={category} grid={grid} catalog={models} save={saveGrid} /></>)];
+    }
+    if (selectedGroup === GROUP_BACKEND) return [groupColumn, panel('inspector', 'Reranker backend', <RouterSettingsPanel onSaved={setConfig} />)];
     if (selectedGroup === GROUP_THRESHOLDS) return [groupColumn, panel('inspector', 'Tier thresholds', <RouterThresholds config={config} onSaved={setConfig} />)];
 
     const query = search.trim().toLowerCase();
@@ -161,7 +205,7 @@ export function useModelRouting({ active, onOpenCuration }: { active: boolean; o
       kind: 'list', key: 'models', label: groups.find((g) => g.id === selectedGroup)?.title ?? 'Models', testId: 'settings-column-models', stackedRows: true,
       resizeKey: 'layout.agent-settings.router-models',
       items: shown.map((m) => ({
-        id: modelKey(m), title: m.name, subtitle: `${m.providerID} · ${formatUsd(m.costOutputUsd)}/M out`,
+        id: modelKey(m), title: m.name, subtitle: `${m.providerID} · ${priceLabel(m.costOutputUsd)} out`,
         badge: !isEnabled(m) ? 'Not enabled' : m.excluded ? 'Excluded' : m.tier, muted: !routable(m), testId: `router-model-row-${modelKey(m)}`,
       })),
       selectedId: selectedModel ? modelKey(selectedModel) : null, onSelect: setModelId,
@@ -176,7 +220,7 @@ export function useModelRouting({ active, onOpenCuration }: { active: boolean; o
       : <p className="router-settings-note">Select a model.</p>)];
   };
 
-  return { columns, subtitle: config?.catalog ? `${config.catalog.curatedCount ?? config.catalog.models.filter(isEnabled).length} routable · ${config.effective?.backend ?? config.backend}` : undefined };
+  return { columns, subtitle: config ? `${gridEngineState(config).summary}${config.catalog ? ` · ${config.catalog.curatedCount ?? config.catalog.models.filter(isEnabled).length} routable` : ''}` : undefined };
 }
 
 function ModelInspector({ model, pending, error, canToggleCuration, onSave, onEnabled }: {
@@ -193,7 +237,7 @@ function ModelInspector({ model, pending, error, canToggleCuration, onSave, onEn
     <label className="router-model-switch"><input type="checkbox" role="switch" checked={enabled} disabled={pending || !canToggleCuration} onChange={(event) => onEnabled(event.target.checked)} data-testid={`router-model-enabled-${key}`} aria-label={`Enable ${model.name} in Models curation`} /><span><strong>Enabled in Models curation</strong><small>Shown in model pickers and eligible for routing.</small></span></label>
     <label className="router-model-switch"><input type="checkbox" role="switch" checked={enabled && model.excluded} disabled={pending || !enabled} onChange={(event) => onSave({ excluded: event.target.checked })} data-testid={`router-model-exclude-${key}`} aria-label={`Exclude ${model.name}`} /><span><strong>Exclude from routing</strong><small>Still selectable by hand; the router never picks it.</small></span></label>
     <div className="router-model-tier">
-      <label>Tier
+      <label>Legacy price band
         <select value={model.tier} disabled={pending || !enabled} onChange={(event) => onSave({ tier: event.target.value as RouterTier })} data-testid={`router-model-tier-${key}`} aria-label={`Tier for ${model.name}`}>
           {TIERS.map((tier) => <option key={tier} value={tier}>{tier}</option>)}
         </select>
@@ -202,8 +246,9 @@ function ModelInspector({ model, pending, error, canToggleCuration, onSave, onEn
       {enabled && model.tierSource === 'override' && <button className="secondary-button" type="button" disabled={pending} onClick={() => onSave({ tier: 'derived' })} data-testid={`router-model-reset-${key}`} aria-label={`Reset ${model.name} to derived tier`}>Reset to derived</button>}
     </div>
     <dl className="router-catalog-facts">
-      <div><dt>Output</dt><dd>{formatUsd(model.costOutputUsd)}/M</dd></div>
-      <div><dt>Input</dt><dd>{formatUsd(model.costInputUsd)}/M</dd></div>
+      <div><dt>Output</dt><dd>{priceLabel(model.costOutputUsd)}</dd></div>
+      <div><dt>Input</dt><dd>{priceLabel(model.costInputUsd)}</dd></div>
+      {model.variants?.length ? <div><dt>Effort variants</dt><dd>{model.variants.join(', ')}</dd></div> : null}
       <div><dt>Released</dt><dd>{model.releaseDate || '—'}</dd></div>
       <div><dt>Context</dt><dd>{formatContext(model.contextLimit)}</dd></div>
       {model.family && <div><dt>Family</dt><dd>{model.family}</dd></div>}

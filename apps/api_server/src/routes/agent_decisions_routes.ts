@@ -8,6 +8,7 @@ import {
   updateConfigWithCatalog,
 } from '../services/decision/decision_config_service';
 import { listDecisions, summarizeDecisions } from '../services/decision/decision_log';
+import { RouterGridConfigError, lastGridDecision, routerGridView, saveRouterGridPolicy } from '../services/decision/router_grid_admin';
 
 const router = Router();
 
@@ -41,7 +42,7 @@ router.get('/config', async (_req, res) => {
 });
 
 function sendConfigError(err: unknown, res: import('express').Response): void {
-  if (err instanceof DecisionConfigError) {
+  if (err instanceof DecisionConfigError || err instanceof RouterGridConfigError) {
     res.status(400).json({ error: err.code, message: err.message });
     return;
   }
@@ -62,6 +63,17 @@ router.post('/config/test', json({ limit: '32kb' }), async (req, res) => {
   } catch (err) {
     sendConfigError(err, res);
   }
+});
+
+// Grid routing policy: the router-grid.json the Grid engine loads on every routed turn.
+router.get('/grid', async (_req, res) => {
+  try { res.json(await routerGridView()); } catch (err) { sendConfigError(err, res); }
+});
+router.put('/grid', json({ limit: '256kb' }), async (req, res) => {
+  try { res.json(await saveRouterGridPolicy(req.body)); } catch (err) { sendConfigError(err, res); }
+});
+router.get('/grid/last-decision', (_req, res) => {
+  try { res.json({ decision: lastGridDecision() }); } catch (err) { sendConfigError(err, res); }
 });
 
 export default router;

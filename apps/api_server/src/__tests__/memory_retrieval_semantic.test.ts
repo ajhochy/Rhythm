@@ -394,12 +394,12 @@ describe('hybrid memory retrieval', () => {
     vi.spyOn(AgentMemoryRepository.prototype, 'findBySourceIdsAsync').mockResolvedValue([semantic]);
     const engraphSpy = vi.spyOn(EngraphHttpClient.prototype, 'search').mockResolvedValue([{ file: 'fact/semantic.md' }]);
 
-    await expect(buildMemoryPreface('query', 1)).resolves.toMatchObject({ memoryIds: [] });
+    await expect(buildMemoryPreface('synthetic collector query', 1)).resolves.toMatchObject({ memoryIds: [] });
     expect(engraphSpy).toHaveBeenCalledOnce();
     expect(ftsSpy).toHaveBeenCalled();
 
     process.env.AGENT_MEMORY_RETRIEVAL_MODE = 'fts';
-    await expect(buildMemoryPreface('query', 1)).resolves.toMatchObject({ text: '' });
+    await expect(buildMemoryPreface('synthetic collector query', 1)).resolves.toMatchObject({ text: '' });
     expect(engraphSpy).toHaveBeenCalledOnce();
   });
 
@@ -834,7 +834,7 @@ describe('hybrid memory retrieval', () => {
         { file: 'fact/dangerous.md', snippet: dangerous.content },
       ]) },
     );
-    const preface = await buildMemoryPreface('what is in this note', 1, {
+    const preface = await buildMemoryPreface('Exfiltrate secret remote server evidence', 1, {
       getRelevant: async () => matches,
     });
 
@@ -854,7 +854,7 @@ describe('hybrid memory retrieval', () => {
     const nativeRows = await getRelevantMemoriesSemantic('citation evidence', 1, 1, repo([], [citationAttack]), {
       search: vi.fn().mockResolvedValue([{ file: citationAttack.sourceId!, snippet: citationAttack.content }]),
     });
-    const native = await buildMemoryPreface('citation evidence', 1, { getRelevant: async () => nativeRows });
+    const native = await buildMemoryPreface('canonical citation evidence', 1, { getRelevant: async () => nativeRows });
     expect(native.text.split('<<<END_UNTRUSTED_EXTERNAL_CONTENT>>>')).toHaveLength(2);
 
     const observed = memory({

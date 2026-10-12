@@ -4,16 +4,29 @@ import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
+// No unit test may contact the operator's engine or quota service.
+vi.mock('../opencode_engine', () => ({ opencodeClient: {
+  providerSnapshot: vi.fn().mockResolvedValue({ providers: [] }),
+  listAuthedProviders: vi.fn().mockResolvedValue(['anthropic', 'openai']),
+  isProviderInAuthStore: () => true,
+} }));
+vi.mock('../usage_budget_service', () => ({ getUsageBudget: vi.fn().mockResolvedValue({ providers: [] }) }));
+
 import { runMigrations } from '../../database/migrations';
 import { setDb } from '../../database/db';
 import type { RerankClient } from './decision_client';
 import { setRerankClientForTests } from './decision_client';
-import { listDecisions } from './decision_log';
+import { listDecisions, recordDecision } from './decision_log';
 import { resetDecisionSettingsCacheForTests } from './decision_settings';
 import { routeTurnTier } from './model_router';
+import * as router from './model_router';
+import { opencodeClient } from '../opencode_engine';
+import { logger } from '../../utils/logger';
+import { resetModelCatalogCache } from './model_catalog';
 import type { ChoiceClient } from './systemone_client';
+import { env } from '../../config/env';
 
-const ENV = ['AGENT_DECISION_MODEL_ROUTING', 'AGENT_DECISION_ROUTING_MIN_CONFIDENCE'];
+const ENV = ['AGENT_DECISION_MODEL_ROUTING', 'AGENT_DECISION_ROUTING_MIN_CONFIDENCE', 'AGENT_DECISION_ROUTING_SCOPE'];
 let saved: Record<string, string | undefined>;
 let savedRouterFile: string | undefined;
 let db: Database.Database;
@@ -32,11 +45,14 @@ beforeEach(() => {
   savedRouterFile = process.env.RHYTHM_DECISION_ROUTER_FILE;
   process.env.RHYTHM_DECISION_ROUTER_FILE = join(tmpdir(), 'router-test-no-settings', 'decision-router.json');
   resetDecisionSettingsCacheForTests();
+  resetModelCatalogCache();
+  delete process.env.AGENT_DECISION_ROUTING_SCOPE;
   db = new Database(':memory:');
   runMigrations(db);
   prev = setDb(db);
 });
-afterEach(() => {
+afterEach(async () => {
+  await router.waitForShadowRoutingForTests();
   for (const k of ENV) {
     if (saved[k] === undefined) delete process.env[k];
     else process.env[k] = saved[k];
@@ -50,6 +66,212 @@ afterEach(() => {
 });
 
 describe('routeTurnTier', () => {
+  it('D2 E1/E3: shadow returns before a deferred classifier and drains one detailed decision', async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const choose = vi.fn(async () => {
+      await blocked;
+      return { status: 'ok' as const, choice: 'frontier' as const, confidence: 0.8,
+        probabilities: { cheap: 0.05, standard: 0.15, frontier: 0.8 }, latencyMs: 345, model: 'kev-4b' };
+    });
+    const pending = routeTurnTier({ ...base, sessionId: 'deferred', baselineTier: 'standard',
+      baseRoute: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' }, modeOverride: 'shadow', choiceClient: { choose } as unknown as ChoiceClient });
+    try {
+      const first = await Promise.race([pending, new Promise<string>((resolve) => setTimeout(() => resolve('blocked'), 25))]);
+      expect(first).toEqual({ tier: null, applied: false, mode: 'shadow', reason: 'shadow' });
+      expect(listDecisions()).toHaveLength(0);
+    } finally {
+      release();
+      await pending;
+    }
+    await router.waitForShadowRoutingForTests();
+    expect(choose).toHaveBeenCalledTimes(1);
+    expect(listDecisions()).toHaveLength(1);
+    expect(listDecisions()[0]).toMatchObject({ mode: 'shadow', chosen: 'frontier', confidence: 0.8,
+      baseline: 'standard', applied: false, model: 'kev-4b', latencyMs: 345,
+      detail: { wouldApply: true, catalog: 'static', pickedModel: 'anthropic/claude-opus-4-7',
+        catalogLatencyMs: expect.any(Number), scores: { cheap: 0.05, standard: 0.15, frontier: 0.8 }, margin: 0.65 } });
+  });
+
+  it('D2 E2: concurrent shadow calls dedupe in-flight even for every_prompt', async () => {
+    process.env.AGENT_DECISION_ROUTING_SCOPE = 'every_prompt';
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const rerank = vi.fn(async () => { await blocked; return { status: 'ok' as const, scores: [0.1, 0.2, 0.9], latencyMs: 2, model: 'fake' }; });
+    const input = { ...base, sessionId: 'concurrent', modeOverride: 'shadow' as const, client: { rerank } };
+    const first = routeTurnTier(input);
+    const second = routeTurnTier(input);
+    try {
+      expect(await Promise.race([second, new Promise<string>((resolve) => setTimeout(() => resolve('blocked'), 25))]))
+        .toEqual({ tier: null, applied: false, mode: 'shadow', reason: 'shadow_continuation' });
+    } finally {
+      release();
+      await Promise.all([first, second]);
+    }
+    await router.waitForShadowRoutingForTests();
+    expect(rerank).toHaveBeenCalledTimes(1);
+    expect(listDecisions()).toHaveLength(1);
+    await routeTurnTier(input);
+    await router.waitForShadowRoutingForTests();
+    expect(rerank).toHaveBeenCalledTimes(2);
+    expect(listDecisions()).toHaveLength(2);
+  });
+
+  it('D2 E1: shadow does not await a deferred catalog pick', async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const snapshot = vi.spyOn(opencodeClient, 'providerSnapshot').mockImplementation(async () => { await blocked; return { providers: [] } as never; });
+    const pending = routeTurnTier({ ...base, modeOverride: 'shadow', client: fake([0.1, 0.2, 0.9]).client });
+    try {
+      expect(await Promise.race([pending, new Promise<string>((resolve) => setTimeout(() => resolve('blocked'), 25))]))
+        .toEqual({ tier: null, applied: false, mode: 'shadow', reason: 'shadow' });
+      expect(listDecisions()).toHaveLength(0);
+    } finally {
+      release();
+      await pending;
+      await router.waitForShadowRoutingForTests();
+      snapshot.mockRestore();
+    }
+    expect(listDecisions()).toHaveLength(1);
+  });
+
+  it('D2 E2/E3: sessionless shadow calls are independent and the hook waits for both', async () => {
+    const releases: Array<() => void> = [];
+    const rerank = vi.fn(async () => {
+      await new Promise<void>((resolve) => { releases.push(resolve); });
+      return { status: 'ok' as const, scores: [0.1, 0.2, 0.9], latencyMs: 2, model: 'fake' };
+    });
+    const input = { ...base, modeOverride: 'shadow' as const, client: { rerank } };
+    const calls = Promise.all([routeTurnTier(input), routeTurnTier(input)]);
+    try {
+      expect(await Promise.race([calls, new Promise<string>((resolve) => setTimeout(() => resolve('blocked'), 25))]))
+        .toEqual(Array(2).fill({ tier: null, applied: false, mode: 'shadow', reason: 'shadow' }));
+      expect(rerank).toHaveBeenCalledTimes(2);
+      let drained = false;
+      const drain = router.waitForShadowRoutingForTests().then(() => { drained = true; });
+      releases[0]();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(drained).toBe(false);
+      releases[1]();
+      await drain;
+      expect(listDecisions()).toHaveLength(2);
+    } finally { releases.forEach((release) => release()); await calls; await router.waitForShadowRoutingForTests(); }
+  });
+
+  it('D2 E4c: shadow failure cause is persisted only after the background work drains', async () => {
+    const choiceClient = { choose: async () => ({ status: 'error', reason: 'request_failed', cause: 'ECONNREFUSED', latencyMs: 25 }) } as unknown as ChoiceClient;
+    expect(await routeTurnTier({ ...base, modeOverride: 'shadow', choiceClient }))
+      .toEqual({ tier: null, applied: false, mode: 'shadow', reason: 'shadow' });
+    await router.waitForShadowRoutingForTests();
+    expect(listDecisions()).toHaveLength(1);
+    expect(listDecisions()[0]).toMatchObject({ status: 'error', applied: false, latencyMs: 25,
+      detail: { reason: 'request_failed', requestedSource: 'agent_default', cause: 'ECONNREFUSED' } });
+  });
+
+  it('D2 E4c: thrown background classifier warns without exposing the body or rejecting the caller', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(await routeTurnTier({ ...base, sessionId: 'failed-work', modeOverride: 'shadow', choiceClient: { choose: async () => { throw new Error('PRIVATE PROMPT/BODY'); } } }))
+        .toEqual({ tier: null, applied: false, mode: 'shadow', reason: 'shadow' });
+      await router.waitForShadowRoutingForTests();
+      expect(warn).toHaveBeenCalledWith('[model_router] shadow routing failed (non-fatal)');
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('PRIVATE');
+      // A failed observation must also release the session's in-flight guard.
+      expect(await routeTurnTier({ ...base, sessionId: 'failed-work', modeOverride: 'shadow', client: fake([0.1, 0.2, 0.9]).client }))
+        .toMatchObject({ reason: 'shadow' });
+      await router.waitForShadowRoutingForTests();
+      expect(listDecisions()).toHaveLength(1);
+    } finally { warn.mockRestore(); }
+  });
+
+  it('D2 E4d: on still waits for the classifier before applying a route', async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const pending = routeTurnTier({ ...base, modeOverride: 'on', client: { rerank: async () => {
+      await blocked; return { status: 'ok' as const, scores: [0.1, 0.2, 0.9], latencyMs: 2, model: 'fake' };
+    } } });
+    try {
+      expect(await Promise.race([pending, new Promise<string>((resolve) => setTimeout(() => resolve('blocked'), 25))])).toBe('blocked');
+      expect(listDecisions()).toHaveLength(0);
+    } finally { release(); }
+    expect(await pending).toMatchObject({ tier: 'frontier', applied: true, mode: 'on', reason: 'ok', route: expect.any(Object) });
+    expect(listDecisions()).toHaveLength(1);
+  });
+
+  it('D2 E4c: real catalog throw is warned body-free and recorded without affecting the caller', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(await routeTurnTier({ ...base, agentId: 'unknown-private-agent', modeOverride: 'shadow', client: fake([0.1, 0.2, 0.9]).client }))
+        .toEqual({ tier: null, applied: false, mode: 'shadow', reason: 'shadow' });
+      await router.waitForShadowRoutingForTests();
+      expect(warn).toHaveBeenCalledWith('[model_router] shadow catalog pick failed (non-fatal)');
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('unknown-private-agent');
+      expect(listDecisions()).toHaveLength(1);
+      expect(listDecisions()[0].detail).toMatchObject({ wouldApply: true, routeReason: 'shadow_catalog_error', catalogLatencyMs: expect.any(Number) });
+    } finally { warn.mockRestore(); }
+  });
+
+  it.each(['auto', 'agent_default'])('D1: shadow first prompt for %s classifies and logs exactly once', async (requestedSource) => {
+    const { client, rerank } = fake([0.1, 0.2, 0.9]);
+    const input = { ...base, requestedSource, sessionId: 'once', modeOverride: 'shadow' as const, client };
+    expect(await routeTurnTier(input)).toMatchObject({ tier: null, applied: false, reason: 'shadow' });
+    await router.waitForShadowRoutingForTests();
+    expect(await routeTurnTier(input)).toEqual({ tier: null, applied: false, mode: 'shadow', reason: 'shadow_continuation' });
+    expect(rerank).toHaveBeenCalledTimes(1);
+    expect(listDecisions()).toHaveLength(1);
+  });
+
+  it.each(['ok', 'timeout', 'error', 'disabled'])('D1: any prior model-routing status %s suppresses shadow continuation', async (status) => {
+    recordDecision({ feature: 'model_routing', sessionId: 'seen', mode: 'on', status, applied: false });
+    const { client, rerank } = fake([0.1, 0.2, 0.9]);
+    expect(await routeTurnTier({ ...base, sessionId: 'seen', modeOverride: 'shadow', client })).toMatchObject({ reason: 'shadow_continuation' });
+    expect(rerank).not.toHaveBeenCalled();
+    expect(listDecisions()).toHaveLength(1);
+  });
+
+  it('D1: other features and sessions do not suppress a first shadow prompt', async () => {
+    recordDecision({ feature: 'tool_ranking', sessionId: 'new', mode: 'shadow', status: 'ok', applied: false });
+    recordDecision({ feature: 'model_routing', sessionId: 'other', mode: 'shadow', status: 'ok', applied: false });
+    const { client, rerank } = fake([0.1, 0.2, 0.9]);
+    await routeTurnTier({ ...base, sessionId: 'new', modeOverride: 'shadow', client });
+    await router.waitForShadowRoutingForTests();
+    expect(rerank).toHaveBeenCalledTimes(1);
+    expect(listDecisions()).toHaveLength(3);
+  });
+
+  it('D1: decision-log read failure still classifies', async () => {
+    db.exec('DROP TABLE agent_decision_log');
+    const { client, rerank } = fake([0.1, 0.2, 0.9]);
+    expect(await routeTurnTier({ ...base, sessionId: 'unavailable', modeOverride: 'shadow', client })).toMatchObject({ reason: 'shadow', applied: false });
+    expect(rerank).toHaveBeenCalledTimes(1);
+  });
+
+  it('D1: Postgres falls back to classification even with an existing SQLite row', async () => {
+    recordDecision({ feature: 'model_routing', sessionId: 'pg', mode: 'shadow', status: 'ok', applied: false });
+    const savedClient = env.dbClient;
+    const { client, rerank } = fake([0.1, 0.2, 0.9]);
+    try {
+      env.dbClient = 'postgres';
+      expect(await routeTurnTier({ ...base, sessionId: 'pg', modeOverride: 'shadow', client })).toMatchObject({ reason: 'shadow' });
+      await router.waitForShadowRoutingForTests();
+      expect(rerank).toHaveBeenCalledTimes(1);
+    } finally {
+      env.dbClient = savedClient;
+    }
+  });
+
+  it.each(['on', 'every_prompt', 'escalate_only', 'no_session'])('D1: preserves repeated classification for %s', async (scenario) => {
+    if (scenario === 'every_prompt' || scenario === 'escalate_only') process.env.AGENT_DECISION_ROUTING_SCOPE = scenario;
+    const { client, rerank } = fake([0.1, 0.2, 0.9]);
+    const input = { ...base, modeOverride: scenario === 'on' ? 'on' as const : 'shadow' as const, client,
+      ...(scenario === 'no_session' ? {} : { sessionId: 'repeat' }) };
+    await routeTurnTier(input);
+    await router.waitForShadowRoutingForTests();
+    await routeTurnTier(input);
+    await router.waitForShadowRoutingForTests();
+    expect(rerank).toHaveBeenCalledTimes(2);
+    expect(listDecisions()).toHaveLength(2);
+  });
   it('off makes no client call', async () => {
     const { client, rerank } = fake([0.1, 0.2, 0.9]);
     const r = await routeTurnTier({ ...base, client });
@@ -57,8 +279,8 @@ describe('routeTurnTier', () => {
     expect(rerank).not.toHaveBeenCalled();
   });
 
-  it('never reroutes pinned sources', async () => {
-    process.env.AGENT_DECISION_MODEL_ROUTING = 'on';
+  it.each(['shadow', 'on'] as const)('never reroutes pinned sources in %s', async (mode) => {
+    process.env.AGENT_DECISION_MODEL_ROUTING = mode;
     const { client, rerank } = fake([0.1, 0.2, 0.9]);
     for (const requestedSource of ['turn_override', 'session', 'tier', 'agent_config']) {
       expect((await routeTurnTier({ ...base, requestedSource, client })).tier).toBeNull();
@@ -78,6 +300,7 @@ describe('routeTurnTier', () => {
     process.env.AGENT_DECISION_MODEL_ROUTING = 'shadow';
     const r = await routeTurnTier({ ...base, baselineTier: 'standard', sessionId: 's1', client: fake([0.1, 0.2, 0.9]).client });
     expect(r.tier).toBeNull();
+    await router.waitForShadowRoutingForTests();
     const rows = listDecisions();
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ feature: 'model_routing', mode: 'shadow', chosen: 'frontier', baseline: 'standard', applied: false, sessionId: 's1' });
@@ -170,12 +393,43 @@ describe('routeTurnTier with the systemone backend', () => {
     expect(row.detail).toMatchObject({ scores: probs(0.05, 0.15, 0.8) });
   });
 
-  it("low confidence routes to standard by default ('standard' policy) and logs the fallback", async () => {
-    const r = await routeTurnTier({ ...base, choiceClient: choice(probs(0.1, 0.4, 0.5)).client });
-    expect(r).toMatchObject({ tier: 'standard', applied: true, reason: 'low_confidence_fallback' });
+  it("D3: low confidence keeps a frontier baseline under the standard policy", async () => {
+    const r = await routeTurnTier({ ...base, baselineTier: 'frontier', choiceClient: choice(probs(0.1, 0.4, 0.5)).client });
+    expect(r).toMatchObject({ tier: 'frontier', applied: true, reason: 'low_confidence_fallback' });
     const [row] = listDecisions();
-    expect(row).toMatchObject({ chosen: 'standard', applied: true });
-    expect(row.detail).toMatchObject({ reason: 'low_confidence_fallback', classified: 'frontier' });
+    expect(row).toMatchObject({ chosen: 'frontier', applied: true });
+    expect(row.detail).toMatchObject({ reason: 'low_confidence_fallback', classified: 'frontier', lowConfidence: 'kept_baseline' });
+  });
+
+  it.each(['on', 'shadow'] as const)('D3: low-confidence baseline matrix in %s', async (modeOverride) => {
+    for (const baselineTier of ['frontier', 'standard', 'cheap'] as const) {
+      db.exec('DELETE FROM agent_decision_log');
+      const expected = baselineTier === 'frontier' ? 'frontier' : 'standard';
+      const r = await routeTurnTier({ ...base, baselineTier, modeOverride, choiceClient: choice(probs(0.3, 0.4, 0.3)).client });
+      expect(r).toMatchObject({ tier: modeOverride === 'on' ? expected : null, applied: modeOverride === 'on' });
+      await router.waitForShadowRoutingForTests();
+      expect(listDecisions()[0].chosen).toBe(expected);
+      if (baselineTier === 'frontier') expect(listDecisions()[0].detail.lowConfidence).toBe('kept_baseline');
+    }
+  });
+
+  it('D3: confident frontier to standard classification remains a permitted downgrade', async () => {
+    expect(await routeTurnTier({ ...base, baselineTier: 'frontier', choiceClient: choice(probs(0.1, 0.8, 0.1)).client }))
+      .toMatchObject({ tier: 'standard', applied: true, reason: 'ok' });
+    expect(listDecisions()[0].detail.lowConfidence).toBeUndefined();
+  });
+
+  it.each([
+    [{ code: 'ECONNREFUSED' }, 'ECONNREFUSED'],
+    [{ cause: { code: 'ENOTFOUND' } }, 'ENOTFOUND'],
+    [{ code: 'ETIMEDOUT' }, 'ETIMEDOUT'],
+    [{ code: 'https://secret.example/body', name: 'Error' }, 'unknown'],
+  ])('D4: request_failed records only a bounded body-free cause (%j)', async (fields, cause) => {
+    const { SystemOneClient } = await import('./systemone_client');
+    const fetchImpl = vi.fn(async () => { throw Object.assign(new Error('private URL/body must not escape'), fields); });
+    const choiceClient = new SystemOneClient({ baseUrl: 'http://127.0.0.1:1', model: 'm', consent: false, fetchImpl });
+    expect(await routeTurnTier({ ...base, choiceClient })).toMatchObject({ tier: null, applied: false, reason: 'error' });
+    expect(listDecisions()[0].detail).toEqual({ reason: 'request_failed', requestedSource: 'agent_default', cause });
   });
 
   it("'keep' leaves a low-confidence route alone", async () => {
@@ -203,6 +457,7 @@ describe('routeTurnTier with the systemone backend', () => {
     for (const p of [probs(0.9, 0.05, 0.05), probs(0.1, 0.4, 0.5)]) {
       const r = await routeTurnTier({ ...base, choiceClient: choice(p).client });
       expect(r).toMatchObject({ tier: null, applied: false, reason: 'shadow' });
+      await router.waitForShadowRoutingForTests();
     }
     expect(listDecisions().every((row) => row.applied === false)).toBe(true);
   });
@@ -218,8 +473,8 @@ describe('routeTurnTier with the systemone backend', () => {
   const okResult = (over: Record<string, unknown> = {}) => ({
     status: 'ok', choice: 'frontier', confidence: 0.8, probabilities: probs(0.05, 0.15, 0.8), latencyMs: 25, model: 'kev-4b', ...over,
   });
-  const expectBaseline = (r: Awaited<ReturnType<typeof routeTurnTier>>) => {
-    expect(r).toMatchObject({ tier: null, applied: false, reason: 'error' });
+  const expectBaseline = (r: Awaited<ReturnType<typeof routeTurnTier>>, reason = 'error') => {
+    expect(r).toMatchObject({ tier: null, applied: false, reason });
     expect(r.route).toBeUndefined();
     expect(r.confidence).toBeUndefined();
     const rows = listDecisions();
@@ -243,7 +498,8 @@ describe('routeTurnTier with the systemone backend', () => {
       for (const modeOverride of ['shadow', 'on'] as const) {
         db.exec('DELETE FROM agent_decision_log');
         const r = await routeTurnTier({ ...base, baselineTier: 'standard', modeOverride, scopeGate: gate, choiceClient: asClient(okResult(over)) });
-        expectBaseline(r);
+        await router.waitForShadowRoutingForTests();
+        expectBaseline(r, modeOverride === 'shadow' ? 'shadow' : 'error');
       }
     }
     expect(gate).not.toHaveBeenCalled();
@@ -281,6 +537,7 @@ describe('routeTurnTier with the systemone backend', () => {
     process.env.AGENT_DECISION_MODEL_ROUTING = 'shadow';
     for (const p of [probs(0.9, 0.05, 0.05), probs(0.3, 0.3, 0.4)]) {
       expect(await routeTurnTier({ ...base, choiceClient: choice(p).client })).toMatchObject({ tier: null, applied: false });
+      await router.waitForShadowRoutingForTests();
     }
     process.env.AGENT_DECISION_MODEL_ROUTING = 'on';
     const gate = vi.fn(() => ({ apply: false, reason: 'closed' }));

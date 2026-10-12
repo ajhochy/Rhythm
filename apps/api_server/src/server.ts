@@ -1,3 +1,4 @@
+import { loadQualificationFixtureAuthority } from './services/qualification_fixture_authority';
 import http from 'http';
 import path from 'path';
 import { mkdir } from 'node:fs/promises';
@@ -8,7 +9,7 @@ import { opencodeClient } from './services/opencode_engine';
 import { managedChromeService } from './services/managed_chrome_service';
 import { MobilePtyProxy } from './services/mobile_pty_proxy';
 import { runAdvisoryCheck, formatStartupWarning } from './security/security_advisories';
-import { env, resolveLiveArtifactStorageDir } from './config/env';
+import { env, resolveLiveArtifactStorageDir, opencodeDataFile } from './config/env';
 import { validateHumanApprovalConfiguration } from './security/human_approval_security';
 
 // Load .env before deriving the AgentRunner transport guard below.
@@ -60,7 +61,7 @@ async function main() {
     { mobileGatewayListenPort },
     { ManagedWorkstreamContextRepository },
     { ManagedMemorySearchService },
-    { PersistentWorkstreamCoordinator, CodingWorkflowCoverageInspector },
+    { PersistentWorkstreamCoordinator },
     { CoordinatorConversationContextAssembler },
     { CoordinatorConversationService, createCoordinatorForegroundSender },
     { CoordinatorConversationModelStatusService },
@@ -74,9 +75,8 @@ async function main() {
     { ProjectsRepository },
     { AgentBridgeJobsRepository },
     { AgentAsyncDelegationsRepository },
-    { ModelProvenanceRepository },
     { CoordinatorConversationsRepository },
-    { delegateToAgentAsync, CodingWorkflowDeliveryUnknownError },
+    { delegateToAgentAsync },
     { resolveProfileScope },
     { perServerToolGrants },
     { prepareAutomaticMemoryPreface },
@@ -121,7 +121,6 @@ async function main() {
     import('./repositories/projects_repository'),
     import('./shared_agents/delegation_jobs_repository'),
     import('./repositories/agent_async_delegations_repository'),
-    import('./repositories/model_provenance_repository'),
     import('./repositories/coordinator_conversations_repository'),
     import('./services/agent_delegation_service'),
     import('./services/agent_profile_scope'),
@@ -185,6 +184,7 @@ async function main() {
   // #1396: abort rather than advertise healthy when the configured mount is unusable.
   await verifyLiveArtifactStorageDir();
   await initDb();
+  (await import('./services/qualification_fixture_bootstrap')).bootstrapQualificationFixture();
 
   // Persistent workstreams are an explicit local opt-in.  The shared MCP
   // selector is deliberately absent while off, preserving ordinary memory
@@ -220,12 +220,6 @@ async function main() {
     coordinatorRef = new PersistentWorkstreamCoordinator({
       engine: opencodeClient,
       records,
-      workflowCoverage: new CodingWorkflowCoverageInspector({
-        engine: opencodeClient,
-        sessions: new AgentSessionsRepository(),
-        delegations: new AgentAsyncDelegationsRepository(),
-        dispatches: new ModelProvenanceRepository(),
-      }),
       // The coordinator independently checks the live rhythm MCP status; this
       // callback additionally proves that its owned capture persistence seam
       // is present instead of treating service construction as readiness.
@@ -308,7 +302,6 @@ async function main() {
           read: (scope) => computeCodingWorkflowCapability({
             configs: conversationConfigs,
             projectAuthorized: ownerProjectAccess(scope.ownerUserId, scope.projectId),
-            enrollmentAvailable: env.agentLocal && env.agentOriginGuardEnabled,
           }),
         },
       }),
@@ -515,8 +508,12 @@ async function main() {
           memory: prepareAutomaticMemoryPreface,
         }),
       },
+      waitingSessionIds: async () => {
+        const { streamBridge } = await import('./services/opencode_stream_bridge');
+        return streamBridge.listWaitingSessionIds();
+      },
       codingWorkflow: {
-        dispatch: async ({ actor, parentSessionId, parentSdkSessionId, parentProfileId, objective, workflow }) => {
+        dispatch: async ({ actor, parentSessionId, parentSdkSessionId, parentProfileId, goalId, objective, repoPath }) => {
           // This is a narrow server-derived adapter over the existing async
           // delegation route. The model supplies no target/profile/cwd/model
           // or child prompt; the durable captured objective is the only text.
@@ -540,14 +537,6 @@ async function main() {
             beforeProfile.isAgent !== true || beforeProfile.locked === true ||
             agentConfigExecutionBlockReason(beforeProfile) !== null
           ) return null;
-          // This private input originates only from the finite coordinator
-          // after it reserved an ordinal.  A missing callback/binding is not
-          // a legacy delegation: refuse before creating a child or prompt.
-          if (workflow && (
-            !workflow.workflowBinding || typeof workflow.onPrepared !== 'function' ||
-            typeof workflow.onOutcome !== 'function' || typeof workflow.isCurrent !== 'function' ||
-            typeof workflow.validate !== 'function'
-          )) return null;
           let dispatched: Awaited<ReturnType<typeof delegateToAgentAsync>>;
           try {
             dispatched = await delegateToAgentAsync({
@@ -556,58 +545,14 @@ async function main() {
               targetAgentConfigId: 'workflow-orchestrator',
               prompt: objective,
               callerSessionId: parentSessionId,
-              context: null,
-              isolateWorktree: false,
-              ...(workflow ? {
-                codingWorkflow: {
-                  ...workflow,
-                  enroll: async (binding) => {
-                    // Enrollment is a strict owned-engine mutation, not a
-                    // Dayflow/source grant. Prove the exact manager/root/job
-                    // join immediately before it, then let the client do its
-                    // mandated post-await authority re-read before SDK exposure.
-                    if (
-                      binding.authorization.authorizationId !== workflow.authorization.authorizationId ||
-                      binding.authorization.ordinal !== workflow.authorization.ordinal ||
-                      binding.authorization.workstreamId !== workflow.authorization.workstreamId ||
-                      binding.authorization.goalId !== workflow.authorization.goalId ||
-                      binding.workflowBinding.jobId !== workflow.workflowBinding!.jobId ||
-                      binding.workflowBinding.expiresAt !== workflow.workflowBinding!.expiresAt ||
-                      binding.owner.rootSessionId !== parentSessionId ||
-                      binding.owner.rootSdkSessionId !== parentSdkSessionId ||
-                      binding.delegation.nativeParentSdkSessionId !== parentSdkSessionId ||
-                      binding.workflowBinding.managerSdkSessionId !== binding.delegation.managerSdkSessionId ||
-                      !(await workflow.validate('before_sdk')) || workflow.isCurrent() !== true
-                    ) return false;
-                    const localManager = conversationSessions.findById(binding.delegation.managerSessionId);
-                    const beforeEngine = await opencodeClient.getEngineIdentity();
-                    if (
-                      !localManager || localManager.ownerUserId !== actor.user.id ||
-                      localManager.projectId !== parentProjectId ||
-                      localManager.sdkSessionId !== binding.delegation.managerSdkSessionId ||
-                      !beforeEngine || beforeEngine.bootId !== binding.engine.bootId || beforeEngine.pid !== binding.engine.pid ||
-                      !(await workflow.validate('before_sdk')) || workflow.isCurrent() !== true
-                    ) return false;
-                    const enrolled = await opencodeClient.enrollWorkflowProviderGuard(
-                      binding.delegation.managerSdkSessionId,
-                      localManager.cwd || undefined,
-                      {
-                        schemaVersion: 2,
-                        kind: 'coordinator_workflow_enrollment',
-                        binding: binding.workflowBinding,
-                        scope: { kind: 'manager_lineage' },
-                      },
-                    );
-                    const afterEngine = await opencodeClient.getEngineIdentity();
-                    return enrolled !== null && !!afterEngine &&
-                      afterEngine.bootId === binding.engine.bootId && afterEngine.pid === binding.engine.pid &&
-                      (await workflow.validate('before_sdk')) === true && workflow.isCurrent() === true;
-                  },
-                },
-              } : {}),
+              context: 'Coordinator goal run. Your current directory is your own git worktree of the repository, on its own branch. Work and commit only there; paths outside it are denied.',
+              // One run per goal, each on its own branch of the repo the user named.
+              cwd: repoPath,
+              isolateWorktree: true,
+              worktreeName: `goal-${goalId.replace(/[^A-Za-z0-9]/g, '').slice(0, 12)}`,
+              childPermissionMode: 'bypassPermissions',
             });
-          } catch (error) {
-            if (error instanceof CodingWorkflowDeliveryUnknownError) throw error;
+          } catch {
             return null;
           }
           const afterParent = conversationSessions.findById(parentSessionId);
@@ -657,7 +602,7 @@ async function main() {
     completionWakes.setCoordinatorCallbackContext({
       prepare: (input) => callbackContextService.prepareCallbackContext(input),
     });
-    coordinatorAgentTools =new CoordinatorConversationModelStatusService({
+    coordinatorAgentTools = new CoordinatorConversationModelStatusService({
       conversations: coordinatorConversationService,
       records: conversationRepository,
       engine: opencodeClient,
@@ -909,7 +854,8 @@ async function main() {
       const { populateWorkflowSkillsOnce } = await import(
         './services/skill_seed_importer'
       );
-      const r = populateWorkflowSkillsOnce();
+      const fixture=(await import('./services/qualification_fixture_authority')).loadQualificationFixtureAuthority();
+      const r = populateWorkflowSkillsOnce(fixture?{claudeSkillsDir:path.join(fixture.fixtureRoot,'empty-claude-skills')}:{});
       if (!r.alreadyDone) {
         logger.info(
           `[server] workflow-skill one-time population: copied=${r.copied} alreadyPresent=${r.alreadyPresent}`,
@@ -988,7 +934,7 @@ async function main() {
     // Non-fatal — never blocks startup; no-op under Postgres.
     try {
       const { seedConfigAssets } = await import('./services/config_seeds_seeder');
-      const r = seedConfigAssets();
+      const r = seedConfigAssets((await import('./services/qualification_fixture_authority')).loadQualificationFixtureAuthority()?{sourceDir:null}:{});
       if (!r.alreadyDone) {
         logger.info(
           `[server] config-seeds: skillsCopied=${r.skillsCopied} ` +
@@ -1119,6 +1065,7 @@ async function main() {
   let dayflowManagementService: import('./integrations/dayflow/public_contract').DayflowManagementService | undefined;
   let dayflowQualifiedEvidence: import('./services/dayflow_qualified_evidence_service').DayflowQualifiedEvidenceService | undefined;
   let dayflowProviderAdmission: import('./services/dayflow_receiving_history_guard').DayflowProviderAdmissionService | undefined;
+  let dayflowShared: import('./services/qualification_fixture_service').QualificationDayflowSeam | undefined;
   if (env.agentExecutionEnabled && env.agentLocal && env.agentOriginGuardEnabled) {
     const { resolveDayflowIntegrationStateDir } = await import('./config/env');
     const resolvedStateRoot = resolveDayflowIntegrationStateDir();
@@ -1156,18 +1103,31 @@ async function main() {
     // One shared enrollment seam: native must durably record the SDK as guarded
     // BEFORE any V1 signed-tool body or V2 automatic overlay is released.
     const dayflowEnrollment = new DayflowGuardEnrollmentService({ engine: opencodeClient, records: dayflowRecords });
-    dayflowQualifiedEvidence = new DayflowQualifiedEvidenceService({
-      reader: dayflowService,
+    // The only evidence construction: the qualification fixture's isolated
+    // reader goes through this same factory, so it shares the enrollment too.
+    const dayflowEvidenceFor = (
+      reader: ConstructorParameters<typeof DayflowQualifiedEvidenceService>[0]['reader'],
+      canonical?: ConstructorParameters<typeof DayflowQualifiedEvidenceService>[0]['canonical'],
+    ) => new DayflowQualifiedEvidenceService({
+      reader,
       receiver: dayflowReceiver,
       enrollment: dayflowEnrollment,
+      ...(canonical ? { canonical } : {}),
     });
-    opencodeClient.setDayflowSdkHistoryGuard(new DayflowReceivingHistoryGuard({
+    dayflowQualifiedEvidence = dayflowEvidenceFor(dayflowService);
+    dayflowShared = { guardEnrollment: dayflowEnrollment, evidenceFor: dayflowEvidenceFor };
+    const ordinaryHistoryGuard=new DayflowReceivingHistoryGuard({
       records: dayflowRecords,
       reader: dayflowService,
       authority: dayflowQualificationAuthority,
       enrollment: dayflowEnrollment,
-    }));
-    const workflowMembershipJobs = new AgentBridgeJobsRepository(getDb());
+      evidence: dayflowQualifiedEvidence,
+    });
+    opencodeClient.setDayflowSdkHistoryGuard({
+      async shouldBindPrompt(sdk){const f=(await import('./services/qualification_fixture_service')).qualificationDayflowForSdk(sdk);return (f?.guard??ordinaryHistoryGuard).shouldBindPrompt(sdk);},
+      async revalidateBeforeSdk(sdk){const f=(await import('./services/qualification_fixture_service')).qualificationDayflowForSdk(sdk);return (f?.guard??ordinaryHistoryGuard).revalidateBeforeSdk(sdk);},
+      async revalidateForProjectedLoad(sdk){const f=(await import('./services/qualification_fixture_service')).qualificationDayflowForSdk(sdk);return (f?.guard??ordinaryHistoryGuard).revalidateForProjectedLoad(sdk);},
+    });
     dayflowProviderAdmission = new DayflowProviderAdmissionService({
       records: dayflowRecords,
       engine: opencodeClient,
@@ -1175,27 +1135,12 @@ async function main() {
       evidence: dayflowQualifiedEvidence,
       authority: dayflowQualificationAuthority,
       enrollment: dayflowEnrollment,
-      // The private schema-2 frame is admitted only through the same current
-      // coordinator/root/finite-job authority that prepared it. This does not
-      // make a workflow marker a Dayflow consent or source grant.
-      // Membership must already be durable on the exact job before an allow.
-      workflowMembership: {
-        hasMember: (jobId, nativeSessionId, nativeUserMessageId) =>
-          workflowMembershipJobs.hasCoordinatorWorkflowMember(jobId, nativeSessionId, nativeUserMessageId),
-      },
-      workflow: {
-        admit: async (input) => coordinatorConversationService
-          ? coordinatorConversationService.admitWorkflowProvider({ ...input, actor: input.auth })
-          : {
-            status: 'hold' as const,
-            reason: 'authority_unavailable' as const,
-            authorityDigest: '0'.repeat(64),
-            current: () => false,
-          },
-      },
     });
   }
+  const qualificationFixtures=(await import('./services/qualification_fixture_authority')).loadQualificationFixtureAuthority() && coordinatorConversationService
+    ? new (await import('./services/qualification_fixture_service')).QualificationFixtureService(coordinatorConversationService,dayflowShared):undefined;
   const app = createApp({
+    qualificationFixtures,
     mobileGatewayRouter,
     dayflowService: dayflowManagementService,
     dayflowAuthenticatedConsent: dayflowService,
@@ -1332,6 +1277,11 @@ async function main() {
       logger.info('[server] RHYTHM_MANAGED_CHROME=0 — skipping managed Chrome');
     }
 
+    // The explicit private qualification seed bypasses normal profile CRUD.
+    // Project its latest trusted rows after all backfills, before engine boot;
+    // a blocked/missing/failed projection must prevent a misleading candidate.
+    (await import('./services/qualification_fixture_bootstrap')).bootstrapQualificationFixture('project');
+
     // Initialize Opencode SDK (non-blocking — logs on failure, never prevents startup)
     opencodeClient
       .initialize()
@@ -1440,6 +1390,7 @@ async function main() {
         );
       }
 
+      if(!loadQualificationFixtureAuthority()){
       // Dual-accounts Task B — the Rhythm accounts store is the source of
       // truth for Claude tokens once it has accounts. Boot order:
       //   1. Store empty + Claude Code creds readable → one-time migration
@@ -1524,6 +1475,10 @@ async function main() {
       } catch (e) {
         logger.warn(`[server] Claude auto-bridge errored (non-fatal): ${String(e)}`);
       }
+      } // private qualification boot never bridges the user's Claude Code / Keychain credentials
+      // OpenAI accounts and the auth.json watcher below touch only the engine's own
+      // data dir, which qualification isolates (XDG_DATA_HOME), so they run there too:
+      // without them a fixture sign-in never reached its engine or the router catalog.
 
       // Multi-account OpenAI (ChatGPT/Codex OAuth) — same store model as the
       // Anthropic block above. First run imports the engine's existing single
@@ -1559,7 +1514,7 @@ async function main() {
         const { homedir } = await import('os');
         const { join } = await import('path');
         authCredentialWatcher = new AuthCredentialWatcher({
-          path: join(homedir(), '.local', 'share', 'opencode', 'auth.json'),
+          path: opencodeDataFile('auth.json'),
           onReload: async () => {
             await opencodeClient.reloadCredentials();
           },

@@ -7,7 +7,8 @@ const { resume, suspend } = vi.hoisted(() => ({
   suspend: vi.fn(),
 }));
 
-vi.mock('../config/env', () => ({
+vi.mock('../config/env', async () => ({
+  ...(await import('./helpers/opencode_paths_mock')).opencodePathMocks,
   env: {
     agentLocal: true,
     agentExecutionEnabled: true,

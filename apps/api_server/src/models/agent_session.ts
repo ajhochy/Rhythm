@@ -109,6 +109,7 @@ export interface AgentSession {
   modelMode: SessionModelMode;
   /** ISO time the decision router last applied a pick (auto sessions); null = not routed yet. */
   routerDecidedAt: string | null;
+  routerVariant: string | null;
   agentMode: string | null;
   permissionMode: PermissionMode;
   /** Server-owned proof that a human selected bypassPermissions for this chat. */
@@ -150,8 +151,10 @@ export interface AgentSession {
    * Null = engine default. Updated in place on rate-limit spillover.
    */
   anthropicAccountId: string | null;
+  anthropicAccountSource: 'router' | 'pinned' | null;
   /** OpenAI (ChatGPT) account this session's OpenAI requests route to (openai-accounts.json routing). Null = store default. */
   openaiAccountId: string | null;
+  openaiAccountSource: 'router' | 'pinned' | null;
   /** Owner used for owner-scoped agent memory. Null means instance-global only. */
   ownerUserId: number | null;
   /** Delegation nesting depth for rhythm_delegate-created runs. Root sessions default to 0. */
@@ -251,8 +254,10 @@ export interface CreateAgentSessionDto {
   isSystem?: boolean;
   /** Dual Anthropic accounts (Task D) — resolved account id (body → profile → store default). Null = engine default. */
   anthropicAccountId?: string | null;
+  anthropicAccountSource?: 'router' | 'pinned' | null;
   /** OpenAI (ChatGPT) account — same resolution chain as anthropicAccountId. */
   openaiAccountId?: string | null;
+  openaiAccountSource?: 'router' | 'pinned' | null;
   /** Owner used for owner-scoped agent memory. Null means instance-global only. */
   ownerUserId?: number | null;
   /** Delegation nesting depth. Root sessions default to 0. */

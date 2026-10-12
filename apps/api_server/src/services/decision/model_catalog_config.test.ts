@@ -169,7 +169,7 @@ describe('GET/PUT /agent-decisions/config catalog', () => {
     expect(got.catalog.models[0]).toEqual({
       providerID: 'anthropic', modelID: 'claude-haiku-5-0', name: 'Name claude-haiku-5-0', family: 'claude-haiku',
       tier: 'cheap', tierSource: 'cost', costOutputUsd: 5, costInputUsd: 1, releaseDate: '2025-10-15',
-      contextLimit: 200000, excluded: false, enabled: true,
+      contextLimit: 200000, excluded: false, enabled: true, variants: [],
     });
     expect(got.catalog.curatedCount).toBe(4);
   });

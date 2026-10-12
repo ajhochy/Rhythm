@@ -375,6 +375,8 @@ test('a malformed successful transport response remains an exact same-command re
   const requestBodies = [];
   let messageAttempt = 0;
   const fetcher = async (url, init) => {
+    // The controller also reads the coding-run list after opening; it is not a message.
+    if (url.endsWith('/runs')) return { status: 200, json: async () => ({ kind: 'runs', runs: [] }) };
     const body = JSON.parse(init.body);
     requestBodies.push(body);
     if (url.endsWith('/open')) {
@@ -425,6 +427,8 @@ test('a bounded timeout retains the same immutable command for a later retry', a
   const messages = [];
   let messageAttempt = 0;
   const fetcher = async (url, init) => {
+    // The controller also reads the coding-run list after opening; it is not a message.
+    if (url.endsWith('/runs')) return { status: 200, json: async () => ({ kind: 'runs', runs: [] }) };
     const body = JSON.parse(init.body);
     if (url.endsWith('/open')) {
       return { status: 201, json: async () => ({ kind: 'created', conversation: conversation() }) };
@@ -899,4 +903,38 @@ test('known schema 4 keeps finite planning behind exact consent and the existing
   await nonPrimary.open(scope);
   await settle();
   assert.equal(await nonPrimary.preparePlan(scope, 'goal-a', consent), false);
+});
+
+test('Refresh replaces the dispatch-time planned snapshot with the authoritative workstream record', async () => {
+  const consent = {
+    totalTokenAuthorization: 20000, maxTurns: 1, maxWallTimeSeconds: 90, expiresInSeconds: 900,
+    acknowledgesSoftTotalTokenAuthorization: true, purpose: 'decompose',
+  };
+  const snapshot = { workstream: { id: 'workstream-a', state: 'running', lastJobId: 'job-1' }, readiness: { available: true }, jobs: [{ id: 'job-1', state: 'running', usage: null }], budget: { actualTokens: 0, authorizedTokens: 20000 } };
+  const finished = { workstream: { id: 'workstream-a', state: 'ready', lastJobId: 'job-1' }, readiness: { available: true }, jobs: [{ id: 'job-1', state: 'succeeded', usage: { totalTokens: 2031 }, application: { status: 'quarantined' } }], budget: { actualTokens: 2031, authorizedTokens: 20000 } };
+  const reads = [];
+  let server = snapshot;
+  const controller = new CoordinatorConversationController(() => ({
+    open: async () => ({ kind: 'replay', conversation: v4Conversation() }),
+    status: async () => v4Status(v4Conversation()),
+    message: async () => { throw new Error('not used'); },
+    preparePlan: async () => ({ kind: 'planned', conversation: v4Conversation(2), workstream: snapshot }),
+  }), createMemoryCoordinatorConversationJournal(), () => ({
+    get: async (projectId, workstreamId) => { reads.push([projectId, workstreamId]); return server; },
+  }));
+  await controller.open(scope);
+  await settle();
+  assert.equal(await controller.preparePlan(scope, 'goal-a', consent), true);
+  assert.equal(controller.get(scope).plannedWorkstream.workstream.state, 'running');
+  server = finished;
+  assert.equal(await controller.refresh(scope), true);
+  await settle();
+  // Old logic kept the snapshot forever: running with zero actual usage.
+  assert.deepEqual(reads.at(-1), ['project-a', 'workstream-a']);
+  assert.equal(controller.get(scope).plannedWorkstream.jobs[0].usage.totalTokens, 2031);
+  assert.equal(controller.get(scope).plannedWorkstream.workstream.state, 'ready');
+  // A malformed read never replaces the last server view.
+  server = { nope: true };
+  await controller.reconcileManagedRun(scope);
+  assert.equal(controller.get(scope).plannedWorkstream.workstream.state, 'ready');
 });

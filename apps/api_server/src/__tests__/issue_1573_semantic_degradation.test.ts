@@ -116,7 +116,7 @@ describe('#1573 semantic degradation observability', () => {
     useRepository([fts], [fts]);
     useEngraph(client);
 
-    const result = await buildMemoryPreface('collector cup', 1);
+    const result = await buildMemoryPreface('collector cup storage', 1);
 
     expect(result.semanticStatus).toBe(status);
     expect(result.items[0].semanticStatus).toBe(status);
@@ -128,7 +128,7 @@ describe('#1573 semantic degradation observability', () => {
     useRepository([fts], [fts]);
     useEngraph({ search: vi.fn(() => new Promise<never>(() => undefined)) });
 
-    const result = await buildMemoryPreface('collector cup', 1);
+    const result = await buildMemoryPreface('collector cup storage', 1);
 
     expect(result.semanticStatus).toBe('timeout');
     expect(result.items[0].semanticStatus).toBe('timeout');
@@ -198,7 +198,7 @@ describe('#1573 semantic degradation observability', () => {
     const info = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
 
     try {
-      const pending = buildMemoryPreface('collector cup', 1);
+      const pending = buildMemoryPreface('collector cup storage', 1);
       await vi.advanceTimersByTimeAsync(5);
       await expect(pending).resolves.toMatchObject({ semanticStatus: 'timeout' });
       expect(String(info.mock.calls[0]?.[0])).toContain('phase=downstream_deadline');
@@ -214,16 +214,14 @@ describe('#1573 semantic degradation observability', () => {
       search: vi.fn().mockResolvedValue([{ file: '/outside/fact.md', confidence: 0.9 }]),
     });
 
-    const result = await buildMemoryPreface('collector cup', 1);
+    const result = await buildMemoryPreface('collector cup storage', 1);
 
     expect(result.semanticStatus).toBe('unmapped');
     expect(result.items[0].semanticStatus).toBe('unmapped');
   });
 
-  // Native reference core: a canonical-verified native excerpt is not lexically
-  // gated (passesGate in memory_retrieval.ts), so 'lexical_gate' is no longer
-  // emitted; the native reference ranks ahead of the FTS fallback instead.
-  it('1573:1573-A-semantic-degradation-observability:5 native-ranked references bypass the lexical gate', async () => {
+  // Rank-relative confidence cannot justify unrelated displayed text.
+  it('1573:1573-A-semantic-degradation-observability:5 native-ranked references cannot bypass relevance', async () => {
     const fts = memory();
     const semantic = memory({
       id: 'semantic-memory',
@@ -239,11 +237,12 @@ describe('#1573 semantic degradation observability', () => {
       }]),
     });
 
-    const result = await buildMemoryPreface('collector cup', 1);
+    const result = await buildMemoryPreface('collector cup storage', 1);
 
     expect(result.semanticStatus).toBe('used');
-    expect(result.memoryIds).toEqual(['semantic-memory', 'fts-memory']);
-    expect(result.items[0]).toMatchObject({ memoryId: 'semantic-memory', semanticStatus: 'used' });
+    expect(result.memoryIds).toEqual(['fts-memory']);
+    expect(result.items[0]).toMatchObject({ memoryId: 'fts-memory', semanticStatus: 'used' });
+    expect(result.candidates?.find(c => c.memoryId === 'semantic-memory')).toMatchObject({ admitted: false, reason: 'insufficient_overlap' });
   });
 
   it('1573:1573-A-semantic-degradation-observability:6 records used on a trusted semantic hit', async () => {
@@ -257,7 +256,7 @@ describe('#1573 semantic degradation observability', () => {
       }]),
     });
 
-    const result = await buildMemoryPreface('collector cup', 1);
+    const result = await buildMemoryPreface('collector cup storage', 1);
 
     expect(result.semanticStatus).toBe('used');
     // Native reference core records native evidence as lane 'semantic' with
@@ -271,7 +270,7 @@ describe('#1573 semantic degradation observability', () => {
     useRepository([fts]);
     const getClient = vi.spyOn(engraphManager, 'getRetrievalClient');
 
-    const result = await buildMemoryPreface('collector cup', 1);
+    const result = await buildMemoryPreface('collector cup storage', 1);
 
     expect(result.semanticStatus).toBe('disabled');
     expect(result.items[0].semanticStatus).toBe('disabled');

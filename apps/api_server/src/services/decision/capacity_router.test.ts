@@ -17,8 +17,10 @@ import {
   clearAutoAccountSessionsForTests,
   isAutoAccountSession,
   markAutoAccountSession,
+  unmarkAutoAccountSession,
   pickAccount,
   resetCapacityRefreshForTests,
+  syncAutoAccountSessionProvenance,
 } from './capacity_router';
 
 const ENV = [
@@ -47,6 +49,14 @@ const OPUS = { providerID: 'anthropic', modelID: 'claude-opus-4-7' };
 const SONNET = { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' };
 const HAIKU = { providerID: 'anthropic', modelID: 'claude-haiku-4-5' };
 const OR_SONNET = { providerID: 'openrouter', modelID: 'anthropic/claude-sonnet-4.6' };
+
+it('repair-c1: production unmark protects explicit pin from late generic/provider markers', () => {
+  markAutoAccountSession('pin'); markAutoAccountSession('pin', 'openai');
+  unmarkAutoAccountSession('pin', 'anthropic');
+  markAutoAccountSession('pin'); markAutoAccountSession('pin', 'anthropic');
+  expect(isAutoAccountSession('pin', 'anthropic')).toBe(false);
+  expect(isAutoAccountSession('pin', 'openai')).toBe(true);
+});
 
 beforeEach(() => {
   saved = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
@@ -588,5 +598,19 @@ describe('cross-agent tier equivalence', () => {
     });
     expectOpenaiStandard(d!.route);
     expect(listDecisions({ feature: 'capacity_routing' })[0].detail).toMatchObject({ crossAgent: true });
+  });
+});
+describe('authoritative session provenance synchronizes process markers', () => {
+  beforeEach(() => clearAutoAccountSessionsForTests());
+  it.each(['pinned', null] as const)('%s stays denied and blocks stale auto markers', source => {
+    markAutoAccountSession('child', 'anthropic');
+    syncAutoAccountSessionProvenance({ id: 'child', anthropicAccountSource: source, openaiAccountSource: null });
+    expect(isAutoAccountSession('child', 'anthropic')).toBe(false);
+  });
+  it.each(['pinned', null] as const)('%s -> router clears the persistent denial and enables auto', prior => {
+    syncAutoAccountSessionProvenance({ id: 'child', anthropicAccountSource: prior, openaiAccountSource: null });
+    expect(isAutoAccountSession('child', 'anthropic')).toBe(false);
+    syncAutoAccountSessionProvenance({ id: 'child', anthropicAccountSource: 'router', openaiAccountSource: null });
+    expect(isAutoAccountSession('child', 'anthropic')).toBe(true);
   });
 });

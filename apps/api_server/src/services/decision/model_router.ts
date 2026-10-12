@@ -1,15 +1,18 @@
 import {
   getDecisionRoutingMinConfidence,
+  getDecisionRoutingScope,
   getEffectiveDecisionMode,
 } from '../../config/env';
 import type { DecisionMode } from '../../config/env';
 import type { ModelRoute, ModelTier } from '../agent_model_resolver';
+import { logger } from '../../utils/logger';
 import { classify } from './decision_engine';
 import type { ClassifyResult, DecisionOpts } from './decision_engine';
-import { recordDecision } from './decision_log';
+import { hasDecisionForSession, recordDecision } from './decision_log';
 import { effectiveLowConfidenceTier, loadDecisionSettings } from './decision_settings';
 import { routeModelForTier, type CatalogSource } from './model_catalog';
 import { getDefaultChoiceClient, type ChoiceClient, type ChoiceQuestion } from './systemone_client';
+import { getOpenAIDecisionsClient, type ScoreQuestion } from './openai_decisions_client';
 
 /**
  * Only the built-in agent default, and Auto (router) sessions, are "soft"
@@ -17,6 +20,13 @@ import { getDefaultChoiceClient, type ChoiceClient, type ChoiceQuestion } from '
  * the profile, so it is a pin just like a session or per-turn override.
  */
 const ELIGIBLE_SOURCES = new Set(['agent_default', 'auto']);
+const shadowSessionsInFlight = new Set<string>();
+const pendingShadowRouting = new Set<Promise<void>>();
+
+/** Test-only drain; production turns must never wait for shadow observations. */
+export async function waitForShadowRoutingForTests(): Promise<void> {
+  while (pendingShadowRouting.size) await Promise.all([...pendingShadowRouting]);
+}
 
 export const TIER_LABELS: { id: ModelTier; description: string }[] = [
   {
@@ -42,6 +52,20 @@ export const TIER_CHOICE_QUESTION: ChoiceQuestion<ModelTier> = {
     'This is a request sent to an AI assistant. Which model tier does it need? Judge by how much reasoning the task needs, not by its length or its topic. A long request can still be a simple lookup; a short question can hide a hard problem.',
   options: Object.fromEntries(TIER_LABELS.map((l) => [l.id, l.description])) as Record<ModelTier, string>,
 };
+
+export const TIER_SCORE_QUESTION: ScoreQuestion = {
+  type: 'score', name: 'effort',
+  instructions: 'The input is a request a person sent to their AI assistant, which can use tools (files, email, calendar, web, code, other agents). How capable a model does this request need to be done well? Judge the work required, not the length of the message or its subject area.',
+  levels: [
+    { label: 'quick', description: 'A short factual answer, a quick lookup or status check, a yes/no capability question, or a tiny mechanical change. One step, little judgement.' },
+    { label: 'everyday', description: 'Normal work: write or rewrite a document, email, report or plan; analyse some data; search and summarise a few sources; use several tools in sequence; fix a routine problem.' },
+    { label: 'hard', description: 'Deep work: plan or build something large across many steps, design a system, debug a hard or unclear failure, synthesise or critique many sources, or set strategy or policy.' },
+  ],
+};
+// ponytail: calibration values from the 74-prompt evaluation, not generic confidence gates.
+export const OPENAI_DECISIONS_THRESHOLDS = { cheapBelow: 0.15, frontierAbove: 0.95 };
+export const tierForDecisionScore = (score: number): ModelTier => score < OPENAI_DECISIONS_THRESHOLDS.cheapBelow
+  ? 'cheap' : score > OPENAI_DECISIONS_THRESHOLDS.frontierAbove ? 'frontier' : 'standard';
 
 const isUnit = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1;
 
@@ -97,7 +121,7 @@ export interface RouteTurnTierInput {
   client?: DecisionOpts['client'];
   /** System One client (tests); otherwise the saved systemone backend is used when active. */
   choiceClient?: ChoiceClient;
-  /** True for Auto (router) sessions: an unset env var then means 'on'. */
+  /** True for Auto (router) sessions: an unset env var then means 'shadow'. */
   sessionAuto?: boolean;
   /** Test/caller override of the effective mode (wins over env and sessionAuto). */
   modeOverride?: DecisionMode;
@@ -136,12 +160,42 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
   if (!input.prompt || !input.prompt.trim()) {
     return { tier: null, applied: false, mode, reason: 'empty_prompt' };
   }
+  if (mode === 'shadow') {
+    if (input.sessionId && (
+      shadowSessionsInFlight.has(input.sessionId) ||
+      (getDecisionRoutingScope() === 'first_prompt' && hasDecisionForSession('model_routing', input.sessionId))
+    )) {
+      return { tier: null, applied: false, mode, reason: 'shadow_continuation' };
+    }
+    if (input.sessionId) shadowSessionsInFlight.add(input.sessionId);
+    // ponytail: reuse the awaited routing pipeline; only its shadow scheduling differs.
+    const pending = Promise.resolve()
+      .then(() => routeClassifiedTurn(input, mode))
+      .then(() => undefined)
+      .catch(() => { logger.warn('[model_router] shadow routing failed (non-fatal)'); })
+      .finally(() => {
+        if (input.sessionId) shadowSessionsInFlight.delete(input.sessionId);
+        pendingShadowRouting.delete(pending);
+      });
+    pendingShadowRouting.add(pending);
+    return { tier: null, applied: false, mode, reason: 'shadow' };
+  }
+  return routeClassifiedTurn(input, mode);
+}
+
+async function routeClassifiedTurn(input: RouteTurnTierInput, mode: 'shadow' | 'on'): Promise<RouteTurnTierResult> {
   try {
     const settings = loadDecisionSettings();
+    const scored = settings.backend === 'openai_decisions'
+      ? await getOpenAIDecisionsClient().score(input.prompt, TIER_SCORE_QUESTION) : null;
     const choiceClient =
       input.choiceClient ??
       (!input.client && settings.backend === 'systemone' ? getDefaultChoiceClient() : null);
-    const raw = choiceClient
+    const raw: ClassifyResult<ModelTier> = scored
+      ? scored.status !== 'ok' ? scored : { status: 'ok', label: tierForDecisionScore(scored.score), confidence: scored.apiConfidence,
+          scores: { cheap: scored.levelProbabilities.quick, standard: scored.levelProbabilities.everyday, frontier: scored.levelProbabilities.hard },
+          margin: 0, latencyMs: scored.latencyMs, model: scored.model }
+      : choiceClient
       ? await classifyWithChoice(input.prompt, choiceClient)
       : await classify(input.prompt, TIER_LABELS, input.client ? { client: input.client } : {});
     // A nominal success with an unusable confidence/tier is never a decision or a fallback.
@@ -158,21 +212,31 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
         applied: false,
         baseline: input.baselineTier ?? null,
         latencyMs: measuredLatency(r.latencyMs),
-        detail: { reason: r.reason, requestedSource: input.requestedSource },
+        detail: {
+          reason: r.reason,
+          requestedSource: input.requestedSource,
+          ...(scored ? { backend: 'openai_decisions' } : {}),
+          ...('cause' in r && typeof r.cause === 'string' ? { cause: r.cause } : {}),
+        },
       });
       return { tier: null, applied: false, mode, reason: r.status };
     }
-    const confident = r.confidence >= getDecisionRoutingMinConfidence();
-    // Low-confidence policy: 'standard' routes an unsure answer to the middle
-    // tier (calibrated for Kev); 'keep' leaves the current route alone.
+    const confident = scored?.status === 'ok' || r.confidence >= getDecisionRoutingMinConfidence();
+    // 'standard' gives unsure answers a floor, never downgrading a frontier
+    // baseline; 'keep' leaves the current route alone.
     const fallback = !confident && effectiveLowConfidenceTier(settings) === 'standard';
-    const label: ModelTier = fallback ? 'standard' : r.label;
+    const keptBaseline = fallback && input.baselineTier === 'frontier';
+    const label: ModelTier = fallback ? (keptBaseline ? 'frontier' : 'standard') : r.label;
     const usable = confident || fallback;
-    const gate = input.scopeGate ? input.scopeGate(label, r.confidence) : null;
+    const gate = input.scopeGate ? input.scopeGate(label, scored?.status === 'ok' ? 1 : r.confidence) : null;
     const gateOk = gate ? gate.apply : true;
-    const applied = mode === 'on' && usable && gateOk;
+    const wouldApply = usable && gateOk;
+    const applied = mode === 'on' && wouldApply;
     let picked: Awaited<ReturnType<typeof routeModelForTier>> | null = null;
-    if (applied) {
+    let catalogLatencyMs: number | undefined;
+    let shadowCatalogError = false;
+    if (wouldApply) {
+      const catalogStarted = performance.now();
       try {
         picked = await routeModelForTier({
           tier: label,
@@ -181,6 +245,10 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
         });
       } catch {
         picked = null;
+        shadowCatalogError = mode === 'shadow';
+        if (shadowCatalogError) logger.warn('[model_router] shadow catalog pick failed (non-fatal)');
+      } finally {
+        if (mode === 'shadow') catalogLatencyMs = performance.now() - catalogStarted;
       }
     }
     recordDecision({
@@ -198,16 +266,26 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
       detail: {
         scores: r.scores,
         margin: r.margin,
+        ...(scored?.status === 'ok' ? { backend: 'openai_decisions', score: scored.score,
+          levelProbabilities: scored.levelProbabilities, thresholds: OPENAI_DECISIONS_THRESHOLDS,
+          inputTokens: scored.inputTokens, estimatedUsd: scored.inputTokens * 0.10 / 1e6 } : {}),
         requestedSource: input.requestedSource,
         ...(fallback ? { reason: 'low_confidence_fallback', classified: r.label } : {}),
+        ...(keptBaseline ? { lowConfidence: 'kept_baseline' } : {}),
         ...(picked
           ? {
               catalog: picked.catalog,
-              ...(picked.model ? {} : { routeReason: picked.reason }),
+              ...(mode === 'shadow' || !picked.model ? { routeReason: picked.reason } : {}),
               pickedModel: `${picked.route.providerID}/${picked.route.modelID}`,
+              ...(mode === 'shadow' && picked.downgradedForBudget !== undefined
+                ? { downgradedForBudget: picked.downgradedForBudget }
+                : {}),
             }
           : {}),
-        ...(gate ? { scope: gate.reason, wouldApply: usable && gateOk } : {}),
+        ...(gate ? { scope: gate.reason, wouldApply } : {}),
+        ...(mode === 'shadow' ? { wouldApply } : {}),
+        ...(catalogLatencyMs !== undefined ? { catalogLatencyMs } : {}),
+        ...(shadowCatalogError ? { routeReason: 'shadow_catalog_error' } : {}),
       },
     });
     if (!applied) {
@@ -235,6 +313,7 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
         : {}),
     };
   } catch {
+    if (mode === 'shadow') throw new Error('shadow_routing_failed');
     return { tier: null, applied: false, mode, reason: 'error' };
   }
 }

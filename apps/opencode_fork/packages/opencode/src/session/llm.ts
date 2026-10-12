@@ -1,3 +1,4 @@
+import { qualificationProviderMiddleware } from "./rhythm_qualification_counter"
 import { Provider } from "@/provider/provider"
 import * as Log from "@opencode-ai/core/util/log"
 import { Context, Effect, Layer, Record } from "effect"
@@ -629,6 +630,7 @@ const live: Layer.Layer<
                   }),
                 ]
               : []),
+            qualificationProviderMiddleware(input.sessionID),
           ],
         }),
         experimental_telemetry: {

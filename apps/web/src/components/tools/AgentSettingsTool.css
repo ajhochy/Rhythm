@@ -589,3 +589,7 @@
 .router-catalog-facts dt { color: var(--muted); font-size: 11px; }
 .router-catalog-facts dt, .router-catalog-facts dd { margin: 0; }
 @media (max-width: 640px) { .router-settings-fields { grid-template-columns: minmax(0, 1fr); } }
+.grid-candidates { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+.grid-candidate { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.grid-candidate select { width: auto; min-height: 32px; flex: 1 1 140px; }
+.grid-candidate small { flex-basis: 100%; }

@@ -101,6 +101,7 @@ const MIN_TOKEN_LEN = 3;
 const MAX_QUERY_TOKENS = 12;
 /** Native retrieval keeps the shared deadline; bound only automatic long prompts. */
 const AUTOMATIC_NATIVE_QUERY_MAX_CHARS = 128;
+const AUTOMATIC_CONTINUATION_QUERY_MAX_CHARS = 80;
 const RRF_K = 60;
 
 interface RetrievalEvidence {
@@ -244,8 +245,8 @@ export function extractQueryTokens(query: string): string[] {
  * Keep native automatic retrieval within its prompt budget without changing the
  * original query used for FTS, relevance, excerpts, or reranker scoring.
  */
-function compactAutomaticNativeQuery(query: string): string {
-  if (query.length <= AUTOMATIC_NATIVE_QUERY_MAX_CHARS) return query;
+function compactAutomaticNativeQuery(query: string, maxChars = AUTOMATIC_NATIVE_QUERY_MAX_CHARS): string {
+  if (query.length <= maxChars) return query;
   const candidate = extractQueryTokens(query).join(' ') || query;
   let result = '';
   for (let index = 0; index < candidate.length;) {
@@ -258,7 +259,7 @@ function compactAutomaticNativeQuery(query: string): string {
       : isHighSurrogate || isLowSurrogate
         ? '\uFFFD'
         : candidate[index];
-    if (result.length + value.length > AUTOMATIC_NATIVE_QUERY_MAX_CHARS) break;
+    if (result.length + value.length > maxChars) break;
     result += value;
     index += value.length === 2 && isHighSurrogate ? 2 : 1;
   }
@@ -276,20 +277,146 @@ const RELEVANCE_STOPWORDS = new Set([
   'be', 'does', 'work', 'working',
 ]);
 
+/** Small conversational filler list, not a corpus-derived relevance threshold. */
+export const AUTOMATIC_MEMORY_CONVERSATIONAL_FILLERS = new Set([
+  'yes', 'yeah', 'ok', 'okay', 'good', 'great', 'looks', 'thanks', 'please',
+  'also', 'just', 'still', 'yet', 'now', 'then', 'alright', 'sure', 'right',
+  'resume', 'continue', 'proceed', 'update', 'dispatch', 'run', 'fix', 'check',
+  'try', 'done', 'finish', 'next', 'step', 'status', 'progress', 'work',
+  'working', 'stuff', 'thing', 'things', 'something', 'anything', 'everything',
+]);
+
 function relevanceTokens(value: string): string[] {
   const normalized = value
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
   return [...new Set(normalized.split(/[^a-z0-9]+/)
-    .filter((token) => token.length >= MIN_TOKEN_LEN && !RELEVANCE_STOPWORDS.has(token))
+    .filter((token) => token.length >= MIN_TOKEN_LEN && !RELEVANCE_STOPWORDS.has(token)
+      && !AUTOMATIC_MEMORY_CONVERSATIONAL_FILLERS.has(token))
     .map((token) => (
-      token.length > 4 && token.endsWith('ies')
-        ? `${token.slice(0, -3)}y`
-        : token.length > 4 && token.endsWith('s') && !token.endsWith('ss')
+      token.length > 5 && token.endsWith('ing')
+        ? token.slice(0, -3).replace(/([b-df-hj-np-tv-z])\1$/, '$1')
+        : token.length > 4 && token.endsWith('ied')
+          ? `${token.slice(0, -3)}y`
+        : token.length > 4 && token.endsWith('ed')
+          ? token.slice(0, -2).replace(/([b-df-hj-np-tv-z])\1$/, '$1')
+        : token.length > 4 && token.endsWith('ies')
+         ? `${token.slice(0, -3)}y`
+        : token.length > 4 && /(?:ches|shes|xes|zes|sses)$/.test(token)
+          ? token.slice(0, -2)
+           : token.length > 3 && token.endsWith('s') && !token.endsWith('ss')
           ? token.slice(0, -1)
           : token
-    )))];
+    )).filter(token => !AUTOMATIC_MEMORY_CONVERSATIONAL_FILLERS.has(token)))];
+}
+
+const AUTOMATIC_MEMORY_STANDALONE_TOKENS = 6;
+
+export type AutomaticMemoryQueryMode = 'current' | 'continuation' | 'abstain';
+
+export function resolveAutomaticMemoryQuery(current: string, priorUserTexts: string[]): {
+  mode: AutomaticMemoryQueryMode; query: string; evidenceText: string;
+} {
+  // A pronoun question can carry generic response constraints without naming
+  // a new subject. Count its question only when the complete tail is constraints;
+  // any substantive tail keeps the ordinary standalone topic threshold.
+  const question = /^([^?]+\?)([\s\S]+)$/.exec(current);
+  const constraintTail = question?.[2].replace(
+    /\b(?:keep (?:the )?same (?:read[- ]only|safety|scope) constraints|cite (?:relevant )?(?:remembered )?context if available|answer (?:under|in at most) \d+ words|and)\b/gi,
+    '',
+  ).replace(/[\s,.;]+/g, '');
+  const topic = question && constraintTail === '' ? question[1] : current;
+  const own = relevanceTokens(topic).length;
+  const continuationCue = (text: string) => /\b(?:resume|continue|proceed|it|that|this|those|they|them|their)\b|^\s*what about\b/i.test(text);
+  const concreteCommand = (text: string) => /^\s*(?:push|deploy|ship|stage|write|draft|revise|edit|fix|run|check|implement|lookup)\b/i.test(text)
+    && relevanceTokens(text).length >= 1;
+  if (/^\s*(?:yes|yeah|ok|okay|thanks|thank you|great|good|sure|alright|done)\b/i.test(current)
+    && own <= 1 && !/\b(?:resume|continue|proceed|run|fix|check|try|finish|update|dispatch)\b/i.test(current)) {
+    return { mode: 'abstain', query: '', evidenceText: current };
+  }
+  if (/\b(?:issue|ticket|pr)\s*#?\d+\b/i.test(current)
+    || (/\b(?:push|deploy|ship|stage)\b/i.test(current) && /\b\d+\b/.test(current))) {
+    return { mode: 'current', query: current, evidenceText: current };
+  }
+  // ponytail: cues, not brevity, identify a continuation; only the nearest task can lend evidence.
+  if (own < AUTOMATIC_MEMORY_STANDALONE_TOKENS && continuationCue(current)) {
+    const prior = priorUserTexts.slice(0, 6).find(text => !/^[\[<]/.test(text.trimStart())
+      && (relevanceTokens(text).length >= AUTOMATIC_MEMORY_STANDALONE_TOKENS
+        || (!/\b(?:resume|continue|proceed|it|that|this|those)\b/i.test(text)
+          && (relevanceTokens(text).length >= 3 || concreteCommand(text)))));
+    if (prior) {
+      const substantive = prior.slice(0, 600);
+      return { mode: 'continuation', query: compactAutomaticNativeQuery(extractQueryTokens(substantive).join(' '), AUTOMATIC_CONTINUATION_QUERY_MAX_CHARS),
+        evidenceText: `${current}\n${substantive}` };
+    }
+  }
+  if (/^\s*(?:(?:yes|yeah|ok|okay|thanks|thank you|great|good|sure|alright|done)[\s!.?,]*)+$/i.test(current)) {
+    return { mode: 'abstain', query: '', evidenceText: current };
+  }
+  return own >= 3 || (concreteCommand(current) && !continuationCue(current))
+    ? { mode: 'current', query: current, evidenceText: current }
+    : { mode: 'abstain', query: '', evidenceText: current };
+}
+
+/** Applicability is a task-domain decision, never a native rank/confidence claim. */
+export function isWritingPreferenceTask(task: string): boolean {
+  if (/\b(?:code|function|script|bug|deploy|deployment|staging|workout|football|betting)\b/i.test(task)) return false;
+  return /\b(?:draft|write|revise|edit|rewrite)\b[\s\S]*\b(?:email|message|letter|document|announcement|memo|communication|copy|proposal|report)\b/i.test(task)
+    || /\b(?:use|match|keep|in)\s+(?:my|our)\s+voice\b|\b(?:tone and voice|writing preferences|writing style)\b/i.test(task);
+}
+
+/** One clearly titled, bounded Markdown section; ambiguous/oversized sections abstain. */
+export function extractWritingPreferenceSection(content: string): { heading: string; excerpt: string } | null {
+  const lines = content.replace(/\r\n?/g, '\n').split('\n');
+  const headings: Array<{ index: number; level: number; title: string }> = [];
+  let fence: string | null = null;
+  for (const [index, line] of lines.entries()) {
+    const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+    if (marker) { fence = fence === marker[1][0] ? null : fence ?? marker[1][0]; continue; }
+    if (fence) continue;
+    const match = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (match) headings.push({ index, level: match[1].length, title: match[2].trim() });
+  }
+  const selected = headings.filter(h => /^(?:writing style(?: profile)?|writing preferences|tone and voice)$/i.test(h.title));
+  if (selected.length !== 1) return null;
+  const heading = selected[0];
+  const end = headings.find(h => h.index > heading.index && h.level <= heading.level)?.index ?? lines.length;
+  const section = lines.slice(heading.index + 1, end).join('\n').trim();
+  // Nested domains/code are not a narrow coherent preference section.
+  if (!section || /(^|\n)\s*(?:#{1,6}\s|`{3,}|~{3,})/.test(section)) return null;
+  const excerpt = section.replace(/\s+/g, ' ').trim();
+  if (excerpt.length > AUTOMATIC_MEMORY_MAX_ITEM_CHARS || relevanceTokens(excerpt).length < 3) return null;
+  return { heading: heading.title, excerpt };
+}
+
+function applicablePreferenceSection(query: string, memory: AgentMemory) {
+  return isBroadAutomaticMemory(memory) && isWritingPreferenceTask(query)
+    && genericAdmitted(memory) ? extractWritingPreferenceSection(memory.content) : null;
+}
+
+function isBroadAutomaticMemory(memory: AgentMemory): boolean {
+  const source = (memory.sourceId ?? '').replaceAll('\\', '/').toLowerCase();
+  let archive = false;
+  try { archive = JSON.parse(memory.tagsJson).some((tag: unknown) => typeof tag === 'string' && tag.toLowerCase() === 'archive'); } catch { /* malformed tags */ }
+  return archive || /(?:^|\/)(?:log\.md|index\.md)$/.test(source)
+    || /(?:^|\/)synthesis\//.test(source)
+    || /(?:^|\/)context\/(?:\d{4}-\d{2}-\d{2}|import-)/.test(source);
+}
+
+function automaticMemoryTitle(memory: AgentMemory): string {
+  return (memory.sourceId ?? '').split(/[\\/]/).pop()?.replace(/\.md$/i, '').replace(/[-_]+/g, ' ') ?? '';
+}
+
+/**
+ * Tokens of the subject the request names (runs of 2+ capitalized words, e.g.
+ * "Cobalt Lantern"). A fact that mentions none of them is about something else,
+ * however many topic words it lists ("no relation to rooms or arrival times").
+ * ponytail: capitalization heuristic; title-cased prose over-constrains facts —
+ * swap for an entity extractor if that shows up.
+ */
+function namedSubjectTokens(evidence: string): string[] {
+  return relevanceTokens((evidence.match(/\b[A-Z][\w'-]*(?:[ \t]+[A-Z][\w'-]*)+/g) ?? []).join(' '));
 }
 
 export interface AutomaticMemoryScore {
@@ -309,10 +436,9 @@ export function scoreMemoryForAutomaticInjection(
 ): AutomaticMemoryScore {
   const queryTokens = relevanceTokens(query);
   const candidateTokens = new Set(relevanceTokens([
-    candidate.content,
-    candidate.kind,
-    candidate.tagsJson,
-    candidate.sourceId ?? '',
+    boundedRelevantExcerpt(query, candidate.content, AUTOMATIC_MEMORY_MAX_ITEM_CHARS,
+      isBroadAutomaticMemory(candidate) ? '' : automaticMemoryTitle(candidate)),
+    isBroadAutomaticMemory(candidate) ? '' : automaticMemoryTitle(candidate),
   ].join(' ')));
   const matchedTokens = queryTokens.filter((token) => candidateTokens.has(token)).length;
   return {
@@ -357,9 +483,7 @@ function clearsAutomaticGate(
   if (!isAutomaticallyInjectable(memory)) return null;
   const score = scoreMemoryForAutomaticInjection(query, memory);
   if (
-    score.queryTokens < 2
-    || score.matchedTokens < 2
-    || score.score < getAutomaticMemoryMinRelevance()
+    score.matchedTokens < (isBroadAutomaticMemory(memory) ? 3 : 2)
   ) {
     return null;
   }
@@ -497,7 +621,7 @@ export async function getRelevantMemories(
           lane: 'fts',
           score: Number(absoluteScore.score.toFixed(4)),
           confidence: null,
-          reason: `lexical overlap ${absoluteScore.matchedTokens}/${absoluteScore.queryTokens} cleared threshold ${getAutomaticMemoryMinRelevance().toFixed(2)}`,
+          reason: `displayed token overlap ${absoluteScore.matchedTokens} cleared threshold ${isBroadAutomaticMemory(m) ? 3 : 2}`,
         });
       }
       const existing = byId.get(m.id);
@@ -854,6 +978,7 @@ async function collectNativeMemoryReferences(
   automaticOnly: boolean,
   startedAt = Date.now(),
   releaseAdmission?: (memory: AgentMemory) => boolean,
+  preferenceTask?: string,
 ): Promise<NativeMemoryReferenceCollection> {
   const nativeSearchStartedAt = Date.now();
   const diagnostic = (phase: SemanticRetrievalDiagnosticPhase) => nativeRetrievalDiagnostic(
@@ -960,7 +1085,7 @@ async function collectNativeMemoryReferences(
     // Aliases/duplicate index rows are ambiguous and must not be released.
     if (matches?.length !== 1) continue;
     const memory = matches[0];
-    const excerpt = hit.snippet!;
+    const excerpt = (preferenceTask ? applicablePreferenceSection(preferenceTask, memory)?.excerpt : null) ?? hit.snippet!;
     let released = true;
     if (releaseAdmission) {
       try {
@@ -1129,6 +1254,7 @@ async function getRelevantMemoriesSemanticDetailed(
     true,
     startedAt,
     genericAdmission ? genericAdmitted : undefined,
+    query,
   );
   const ftsPromise = getRelevantMemories(query, ownerUserId, topN, repo, genericAdmission);
   const settledFtsPromise = settleBeforeDeadline(deadline, () => ftsPromise);
@@ -1169,6 +1295,11 @@ async function getRelevantMemoriesSemanticDetailed(
 }
 
 export interface MemoryPreface {
+  /** Additive diagnostics; optional for legacy consumers constructing DTOs. */
+  queryMode?: AutomaticMemoryQueryMode;
+  candidates?: AutomaticMemoryCandidate[];
+  latencyMs?: number;
+  decision?: 'injected' | 'none_relevant' | 'abstained' | 'disabled' | 'error';
   /** Hidden per-turn context text. Empty when disabled / no matches. */
   text: string;
   /** Ids of the matched memories (for logging/diagnostics; memory has no `uses`). */
@@ -1188,7 +1319,23 @@ export interface MemoryPreface {
   semanticHitCount: number;
 }
 
+export interface AutomaticMemoryCandidate {
+  memoryId: string;
+  sourceId: string | null;
+  lane: RetrievalEvidence['lane'];
+  nativeRank: number | null;
+  sharedTokenCount: number;
+  broad: boolean;
+  admitted: boolean;
+  reason: 'selected' | 'applicable_preference_section' | 'insufficient_overlap' | 'not_injectable' | 'withheld' | 'inactive' | 'owner_hidden' | 'rerank_below_min' | 'budget';
+}
+
 export interface BuildMemoryPrefaceOptions {
+  priorUserTexts?: string[];
+  /** Body-free IDs from prior admitted turns; ignored for a new/current task. */
+  priorMemoryIds?: string[];
+  /** Resolved current/prior evidence, internal to the automatic build path. */
+  evidenceText?: string;
   /** Override the instance-wide toggle (defaults to the live env read). */
   enabled?: boolean;
   /** Max memories to retrieve (forwarded to getRelevantMemories). */
@@ -1230,7 +1377,7 @@ function emptyMemoryPreface(
   semanticStatus: MemorySemanticStatus = 'disabled',
   semanticHitCount = 0,
 ): MemoryPreface {
-  return { text: '', memoryIds: [], notePaths: [], items: [], semanticStatus, semanticHitCount };
+  return { text: '', memoryIds: [], notePaths: [], items: [], semanticStatus, semanticHitCount, candidates: [] };
 }
 
 function logSemanticStatus(
@@ -1245,23 +1392,38 @@ function logSemanticStatus(
   logger.info(`[MemoryRetrieval] semantic status=${status} hits=${hitCount}${phase}`);
 }
 
-function boundedRelevantExcerpt(query: string, content: string): string {
+function boundedRelevantExcerpt(query: string, content: string, limit = AUTOMATIC_MEMORY_MAX_ITEM_CHARS, title = ''): string {
   const sentences = content
     .replace(/\s+/g, ' ')
     .trim()
     .split(/(?<=[.!?])\s+/)
     .filter(Boolean);
   const querySet = new Set(relevanceTokens(query));
-  const ranked = sentences
-    .map((sentence, index) => ({
+  const titleSet = new Set(relevanceTokens(title));
+  const scored = sentences.map((sentence, index) => {
+    const tokens = relevanceTokens(sentence);
+    return {
       sentence,
       index,
-      matches: relevanceTokens(sentence).filter((token) => querySet.has(token)).length,
-    }))
-    .sort((a, b) => b.matches - a.matches || a.index - b.index);
+      tokens: Math.max(1, tokens.length),
+      // A sentence that only restates the cited title displays no fact.
+      titleOnly: titleSet.size > 0 && tokens.every((token) => titleSet.has(token)),
+      matches: tokens.filter((token) => querySet.has(token)).length,
+    };
+  });
+  const pool = scored.some((s) => !s.titleOnly) ? scored.filter((s) => !s.titleOnly) : scored;
+  // ponytail: among sentences with enough overlap, the densest is the stated fact,
+  // not the longest keyword list; a 5-of-20 sentence can lose to a 2-of-4 one.
+  const floor = Math.min(2, Math.max(...pool.map((s) => s.matches)));
+  const ranked = pool
+    .filter((s) => s.matches >= floor)
+    .sort((a, b) => b.matches / b.tokens - a.matches / a.tokens || b.matches - a.matches || a.index - b.index);
   const selected = ranked[0]?.sentence ?? content.replace(/\s+/g, ' ').trim();
-  if (selected.length <= AUTOMATIC_MEMORY_MAX_ITEM_CHARS) return selected;
-  return `${selected.slice(0, AUTOMATIC_MEMORY_MAX_ITEM_CHARS - 1).trimEnd()}…`;
+  if (selected.length <= limit) return selected;
+  const cut = selected.slice(0, Math.max(0, limit - 1));
+  // Only complete words from the selected sentence, never an Engraph chunk window.
+  const aligned = /\s/.test(selected[cut.length] ?? '') ? cut.trimEnd() : cut.replace(/\s?\S+$/, '').trimEnd();
+  return aligned ? `${aligned}…` : '';
 }
 
 export async function expandLinkedMemories(
@@ -1387,11 +1549,53 @@ export async function buildMemoryPreface(
   ownerUserId?: number | null,
   opts: BuildMemoryPrefaceOptions = {},
 ): Promise<MemoryPreface> {
+  const startedAt = Date.now();
+  const resolved = resolveAutomaticMemoryQuery(query, opts.priorUserTexts ?? []);
   const enabled = opts.enabled ?? isMemoryInjectionEnabled();
-  if (!enabled) return emptyMemoryPreface();
+  if (!enabled || resolved.mode === 'abstain') {
+    return { ...emptyMemoryPreface(), queryMode: resolved.mode, latencyMs: Date.now() - startedAt,
+      decision: enabled ? 'abstained' : 'disabled' };
+  }
+  opts = { ...opts, evidenceText: resolved.evidenceText };
+  const deadline = startedAt + getSemanticSearchBudgetMs();
+  if (resolved.mode === 'continuation' && opts.priorMemoryIds?.length) {
+    const reused: AgentMemory[] = [];
+    const invalidCanonicalIds = new Set<string>();
+    const repo = new AgentMemoryRepository();
+    for (const id of [...new Set(opts.priorMemoryIds)].slice(0, 10)) {
+      const found = await settleBeforeDeadline(deadline, () => repo.findByIdAsync(id));
+      if (!found.ok) break;
+      const memory = found.value;
+      if (!memory || !isOwnerVisible(memory.ownerUserId, ownerUserId ?? null)
+        || !isMemoryActive(memory, currentDate()) || !isAutomaticallyInjectable(memory)
+        || !genericAdmitted(memory)) continue;
+      try { if (opts.automaticAdmission?.(memory) === false) continue; } catch { continue; }
+      const excerpt = applicablePreferenceSection(resolved.evidenceText, memory)?.excerpt
+        ?? boundedRelevantExcerpt(resolved.evidenceText, memory.content, AUTOMATIC_MEMORY_MAX_ITEM_CHARS,
+          isBroadAutomaticMemory(memory) ? '' : automaticMemoryTitle(memory));
+      if (memory.source === 'obsidian-memory') {
+        if (!memory.sourceId) continue;
+        const canonical = await settleBeforeDeadline(deadline, () => validateCanonicalNativeReference(
+          opts.memoryDir ?? resolveMemoryDirPath(), memory.sourceId!, memory, excerpt));
+        if (!canonical.ok || !canonical.value) { invalidCanonicalIds.add(id); continue; }
+      }
+      reused.push(memory);
+    }
+    const preface = await assembleMemoryPreface(resolved.query, reused, ownerUserId, opts, 'disabled', 0, { scores: new Map(), dryRun: true, expand: false });
+    if (preface.memoryIds.length) return { ...preface, queryMode: resolved.mode, latencyMs: Date.now() - startedAt, decision: 'injected' };
+    // A rejected stale canonical record must not immediately re-enter through the FTS fallback.
+    const admission = opts.automaticAdmission;
+    opts = { ...opts, automaticAdmission: memory => !invalidCanonicalIds.has(memory.id) && admission?.(memory) !== false };
+  }
   const rerankMode = getDecisionFeatureMode('memory_ranking');
-  if (rerankMode === 'off') return buildLexicalMemoryPreface(query, ownerUserId, opts);
-  return buildRerankedMemoryPreface(query, ownerUserId, opts, rerankMode);
+  const operation = async () => rerankMode === 'off'
+    ? await buildLexicalMemoryPreface(resolved.query, ownerUserId, opts)
+    : await buildRerankedMemoryPreface(resolved.query, ownerUserId, opts, rerankMode);
+  const settled = resolved.mode === 'continuation' && opts.priorMemoryIds?.length
+    ? await settleBeforeDeadline(deadline, operation) : { ok: true as const, value: await operation() };
+  const preface = settled.ok ? settled.value : emptyMemoryPreface('timeout');
+  return { ...preface, queryMode: resolved.mode, latencyMs: Date.now() - startedAt,
+    decision: preface.decision ?? (preface.memoryIds.length ? 'injected' : 'none_relevant') };
 }
 
 /** The original lexical-gated preface path (mode 'off', shadow baseline, 'on' fallback). */
@@ -1422,7 +1626,7 @@ async function buildLexicalMemoryPreface(
         ownerUserId,
         opts.topN ?? DEFAULT_TOP_N,
         undefined,
-        engraphManager.getRetrievalClient(),
+        opts.engraphClient ?? engraphManager.getRetrievalClient(),
         opts.genericAdmission === true,
       );
       matches = result.memories;
@@ -1443,7 +1647,7 @@ async function buildLexicalMemoryPreface(
     // call sites also wrap this in try/catch as a second backstop.
     semanticStatus = mode === 'hybrid' ? 'backend_unavailable' : 'disabled';
     logSemanticStatus(semanticStatus, semanticHitCount, semanticDiagnostic);
-    return emptyMemoryPreface(semanticStatus, semanticHitCount);
+    return { ...emptyMemoryPreface(semanticStatus, semanticHitCount), decision: 'error' };
   }
   logSemanticStatus(semanticStatus, semanticHitCount, semanticDiagnostic);
   return assembleMemoryPreface(
@@ -1476,8 +1680,9 @@ async function assembleMemoryPreface(
   const minScore = getDecisionMemoryMinScore();
   // Custom retrieval hooks and future lanes still cannot bypass lifecycle
   // gating, owner isolation, injectability, or absolute relevance.
-  // With `rerank` set, the reranker score replaces the lexical overlap gate for
-  // memories it scored (never the owner/active/injectable gates).
+  // Every lane must justify the actual displayed text, never whole-body overlap
+  // or rank-relative semantic/reranker confidence.
+  query = opts.evidenceText ?? query;
   const today = currentDate();
   const wanted = ownerUserId == null ? null : ownerUserId;
   const admitted = (memory: AgentMemory): boolean => {
@@ -1487,25 +1692,41 @@ async function assembleMemoryPreface(
       return false;
     }
   };
+  const subject = namedSubjectTokens(query);
+  const candidates = new Map<string, AutomaticMemoryCandidate>();
+  const excerpts = new Map<string, string>();
+  const sections = new Map<string, { heading: string; excerpt: string }>();
   const passesGate = (memory: AgentMemory): boolean => {
-    const score = rerank?.scores.get(memory.id);
+    const broad = isBroadAutomaticMemory(memory);
+    const title = broad ? '' : automaticMemoryTitle(memory);
+    // The title slug is already visible in the citation; no duplicate heading.
+    const section = applicablePreferenceSection(query, memory);
+    if (section) sections.set(memory.id, section);
+    const excerpt = escapeFenceDelimiters(section?.excerpt
+      ?? boundedRelevantExcerpt(query, memory.content, AUTOMATIC_MEMORY_MAX_ITEM_CHARS, title));
+    excerpts.set(memory.id, excerpt);
+    const tokens = new Set(relevanceTokens(`${excerpt} ${title}`));
+    const sharedTokenCount = relevanceTokens(query).filter(token => tokens.has(token)).length;
+    const rerankScore = rerank?.scores.get(memory.id);
+    const reason: AutomaticMemoryCandidate['reason'] = !isOwnerVisible(memory.ownerUserId, wanted) ? 'owner_hidden'
+      : !isMemoryActive(memory, today) ? 'inactive'
+      : !admitted(memory) || (opts.genericAdmission && !genericAdmitted(memory)) ? 'withheld'
+      : !isAutomaticallyInjectable(memory) ? 'not_injectable'
+      // An excerpt with almost no words of its own (e.g. a bare heading) cannot help, whatever the title says.
+      : (!section && sharedTokenCount < (broad ? 3 : 2)) || relevanceTokens(excerpt).length < 2
+        // Preferences are cross-cutting; a fact must be about the subject the request names.
+        || (!section && memory.kind !== 'preference' && subject.length > 0 && !subject.some(token => tokens.has(token)))
+        ? 'insufficient_overlap'
+      : rerankScore !== undefined && rerankScore < minScore ? 'rerank_below_min' : 'budget';
     const evidence = retrievalEvidence.get(memory);
-    return score !== undefined
-      ? isAutomaticallyInjectable(memory) && score >= minScore
-      : evidence?.lane === 'semantic' && Boolean(evidence.excerpt)
-        ? isAutomaticallyInjectable(memory)
-      : clearsAutomaticGate(query, memory) !== null;
+    candidates.set(memory.id, { memoryId: memory.id, sourceId: memory.sourceId,
+      lane: evidence?.lane ?? 'fts', nativeRank: evidence?.nativeRank ?? null,
+      sharedTokenCount, broad, admitted: false, reason });
+    return reason === 'budget';
   };
-  const byRerankScore = (a: AgentMemory, b: AgentMemory): number => (
-    (rerank?.scores.get(b.id) ?? -1) - (rerank?.scores.get(a.id) ?? -1)
-  );
   matches = matches.filter((memory) => (
-    isOwnerVisible(memory.ownerUserId, wanted)
-    && isMemoryActive(memory, today)
-    && admitted(memory)
-    && passesGate(memory)
+    passesGate(memory)
   ));
-  if (rerank) matches = [...matches].sort(byRerankScore);
   if (rerank?.expand !== false && isMemoryLinkExpansionEnabled()) {
     try {
       matches = await expandLinkedMemories(
@@ -1521,37 +1742,27 @@ async function assembleMemoryPreface(
     }
   }
   matches = matches.filter((memory) => (
-    isOwnerVisible(memory.ownerUserId, wanted)
-    && isMemoryActive(memory, today)
-    && admitted(memory)
-    && passesGate(memory)
+    passesGate(memory)
   ));
   if (!matches || matches.length === 0) {
-    return emptyMemoryPreface(semanticStatus, semanticHitCount);
+    return { ...emptyMemoryPreface(semanticStatus, semanticHitCount), candidates: [...candidates.values()].slice(0, 10) };
   }
 
   const ranked = matches
     .map((memory, index) => ({
       memory,
       index,
-      relevance: rerank
-        ? scoreMemoryForAutomaticInjection(query, memory)
-        : clearsAutomaticGate(query, memory) ?? scoreMemoryForAutomaticInjection(query, memory),
+      relevance: scoreMemoryForAutomaticInjection(query, memory),
     }))
     .sort((a, b) => (
-      (rerank ? byRerankScore(a.memory, b.memory) : 0)
-      || (!rerank
-        ? ((retrievalEvidence.get(a.memory)?.lane === 'semantic' ? 0 : 1)
-          - (retrievalEvidence.get(b.memory)?.lane === 'semantic' ? 0 : 1))
-        : 0)
-      || (!rerank && retrievalEvidence.get(a.memory)?.lane === 'semantic'
-        && retrievalEvidence.get(b.memory)?.lane === 'semantic'
-        ? (retrievalEvidence.get(a.memory)?.nativeRank ?? Number.MAX_SAFE_INTEGER)
-          - (retrievalEvidence.get(b.memory)?.nativeRank ?? Number.MAX_SAFE_INTEGER)
-        : 0)
-      || b.relevance.score - a.relevance.score
-      || b.relevance.matchedTokens - a.relevance.matchedTokens
-      || trustRank(b.memory) - trustRank(a.memory)
+      // A current atomic preference wins over a derived historical preference section.
+      (sections.size ? Number(b.memory.kind === 'preference' && !isBroadAutomaticMemory(b.memory))
+        - Number(a.memory.kind === 'preference' && !isBroadAutomaticMemory(a.memory)) : 0)
+      ||
+      // Overlap only admits; the retriever's own order ranks what was admitted.
+      (retrievalEvidence.get(a.memory)?.nativeRank ?? Number.MAX_SAFE_INTEGER)
+        - (retrievalEvidence.get(b.memory)?.nativeRank ?? Number.MAX_SAFE_INTEGER)
+      || candidates.get(b.memory.id)!.sharedTokenCount - candidates.get(a.memory.id)!.sharedTokenCount
       || a.index - b.index
     ));
 
@@ -1567,12 +1778,12 @@ async function assembleMemoryPreface(
     excerpt: string;
     relevance: AutomaticMemoryScore;
   }> = [];
-  for (const candidate of ranked.slice(0, AUTOMATIC_MEMORY_MAX_ITEMS)) {
+  for (const candidate of ranked) {
+    if (accepted.length >= AUTOMATIC_MEMORY_MAX_ITEMS) break;
     const evidence = retrievalEvidence.get(candidate.memory);
-    const native = evidence?.lane === 'semantic' ? evidence.excerpt : undefined;
-    const excerpt = escapeFenceDelimiters(native ?? boundedRelevantExcerpt(query, candidate.memory.content));
-    const citation = evidence?.citation
-      ?? escapeFenceDelimiters(candidate.memory.sourceId ?? 'memory');
+    const excerpt = excerpts.get(candidate.memory.id)!;
+    const section = sections.get(candidate.memory.id);
+    const citation = `${evidence?.citation ?? escapeFenceDelimiters(candidate.memory.sourceId ?? 'memory')}${section ? ` — section: ${escapeFenceDelimiters(section.heading)}` : ''}`;
     const origin = originForMemory(candidate.memory);
     const originLabel = [
       origin.origin ? `origin: ${origin.origin}` : null,
@@ -1580,7 +1791,9 @@ async function assembleMemoryPreface(
       origin.observedAt ? `observed: ${origin.observedAt}` : null,
       ...origin.originTags,
     ].filter((value): value is string => value !== null).join('; ');
-    const item = `- ${excerpt} [${citation}]${originLabel ? ` (${originLabel})` : ''}`;
+    const updatedDate = candidate.memory.updatedAt?.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+    const provenance = `${escapeFenceDelimiters(candidate.memory.kind)}${updatedDate ? `, updated ${updatedDate}` : ''}`;
+    const item = `- ${excerpt} [${citation}]${originLabel ? ` (${originLabel})` : ''} (${provenance})`;
     const nextText = [...lines, untrustedContext([...formattedItems, item].join('\n'), 'retrieved memory references')].join('\n');
     if (
       nextText.length > AUTOMATIC_MEMORY_MAX_TOTAL_CHARS
@@ -1589,13 +1802,14 @@ async function assembleMemoryPreface(
       continue;
     }
     formattedItems.push(item);
+    Object.assign(candidates.get(candidate.memory.id)!, { admitted: true, reason: section ? 'applicable_preference_section' : 'selected' });
     accepted.push({
       memory: candidate.memory,
       excerpt,
       relevance: candidate.relevance,
     });
   }
-  if (accepted.length === 0) return emptyMemoryPreface(semanticStatus, semanticHitCount);
+  if (accepted.length === 0) return { ...emptyMemoryPreface(semanticStatus, semanticHitCount), candidates: [...candidates.values()].slice(0, 10) };
   lines.push(untrustedContext(formattedItems.join('\n'), 'retrieved memory references'));
   if (rerank && !rerank.dryRun) {
     for (const { memory } of accepted) {
@@ -1611,6 +1825,7 @@ async function assembleMemoryPreface(
   }
 
   return {
+    candidates: [...candidates.values()].slice(0, 10),
     text: lines.join('\n'),
     memoryIds: accepted.map(({ memory }) => memory.id),
     // #805 AC6: surface the originating vault note path for each match so a
@@ -1628,8 +1843,8 @@ async function assembleMemoryPreface(
         lane: evidence?.lane ?? 'fts',
         score: evidence?.score ?? Number(relevance.score.toFixed(4)),
         confidence: evidence?.confidence ?? null,
-        reason: evidence?.reason
-          ?? `lexical overlap ${relevance.matchedTokens}/${relevance.queryTokens} cleared threshold ${getAutomaticMemoryMinRelevance().toFixed(2)}`,
+        reason: sections.has(memory.id) ? 'applicable_preference_section' : evidence?.reason
+          ?? `displayed token overlap ${relevance.matchedTokens} cleared threshold ${isBroadAutomaticMemory(memory) ? 3 : 2}`,
         excerptChars: excerpt.length,
         estimatedTokens: Math.ceil(excerpt.length / 4),
         semanticStatus,

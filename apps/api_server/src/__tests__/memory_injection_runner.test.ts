@@ -74,7 +74,7 @@ function teardownDb(): void {
 // NB: contains the exact FTS token "standups" so it matches the seeded memory
 // content ("... prefers morning standups"). FTS5 tokenizes on exact words, so a
 // singular "standup" would NOT match the plural "standups".
-const PROMPT = 'remind me about the standups preferences';
+const PROMPT = 'remind me about the standups preferences schedule';
 
 describe('memory injection — AgentRunner injects owner-scoped memory preface', () => {
   beforeEach(() => {
@@ -173,6 +173,21 @@ describe('memory injection — AgentRunner injects owner-scoped memory preface',
     const opts = mockPrompt.mock.calls[0][4] as { system?: string };
     expect(opts.system).toContain('Global standups preference is optional');
     expect(opts.system).not.toContain('Alice private standup note');
+  });
+
+  it.each([
+    { source: 'dayflow' },
+    { source: 'imported-dayflow-activity' },
+    { tagsJson: '["dayflow"]' },
+  ])('excludes Dayflow memory %j but retains relevant ordinary memory', async fields => {
+    const repo = new AgentMemoryRepository();
+    await repo.createAsync({ content: 'Ordinary standups preference is morning', ownerUserId: 1 });
+    await repo.createAsync({ content: 'Captured standups preference is afternoon', ownerUserId: 1, ...fields });
+    const run = await freshRun();
+    expect((await run({ prompt: PROMPT, ownerUserId: 1 })).status).toBe('done');
+    const opts = mockPrompt.mock.calls[0][4] as { system?: string };
+    expect(opts.system).toContain('Ordinary standups preference is morning');
+    expect(opts.system).not.toContain('Captured standups preference is afternoon');
   });
 
   it('disabled (AGENT_MEMORY_INJECTION_ENABLED="false") → forwarded prompt is unchanged', async () => {

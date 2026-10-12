@@ -8,6 +8,7 @@ import {
   MAX_COORDINATOR_CONVERSATION_COMMANDS,
   MAX_COORDINATOR_CONVERSATION_GOALS,
   parseStoredCoordinatorConversation,
+  coordinatorConversationCommands,
   type CoordinatorConversation,
   type CoordinatorConversationCommand,
   type CoordinatorConversationContinuationAuthority,
@@ -271,6 +272,7 @@ function goalDelegationIntentHash(input: {
 
 class ConversationCommandRace extends Error {}
 class ConversationTranscriptUnavailable extends Error {}
+class JournalIntegrityConflict extends Error {}
 
 function parseRow(row: SessionRow): CoordinatorConversationRead {
   if (row.coordinator_conversation_json === null) return { kind: 'not_found' };
@@ -292,9 +294,11 @@ function parseRow(row: SessionRow): CoordinatorConversationRead {
 function isValidAuthorityFor(
   conversation: CoordinatorConversation,
   authority: CoordinatorConversationContinuationAuthority,
+  commands = conversation.commandDedupe,
 ): boolean {
   try {
-    parseStoredCoordinatorConversation({ ...conversation, continuations: [authority] });
+    parseStoredCoordinatorConversation({ ...conversation, commandDedupe: commands,
+      continuations: [authority] }, { normalizedJournal: true });
     return true;
   } catch {
     return false;
@@ -314,6 +318,273 @@ export class CoordinatorConversationsRepository {
     private readonly db: Database.Database = getDb(),
     private readonly clock: () => Date = () => new Date(),
   ) {}
+
+  private isNormalized(scope: CoordinatorConversationScope): boolean {
+    try {
+      return (this.db.prepare('SELECT coordinator_command_storage AS storage FROM agent_sessions WHERE id=?')
+        .get(scope.sessionId) as { storage: string | null } | undefined)?.storage === 'rows_v1';
+    } catch {
+      return false;
+    }
+  }
+
+  /** Whether a goal already holds its one Coding Workflow delegation (shared by propose and reserve). */
+  hasGoalDelegation(scope: CoordinatorConversationScope, goalId: string, conversation: CoordinatorConversation): boolean {
+    return this.isNormalized(scope)
+      ? !!this.db.prepare(`SELECT 1 FROM coordinator_conversation_commands
+          WHERE root_session_id=? AND goal_id=? AND role='manager' LIMIT 1`).get(scope.sessionId, goalId)
+      : conversation.commandDedupe.some((command) => command.kind === 'delegate_goal' && command.goalId === goalId);
+  }
+
+  private authorityCommands(scope: CoordinatorConversationScope, conversation: CoordinatorConversation): CoordinatorConversationCommand[] {
+    const commands = new Map(conversation.commandDedupe.map((command) => [command.key, command]));
+    if (this.isNormalized(scope)) {
+      for (const goal of conversation.goals) {
+        const command = this.journalCommand(scope, goal.commandKey);
+        if (!command) throw new JournalIntegrityConflict();
+        commands.set(command.key, command);
+      }
+    }
+    return [...commands.values()];
+  }
+
+  private journalCommand(scope: CoordinatorConversationScope, key: string): CoordinatorConversationCommand | null {
+    const row = this.db.prepare(`SELECT replay_json, owner_user_id, project_id, kind, intent_hash,
+      goal_id,child_session_id,delegation_id,target_agent_config_id,role
+      FROM coordinator_conversation_commands WHERE root_session_id=? AND command_key=?`)
+      .get(scope.sessionId, key) as {
+        replay_json: string; owner_user_id: number; project_id: string; kind: string; intent_hash: string;
+        goal_id: string | null; child_session_id: string | null; delegation_id: string | null; target_agent_config_id: string | null;
+        role: string | null;
+      } | undefined;
+    if (!row) return null;
+    // A coding worker row is grant bookkeeping, not a conversation command:
+    // reserveWorker inserts it with replay_json '{}' and nothing ever fills
+    // that in. It shares kind='delegate_goal' with real goal commands, so the
+    // journal reads picked it up and threw - which persistently held the
+    // user's one coordinator root after ANY run reached worker allocation.
+    // Its integrity is owned by the grant journal (CAS + exact bindChild).
+    if (row.role === 'worker') return null;
+    const command = JSON.parse(row.replay_json) as CoordinatorConversationCommand;
+    if (row.owner_user_id !== scope.ownerUserId || row.project_id !== scope.projectId ||
+        command.key !== key || command.kind !== row.kind || command.intentHash !== row.intent_hash ||
+        row.goal_id !== ('goalId' in command ? command.goalId : null) ||
+        row.child_session_id !== (command.kind === 'delegate_goal' ? command.childSessionId : null) ||
+        row.delegation_id !== (command.kind === 'delegate_goal' ? command.delegationId : null) ||
+        row.target_agent_config_id !== (command.kind === 'delegate_goal' ? command.targetAgentConfigId : null)) {
+      throw new JournalIntegrityConflict();
+    }
+    return command;
+  }
+
+  /** Exact callback lookup is independent of both display and inventory pages. */
+  private journalDelegationCommand(scope: CoordinatorConversationScope, delegationId: string): CoordinatorConversationCommand | null {
+    const row = this.db.prepare(`SELECT command_key FROM coordinator_conversation_commands
+      WHERE root_session_id=? AND delegation_id=?`).get(scope.sessionId, delegationId) as { command_key: string } | undefined;
+    return row ? this.journalCommand(scope, row.command_key) : null;
+  }
+
+  /** R1 correlation only: no SDK call, prompt, grant, or lifecycle transition. */
+  bindCommandPromptAnchor(input: CoordinatorConversationScope & {
+    commandKey: string; slot: 'initial' | 'callback'; dispatchId: string;
+  }): { kind: 'bound' | 'replay' | 'anchor_conflict' } | Exclude<CoordinatorConversationRead, { kind: 'found' }> {
+    if ((input.slot !== 'initial' && input.slot !== 'callback') || !MCP_IDENTIFIER.test(input.dispatchId)) {
+      return { kind: 'anchor_conflict' };
+    }
+    try {
+      return this.db.transaction(() => {
+        const current = this.record(input).result;
+        if (current.kind !== 'found') return current;
+        const command = this.journalCommand(input, input.commandKey);
+        if (command?.kind !== 'delegate_goal' || !command.childSessionId) return { kind: 'anchor_conflict' as const };
+        const dispatch = this.db.prepare(`SELECT d.sdk_user_message_id AS message,d.sdk_session_id AS sdk,c.cwd
+          FROM agent_turn_dispatches d JOIN agent_sessions c ON c.id=d.session_id
+          WHERE d.id=? AND d.session_id=? AND c.parent_session_id=? AND c.owner_user_id=? AND c.project_id=?
+            AND d.sdk_session_id=c.sdk_session_id AND d.sdk_user_message_id IS NOT NULL AND d.origin=?
+            AND d.outcome IN ('pending','accepted','unknown')`)
+          .get(input.dispatchId, command.childSessionId, input.sessionId, input.ownerUserId, input.projectId,
+            input.slot === 'initial' ? 'delegation' : 'delegation_completion') as
+          { message: string; sdk: string; cwd: string } | undefined;
+        if (!dispatch || !MCP_IDENTIFIER.test(dispatch.message)) return { kind: 'anchor_conflict' as const };
+        const anchors = this.db.prepare(`SELECT initial_dispatch_id,initial_sdk_user_message_id,
+          callback_dispatch_id,callback_sdk_user_message_id FROM coordinator_conversation_commands
+          WHERE root_session_id=? AND command_key=?`).get(input.sessionId, input.commandKey) as Record<string, string | null>;
+        if (input.slot === 'callback' && (!anchors.initial_dispatch_id || anchors.initial_sdk_user_message_id === dispatch.message)) {
+          return { kind: 'anchor_conflict' as const };
+        }
+        const idField = `${input.slot}_dispatch_id`;
+        const messageField = `${input.slot}_sdk_user_message_id`;
+        if (anchors[idField] !== null) return { kind: anchors[idField] === input.dispatchId &&
+          anchors[messageField] === dispatch.message ? 'replay' as const : 'anchor_conflict' as const };
+        const changed = this.db.prepare(`UPDATE coordinator_conversation_commands SET ${idField}=?,${messageField}=?,
+          child_sdk_session_id=?,canonical_cwd=?,updated_at=?
+          WHERE root_session_id=? AND command_key=? AND ${idField} IS NULL
+            AND (child_sdk_session_id IS NULL OR child_sdk_session_id=?) AND (canonical_cwd IS NULL OR canonical_cwd=?)`)
+          .run(input.dispatchId, dispatch.message, dispatch.sdk, dispatch.cwd, nowIso(this.clock), input.sessionId,
+            input.commandKey, dispatch.sdk, dispatch.cwd).changes;
+        return { kind: changed === 1 ? 'bound' as const : 'anchor_conflict' as const };
+      })();
+    } catch {
+      return { kind: 'anchor_conflict' };
+    }
+  }
+
+  private writeJournalCommand(scope: CoordinatorConversationScope, command: CoordinatorConversationCommand,
+    conversation: CoordinatorConversation): void {
+    const previous = this.journalCommand(scope, command.key);
+    if (previous && (previous.intentHash !== command.intentHash || previous.kind !== command.kind)) {
+      throw new JournalIntegrityConflict();
+    }
+    if (previous && JSON.stringify(previous) === JSON.stringify(command)) return;
+    if (previous && 'state' in previous && previous.state !== 'reserved') throw new ConversationCommandRace();
+    const delegate = command.kind === 'delegate_goal' ? command : null;
+    const goalId = command.kind === 'add_goal' ? command.goalId : delegate?.goalId ?? null;
+    const goalRevision = conversation.goals.find((goal) => goal.id === goalId)?.revision ?? null;
+    if (previous) {
+      const changed = this.db.prepare(`UPDATE coordinator_conversation_commands
+        SET replay_json=?,updated_at=?,child_session_id=?,delegation_id=?
+        WHERE root_session_id=? AND command_key=? AND replay_json=?`)
+        .run(JSON.stringify(command), conversation.updatedAt, delegate?.childSessionId ?? null,
+          delegate?.delegationId ?? null, scope.sessionId, command.key, JSON.stringify(previous)).changes;
+      if (changed !== 1) throw new ConversationCommandRace();
+    } else {
+      const ordinal = (this.db.prepare(`SELECT COALESCE(MAX(journal_ordinal),0)+1 AS n
+        FROM coordinator_conversation_commands WHERE root_session_id=?`).get(scope.sessionId) as { n: number }).n;
+      this.db.prepare(`INSERT INTO coordinator_conversation_commands
+        (root_session_id,command_key,owner_user_id,project_id,kind,intent_hash,replay_json,created_at,updated_at,
+          goal_id,goal_revision,role,attempt_ordinal,target_agent_config_id,child_session_id,delegation_id,journal_ordinal)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(scope.sessionId, command.key, scope.ownerUserId,
+          scope.projectId, command.kind, command.intentHash, JSON.stringify(command), conversation.updatedAt,
+          conversation.updatedAt, goalId, goalRevision, delegate ? 'manager' : null, delegate ? 1 : null,
+          delegate?.targetAgentConfigId ?? null, delegate?.childSessionId ?? null, delegate?.delegationId ?? null, ordinal);
+    }
+  }
+
+  /** Validate all legacy evidence before installing the single-writer marker. */
+  private validateLegacyDispatches(conversation: CoordinatorConversation): void {
+    for (const command of conversation.commandDedupe) {
+      if (command.kind === 'status' || (command.kind === 'add_goal' && command.messageId !== null)) {
+        const message = this.db.prepare('SELECT session_id FROM agent_session_messages WHERE id=?')
+          .get(command.messageId) as { session_id: string } | undefined;
+        if (!message || message.session_id !== conversation.sessionId) throw new JournalIntegrityConflict();
+      }
+      if (command.kind !== 'delegate_goal') continue;
+      const hash = goalDelegationIntentHash({ goalId: command.goalId,
+        parentSdkSessionId: command.parentSdkSessionId, targetAgentConfigId: command.targetAgentConfigId });
+      if (command.intentHash !== hash) throw new JournalIntegrityConflict();
+      if (command.state !== 'dispatched') continue;
+      const receipt = this.db.prepare(`SELECT d.id FROM agent_async_delegations d
+        JOIN agent_sessions c ON c.id=d.child_session_id JOIN agent_sessions r ON r.id=d.parent_session_id
+        WHERE d.id=? AND d.parent_session_id=? AND d.child_session_id=? AND d.target_agent_config_id=?
+          AND c.parent_session_id=r.id AND c.owner_user_id=? AND c.project_id=? AND r.sdk_session_id=?`)
+        .get(command.delegationId, conversation.sessionId, command.childSessionId, command.targetAgentConfigId,
+          conversation.ownerUserId, conversation.projectId, command.parentSdkSessionId);
+      if (!receipt) throw new JournalIntegrityConflict();
+    }
+  }
+
+  private journalRow(row: SessionRow, commandKey?: string): CoordinatorConversationRead {
+    if (row.coordinator_conversation_json === null) return { kind: 'not_found' };
+    // Old hand-built schemas/relay replicas retain the old read-only semantics.
+    const installed = (this.db.prepare('PRAGMA table_info(agent_sessions)').all() as Array<{ name: string }>)
+      .some((column) => column.name === 'coordinator_command_storage');
+    if (!installed) return parseRow(row);
+    const scope = { sessionId: row.id, ownerUserId: row.owner_user_id, projectId: row.project_id };
+    try {
+      return this.db.transaction((): CoordinatorConversationRead => {
+        const marker = this.db.prepare(`SELECT coordinator_command_storage AS storage,
+          coordinator_command_legacy_hash AS hash, coordinator_command_hold AS hold
+          FROM agent_sessions WHERE id=?`).get(row.id) as { storage: string | null; hash: string | null; hold: string | null };
+        if (marker.hold !== null) return { kind: 'integrity_hold' };
+        const raw = JSON.parse(row.coordinator_conversation_json!);
+        // Public inventory is derived from validated rows, never stored control
+        // evidence supplied by a blob (which could otherwise validate itself).
+        if (raw.commandJournal !== undefined) throw new JournalIntegrityConflict();
+        const hash = createHash('sha256').update(JSON.stringify(raw.commandDedupe)).digest('hex');
+        if (marker.storage !== null && (marker.storage !== 'rows_v1' || marker.hash !== hash)) {
+          throw new JournalIntegrityConflict();
+        }
+        if (marker.storage === null) {
+          let legacy: CoordinatorConversation;
+          try { legacy = parseStoredCoordinatorConversation(raw, { normalizedJournal: true }); }
+          catch { throw new JournalIntegrityConflict(); }
+          if (legacy.sessionId !== row.id || legacy.ownerUserId !== row.owner_user_id || legacy.projectId !== row.project_id) {
+            throw new JournalIntegrityConflict();
+          }
+          this.validateLegacyDispatches(legacy);
+          for (const command of legacy.commandDedupe) {
+            const existing = this.journalCommand(scope, command.key);
+            if (existing && JSON.stringify(existing) !== JSON.stringify(command)) throw new JournalIntegrityConflict();
+            this.writeJournalCommand(scope, command, legacy);
+          }
+          const count = this.db.prepare(`SELECT count(*) AS n FROM coordinator_conversation_commands
+            WHERE root_session_id=?`).get(row.id) as { n: number };
+          if (count.n !== legacy.commandDedupe.length || legacy.commandDedupe.some((command) =>
+            JSON.stringify(this.journalCommand(scope, command.key)) !== JSON.stringify(command))) {
+            throw new JournalIntegrityConflict();
+          }
+          const switched = this.db.prepare(`UPDATE agent_sessions SET coordinator_command_storage='rows_v1',
+            coordinator_command_legacy_hash=? WHERE id=? AND coordinator_conversation_json IS ?
+            AND coordinator_command_storage IS NULL`).run(hash, row.id, row.coordinator_conversation_json).changes;
+          if (switched !== 1) throw new ConversationCommandRace();
+        }
+        // Goals/slots remain bounded by MAX_GOALS. Ordinary inputs are a page,
+        // plus the exact indexed request key: never an all-history scan.
+        const goalRows = this.db.prepare(`SELECT command_key,journal_ordinal FROM coordinator_conversation_commands
+          WHERE root_session_id=? AND kind IN ('add_goal','delegate_goal') ORDER BY journal_ordinal LIMIT ?`)
+          .all(row.id, MAX_COORDINATOR_CONVERSATION_GOALS * 2 + 1) as Array<{ command_key: string; journal_ordinal: number }>;
+        if (goalRows.length > MAX_COORDINATOR_CONVERSATION_GOALS * 2) throw new JournalIntegrityConflict();
+        const pageRows = this.db.prepare(`SELECT command_key,journal_ordinal FROM coordinator_conversation_commands
+          WHERE root_session_id=? ORDER BY journal_ordinal DESC LIMIT ?`)
+          .all(row.id, MAX_COORDINATOR_CONVERSATION_COMMANDS) as Array<{ command_key: string; journal_ordinal: number }>;
+        const keys = new Set([...goalRows, ...pageRows].sort((a,b) => a.journal_ordinal-b.journal_ordinal)
+          .map((entry) => entry.command_key));
+        if (commandKey !== undefined) keys.add(commandKey);
+        const commands = [...keys].flatMap((key) => {
+          const command = this.journalCommand(scope, key);
+          return command ? [command] : [];
+        });
+        let conversation: CoordinatorConversation;
+        const metadata = raw.schemaVersion === 4 ? raw : parseStoredCoordinatorConversation(raw, { normalizedJournal: true });
+        try { conversation = parseStoredCoordinatorConversation({ ...metadata, schemaVersion: 4,
+          commandDedupe: commands }, { normalizedJournal: true }); }
+        catch { throw new JournalIntegrityConflict(); }
+        if (conversation.sessionId !== row.id || conversation.ownerUserId !== row.owner_user_id ||
+            conversation.projectId !== row.project_id) throw new JournalIntegrityConflict();
+        const total = (this.db.prepare('SELECT count(*) AS n FROM coordinator_conversation_commands WHERE root_session_id=?')
+          .get(row.id) as { n: number }).n;
+        if (total > MAX_COORDINATOR_CONVERSATION_COMMANDS) {
+          conversation.commandJournal = { paginated: true, goalCommands: commands.filter(command =>
+            command.kind === 'add_goal' || command.kind === 'delegate_goal') };
+        }
+        return { kind: 'found', conversation };
+      })();
+    } catch (error) {
+      if (!(error instanceof JournalIntegrityConflict) && !(error instanceof SyntaxError)) {
+        return { kind: 'schema_unavailable' };
+      }
+      this.db.prepare(`UPDATE agent_sessions SET coordinator_command_hold='journal_integrity_conflict'
+        WHERE id=? AND owner_user_id=? AND project_id=?`).run(row.id, row.owner_user_id, row.project_id);
+      return { kind: 'integrity_hold' };
+    }
+  }
+
+  /** Public compatibility window. Exact replay/callback consumers use rows, not this window. */
+  private commandProjection(conversation: CoordinatorConversation, requiredKey?: string): CoordinatorConversation {
+    const commands = conversation.commandDedupe;
+    if (commands.length <= MAX_COORDINATOR_CONVERSATION_COMMANDS && !conversation.commandJournal) return conversation;
+    const selected = new Set([...new Set([
+      ...commands.filter((command) => command.key === requiredKey),
+      ...commands.slice(-1),
+      ...commands.filter((command) => command.kind === 'foreground' && command.state === 'reserved'),
+      ...commands.filter((command) => command.kind === 'delegate_goal'),
+      ...commands.filter((command) => command.kind === 'add_goal'),
+      ...[...commands].reverse(),
+    ])].slice(0, MAX_COORDINATOR_CONVERSATION_COMMANDS));
+    return { ...conversation, commandDedupe: commands.filter((command) => selected.has(command)),
+      commandJournal: { paginated: true, goalCommands: coordinatorConversationCommands(conversation)
+        .filter(command => command.kind === 'add_goal' || command.kind === 'delegate_goal') } };
+  }
 
   /**
    * Resolve only the current dedicated root which owns an SDK session.  This
@@ -338,7 +609,7 @@ export class CoordinatorConversationsRepository {
         LIMIT 2`).all(input.ownerUserId, input.sdkSessionId) as ForegroundSessionScopeRow[];
       if (rows.length !== 1) return null;
       const row = rows[0];
-      const parsed = parseRow(row);
+      const parsed = this.journalRow(row);
       if (
         parsed.kind !== 'found' || !parsed.conversation.primaryOwnerRoot ||
         row.sdk_session_id !== input.sdkSessionId || typeof row.cwd !== 'string' ||
@@ -418,12 +689,15 @@ export class CoordinatorConversationsRepository {
         LIMIT 2`).all(input.parentSessionId, input.parentSdkSessionId) as ForegroundSessionScopeRow[];
       if (rows.length !== 1) return null;
       const row = rows[0];
-      const parsed = parseRow(row);
+      const parsed = this.journalRow(row);
       if (
         parsed.kind !== 'found' || !parsed.conversation.primaryOwnerRoot ||
         parsed.conversation.sessionId !== input.parentSessionId || row.sdk_session_id !== input.parentSdkSessionId
       ) return null;
-      const command = parsed.conversation.commandDedupe.find((candidate) =>
+      const exact = this.isNormalized({ sessionId: row.id, ownerUserId: row.owner_user_id, projectId: row.project_id })
+        ? this.journalDelegationCommand({ sessionId: row.id, ownerUserId: row.owner_user_id, projectId: row.project_id }, input.delegationId)
+        : null;
+      const command = (exact ? [exact] : parsed.conversation.commandDedupe).find((candidate) =>
         candidate.kind === 'delegate_goal' && candidate.state === 'dispatched' &&
         candidate.parentSdkSessionId === input.parentSdkSessionId &&
         candidate.targetAgentConfigId === input.targetAgentConfigId &&
@@ -472,7 +746,8 @@ export class CoordinatorConversationsRepository {
         sessionId: current.sessionId,
       });
       if (record.kind !== 'found' || !record.conversation.primaryOwnerRoot) return null;
-      const command = record.conversation.commandDedupe.find((candidate): candidate is Extract<
+      const exact = this.isNormalized(current) ? this.journalDelegationCommand(current, delegationId) : null;
+      const command = (exact ? [exact] : record.conversation.commandDedupe).find((candidate): candidate is Extract<
         CoordinatorConversationCommand,
         { kind: 'delegate_goal' }
       > => (
@@ -527,7 +802,7 @@ export class CoordinatorConversationsRepository {
           AND archived_at IS NULL AND sdk_session_id IS NOT NULL
         LIMIT 1`).get(input.sessionId) as (ForegroundSessionScopeRow & { agent_kind: string; profile_id: string | null }) | undefined;
       if (!row) return null;
-      const parsed = parseRow(row);
+      const parsed = this.journalRow(row);
       if (
         parsed.kind !== 'found' || !parsed.conversation.primaryOwnerRoot || parsed.conversation.sessionId !== row.id ||
         typeof row.sdk_session_id !== 'string' || typeof row.cwd !== 'string' || row.cwd.length === 0 || row.cwd.length > 4_096
@@ -667,7 +942,7 @@ export class CoordinatorConversationsRepository {
     }
   }
 
-  private record(scope: CoordinatorConversationScope): {
+  private record(scope: CoordinatorConversationScope & { commandKey?: string }): {
     result: CoordinatorConversationRead;
     serialized: string | null;
   } {
@@ -683,15 +958,18 @@ export class CoordinatorConversationsRepository {
         return { result: { kind: 'schema_unavailable' }, serialized: null };
       }
     }
-    return { result: parseRow(row), serialized: row.coordinator_conversation_json };
+    const result = this.journalRow(row, scope.commandKey);
+    return { result: result.kind === 'found'
+      ? { ...result, conversation: this.commandProjection(result.conversation, scope.commandKey) } : result,
+      serialized: row.coordinator_conversation_json };
   }
 
   private read(scope: CoordinatorConversationScope): CoordinatorConversationRead {
     return this.record(scope).result;
   }
 
-  get(scope: CoordinatorConversationScope): CoordinatorConversationRead {
-    return this.read(scope);
+  get(scope: CoordinatorConversationScope & { commandKey?: string }): CoordinatorConversationRead {
+    return this.record(scope).result;
   }
 
   /**
@@ -717,7 +995,7 @@ export class CoordinatorConversationsRepository {
       if (!row) return null;
       if (input.ownerUserId !== undefined && row.owner_user_id !== input.ownerUserId) return null;
       if (input.projectId !== undefined && row.project_id !== input.projectId) return null;
-      const parsed = parseRow(row);
+      const parsed = this.journalRow(row);
       if (parsed.kind !== 'found' || parsed.conversation.primaryOwnerRoot !== true) return null;
       const directory = canonicalize(row.project_cwd);
       if (!statSync(directory).isDirectory()) return null;
@@ -747,7 +1025,7 @@ export class CoordinatorConversationsRepository {
         WHERE id=? AND parent_session_id IS NULL AND is_system=0 AND category='chat' AND archived_at IS NULL
         LIMIT 1`).get(sessionId) as SessionRow | undefined;
       if (!row || typeof row.project_id !== 'string' || row.project_id.length === 0) return null;
-      const parsed = parseRow(row);
+      const parsed = this.journalRow(row);
       if (parsed.kind !== 'found' || parsed.conversation.primaryOwnerRoot !== true) return null;
       return {
         ownerUserId: row.owner_user_id,
@@ -772,7 +1050,7 @@ export class CoordinatorConversationsRepository {
   listGoalDelegationOutcomes(scope: CoordinatorConversationScope): CoordinatorGoalDelegationOutcome[] {
     const read = this.read(scope);
     if (read.kind !== 'found') return [];
-    const commands = read.conversation.commandDedupe.flatMap((command) =>
+    const commands = coordinatorConversationCommands(read.conversation).flatMap((command) =>
       command.kind === 'delegate_goal' && command.state === 'dispatched' ? [command] : []);
     if (commands.length === 0) return [];
     let rootSdkSessionId: string | null = null;
@@ -839,9 +1117,9 @@ export class CoordinatorConversationsRepository {
       if (rows.length > MAX_PRIMARY_ROOT_SCAN) return { kind: 'integrity_hold' };
       const roots: CoordinatorConversation[] = [];
       for (const row of rows) {
-        const parsed = parseRow(row);
+        const parsed = this.journalRow(row);
         if (parsed.kind === 'integrity_hold') return parsed;
-        if (parsed.kind === 'found' && parsed.conversation.primaryOwnerRoot) roots.push(parsed.conversation);
+        if (parsed.kind === 'found' && parsed.conversation.primaryOwnerRoot) roots.push(this.commandProjection(parsed.conversation));
       }
       return roots.length === 0
         ? { kind: 'not_found' }
@@ -875,7 +1153,7 @@ export class CoordinatorConversationsRepository {
            WHERE ${COORDINATOR_CONVERSATION_COLUMN} IS NOT NULL
            ORDER BY id LIMIT ?`).all(bounded)) as SessionRow[];
       const items = rows.flatMap((row) => {
-        const parsed = parseRow(row);
+        const parsed = this.journalRow(row);
         return parsed.kind === 'found' && parsed.conversation.primaryOwnerRoot &&
           parsed.conversation.continuations.some((authority) =>
             authority.status === 'consumed' && authority.consumedTurns >= 1 && authority.consumedTurns <= authority.maxTurns,
@@ -952,23 +1230,26 @@ export class CoordinatorConversationsRepository {
             updatedAt: now,
           };
         } else {
-          const parsed = parseRow(row);
+          const parsed = this.journalRow(row);
           if (parsed.kind !== 'found') return parsed;
           next = { ...parsed.conversation, primaryOwnerRoot: true, updatedAt: now };
         }
+        const { commandJournal: _page, ...control } = next;
+        const persisted = this.isNormalized(scope) && row.coordinator_conversation_json !== null
+          ? { ...control, commandDedupe: JSON.parse(row.coordinator_conversation_json).commandDedupe } : control;
         const changed = this.db.prepare(`UPDATE agent_sessions
             SET ${COORDINATOR_CONVERSATION_COLUMN}=?, updated_at=?
           WHERE id=? AND owner_user_id=? AND project_id=?
             AND parent_session_id IS NULL AND is_system=0 AND category='chat'
             AND ${COORDINATOR_CONVERSATION_COLUMN} IS ?`).run(
-          JSON.stringify(next), next.updatedAt, scope.sessionId, scope.ownerUserId, scope.projectId,
+          JSON.stringify(persisted), next.updatedAt, scope.sessionId, scope.ownerUserId, scope.projectId,
           row.coordinator_conversation_json,
         ).changes;
         if (changed === 1) {
           appendRelayUpsert(this.db, 'agent_sessions', scope.sessionId);
           this.markCommitted(scope);
         }
-        return changed === 1 ? { kind: 'found', conversation: next } : this.findPrimaryOwnerRoot(scope.ownerUserId);
+        return changed === 1 ? { kind: 'found', conversation: this.commandProjection(next) } : this.findPrimaryOwnerRoot(scope.ownerUserId);
       });
     } catch {
       return { kind: 'schema_unavailable' };
@@ -1119,7 +1400,7 @@ export class CoordinatorConversationsRepository {
     }
     if (
       current.conversation.goals.length >= MAX_COORDINATOR_CONVERSATION_GOALS ||
-      current.conversation.commandDedupe.length >= MAX_COORDINATOR_CONVERSATION_COMMANDS
+      (!this.isNormalized(input) && current.conversation.commandDedupe.length >= MAX_COORDINATOR_CONVERSATION_COMMANDS)
     ) {
       return { kind: 'goal_limit', conversation: current.conversation };
     }
@@ -1196,7 +1477,7 @@ export class CoordinatorConversationsRepository {
         if (current.conversation.controlRevision !== input.expectedControlRevision) {
           return { kind: 'revision_conflict' as const, conversation: current.conversation };
         }
-        if (current.conversation.commandDedupe.length >= MAX_COORDINATOR_CONVERSATION_COMMANDS) {
+        if (!this.isNormalized(input) && current.conversation.commandDedupe.length >= MAX_COORDINATOR_CONVERSATION_COMMANDS) {
           return { kind: 'command_limit' as const, conversation: current.conversation };
         }
         const messageId = this.appendCanonicalUserInput(input, input.message);
@@ -1241,7 +1522,7 @@ export class CoordinatorConversationsRepository {
     if (current.conversation.controlRevision !== input.expectedControlRevision) {
       return { kind: 'revision_conflict', conversation: current.conversation };
     }
-    if (current.conversation.commandDedupe.length >= MAX_COORDINATOR_CONVERSATION_COMMANDS) {
+    if (!this.isNormalized(input) && current.conversation.commandDedupe.length >= MAX_COORDINATOR_CONVERSATION_COMMANDS) {
       return { kind: 'command_limit', conversation: current.conversation };
     }
     const next: CoordinatorConversation = {
@@ -1373,18 +1654,18 @@ export class CoordinatorConversationsRepository {
     }
     if (
       goal.state !== 'captured' || goal.linkedWorkstreamId !== null ||
-      current.conversation.commandDedupe.some((command) =>
-        command.kind === 'delegate_goal' && command.goalId === goal.id) ||
-      current.conversation.commandDedupe.length >= MAX_COORDINATOR_CONVERSATION_COMMANDS
+      this.hasGoalDelegation(input, goal.id, current.conversation) ||
+      (!this.isNormalized(input) && current.conversation.commandDedupe.length >= MAX_COORDINATOR_CONVERSATION_COMMANDS)
     ) return {
-      kind: current.conversation.commandDedupe.length >= MAX_COORDINATOR_CONVERSATION_COMMANDS
+      kind: !this.isNormalized(input) && current.conversation.commandDedupe.length >= MAX_COORDINATOR_CONVERSATION_COMMANDS
         ? 'command_limit'
         : 'goal_delegation_conflict',
       conversation: current.conversation,
     };
+    // A model-started run is not a user control change: keep the revision so
+    // the user's next message (or another run start) is not refused as stale.
     const next: CoordinatorConversation = {
       ...current.conversation,
-      controlRevision: current.conversation.controlRevision + 1,
       commandDedupe: [...current.conversation.commandDedupe, {
         key: input.commandKey,
         intentHash: hash,
@@ -1487,9 +1768,9 @@ export class CoordinatorConversationsRepository {
     if (command.state === 'uncertain') {
       return { kind: 'uncertain', conversation: current.conversation, goal };
     }
-    if (current.conversation.controlRevision !== input.expectedControlRevision) {
-      return { kind: 'revision_conflict', conversation: current.conversation };
-    }
+    // No conversation-wide revision fence here: other goals' starts and chat
+    // turns bump it while this run is dispatching, and several runs may start
+    // at once. This exact reserved command plus the CAS save below is the fence.
     if (
       input.outcome === 'dispatched' &&
       (!input.delegationId || !input.childSessionId || !MCP_IDENTIFIER.test(input.delegationId) || !MCP_IDENTIFIER.test(input.childSessionId))
@@ -1563,8 +1844,7 @@ export class CoordinatorConversationsRepository {
     }
     if (
       goal.state !== 'captured' || goal.linkedWorkstreamId !== null ||
-      current.conversation.commandDedupe.some((command) =>
-        command.kind === 'delegate_goal' && command.goalId === goal.id)
+      this.hasGoalDelegation(input, goal.id, current.conversation)
     ) {
       return { kind: 'goal_link_conflict', conversation: current.conversation };
     }
@@ -1610,23 +1890,7 @@ export class CoordinatorConversationsRepository {
      * replace an unused or settled finite record.
      */
     replaceInvalidatedAuthority?: boolean;
-    /** Internal synchronous approval consumption + final proof, in the authority CAS transaction. */
-    authorize?: () => boolean;
   }): CoordinatorConversationAuthorityWrite {
-    if (input.authorize) {
-      const { authorize, ...ordinary } = input;
-      try {
-        return this.db.transaction(() => {
-          if (authorize() !== true) throw new GoalAuthorizationRefused(null);
-          const written = this.setContinuationAuthority(ordinary);
-          if (written.kind !== 'updated') throw new GoalAuthorizationRefused(written);
-          return written;
-        })();
-      } catch (error) {
-        if (!(error instanceof GoalAuthorizationRefused)) throw error;
-        return error.refusal as CoordinatorConversationAuthorityWrite ?? this.authorityReread(input);
-      }
-    }
     const snapshot = this.record(input);
     const current = snapshot.result;
     if (current.kind !== 'found') return current;
@@ -1639,7 +1903,8 @@ export class CoordinatorConversationsRepository {
       !goal || goal.state !== 'linked' || goal.linkedWorkstreamId !== authority.workstreamId ||
       authority.projectId !== current.conversation.projectId ||
       authority.status !== 'authorized' || authority.maxTurns < 1 || authority.maxTurns > 8 ||
-      authority.consumedTurns !== 0 || !isValidAuthorityFor(current.conversation, authority)
+      authority.consumedTurns !== 0 || !isValidAuthorityFor(current.conversation, authority,
+        this.authorityCommands(input, current.conversation))
     ) {
       return { kind: 'authority_conflict', conversation: current.conversation };
     }
@@ -1786,7 +2051,7 @@ export class CoordinatorConversationsRepository {
   }
 
   private saveCurrent(
-    scope: CoordinatorConversationScope,
+    scope: CoordinatorConversationScope & { commandKey?: string },
     currentSerialized: string,
     next: CoordinatorConversation,
     /**
@@ -1807,12 +2072,16 @@ export class CoordinatorConversationsRepository {
       // The CAS and the root's agent_sessions outbox record commit together;
       // only a write that actually changed the row is reported as committed.
       const changed = this.db.transaction((): boolean => {
+        const normalized = this.isNormalized(scope);
+        const { commandJournal: _page, ...control } = next;
+        const persisted = normalized ? { ...control,
+          commandDedupe: JSON.parse(currentSerialized).commandDedupe } : control;
         const applied = this.db.prepare(`UPDATE agent_sessions
           SET ${COORDINATOR_CONVERSATION_COLUMN}=?, updated_at=?
         WHERE id=? AND owner_user_id=? AND project_id=?
           AND parent_session_id IS NULL AND is_system=0 AND category='chat'
           AND ${COORDINATOR_CONVERSATION_COLUMN} IS ?${permissionPredicate}`).run(
-          JSON.stringify(next),
+          JSON.stringify(persisted),
           next.updatedAt,
           scope.sessionId,
           scope.ownerUserId,
@@ -1826,10 +2095,20 @@ export class CoordinatorConversationsRepository {
               permission.parent.approvalBypassExplicit ? 1 : 0,
             ]),
         ).changes === 1;
-        if (applied) appendRelayUpsert(this.db, 'agent_sessions', scope.sessionId);
+        if (applied) {
+          if (normalized) {
+            // Failure throws through this savepoint: metadata/rows/authorization
+            // all roll back. Never report reserved after a journal writer fails.
+            for (const command of coordinatorConversationCommands(next)) this.writeJournalCommand(scope, command, next);
+          }
+          appendRelayUpsert(this.db, 'agent_sessions', scope.sessionId);
+        }
         return applied;
       })();
-      if (changed) this.markCommitted(scope);
+      if (changed) {
+        Object.assign(next, this.commandProjection(next, scope.commandKey));
+        this.markCommitted(scope);
+      }
       return changed;
     } catch {
       return false;
@@ -1901,21 +2180,12 @@ export class CoordinatorConversationsRepository {
     scope: CoordinatorConversationScope,
   ): boolean {
     const permission = authority.permissionAuthority;
-    const workflow = authority.purpose === 'workflow';
     if (!(permission !== null &&
-      (workflow ? permission.schemaVersion === 2 : permission.schemaVersion === 1) &&
+      permission.schemaVersion === 1 &&
       permission.parent.sessionId === scope.sessionId &&
       permission.worker.parentSessionId === scope.sessionId &&
       permission.worker.permissionMode === 'default' &&
-      permission.worker.managedReadOnly === (workflow ? false : true) &&
-      (!workflow || (
-        authority.schemaVersion === 6 && authority.workflow?.kind === 'coding_workflow' &&
-        authority.workflow.targetAgentConfigId === 'workflow-orchestrator' &&
-        permission.workflow?.parentSessionId === scope.sessionId &&
-        permission.workflow.permissionMode === permission.parent.permissionMode &&
-        permission.workflow.approvalBypassExplicit === permission.parent.approvalBypassExplicit &&
-        permission.workflow.targetAgentConfigId === 'workflow-orchestrator'
-      )) &&
+      permission.worker.managedReadOnly === true &&
       (permission.parent.permissionMode !== 'bypassPermissions' || permission.parent.approvalBypassExplicit === true))) {
       return false;
     }

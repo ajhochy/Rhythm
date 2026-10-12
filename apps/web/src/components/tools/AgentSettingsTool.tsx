@@ -303,7 +303,7 @@ function baseItems(status: Partial<Record<keyof typeof sectionIds, string>> = {}
   return [
     { id: sectionIds.accounts, title: 'Accounts', subtitle: status.accounts ?? 'Authorized model provider accounts' },
     { id: sectionIds.models, title: 'Models', subtitle: status.models ?? 'Provider connections and model curation' },
-    { id: sectionIds.modelRouting, title: 'Model routing', subtitle: status.modelRouting ?? 'Router backend, tiers and routable models' },
+    { id: sectionIds.modelRouting, title: 'Model routing', subtitle: status.modelRouting ?? 'Grid policy, last decision, live models' },
     { id: sectionIds.mcp, title: 'MCP servers', subtitle: status.mcp ?? 'Workspace tool connections and status' },
     // ponytail: Auto-promotion stays here for now; it may belong with the Skills tool.
     { id: sectionIds.autoPromotion, title: 'Auto-promotion', subtitle: status.autoPromotion ?? 'Workspace eligibility and confirmation gates', badge: badges.autoPromotion },

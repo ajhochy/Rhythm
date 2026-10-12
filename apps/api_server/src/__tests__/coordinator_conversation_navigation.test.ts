@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
+import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import type { AuthContext } from '../middleware/auth_middleware';
 import { installCoordinatorConversationSchema } from '../database/coordinator_conversation_schema';
@@ -12,6 +15,10 @@ import {
 import { CoordinatorConversationModelStatusService } from '../services/coordinator_conversation_model_status_service';
 
 const now = new Date('2026-10-05T12:00:00.000Z');
+/** A coordinator goal names the repo its run works in; any dir with `.git` qualifies. */
+const goalRepo = realpathSync(mkdtempSync(path.join(tmpdir(), 'coord-nav-repo-')));
+mkdirSync(path.join(goalRepo, '.git'));
+const codingGoal = `Could you fix the weekly update script in ${goalRepo}?`;
 const auth = { sessionToken: 'desktop-auth', user: { id: 7 } } as AuthContext;
 
 function database(): Database.Database {
@@ -453,7 +460,7 @@ describe('dedicated primary Rhythm conversation resolution', () => {
           codingCalls += 1;
           expect(input).toEqual(expect.objectContaining({
             parentSessionId: 'chat-a', parentSdkSessionId: 'sdk-a', parentProfileId: 'profile-a',
-            objective: 'Could you draft a weekly update from the current work?',
+            objective: codingGoal, repoPath: goalRepo, goalId: expect.any(String),
           }));
           return {
             delegationId: 'delegation-1',
@@ -465,7 +472,7 @@ describe('dedicated primary Rhythm conversation resolution', () => {
     });
     await expect(coordinator.receiveMessage(auth, {
       sessionId: 'chat-a', projectId: 'project-a', expectedControlRevision: 1,
-      commandKey: 'captured-workflow-goal', message: 'Could you draft a weekly update from the current work?',
+      commandKey: 'captured-workflow-goal', message: codingGoal,
     })).resolves.toMatchObject({ kind: 'foreground_accepted' });
     expect(foregroundCalls).toBe(1);
     const captured = repository.get({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' });
@@ -837,13 +844,14 @@ it('SOL core: actual signed goal boundary dispatches exact durable objective onc
   const repository = new CoordinatorConversationsRepository(db, () => now);
   expect(repository.designatePrimaryOwnerRoot({ownerUserId:7,projectId:'project-a',sessionId:'chat-a'})).toMatchObject({kind:'found'});
   let dispatches = 0;
-  const objective = 'Could you draft a weekly update from the current work?';
+  const objective = codingGoal;
   const coordinator = service(repository, db, allowed, {
     context: {assemble:async()=>qualifiedContext()} as never,
     foreground: {send:async()=>({kind:'accepted'})},
     codingWorkflow: {dispatch:async(input)=>{
       dispatches++;
       expect(input.objective).toBe(objective);
+      expect(input.repoPath).toBe(goalRepo);
       expect(input.parentSessionId).toBe('chat-a');
       expect(input.parentSdkSessionId).toBe('sdk-a');
       return {delegationId:'sol-child-delegation',childSessionId:'sol-child-session',targetAgentConfigId:'workflow-orchestrator' as const};
@@ -880,4 +888,83 @@ it('SOL core: actual signed goal boundary dispatches exact durable objective onc
     await expect(model.startGoal(auth,{trustedCall:signer.signCall(identity,'rhythm_start_coordinator_goal',{goalId})})).resolves.toMatchObject({status:'unavailable'});
     expect(dispatches).toBe(1);
   }finally{clearTrustedMcpVerifier();db.close();}
+});
+
+it('coordinator-workflow-runs-c1d: a goal that names no repository is held as repo_required and dispatches nothing', async () => {
+  // Regression caught: a coding goal without a repo starts a run in the
+  // coordinator workspace (or a model-guessed path) instead of asking.
+  const db = database();
+  const allowed = new Map([[7, new Set(['project-a'])]]);
+  const repository = new CoordinatorConversationsRepository(db, () => now);
+  expect(repository.designatePrimaryOwnerRoot({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' })).toMatchObject({ kind: 'found' });
+  let dispatches = 0;
+  const coordinator = service(repository, db, allowed, {
+    context: { assemble: async () => qualifiedContext() } as never,
+    foreground: { send: async () => ({ kind: 'accepted' }) },
+    codingWorkflow: { dispatch: async () => { dispatches += 1; return null; } },
+  });
+  await expect(coordinator.receiveMessage(auth, {
+    sessionId: 'chat-a', projectId: 'project-a', expectedControlRevision: 1,
+    commandKey: 'no-repo-goal', message: 'Could you fix the weekly update script?',
+  })).resolves.toMatchObject({ kind: 'foreground_accepted' });
+  const captured = repository.get({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' });
+  if (captured.kind !== 'found') throw new Error('missing goal');
+  const before = captured.conversation.controlRevision;
+  await expect(coordinator.startCodingWorkflow(auth, {
+    sessionId: 'chat-a', projectId: 'project-a', sdkSessionId: 'sdk-a', goalId: captured.conversation.goals[0]!.id,
+    commandKey: 'no-repo-action', bindingCurrent: async () => true,
+  })).resolves.toMatchObject({ kind: 'repo_required' });
+  expect(dispatches).toBe(0);
+  // Nothing was reserved: the goal can still be started once restated with a repo.
+  expect(repository.get({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' }))
+    .toMatchObject({ kind: 'found', conversation: { controlRevision: before } });
+  db.close();
+});
+
+it('coordinator-workflow-runs-c2: two goals started at the same time both dispatch and both record their run', async () => {
+  // Regression caught (seen live): the second start bumps the conversation
+  // revision while the first is dispatching, so the first run starts but its
+  // goal stays "reserved" and never appears in the run list.
+  const db = database();
+  const allowed = new Map([[7, new Set(['project-a'])]]);
+  const repository = new CoordinatorConversationsRepository(db, () => now);
+  expect(repository.designatePrimaryOwnerRoot({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' })).toMatchObject({ kind: 'found' });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let dispatches = 0;
+  const coordinator = service(repository, db, allowed, {
+    context: { assemble: async () => qualifiedContext() } as never,
+    foreground: { send: async () => ({ kind: 'accepted' }) },
+    codingWorkflow: {
+      dispatch: async (input) => {
+        dispatches += 1;
+        const n = dispatches;
+        await gate;
+        return { delegationId: `delegation-${n}`, childSessionId: `child-${n}`, targetAgentConfigId: 'workflow-orchestrator' as const };
+      },
+    },
+  });
+  for (const [index, message] of [`fix the parser in ${goalRepo}`, `fix the totals in ${goalRepo}`].entries()) {
+    const read = repository.get({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' });
+    if (read.kind !== 'found') throw new Error('missing conversation');
+    await expect(coordinator.receiveMessage(auth, {
+      sessionId: 'chat-a', projectId: 'project-a', expectedControlRevision: read.conversation.controlRevision,
+      commandKey: `goal-${index}`, message,
+    })).resolves.toMatchObject({ kind: 'foreground_accepted' });
+  }
+  const captured = repository.get({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' });
+  if (captured.kind !== 'found') throw new Error('missing goals');
+  const [first, second] = captured.conversation.goals.map((goal) => goal.id);
+  const start = (goalId: string, commandKey: string) => coordinator.startCodingWorkflow(auth, {
+    sessionId: 'chat-a', projectId: 'project-a', sdkSessionId: 'sdk-a', goalId, commandKey, bindingCurrent: async () => true,
+  });
+  const a = start(first!, 'start-a');
+  const b = start(second!, 'start-b');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  release();
+  await expect(a).resolves.toMatchObject({ kind: 'delegation_started', goalId: first });
+  await expect(b).resolves.toMatchObject({ kind: 'delegation_started', goalId: second });
+  expect(repository.listGoalDelegationOutcomes({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' })
+    .map((outcome) => outcome.delegationId).sort()).toEqual(['delegation-1', 'delegation-2']);
+  db.close();
 });

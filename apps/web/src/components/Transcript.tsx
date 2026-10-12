@@ -11,6 +11,7 @@ import { Timestamp } from './Timestamp';
 import { blockSource, canonicalText, sessionLabel, type RichTranscriptBlock, type RichTranscriptMessage } from '../gateway/sessions';
 import { FocusDialog } from './FocusDialog';
 import { AttachmentThumbnail } from './AttachmentThumbnail';
+import { permissionSupersededByTool } from './permission-superseded';
 
 function MarkdownText({ content }: { content: string }) {
   return <SafeMarkdown content={content} />;
@@ -127,7 +128,7 @@ function QuestionCard() {
 // createdAt) come from apps/api_server/src/services/opencode_stream_bridge.ts:359-391
 // (registerPermission's `permission.asked` frame). Each card owns only its reply state;
 // pending-decisions holds canonical requests independently of the legacy Session fields.
-function LivePermissionCard({ sessionId, permission }: { sessionId: string; permission: LivePermissionRequest }) {
+function LivePermissionCard({ sessionId, permission, superseded = false }: { sessionId: string; permission: LivePermissionRequest; superseded?: boolean }) {
   const auth = useAuthUser();
   const preferenceUserId = auth?.user.id ?? 'fixture';
   const [requireDestructiveModal, setRequireDestructiveModal] = useState(() => readLocalUserPreferences(preferenceUserId).requireDestructiveModal);
@@ -163,6 +164,9 @@ function LivePermissionCard({ sessionId, permission }: { sessionId: string; perm
       </div>
     </section>
   );
+  // The tool already ran: say so instead of claiming the agent is blocked. The
+  // original request stays reachable in case the engine is in fact still waiting.
+  if (superseded) return <details className="tool-block" data-testid="permission-superseded"><summary><Icon name="check" size={14} /><span>The <strong>{permission.tool}</strong> call completed; this permission request is no longer blocking it.</span></summary>{card}</details>;
   if (!shouldEscalatePermission(requireDestructiveModal, permission.tool)) return card;
   return <FocusDialog
     open
@@ -261,39 +265,16 @@ function LiveQuestionCard({ sessionId, question }: { sessionId: string; question
 // The transcript consumes the same refreshable queue as the bell. It never starts an independent
 // read, so a post-mount approval, a retained failure, or a newer queue snapshot stays consistent.
 function PendingApprovalBanner({ sessionId }: { sessionId: string }) {
-  const { pendingApprovals, approvalError, decidingApprovalIds, decideApproval } = useFixtures();
+  const { pendingApprovals } = useFixtures();
   const approvals = pendingApprovals.filter((item) => item.sessionId === sessionId && item.status === 'pending');
   if (approvals.length === 0) return null;
-  const workflowApprovals = approvals.filter((item) => item.securityAction === 'coordinator.workflow.start');
-  const otherApprovals = approvals.filter((item) => item.securityAction !== 'coordinator.workflow.start');
   return (
-    <>
-      {workflowApprovals.map((approval) => {
-        const deciding = decidingApprovalIds.includes(approval.id);
-        const signable = Boolean(approval.decisionNonce?.trim() && approval.payloadDigest?.trim());
-        return <section key={approval.id} className="decision-card workflow-approval-card" aria-labelledby={`workflow-approval-title-${approval.id}`} data-testid={`workflow-approval-card-${approval.id}`}>
-          <div className="decision-icon"><Icon name="check" /></div>
-          <div className="decision-main">
-            <h3 id={`workflow-approval-title-${approval.id}`}>{approval.action}</h3>
-            {approval.preview && <p className="workflow-approval-preview">{approval.preview}</p>}
-            {approval.consequence && <p>{approval.consequence}</p>}
-            <p>To adjust these limits, reply in chat before approving.</p>
-            {!signable && <p role="status">This proposal cannot be signed. Ask the agent to prepare it again.</p>}
-            {approvalError && <p role="status">{approvalError}</p>}
-            <div className="decision-actions">
-              <button type="button" className="primary-button" disabled={!signable || deciding} onClick={() => void decideApproval(approval.id, 'approved')}>{deciding ? 'Sending decision…' : 'Approve and start'}</button>
-              <button type="button" className="secondary-button" disabled={!signable || deciding} onClick={() => void decideApproval(approval.id, 'rejected')}>Deny</button>
-            </div>
-          </div>
-        </section>;
-      })}
-      {otherApprovals.length > 0 && <div className="pending-trigger-banner" role="status" data-testid="pending-approval-banner">
+    <div className="pending-trigger-banner" role="status" data-testid="pending-approval-banner">
       <span className="status-dot waiting" />
       <span>
-        {otherApprovals.map((approval) => `Human approval pending · ${approval.action}${approval.preview ? ` · ${approval.preview}` : ''}${approval.consequence ? ` · ${approval.consequence}` : ''}`).join(' · ')}
+        {approvals.map((approval) => `Human approval pending · ${approval.action}${approval.preview ? ` · ${approval.preview}` : ''}${approval.consequence ? ` · ${approval.consequence}` : ''}`).join(' · ')}
       </span>
-      </div>}
-    </>
+    </div>
   );
 }
 
@@ -310,8 +291,7 @@ type CoordinatorTranscript = {
   loadOlder(): Promise<boolean>;
 };
 
-export function Transcript({ coordinatorStatus, coordinatorTranscript }: {
-  coordinatorStatus?: ReactNode;
+export function Transcript({ coordinatorTranscript }: {
   coordinatorTranscript?: CoordinatorTranscript;
 }) {
   const { selected, sessions, selectSession, demo: fixtureDemo, loading, notify, loadOlder, revertSession, unrevertSession, forkSession, summarizeSession, sendInput: sendFixtureInput, sendLiveInput, sessionGatewayMode, liveChildView, openLiveChildSession, isCompletionArmed, toggleCompletionArm } = useFixtures();
@@ -525,5 +505,5 @@ export function Transcript({ coordinatorStatus, coordinatorTranscript }: {
     </section>
   );
   };
-  return <><div className="transcript-scroll" ref={viewport} onScroll={remember} onWheel={(event) => { const position = positions.current.get(activeKey.current); if (!position) return; if (event.deltaY < 0) { position.wheelUnpinned = true; position.pinned = false; } else if (event.deltaY > 0) position.wheelUnpinned = false; }} role="region" tabIndex={0} aria-label="Transcript reading area">{renderContent()}{sessionGatewayMode === 'live' && !liveChildView && <>{[...pending.permissions.values()].map(permission => <LivePermissionCard key={`${selected.id}:${permission.permissionID}`} sessionId={selected.id} permission={permission} />)}{[...pending.questions.values()].map(question => <LiveQuestionCard key={`${selected.id}:${question.requestId}`} sessionId={selected.id} question={question} />)}</>}{!liveChildView && coordinatorStatus}</div>{newOutput && <button className="primary-button transcript-new-output" type="button" onClick={jumpToLatest}>New output</button>}</>;
+  return <><div className="transcript-scroll" ref={viewport} onScroll={remember} onWheel={(event) => { const position = positions.current.get(activeKey.current); if (!position) return; if (event.deltaY < 0) { position.wheelUnpinned = true; position.pinned = false; } else if (event.deltaY > 0) position.wheelUnpinned = false; }} role="region" tabIndex={0} aria-label="Transcript reading area">{renderContent()}{sessionGatewayMode === 'live' && !liveChildView && <>{[...pending.permissions.values()].map(permission => <LivePermissionCard key={`${selected.id}:${permission.permissionID}`} sessionId={selected.id} permission={permission} superseded={permissionSupersededByTool(permission, messages)} />)}{[...pending.questions.values()].map(question => <LiveQuestionCard key={`${selected.id}:${question.requestId}`} sessionId={selected.id} question={question} />)}</>}</div>{newOutput && <button className="primary-button transcript-new-output" type="button" onClick={jumpToLatest}>New output</button>}</>;
 }

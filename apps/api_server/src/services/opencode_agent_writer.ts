@@ -1,3 +1,4 @@
+import { loadQualificationFixtureAuthority } from './qualification_fixture_authority';
 /**
  * Opencode Agent Writer — Agent Profile → opencode `.md` (consolidation)
  *
@@ -46,7 +47,7 @@ import { opencodeClient } from './opencode_engine';
 
 export type EffectivePermissionMap = Record<string, string | Record<string, string>>;
 
-function permissionPatternMatches(value: string, pattern: string): boolean {
+export function permissionPatternMatches(value: string, pattern: string): boolean {
   const escaped = pattern
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
     .replace(/\*/g, '.*')
@@ -414,7 +415,8 @@ function isTestEnv(): boolean {
 }
 
 function agentsDir(): string {
-  return join(homedir(), '.config', 'opencode', 'agents');
+  const fixture=loadQualificationFixtureAuthority();
+  return fixture ? join(fixture.fixtureRoot, 'opencode-config', 'agents') : join(homedir(), '.config', 'opencode', 'agents');
 }
 
 function agentFilePath(id: string): string {

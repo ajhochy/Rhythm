@@ -106,12 +106,15 @@ describe('ensureRhythmMcp diff logic', () => {
   });
 
   it('registers the same secret-free config that it persists', async () => {
-    const add = vi.fn().mockResolvedValue({});
+    // a426383e: registration only succeeds once the engine reports rhythm
+    // connected and the config cache reload succeeds.
+    const add = vi.fn().mockResolvedValue({ data: { rhythm: { status: 'connected' } } });
     (
       svc as unknown as {
         client: { mcp: { add: typeof add } };
       }
     ).client = { mcp: { add } };
+    vi.spyOn(svc, 'reloadConfig').mockResolvedValue(true);
 
     await svc.ensureRhythmMcp('tok-1', 'https://api.vcrcapps.com', {
       configPath,

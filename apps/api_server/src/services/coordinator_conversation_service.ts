@@ -1,8 +1,11 @@
 import { createHash } from 'node:crypto';
 import { Buffer } from 'node:buffer';
+import { goalRepoPath } from './coordinator_goal_repo';
+import { cancelCoordinatorGoalRun, listCoordinatorGoalRuns, liveGitBranch, type CoordinatorGoalRun } from './coordinator_goal_runs';
 
 import {
   MAX_COORDINATOR_GOAL_CHARS,
+  coordinatorConversationCommands,
   optionalSourceProofCurrent,
   type CoordinatorConversation,
   type CoordinatorConversationAddGoalRequest,
@@ -16,7 +19,6 @@ import {
   type CoordinatorConversationSetupProfileChoice,
   type CoordinatorConversationContinuationPort,
   type CoordinatorConversationContinuationAuthority,
-  type CodingWorkflowAuthorization,
   type CoordinatorConversationExecutionScope,
   type CoordinatorConversationPermissionAuthority,
   type CoordinatorDayflowDependencyManifest,
@@ -36,13 +38,7 @@ import { AgentSessionMessagesRepository } from '../repositories/agent_session_me
 import { AgentWorkstreamsRepository } from '../repositories/agent_workstreams_repository';
 import { ProjectsRepository } from '../repositories/projects_repository';
 import { AgentBridgeJobsRepository, type AgentBridgeJobRow } from '../shared_agents/delegation_jobs_repository';
-import type { CoordinatorWorkflowMembership } from '../shared_agents/delegation_jobs_repository';
-import { computeCodingWorkflowCapability, renderCodingWorkflowCapabilityLine } from './coding_workflow_capability';
-import { selectedReferenceCitation, type QualifiedWorkstreamArtifact } from './workstream_artifact_verifier';
-import type {
-  WorkflowProviderPendingExport,
-  WorkflowProviderRequest,
-} from '../contracts/dayflow_provider_admission_contract';
+import { renderCodingWorkflowCapabilityLine } from './coding_workflow_capability';
 import { asOpenCodeAgentId, asRhythmProfileId, type AgentSession } from '../models/agent_session';
 import {
   CoordinatorConversationsRepository,
@@ -64,20 +60,13 @@ import type { OpencodeClientService } from './opencode_client_service';
 import { HUMAN_APPROVAL_REQUIRED_MESSAGE } from './external_content_security_service';
 import { CoordinatorConversationContextAssembler } from './coordinator_conversation_context';
 import type { ResolvedFiniteExecutionScope } from './coordinator_finite_execution_scope';
-import { WorkstreamArtifactAuthorityResolver } from './workstream_artifact_verifier';
 import { selectCoordinatorSetupProfile } from './coordinator_setup_profile_selection';
 import type {
   CoordinatorFiniteConversationAuthority,
-  CoordinatorWorkflowDispatchInput,
   CoordinatorTerminalObserver,
   PersistentWorkstreamCoordinator,
   WorkstreamStatusView,
 } from './persistent_workstream_coordinator';
-import type {
-  CodingWorkflowDispatchInput as AgentCodingWorkflowDispatchInput,
-  CodingWorkflowPreparedBinding,
-} from './agent_delegation_service';
-
 type ReadFailure = Exclude<CoordinatorConversationRead, { kind: 'found' }>;
 
 export type CoordinatorConversationStatus =
@@ -160,6 +149,8 @@ export type CoordinatorConversationGoalActionResult =
   | { kind: 'delegation_held'; conversation: CoordinatorConversation }
   /** Tainted session with no usable approval; nothing was reserved or consumed. */
   | { kind: 'approval_required'; conversation: CoordinatorConversation }
+  /** The goal's own text names no single git repository; nothing was reserved. */
+  | { kind: 'repo_required'; conversation: CoordinatorConversation }
   | ReadFailure;
 
 export interface CoordinatorConversationServiceDependencies {
@@ -175,17 +166,13 @@ export interface CoordinatorConversationServiceDependencies {
   /** Existing owner/project-scoped durable workstream store. */
   workstreams?: Pick<AgentWorkstreamsRepository, 'create' | 'find'>;
   /** Existing native ledger is the only terminal/budget evidence for C2. */
-  jobs?: Pick<AgentBridgeJobsRepository,
-    'getNativeForWorkstream' | 'coordinatorBudgetState'> &
-    Partial<Pick<AgentBridgeJobsRepository,
-      'bindCoordinatorWorkflowPrepared' | 'recordCoordinatorWorkflowDelivery' |
-      'findCoordinatorWorkflowJob' | 'appendCoordinatorWorkflowMembership'>>;
-  /** Existing indexed-memory authority used only by the fixed workflow check. */
-  artifactResolver?: Pick<WorkstreamArtifactAuthorityResolver, 'resolveReference'>;
+  jobs?: Pick<AgentBridgeJobsRepository, 'getNativeForWorkstream' | 'coordinatorBudgetState'>;
   /** Existing local chat binding lookup, never SDK history. */
   sessions?: Pick<AgentSessionsRepository, 'findById'> & Partial<Pick<AgentSessionsRepository, 'insert'>>;
   /** Existing canonical local transcript mirror; no route reads SDK history directly. */
   messages?: Pick<AgentSessionMessagesRepository, 'listBySessionStructuredPage'>;
+  /** Local session ids with an unanswered permission or question (coding run "needs you"). */
+  waitingSessionIds?: () => Promise<ReadonlySet<string>>;
   /** Existing persisted profile and its current readonly grants. */
   configs?: Pick<AgentConfigsRepository, 'getById'> & Partial<Pick<AgentConfigsRepository, 'listEnabled'>>;
   /** Existing project catalog supplies only server-owned metadata. */
@@ -280,15 +267,15 @@ export interface CoordinatorConversationServiceDependencies {
       parentSessionId: string;
       parentSdkSessionId: string;
       parentProfileId: string;
+      goalId: string;
       objective: string;
-      /** Server adds the strict native enrollment callback; service supplies no engine client. */
-      workflow?: Omit<AgentCodingWorkflowDispatchInput, 'enroll'>;
+      /** The one git work tree the user's own goal text names. */
+      repoPath: string;
     }): Promise<
       | {
         delegationId: string;
         childSessionId: string;
         targetAgentConfigId: 'workflow-orchestrator';
-        delivery?: 'accepted' | 'unknown' | 'rejected';
       }
       | null
     >;
@@ -296,7 +283,7 @@ export interface CoordinatorConversationServiceDependencies {
   /** Existing coordinator is the sole inference/admission/accounting authority. */
   coordinator?: Pick<
     PersistentWorkstreamCoordinator,
-    'runNextFromFiniteConversation' | 'reconcileFiniteConversationJob' | 'status' | 'checkWorkflowResult'
+    'runNextFromFiniteConversation' | 'reconcileFiniteConversationJob' | 'status'
   > & Partial<Pick<PersistentWorkstreamCoordinator, 'readiness'>>;
   /** Explicit local coordinator gate; omitted is default-off. */
   enabled?: () => boolean;
@@ -346,23 +333,6 @@ function scope(actorUserId: number, request: { sessionId: string; projectId: str
   return { ownerUserId: actorUserId, sessionId: request.sessionId, projectId: request.projectId };
 }
 
-/**
- * Server-authored step instruction appended to the human's goal for the fixed
- * manager. It states the output contract only; it grants nothing and its
- * fulfilment is checked by the server, never trusted.
- */
-function workflowOrdinalObjective(
-  objective: string,
-  ordinal: number,
-  check: { sourceId: string; observedVersion: string },
-): string {
-  const citation = selectedReferenceCitation(check.sourceId, check.observedVersion);
-  const step = ordinal === 1
-    ? 'Step 1 of 2: read the selected source with your existing tools and confirm it is the one named. The server re-resolves the source independently; your statement completes nothing.'
-    : `Step 2 of 2: the source is server-verified current. End your final message with exactly one JSON object {"kind":"selected_reference_summary_v1","sourceId":"${check.sourceId}","version":"${check.observedVersion}","summary":"<brief containing ${citation}>"}. Delegate review to verification-gate, which must end with exactly one JSON object {"kind":"selected_reference_review_v1","criterionId":"reviewed_summary_with_citation","verdict":"pass"|"fail","sourceId":"${check.sourceId}","version":"${check.observedVersion}","summarySha256":"<sha256 hex of the summary string>"}.`;
-  return `${objective}\n\n[Rhythm server, selected_reference_summary_v1] ${step}`;
-}
-
 /** The suffix is never model-normalized; authored content is preserved exactly. */
 function explicitLiteralGoal(message: string): string | null {
   const match = /^\s*(?:add\s+(?:a\s+)?workstream|i\s+have\s+another\s+idea)\s*:\s*(.*?)\s*$/is.exec(message);
@@ -393,7 +363,7 @@ function deterministicStatusRequest(message: string): boolean {
 export function ordinaryForegroundGoalCandidate(message: string): string | null {
   const exact = message.trim();
   // "update me" asks for status, not work; capture is never admission.
-  const verbs = '(?:draft|create|prepare|organize|plan|review|write|build|research|schedule|follow\\s+up(?:\\s+on)?|make|fix|implement|update(?!\\s+me\\b)|test)\\b';
+  const verbs = '(?:draft|create|prepare|organize|plan|review|write|build|research|schedule|follow\\s+up(?:\\s+on)?|make|fix|implement|update(?!\\s+me\\b)|test|add|give|change|refactor|rename|remove|modify|extend|edit)\\b';
   const directAction = new RegExp(`^(?:please\\s+)?${verbs}`, 'i');
   const explicitDelegation = new RegExp(`^(?:i|we)\\s+(?:need|want)\\s+you\\s+to\\s+${verbs}`, 'i');
   const politeActionQuestion = new RegExp(`^(?:can|could|would)\\s+you\\s+${verbs}`, 'i');
@@ -431,12 +401,6 @@ function ordinaryGoalCandidate(message: string): string | null {
  * use a generic model port. A single explicit prepare request can consume one
  * coordinator turn only after the existing coordinator accepts it.
  */
-/** This third-argument port is server-only; the HTTP/model request parser cannot provide it. */
-export interface BoundedWorkflowAuthorizationPort {
-  expiresAt: string;
-  reprove(input: { conversation: CoordinatorConversation; workstreamId: string; resolved: QualifiedWorkstreamArtifact }): Promise<(() => boolean) | null>;
-}
-
 export class CoordinatorConversationService {
   private readonly repository: CoordinatorConversationsRepository;
   private readonly now: () => Date;
@@ -697,41 +661,6 @@ export class CoordinatorConversationService {
     );
   }
 
-  /** Read-only exact plan-root eligibility; no goal linking, approval or job. */
-  boundedWorkflowSelection(actor: AuthContext, input: { sessionId: string; projectId: string; sdkSessionId: string },
-    goalSelector: string, linkedWorkstreamId?: string) {
-    const currentScope = this.currentActorScope(actor, input);
-    const current = currentScope ? this.repository.get(currentScope) : null;
-    const selected = this.currentRootSelection(actor, input);
-    if (!this.dependencies.codingWorkflow || !this.dependencies.jobs?.bindCoordinatorWorkflowPrepared ||
-        !this.dependencies.jobs.recordCoordinatorWorkflowDelivery || !this.c2Enabled() || !current || current.kind !== 'found' || !current.conversation.primaryOwnerRoot ||
-        !selected || selected.session.sdkSessionId !== input.sdkSessionId || selected.session.permissionMode !== 'plan' ||
-        selected.session.approvalBypassExplicit || !this.dependencies.configs ||
-        !computeCodingWorkflowCapability({ configs: this.dependencies.configs, projectAuthorized: true, enrollmentAvailable: true }).available) return null;
-    const goals = current.conversation.goals.filter(g => (g.id === goalSelector || g.objective === goalSelector) &&
-      g.state === (linkedWorkstreamId ? 'linked' : 'captured') && g.linkedWorkstreamId === (linkedWorkstreamId ?? null));
-    if (goals.length !== 1 || current.conversation.commandDedupe.some(c => c.kind === 'delegate_goal' && c.goalId === goals[0].id) ||
-        current.conversation.continuations.some(c => c.goalId === goals[0].id)) return null;
-    return { conversation: current.conversation, goal: goals[0], profileId: selected.profile.id,
-      profileRevision: selected.profile.revision ?? 1,
-      scopeFingerprint: createHash('sha256').update(JSON.stringify([
-        selected.profile, selected.requestedModel, selected.permissionAuthority,
-        this.dependencies.configs.getById('workflow-orchestrator'), this.dependencies.configs.getById('verification-gate'),
-      ])).digest('hex') };
-  }
-
-  /** Existing indexed-source authority only; selection labels never become filesystem paths. */
-  async resolveBoundedWorkflowReference(actor: AuthContext, input: { sessionId: string; projectId: string; sdkSessionId: string },
-    sourceId: string, expectedVersion: string): Promise<QualifiedWorkstreamArtifact | null> {
-    if (!this.modelStatusScopeCurrent(actor, input)) return null;
-    try {
-      return await (this.dependencies.artifactResolver ?? new WorkstreamArtifactAuthorityResolver()).resolveReference({
-        ownerUserId: actor.user.id, projectId: input.projectId, workstreamId: 'chat-proposal', workstreamRevision: 1,
-        reference: { sourceId, expectedVersion, scope: input.projectId, provenance: 'user_reference' },
-      });
-    } catch { return null; }
-  }
-
   /**
    * Start exactly one existing Coding Workflow async child for a previously
    * captured goal. This is deliberately not finite-plan execution: it reuses
@@ -765,14 +694,24 @@ export class CoordinatorConversationService {
     if (!this.dependencies.codingWorkflow || !(await input.bindingCurrent())) {
       return { kind: 'delegation_held', conversation: initial.conversation };
     }
+    const goal = initial.conversation.goals.find((candidate) => candidate.id === input.goalId);
+    const repoPath = goal ? goalRepoPath(goal.objective) : null;
+    if (!repoPath) {
+      return goal
+        ? { kind: 'repo_required', conversation: initial.conversation }
+        : { kind: 'delegation_held', conversation: initial.conversation };
+    }
     const selected = this.currentRootSelection(actor, request);
     if (
       !selected || !initial.conversation.primaryOwnerRoot ||
       selected.session.sdkSessionId !== input.sdkSessionId || selected.session.id !== input.sessionId
     ) return { kind: 'delegation_held', conversation: initial.conversation };
+    // Re-read after the awaits above: another goal may have started meanwhile,
+    // and this read and the synchronous reserve below have no await between them.
+    const latest = this.repository.get(requestScope);
     const reserveInput = {
       ...requestScope,
-      expectedControlRevision: initial.conversation.controlRevision,
+      expectedControlRevision: latest.kind === 'found' ? latest.conversation.controlRevision : initial.conversation.controlRevision,
       commandKey: input.commandKey,
       goalId: input.goalId,
       parentSdkSessionId: input.sdkSessionId,
@@ -798,13 +737,13 @@ export class CoordinatorConversationService {
     const reservedControlRevision = reservation.conversation.controlRevision;
     const reservationCurrent = async (): Promise<boolean> => {
       if (!(await input.bindingCurrent())) return false;
-      const current = this.repository.get(requestScope);
+      const current = this.repository.get({ ...requestScope, commandKey: input.commandKey });
       const currentSelection = this.currentRootSelection(actor, request);
       const command = current.kind === 'found'
         ? current.conversation.commandDedupe.find((candidate) => candidate.key === input.commandKey)
         : null;
+      // Not the conversation-wide revision: concurrent goal starts bump it.
       return current.kind === 'found' && current.conversation.primaryOwnerRoot &&
-        current.conversation.controlRevision === reservedControlRevision &&
         currentSelection !== null && this.sameSelection(selected, currentSelection) &&
         currentSelection.session.sdkSessionId === input.sdkSessionId &&
         command?.kind === 'delegate_goal' && command.goalId === reservation.goal.id &&
@@ -821,9 +760,11 @@ export class CoordinatorConversationService {
         parentSessionId: selected.session.id,
         parentSdkSessionId: input.sdkSessionId,
         parentProfileId: selected.profile.id,
+        goalId: reservation.goal.id,
         // The existing delegation path receives the exact durable user goal;
         // no model-generated replacement prompt is accepted here.
         objective: reservation.goal.objective,
+        repoPath,
       });
     } catch {
       dispatched = null;
@@ -872,6 +813,33 @@ export class CoordinatorConversationService {
    * refresh a workstream. A current authenticated owner/project proof is
    * required before the local session id can be used as a transcript selector.
    */
+  /** Stop one run this conversation started, then return the current run list. */
+  async cancelRun(
+    actor: ConversationActor,
+    request: CoordinatorConversationOpenRequest & { goalId: string },
+  ): Promise<{ kind: 'runs'; runs: CoordinatorGoalRun[] } | { kind: 'not_found' } | ReadFailure> {
+    const requestScope = this.currentActorScope(actor, request);
+    if (!requestScope) return { kind: 'not_found' };
+    if (!(await cancelCoordinatorGoalRun(this.repository, requestScope, request.goalId))) return { kind: 'not_found' };
+    return this.runs(actor, request);
+  }
+
+  /** Coding runs started from this conversation's goals, with server-side status and usage. */
+  async runs(
+    actor: ConversationActor,
+    request: CoordinatorConversationOpenRequest,
+  ): Promise<{ kind: 'runs'; runs: CoordinatorGoalRun[] } | { kind: 'not_found' } | ReadFailure> {
+    const requestScope = this.currentActorScope(actor, request);
+    if (!requestScope) return { kind: 'not_found' };
+    const current = this.repository.get(requestScope);
+    if (current.kind !== 'found') return current;
+    const waiting = this.dependencies.waitingSessionIds ? await this.dependencies.waitingSessionIds() : new Set<string>();
+    return {
+      kind: 'runs',
+      runs: listCoordinatorGoalRuns(this.repository, requestScope, { pendingSessionIds: waiting, gitBranch: liveGitBranch }),
+    };
+  }
+
   history(
     actor: ConversationActor,
     request: CoordinatorConversationHistoryRequest,
@@ -1015,7 +983,7 @@ export class CoordinatorConversationService {
     // is already durable, so an init/send failure must never be retried under
     // this command key.
     const initialized = await this.ensureManagedSelection(actor, request, selected, true);
-    const latest = this.repository.get(scope(actor.user.id, request));
+    const latest = this.repository.get({ ...scope(actor.user.id, request), commandKey: request.commandKey });
     const finalSelection = this.currentRootSelection(actor, request, true);
     const stillReserved = latest.kind === 'found'
       ? latest.conversation.commandDedupe.find((command) => command.key === request.commandKey)
@@ -1035,7 +1003,7 @@ export class CoordinatorConversationService {
     }
     const foregroundEpoch = reserved.conversation.controlRevision;
     const reservationCurrent = (): boolean => {
-      const current = this.repository.get(scope(actor.user.id, request));
+      const current = this.repository.get({ ...scope(actor.user.id, request), commandKey: request.commandKey });
       const currentSelection = this.currentRootSelection(actor, request, true);
       const command = current.kind === 'found'
         ? current.conversation.commandDedupe.find((candidate) => candidate.key === request.commandKey)
@@ -1119,7 +1087,6 @@ export class CoordinatorConversationService {
   async preparePlan(
     actor: ConversationActor,
     request: CoordinatorConversationPreparePlanRequest,
-    workflowAuthorization?: BoundedWorkflowAuthorizationPort,
   ): Promise<CoordinatorConversationMessageResult> {
     const requestScope = this.currentActorScope(actor, request);
     if (!requestScope) return { kind: 'not_found' };
@@ -1142,14 +1109,11 @@ export class CoordinatorConversationService {
     // One captured goal cannot silently fund both a Coding Workflow child and
     // a finite managed workstream. The user must create/choose another goal
     // rather than treating either result as authorization for the other.
-    if (initial.conversation.commandDedupe.some((command) =>
+    if (coordinatorConversationCommands(initial.conversation).some((command) =>
       command.kind === 'delegate_goal' && command.goalId === goal.id,
     )) return { kind: 'planning_already_linked', conversation: initial.conversation };
     if (!this.c2Enabled()) return { kind: 'planning_authority_unavailable', conversation: initial.conversation };
     if (!request.admission) return { kind: 'planning_authority_required', conversation: initial.conversation };
-    if (request.admission.purpose === 'workflow') {
-      return this.prepareWorkflowPlan(actor, request, initial.conversation, goal, workflowAuthorization);
-    }
 
     const selected = this.currentRootSelection(actor, request);
     if (!selected) return { kind: 'planning_authority_unavailable', conversation: initial.conversation };
@@ -1484,610 +1448,6 @@ export class CoordinatorConversationService {
   }
 
   /**
-   * The deliberately selected-reference Coding Workflow branch.  It uses the
-   * same durable finite authority/ordinal/job path as C2, but its one manager
-   * child is the existing async delegation route rather than a managed
-   * read-only worker.  Legacy decompose/continue/execute never enter here.
-   */
-  private async prepareWorkflowPlan(
-    actor: AuthContext,
-    request: CoordinatorConversationPreparePlanRequest,
-    initial: CoordinatorConversation,
-    initialGoal: CoordinatorConversation['goals'][number],
-    workflowAuthorization?: BoundedWorkflowAuthorizationPort,
-  ): Promise<CoordinatorConversationMessageResult> {
-    const admission = request.admission;
-    if (!admission || admission.purpose !== 'workflow' || !admission.workflowCheck ||
-        !this.dependencies.codingWorkflow || !this.dependencies.jobs ||
-        !this.dependencies.jobs.bindCoordinatorWorkflowPrepared || !this.dependencies.jobs.recordCoordinatorWorkflowDelivery ||
-        !this.dependencies.workstreams ||
-        !this.dependencies.coordinator || !this.dependencies.configs) {
-      return { kind: 'planning_authority_unavailable', conversation: initial };
-    }
-    const ownerUserId = actor.user.id;
-    let selected = this.currentRootSelection(actor, request);
-    if (!selected) return { kind: 'planning_authority_unavailable', conversation: initial };
-    if (!selected.session.sdkSessionId) {
-      const initialized = await this.ensureManagedSelection(actor, request, selected);
-      if (!initialized) return { kind: 'planning_authority_unavailable', conversation: initial };
-      selected = initialized;
-    }
-    // G2 does not turn a plan root into bypass/accept-edits authority. The
-    // fixed manager route remains under its own existing profile policy.
-    if (selected.session.permissionMode !== 'plan' || selected.session.approvalBypassExplicit === true) {
-      return { kind: 'planning_authority_unavailable', conversation: initial };
-    }
-    // One source of truth with the prompt/context capability line (S7).
-    if (!computeCodingWorkflowCapability({
-      configs: this.dependencies.configs, projectAuthorized: true, enrollmentAvailable: true,
-    }).available) return { kind: 'planning_authority_unavailable', conversation: initial };
-
-    const existing = this.authorityForGoal(initial, initialGoal.id);
-    const existingLive = existing !== null && new Date(existing.expiresAt).valueOf() > this.now().valueOf();
-    const invalidated = existingLive && existing !== null && !this.authoritySelectionStillCurrent(existing, selected);
-    if (
-      existing?.authorizationCommandKey === admission.commandKey && existingLive && !invalidated
-    ) return { kind: 'planning_already_linked', conversation: initial };
-    if (existing?.status === 'authorized' && existingLive && !invalidated) {
-      return { kind: 'planning_authority_conflict', conversation: initial };
-    }
-    if (existing?.status === 'consumed') {
-      // A consumed workflow is never retro-funded or replayed by a new
-      // acknowledgement until its current job is known settled.
-      const settled = await this.previousAdmissionIsSettled(actor, initial, existing.workstreamId);
-      if (!settled) return { kind: 'planning_terminal_hold', conversation: initial, workstreamId: existing.workstreamId };
-    }
-
-    const reference = {
-      sourceId: admission.workflowCheck.sourceId,
-      expectedVersion: admission.workflowCheck.expectedVersion,
-      scope: request.projectId,
-      provenance: 'user_reference' as const,
-    };
-    let conversation = initial;
-    let workstreamId: string;
-    if (initialGoal.state === 'captured' && initialGoal.linkedWorkstreamId === null) {
-      const created = this.dependencies.workstreams.create(ownerUserId, {
-        projectId: request.projectId,
-        goal: initialGoal.objective,
-        constraints: 'A finite explicitly acknowledged Coding Workflow source-validation sequence. The fixed manager and current distinct reviewer may use only their existing profile permissions. No shell, network, schedule, parent wake, unbounded continuation, or inferred grant is authorized by this control.',
-        criteria: 'Two server-checked deliverables are required: selected current source validation and a reviewed citation-grounded brief. Model prose or manager completion never resolves either criterion.',
-        checkpoint: {
-          version: 1,
-          criteria: [
-            { id: 'selected_reference_current', status: 'pending' },
-            { id: 'reviewed_summary_with_citation', status: 'pending' },
-          ],
-          references: [reference],
-          nextAction: { kind: 'review', scope: request.projectId },
-        },
-        createKey: `conversation:workflow:${initial.id}:${initialGoal.id}`,
-      });
-      if (created.conflict) return { kind: 'planning_dispatch_hold', conversation: initial, workstreamId: created.row.id };
-      const linked = this.repository.linkGoal({
-        ...scope(ownerUserId, request),
-        expectedControlRevision: initial.controlRevision,
-        goalId: initialGoal.id,
-        workstreamId: created.row.id,
-      });
-      if (linked.kind !== 'updated' && linked.kind !== 'replay') {
-        return linked.kind === 'revision_conflict'
-          ? { kind: 'revision_conflict', conversation: linked.conversation }
-          : { kind: 'planning_link_conflict', conversation: 'conversation' in linked ? linked.conversation : initial };
-      }
-      conversation = linked.conversation;
-      workstreamId = created.row.id;
-    } else if (initialGoal.state === 'linked' && initialGoal.linkedWorkstreamId) {
-      workstreamId = initialGoal.linkedWorkstreamId;
-    } else {
-      return { kind: 'planning_link_conflict', conversation: initial };
-    }
-
-    const workstream = this.dependencies.workstreams.find(ownerUserId, request.projectId, workstreamId);
-    if (!workstream || workstream.state !== 'ready') {
-      return { kind: 'planning_dispatch_hold', conversation, workstreamId };
-    }
-    // The checked source is resolved from the existing server-owned indexed
-    // memory authority.  The selector/version supplied by the user never
-    // becomes a path, bytes, a hash receipt or a broad grant.
-    const resolver = this.dependencies.artifactResolver ?? new WorkstreamArtifactAuthorityResolver();
-    let resolved: Awaited<ReturnType<WorkstreamArtifactAuthorityResolver['resolveReference']>>;
-    try {
-      resolved = await resolver.resolveReference({
-        ownerUserId,
-        projectId: request.projectId,
-        workstreamId,
-        workstreamRevision: workstream.revision,
-        reference,
-      });
-    } catch {
-      return { kind: 'planning_authority_unavailable', conversation };
-    }
-    if (
-      !resolved.eligible || !resolved.managedReference || resolved.receipt.kind !== 'memory_vault' ||
-      resolved.receipt.verified !== true || resolved.receipt.reason !== null ||
-      !resolved.receipt.canonicalId || !resolved.receipt.observedVersion || !resolved.receipt.observedHash ||
-      resolved.receipt.sourceNamespace !== 'memory-vault' || !resolved.receipt.sourceInstance ||
-      resolved.receipt.observedVersion !== reference.expectedVersion
-    ) return { kind: 'planning_authority_unavailable', conversation };
-
-    // All resolver work is an await boundary. Re-read the exact root/control,
-    // workstream revision, source dependency and current profile facts before
-    // persisting/consuming the finite authority.
-    const dependencies = await this.currentDayflowDependency(conversation);
-    const authorize = workflowAuthorization
-      ? await workflowAuthorization.reprove({ conversation, workstreamId, resolved }) : undefined;
-    if (workflowAuthorization && !authorize) return { kind: 'planning_authority_unavailable', conversation };
-    // All synchronous reads occur after the final native reproof await.
-    const afterRead = this.repository.get(scope(ownerUserId, request));
-    const afterSelected = this.currentRootSelection(actor, request);
-    const afterWorkstream = this.dependencies.workstreams.find(ownerUserId, request.projectId, workstreamId);
-    if (
-      afterRead.kind !== 'found' || afterRead.conversation.controlRevision !== conversation.controlRevision ||
-      !afterSelected || !this.sameSelection(selected, afterSelected) ||
-      afterSelected.session.permissionMode !== 'plan' || afterSelected.session.approvalBypassExplicit === true ||
-      !afterWorkstream || afterWorkstream.state !== 'ready' || afterWorkstream.revision !== workstream.revision ||
-      dependencies.kind === 'hold'
-    ) return { kind: 'planning_authority_unavailable', conversation };
-    const linkedGoal = afterRead.conversation.goals.find((candidate) => candidate.id === initialGoal.id);
-    if (!linkedGoal || linkedGoal.state !== 'linked' || linkedGoal.linkedWorkstreamId !== workstreamId) {
-      return { kind: 'planning_link_conflict', conversation: afterRead.conversation };
-    }
-
-    const issuedAt = this.now();
-    const authorizationId = admission.commandKey;
-    const authority: CoordinatorConversationContinuationAuthority = {
-      schemaVersion: 6,
-      authorizationId,
-      authorizationCommandKey: admission.commandKey,
-      goalId: linkedGoal.id,
-      projectId: request.projectId,
-      workstreamId,
-      goalRevision: linkedGoal.revision,
-      parentSessionId: afterSelected.session.id,
-      profileId: afterSelected.profile.id,
-      profileRevision: afterSelected.profile.revision ?? 1,
-      workstreamRevision: afterWorkstream.revision,
-      issuedFromControlRevision: afterRead.conversation.controlRevision,
-      issuedAt: issuedAt.toISOString(),
-      expiresAt: workflowAuthorization?.expiresAt ?? new Date(issuedAt.valueOf() + admission.expiresInSeconds * 1_000).toISOString(),
-      requestedModel: afterSelected.requestedModel,
-      permissionAuthority: this.workflowPermissionAuthority(afterSelected),
-      maxTurns: admission.maxTurns,
-      consumedTurns: 0,
-      totalTokenAuthorization: admission.totalTokenAuthorization,
-      maxWallTimeSeconds: admission.maxWallTimeSeconds,
-      acknowledgement: {
-        schemaVersion: 1,
-        actorUserId: ownerUserId,
-        acknowledgedAt: issuedAt.toISOString(),
-        kind: 'soft_total_tokens',
-        includes: ['input', 'output', 'reasoning', 'cache'],
-        outputCapEnforced: false,
-      },
-      purpose: 'workflow',
-      executionScope: null,
-      workflow: {
-        schemaVersion: 1,
-        kind: 'coding_workflow',
-        targetAgentConfigId: 'workflow-orchestrator',
-        check: {
-          kind: 'selected_reference_summary_v1',
-          sourceId: reference.sourceId,
-          expectedVersion: reference.expectedVersion,
-          canonicalId: resolved.receipt.canonicalId,
-          observedVersion: resolved.receipt.observedVersion,
-          observedHash: resolved.receipt.observedHash,
-          sourceNamespace: 'memory-vault',
-          sourceInstance: resolved.receipt.sourceInstance,
-        },
-      },
-      dayflowDependency: dependencies.manifest,
-      status: 'authorized',
-    };
-    const authorized = this.repository.setContinuationAuthority({
-      ...scope(ownerUserId, request),
-      expectedControlRevision: afterRead.conversation.controlRevision,
-      authority,
-      replaceInvalidatedAuthority: invalidated,
-      ...(authorize ? { authorize } : {}),
-    });
-    if (authorized.kind !== 'updated') {
-      return { kind: 'planning_dispatch_hold', conversation: 'conversation' in authorized ? authorized.conversation : conversation, workstreamId };
-    }
-    const reserved = this.repository.reserveContinuationTurn({
-      ...scope(ownerUserId, request),
-      expectedControlRevision: authorized.conversation.controlRevision,
-      authorizationId,
-      expectedConsumedTurns: 0,
-      expectedGoalRevision: authority.goalRevision,
-      workstreamRevision: afterWorkstream.revision,
-    });
-    if (reserved.kind !== 'updated') {
-      return { kind: 'planning_dispatch_hold', conversation: 'conversation' in reserved ? reserved.conversation : conversation, workstreamId };
-    }
-    const latest = this.repository.get(scope(ownerUserId, request));
-    const latestAuthority = latest.kind === 'found' ? this.authorityForId(latest.conversation, authorizationId) : null;
-    const latestWorkstream = this.dependencies.workstreams.find(ownerUserId, request.projectId, workstreamId);
-    const latestSelection = this.currentManagedSelection(actor, request);
-    if (
-      latest.kind !== 'found' || !latestAuthority || latestAuthority.purpose !== 'workflow' ||
-      !latestWorkstream || latestWorkstream.state !== 'ready' || !latestSelection ||
-      !this.authorityStillCurrent(latest.conversation, latestAuthority, latestSelection, latestWorkstream)
-    ) return { kind: 'planning_dispatch_hold', conversation: latest.kind === 'found' ? latest.conversation : reserved.conversation, workstreamId };
-
-    return this.dispatchWorkflowOrdinal({
-      actor,
-      request,
-      conversation: latest.conversation,
-      authority: latestAuthority,
-      workstream: latestWorkstream,
-      selection: latestSelection,
-      objective: linkedGoal.objective,
-      fallback: reserved.conversation,
-    });
-  }
-
-  /**
-   * One existing native coordinator job for the authority's CURRENT consumed
-   * ordinal. Shared by the human admission (ordinal 1) and the checked-result
-   * continuation (n+1). The deterministic command key makes a replay return
-   * the same job; nothing here reserves an ordinal or retries an unknown one.
-   */
-  private async dispatchWorkflowOrdinal(input: {
-    actor: AuthContext;
-    request: { sessionId: string; projectId: string };
-    conversation: CoordinatorConversation;
-    authority: CoordinatorConversationContinuationAuthority;
-    workstream: NonNullable<ReturnType<AgentWorkstreamsRepository['find']>>;
-    selection: ManagedSelection;
-    objective: string;
-    fallback: CoordinatorConversation;
-  }): Promise<CoordinatorConversationMessageResult> {
-    const { actor, request, authority: latestAuthority, workstream: latestWorkstream, selection: latestSelection } = input;
-    const ownerUserId = actor.user.id;
-    const workstreamId = latestWorkstream.id;
-    const check = latestAuthority.workflow?.check;
-    if (!this.dependencies.coordinator || !check) {
-      return { kind: 'planning_dispatch_hold', conversation: input.fallback, workstreamId };
-    }
-    const reference = {
-      sourceId: check.sourceId,
-      expectedVersion: check.expectedVersion,
-      scope: request.projectId,
-      provenance: 'user_reference' as const,
-    };
-    const workflowAuthorization = {
-      authorizationId: latestAuthority.authorizationId,
-      ordinal: latestAuthority.consumedTurns as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
-      workstreamId,
-      goalId: latestAuthority.goalId,
-    };
-    const workflow: CoordinatorWorkflowDispatchInput = {
-      authorization: workflowAuthorization,
-      dispatch: async ({ job, parent, targetProfile }) => {
-        const adapter = this.dependencies.codingWorkflow;
-        if (!adapter || targetProfile.id !== 'workflow-orchestrator') return 'rejected';
-        const current = (): boolean => this.workflowDispatchStillCurrent({
-          ownerUserId,
-          request,
-          authority: latestAuthority,
-          jobId: job.id,
-          ordinal: workflowAuthorization.ordinal,
-        });
-        const privateWorkflow: Omit<AgentCodingWorkflowDispatchInput, 'enroll'> = {
-          authorization: workflowAuthorization,
-          workflowBinding: { jobId: job.id, expiresAt: latestAuthority.expiresAt },
-          expectedProjectId: request.projectId,
-          validate: async () => this.workflowDispatchCurrentAfterAwait({
-            ownerUserId, request, authority: latestAuthority, jobId: job.id, ordinal: workflowAuthorization.ordinal,
-          }),
-          isCurrent: current,
-          onPrepared: (binding) => {
-            if (!current() || !this.workflowPreparedMatches(
-              job.id, latestAuthority.expiresAt, binding, workflowAuthorization,
-            )) return false;
-            try {
-              this.dependencies.jobs!.bindCoordinatorWorkflowPrepared!({
-                localUserId: ownerUserId,
-                workstreamId,
-                jobId: job.id,
-                binding,
-                now: this.now().toISOString(),
-              });
-              return current();
-            } catch {
-              return false;
-            }
-          },
-          onOutcome: (binding) => {
-            try {
-              this.dependencies.jobs!.recordCoordinatorWorkflowDelivery!({
-                localUserId: ownerUserId,
-                workstreamId,
-                jobId: job.id,
-                dispatchId: binding.dispatch.dispatchId,
-                sdkUserMessageId: binding.dispatch.sdkUserMessageId,
-                delivery: binding.delivery,
-                now: this.now().toISOString(),
-              });
-            } catch {
-              // The client has already crossed an attempted-delivery boundary;
-              // its caller treats a missing durable outcome as unknown.
-            }
-          },
-        };
-        try {
-          const dispatched = await adapter.dispatch({
-            actor,
-            parentSessionId: parent.id,
-            parentSdkSessionId: parent.sdkSessionId!,
-            parentProfileId: latestSelection.profile.id,
-            objective: workflowOrdinalObjective(input.objective, latestAuthority.consumedTurns, check),
-            workflow: privateWorkflow,
-          });
-          if (!dispatched || dispatched.targetAgentConfigId !== 'workflow-orchestrator') return 'rejected';
-          return dispatched.delivery ?? 'accepted';
-        } catch {
-          return 'unknown';
-        }
-      },
-    };
-    try {
-      const dispatched = await this.dependencies.coordinator.runNextFromFiniteConversation(
-        this.finiteConversationAuthority({
-          ownerUserId,
-          conversation: input.conversation,
-          authority: latestAuthority,
-          ordinal: latestAuthority.consumedTurns,
-        }),
-        request.projectId,
-        workstreamId,
-        {
-          expectedRevision: latestWorkstream.revision,
-          commandKey: this.conversationCommandKey(
-            input.conversation.id, latestAuthority.goalId, latestAuthority.authorizationId, latestAuthority.consumedTurns,
-          ),
-          targetProfileId: 'workflow-orchestrator',
-          parentSessionId: latestSelection.session.id,
-          softTokenBudgetAcknowledged: true,
-          policy: {
-            maxTurns: 1,
-            maxWallTimeSeconds: latestAuthority.maxWallTimeSeconds,
-            maxTokens: latestAuthority.totalTokenAuthorization,
-            queueDeadlineAt: latestAuthority.expiresAt,
-            outputContract: 'coding_workflow_durable_consumer_v1',
-          },
-          references: [reference],
-          workflow,
-        },
-      );
-      const after = this.repository.get(scope(ownerUserId, request));
-      // Same truth as the legacy lanes: a blocked/unknown workstream is a hold, never 'planned'.
-      return ['queued', 'running'].includes(dispatched.workstream.state)
-        ? { kind: 'planned', conversation: after.kind === 'found' ? after.conversation : input.fallback, workstream: dispatched }
-        : { kind: 'planning_dispatch_hold', conversation: after.kind === 'found' ? after.conversation : input.fallback, workstreamId };
-    } catch {
-      return { kind: 'planning_dispatch_hold', conversation: input.fallback, workstreamId };
-    }
-  }
-
-  /**
-   * Server-only G2 provider gate. The outer schema-2 frame is already minted
-   * by the owned engine; this method joins it to the exact durable finite job
-   * and appends a bounded member before a provider body can be released. It
-   * has no route and never derives a grant from the frame itself.
-   */
-  async admitWorkflowProvider(input: {
-    actor: AuthContext;
-    request: WorkflowProviderRequest;
-    frame: WorkflowProviderPendingExport;
-    nativeParentSessionId: string;
-  }): Promise<{
-    status: 'allow' | 'hold';
-    reason: 'none' | 'binding_changed' | 'authority_unavailable' | 'membership_unavailable' | 'accounting_unavailable' | 'bounds_exceeded';
-    authorityDigest: string;
-    current(): boolean;
-  }> {
-    const digest = (reason: string, fields: Record<string, unknown> = {}) => createHash('sha256')
-      .update(JSON.stringify({ v: 1, jobId: input.request.binding.jobId, reason, ...fields }))
-      .digest('hex');
-    const hold = (reason: 'binding_changed' | 'authority_unavailable' | 'membership_unavailable' | 'accounting_unavailable' | 'bounds_exceeded') => ({
-      status: 'hold' as const,
-      reason,
-      authorityDigest: digest(reason),
-      current: () => false,
-    });
-    if (!isAuthenticatedActor(input.actor) || !this.dependencies.jobs || !this.dependencies.workstreams ||
-        !this.dependencies.jobs.findCoordinatorWorkflowJob || !this.dependencies.jobs.appendCoordinatorWorkflowMembership ||
-        !this.dependencies.jobs.recordCoordinatorWorkflowDelivery) {
-      return hold('authority_unavailable');
-    }
-    if (input.request.scope.kind !== 'manager_lineage' || input.frame.accounting.kind !== 'persisted_assistant') {
-      return hold('accounting_unavailable');
-    }
-    const jobs = this.dependencies.jobs;
-    const findWorkflowJob = jobs.findCoordinatorWorkflowJob?.bind(jobs);
-    const appendWorkflowMembership = jobs.appendCoordinatorWorkflowMembership?.bind(jobs);
-    const recordWorkflowDelivery = jobs.recordCoordinatorWorkflowDelivery?.bind(jobs);
-    if (!findWorkflowJob || !appendWorkflowMembership || !recordWorkflowDelivery) return hold('authority_unavailable');
-    const initialJob = findWorkflowJob(input.request.binding.jobId);
-    const parseWorkflow = (job: AgentBridgeJobRow | null): {
-      authorization: CodingWorkflowAuthorization;
-      prepared: Record<string, unknown>;
-      delivery: string;
-      membership: unknown[];
-    } | null => {
-      if (!job || job.direction !== 'rhythm_to_native' || job.native_execution_kind !== 'coordinator') return null;
-      try {
-        const metadata = JSON.parse(job.native_metadata_json ?? '') as Record<string, unknown>;
-        const workflow = metadata.workflow;
-        if (!workflow || typeof workflow !== 'object' || Array.isArray(workflow)) return null;
-        const record = workflow as Record<string, unknown>;
-        const authorization = record.authorization;
-        const prepared = record.prepared;
-        if (
-          record.schemaVersion !== 1 || record.kind !== 'coding_workflow' ||
-          !authorization || typeof authorization !== 'object' || Array.isArray(authorization) ||
-          !prepared || typeof prepared !== 'object' || Array.isArray(prepared) ||
-          !Array.isArray(record.membership) ||
-          (record.delivery !== 'prepared' && record.delivery !== 'accepted')
-        ) return null;
-        const value = authorization as Record<string, unknown>;
-        if (
-          typeof value.authorizationId !== 'string' || typeof value.workstreamId !== 'string' ||
-          typeof value.goalId !== 'string' || !Number.isInteger(value.ordinal)
-        ) return null;
-        return {
-          authorization: value as unknown as CodingWorkflowAuthorization,
-          prepared: prepared as Record<string, unknown>,
-          delivery: record.delivery,
-          membership: record.membership,
-        };
-      } catch {
-        return null;
-      }
-    };
-    let record = parseWorkflow(initialJob);
-    if (!record || !initialJob) return hold('membership_unavailable');
-    const prepared = record.prepared;
-    const preparedBinding = prepared.workflowBinding;
-    const owner = prepared.owner;
-    const delegation = prepared.delegation;
-    const dispatch = prepared.dispatch;
-    if (
-      !preparedBinding || typeof preparedBinding !== 'object' || Array.isArray(preparedBinding) ||
-      !owner || typeof owner !== 'object' || Array.isArray(owner) ||
-      !delegation || typeof delegation !== 'object' || Array.isArray(delegation) ||
-      !dispatch || typeof dispatch !== 'object' || Array.isArray(dispatch)
-    ) return hold('membership_unavailable');
-    const binding = preparedBinding as Record<string, unknown>;
-    const preparedOwner = owner as Record<string, unknown>;
-    const preparedDelegation = delegation as Record<string, unknown>;
-    const preparedDispatch = dispatch as Record<string, unknown>;
-    const authorization = record.authorization;
-    if (
-      binding.schemaVersion !== 1 || binding.jobId !== initialJob.id ||
-      binding.rootSdkSessionId !== input.request.binding.rootSdkSessionId ||
-      binding.managerSdkSessionId !== input.request.binding.managerSdkSessionId ||
-      binding.expiresAt !== input.request.binding.expiresAt ||
-      preparedOwner.ownerUserId !== input.actor.user.id ||
-      typeof preparedOwner.projectId !== 'string' || typeof preparedOwner.rootSessionId !== 'string' ||
-      preparedOwner.rootSdkSessionId !== input.request.binding.rootSdkSessionId ||
-      preparedDelegation.managerSdkSessionId !== input.request.binding.managerSdkSessionId ||
-      preparedDelegation.nativeParentSdkSessionId !== input.request.binding.rootSdkSessionId ||
-      typeof preparedDispatch.dispatchId !== 'string' ||
-      preparedDispatch.sdkUserMessageId !== initialJob.native_sdk_user_message_id ||
-      typeof authorization.authorizationId !== 'string'
-    ) return hold('binding_changed');
-    const ownerUserId = preparedOwner.ownerUserId as number;
-    const projectId = preparedOwner.projectId as string;
-    const rootSessionId = preparedOwner.rootSessionId as string;
-    if (!this.currentProjectAuthorized(input.actor, projectId)) return hold('authority_unavailable');
-    const conversation = this.repository.get({ ownerUserId, projectId, sessionId: rootSessionId });
-    if (conversation.kind !== 'found') return hold('authority_unavailable');
-    const authority = this.authorityForId(conversation.conversation, authorization.authorizationId);
-    const workstream = authority
-      ? this.dependencies.workstreams.find(ownerUserId, projectId, authority.workstreamId)
-      : null;
-    const selection = this.currentInternalManagedSelection(ownerUserId, { sessionId: rootSessionId, projectId });
-    if (
-      !authority || authority.purpose !== 'workflow' || !authority.workflow || !workstream || !selection ||
-      authorization.workstreamId !== authority.workstreamId || authorization.goalId !== authority.goalId ||
-      authorization.ordinal !== authority.consumedTurns || authority.status !== 'consumed' ||
-      !this.authorityStillCurrent(conversation.conversation, authority, selection, workstream) ||
-      !this.workflowDispatchStillCurrent({
-        ownerUserId, request: { sessionId: rootSessionId, projectId }, authority,
-        jobId: initialJob.id, ordinal: authorization.ordinal,
-      })
-    ) return hold('authority_unavailable');
-    // Resolver/Dayflow reads are await boundaries. They prove the immutable
-    // checked source and current dependency before the native frame is used.
-    if (!await this.workflowDispatchCurrentAfterAwait({
-      ownerUserId, request: { sessionId: rootSessionId, projectId }, authority,
-      jobId: initialJob.id, ordinal: authorization.ordinal,
-    })) return hold('authority_unavailable');
-    const beforeAppend = findWorkflowJob(initialJob.id);
-    record = parseWorkflow(beforeAppend);
-    if (!beforeAppend || !record || record.delivery === 'unknown' || record.delivery === 'rejected') return hold('binding_changed');
-    const parentAllowed = input.request.request.sdkSessionId === input.request.binding.managerSdkSessionId
-      ? input.nativeParentSessionId === input.request.binding.rootSdkSessionId
-      : input.nativeParentSessionId === input.request.binding.managerSdkSessionId || record.membership.some((member) =>
-        !!member && typeof member === 'object' && !Array.isArray(member) &&
-        (member as Record<string, unknown>).nativeSessionId === input.nativeParentSessionId,
-      );
-    if (!parentAllowed) return hold('membership_unavailable');
-    if (record.delivery === 'prepared') {
-      try {
-        recordWorkflowDelivery({
-          localUserId: ownerUserId,
-          workstreamId: authority.workstreamId,
-          jobId: initialJob.id,
-          dispatchId: preparedDispatch.dispatchId as string,
-          sdkUserMessageId: preparedDispatch.sdkUserMessageId as string,
-          delivery: 'accepted',
-          now: this.now().toISOString(),
-        });
-      } catch {
-        return hold('binding_changed');
-      }
-    }
-    const member: CoordinatorWorkflowMembership = {
-      nativeSessionId: input.request.request.sdkSessionId,
-      parentNativeSessionId: input.nativeParentSessionId,
-      nativeUserMessageId: input.request.request.userMessageId,
-      engineGeneration: input.request.request.engineGeneration,
-      runnerGeneration: input.request.request.runnerGeneration,
-      purpose: input.request.request.purpose,
-      attempt: input.request.request.attempt,
-      requestIdentity: createHash('sha256').update(JSON.stringify({
-        nonce: input.request.request.requestNonce,
-        digest: input.request.request.inputDigest,
-      })).digest('hex'),
-      accountingKind: 'persisted_assistant',
-      assistantMessageId: input.frame.accounting.assistantMessageId,
-      parentMessageId: input.frame.accounting.parentMessageId,
-    };
-    try {
-      appendWorkflowMembership({
-        localUserId: ownerUserId,
-        workstreamId: authority.workstreamId,
-        jobId: initialJob.id,
-        member,
-        now: this.now().toISOString(),
-      });
-    } catch {
-      return hold('membership_unavailable');
-    }
-    const current = (): boolean => {
-      if (!this.workflowDispatchStillCurrent({
-        ownerUserId, request: { sessionId: rootSessionId, projectId }, authority,
-        jobId: initialJob.id, ordinal: authorization.ordinal,
-      })) return false;
-      const latest = findWorkflowJob(initialJob.id);
-      const latestRecord = parseWorkflow(latest);
-      return !!latestRecord && latestRecord.delivery === 'accepted' && latestRecord.membership.some((item) =>
-        !!item && typeof item === 'object' && !Array.isArray(item) &&
-        (item as Record<string, unknown>).nativeUserMessageId === member.nativeUserMessageId &&
-        (item as Record<string, unknown>).assistantMessageId === member.assistantMessageId &&
-        (item as Record<string, unknown>).parentMessageId === member.parentMessageId,
-      );
-    };
-    if (!current()) return hold('binding_changed');
-    return {
-      status: 'allow',
-      reason: 'none',
-      authorityDigest: digest('none', {
-        authorizationId: authority.authorizationId,
-        ordinal: authority.consumedTurns,
-        workstreamId: authority.workstreamId,
-        revision: workstream.revision,
-      }),
-      current,
-    };
-  }
-
-  /**
    * Dispatch the next already-authorized outer turn. This is deliberately not
    * a new grant: it cannot accept a model, budget, scope, evidence, or tool
    * choice. A terminal integration may invoke this same method only after its
@@ -2116,10 +1476,7 @@ export class CoordinatorConversationService {
       authority.authorizationId !== request.authorizationId || authority.goalId !== goal.id ||
       authority.projectId !== request.projectId || goal.linkedWorkstreamId !== authority.workstreamId ||
       authority.status !== 'consumed' || authority.consumedTurns < 1 ||
-      authority.consumedTurns >= authority.maxTurns || new Date(authority.expiresAt).valueOf() <= this.now().valueOf() ||
-      // Lanes are additive: a schema-6 workflow grant never funds a legacy
-      // read-only worker. Its next ordinal belongs to the checked-result branch.
-      authority.purpose === 'workflow'
+      authority.consumedTurns >= authority.maxTurns || new Date(authority.expiresAt).valueOf() <= this.now().valueOf()
     ) {
       return { kind: 'planning_authority_conflict', conversation: initial.conversation };
     }
@@ -2251,21 +1608,11 @@ export class CoordinatorConversationService {
     const requestScope = scope(input.ownerUserId, request);
     const initial = this.repository.get(requestScope);
     if (initial.kind !== 'found') return;
-    // Separate checked-result branch: a final ordinal (consumed == max) still
-    // needs its result applied, so it is selected before the C2 filter.
-    const workflowCandidates = initial.conversation.continuations.filter((candidate) =>
-      candidate.purpose === 'workflow' && candidate.workstreamId === input.workstreamId &&
-      candidate.parentSessionId === input.parentSessionId && candidate.status === 'consumed' && candidate.consumedTurns >= 1);
-    if (workflowCandidates.length === 1) {
-      await this.onWorkflowTerminal(input, workflowCandidates[0].authorizationId);
-      return;
-    }
     const candidates = initial.conversation.continuations.filter((candidate) =>
       candidate.workstreamId === input.workstreamId && candidate.parentSessionId === input.parentSessionId &&
       candidate.status === 'consumed' && candidate.consumedTurns >= 1 && candidate.consumedTurns < candidate.maxTurns,
     );
-    // Workflow grants never take the C2 proposal predicate.
-    if (candidates.length !== 1 || candidates[0].purpose === 'workflow') return;
+    if (candidates.length !== 1) return;
     const authority = candidates[0];
     const goal = initial.conversation.goals.find((candidate) => candidate.id === authority.goalId);
     const workstream = this.dependencies.workstreams!.find(input.ownerUserId, input.projectId, input.workstreamId);
@@ -2391,124 +1738,6 @@ export class CoordinatorConversationService {
   }
 
   /**
-   * G2 checked-result consumer. The coordinator writes a criterion receipt only
-   * from its own fresh source resolution (and, for the brief, citation checks
-   * plus the enrolled independent reviewer). Only a durable checked
-   * INTERMEDIATE result may reserve exactly the next ordinal through the
-   * existing CAS; final/hold/pause/cancel/expiry/unknown/cap reserve nothing.
-   * Re-entrant and duplicate-safe: the CAS replay is a no-op.
-   */
-  private async onWorkflowTerminal(
-    input: Parameters<CoordinatorTerminalObserver['onCoordinatorTerminal']>[0],
-    authorizationId: string,
-  ): Promise<void> {
-    const coordinator = this.dependencies.coordinator;
-    if (!coordinator || !this.currentOwnerProjectAuthorized(input.ownerUserId, input.projectId)) return;
-    const request = { sessionId: input.parentSessionId, projectId: input.projectId };
-    const requestScope = scope(input.ownerUserId, request);
-    const read = () => {
-      const found = this.repository.get(requestScope);
-      const conversation = found.kind === 'found' ? found.conversation : null;
-      const authority = conversation ? this.authorityForId(conversation, authorizationId) : null;
-      const goal = authority ? conversation!.goals.find((candidate) => candidate.id === authority.goalId) ?? null : null;
-      const workstream = authority
-        ? this.dependencies.workstreams!.find(input.ownerUserId, input.projectId, authority.workstreamId)
-        : null;
-      const selection = this.currentInternalManagedSelection(input.ownerUserId, request);
-      return { conversation, authority, goal, workstream, selection };
-    };
-    const initial = read();
-    const check = initial.authority?.workflow?.check;
-    if (
-      !initial.conversation || !initial.authority || !initial.goal || !initial.workstream || !initial.selection || !check ||
-      initial.authority.purpose !== 'workflow' || initial.authority.status !== 'consumed' ||
-      initial.authority.consumedTurns < 1 || initial.workstream.id !== input.workstreamId ||
-      initial.workstream.lastJobId !== input.jobId
-    ) return;
-    const ordinal = initial.authority.consumedTurns;
-    const job = this.dependencies.jobs!.getNativeForWorkstream({
-      localUserId: input.ownerUserId, workstreamId: input.workstreamId, jobId: input.jobId,
-    });
-    if (
-      !job || job.parent_session_id !== input.parentSessionId ||
-      job.idempotency_key !== this.conversationCommandKey(
-        initial.conversation.id, initial.goal.id, authorizationId, ordinal,
-      )
-    ) return;
-    // Same goal/authorization/ordinal and root selection (incl. expiry); the
-    // workstream revision is fenced by the criterion transaction itself.
-    const current = (): boolean => {
-      const now = read();
-      return Boolean(
-        now.conversation && now.authority && now.goal && now.selection && now.workstream &&
-        this.currentOwnerProjectAuthorized(input.ownerUserId, input.projectId) &&
-        now.authority.status === 'consumed' && now.authority.consumedTurns === ordinal &&
-        now.authority.goalRevision === initial.authority!.goalRevision &&
-        now.goal.state === 'linked' && now.goal.revision === now.authority.goalRevision &&
-        now.goal.linkedWorkstreamId === input.workstreamId && now.workstream.lastJobId === input.jobId &&
-        this.authoritySelectionStillCurrent(now.authority, now.selection),
-      );
-    };
-    if (!current()) return;
-    const outcome = await coordinator.checkWorkflowResult({
-      ownerUserId: input.ownerUserId,
-      projectId: input.projectId,
-      workstreamId: input.workstreamId,
-      jobId: input.jobId,
-      expectation: {
-        sourceId: check.sourceId,
-        canonicalId: check.canonicalId,
-        observedVersion: check.observedVersion,
-        observedHash: check.observedHash,
-        sourceInstance: check.sourceInstance,
-      },
-      current,
-    });
-    if (outcome.kind !== 'intermediate') return;
-    const before = read();
-    if (
-      !current() || !before.conversation || !before.authority || !before.workstream || !before.selection ||
-      before.workstream.state !== 'ready' || before.workstream.revision !== outcome.workstreamRevision ||
-      ordinal >= before.authority.maxTurns ||
-      this.dependencies.jobs!.coordinatorBudgetState({ localUserId: input.ownerUserId, workstreamId: input.workstreamId }).holdReason !== null
-    ) return;
-    const dependencies = await this.currentDayflowDependency(before.conversation);
-    if (dependencies.kind === 'hold' || !this.sameDayflowDependency(before.authority.dayflowDependency, dependencies.manifest) ||
-        !current()) return;
-    const latestBeforeReserve = read();
-    if (!latestBeforeReserve.conversation || !latestBeforeReserve.authority) return;
-    const reserved = this.repository.reserveContinuationTurn({
-      ...requestScope,
-      expectedControlRevision: latestBeforeReserve.conversation.controlRevision,
-      expectedGoalRevision: latestBeforeReserve.authority.goalRevision,
-      authorizationId,
-      expectedConsumedTurns: ordinal,
-      // The checked application advanced the workstream; the grant rebases to it.
-      workstreamRevision: outcome.workstreamRevision,
-    });
-    if (reserved.kind !== 'updated') return;
-    const after = read();
-    if (
-      !after.conversation || !after.authority || !after.goal || !after.workstream || !after.selection ||
-      after.authority.consumedTurns !== ordinal + 1 || after.workstream.state !== 'ready' ||
-      !this.authorityStillCurrent(after.conversation, after.authority, after.selection, after.workstream)
-    ) return;
-    // Server-internal continuation actor: the owner's id only, never a bearer.
-    // Every downstream gate re-proves owner/project/root itself.
-    const internalActor = { sessionToken: '', user: { id: input.ownerUserId } } as AuthContext;
-    await this.dispatchWorkflowOrdinal({
-      actor: internalActor,
-      request,
-      conversation: after.conversation,
-      authority: after.authority,
-      workstream: after.workstream,
-      selection: after.selection,
-      objective: after.goal.objective,
-      fallback: after.conversation,
-    });
-  }
-
-  /**
    * Reuse the existing scheduler minute callback to inspect a bounded page of
    * already-consumed ordinary finite children. It is not a planner/queue: no
    * row without a current finite authority is touched, and the coordinator
@@ -2546,26 +1775,6 @@ export class CoordinatorConversationService {
           conversation.projectId,
           authority.workstreamId,
         );
-        if (authority.purpose === 'workflow' && goal && workstream?.lastJobId) {
-          const job = this.dependencies.jobs!.getNativeForWorkstream({
-            localUserId: conversation.ownerUserId, workstreamId: workstream.id, jobId: workstream.lastJobId,
-          });
-          // A terminal workflow job whose observer event was missed (restart,
-          // reconstructed service) is re-read through the same checked branch;
-          // its CAS makes a duplicate a no-op. Unknown/failed are never touched.
-          if (job?.state === 'succeeded') {
-            await this.onWorkflowTerminal({
-              ownerUserId: conversation.ownerUserId,
-              projectId: conversation.projectId,
-              workstreamId: workstream.id,
-              parentSessionId: conversation.sessionId,
-              jobId: job.id,
-              state: 'succeeded',
-              hostEpoch: job.host_epoch ?? '',
-            }, authority.authorizationId);
-            continue;
-          }
-        }
         if (
           !goal || !workstream || !workstream.lastJobId ||
           !this.authorityStillCurrent(current.conversation, authority, selected, workstream)
@@ -2625,13 +1834,6 @@ export class CoordinatorConversationService {
       receipt,
     });
     return { kind: 'terminal_status', conversation: latest.conversation, state: inspected.state };
-  }
-
-  /** Dedicated chat admission requires the current owned runtime, not just static capability. */
-  async boundedWorkflowRuntimeReady(): Promise<boolean> {
-    if (!this.c2Enabled() || !this.dependencies.coordinator?.readiness) return false;
-    try { return (await this.dependencies.coordinator.readiness()).available === true; }
-    catch { return false; }
   }
 
   private c2Enabled(): boolean {
@@ -2811,7 +2013,6 @@ export class CoordinatorConversationService {
     authority: CoordinatorConversationContinuationAuthority,
     selection: ManagedSelection,
   ): boolean {
-    const workflow = authority.purpose === 'workflow';
     const permission = authority.permissionAuthority;
     return new Date(authority.expiresAt).valueOf() > this.now().valueOf() &&
       permission !== null &&
@@ -2825,14 +2026,8 @@ export class CoordinatorConversationService {
       permission.parent.approvalBypassExplicit === selection.permissionAuthority.parent.approvalBypassExplicit &&
       permission.worker.parentSessionId === selection.permissionAuthority.worker.parentSessionId &&
       permission.worker.permissionMode === selection.permissionAuthority.worker.permissionMode &&
-      permission.worker.managedReadOnly === (workflow ? false : selection.permissionAuthority.worker.managedReadOnly) &&
-      (workflow
-        ? permission.schemaVersion === 2 && permission.workflow?.parentSessionId === selection.session.id &&
-          permission.workflow.permissionMode === selection.permissionAuthority.parent.permissionMode &&
-          permission.workflow.approvalBypassExplicit === selection.permissionAuthority.parent.approvalBypassExplicit &&
-          permission.workflow.targetAgentConfigId === 'workflow-orchestrator' &&
-          authority.workflow?.kind === 'coding_workflow' && authority.workflow.targetAgentConfigId === 'workflow-orchestrator'
-        : permission.schemaVersion === 1 && permission.workflow === undefined) &&
+      permission.worker.managedReadOnly === selection.permissionAuthority.worker.managedReadOnly &&
+      permission.schemaVersion === 1 &&
       (authority.purpose !== 'execute' || authority.executionScope !== null) &&
       authority.acknowledgement.kind === 'soft_total_tokens';
   }
@@ -3272,7 +2467,7 @@ export class CoordinatorConversationService {
         !selection || selection.session.sdkSessionId !== input.sdkSessionId ||
         read.kind !== 'found' || !read.conversation.primaryOwnerRoot
       ) return null;
-      const bound = read.conversation.commandDedupe.some((command) =>
+      const bound = coordinatorConversationCommands(read.conversation).some((command) =>
         command.kind === 'delegate_goal' && command.state === 'dispatched' &&
         command.delegationId === input.delegationId && command.childSessionId === input.childSessionId &&
         command.parentSdkSessionId === input.sdkSessionId);
@@ -3331,6 +2526,12 @@ export class CoordinatorConversationService {
       today: context.today,
       yesterday: context.yesterday,
       controlRevision: conversation.controlRevision,
+      // Captured goals with no run yet: what rhythm_start_coordinator_goal can start.
+      startableGoals: conversation.goals
+        .filter((goal) => goal.state === 'captured' && !coordinatorConversationCommands(conversation)
+          .some((command) => command.kind === 'delegate_goal' && command.goalId === goal.id))
+        .slice(-8)
+        .map((goal) => ({ id: goal.id, objective: goal.objective.slice(0, 240) })),
       goals: {
         captured: conversation.goals.filter((goal) => goal.state === 'captured').length,
         linked: conversation.goals.filter((goal) => goal.state === 'linked').length,
@@ -3342,11 +2543,11 @@ export class CoordinatorConversationService {
         blocked: conversation.continuations.filter((authority) => authority.status === 'blocked').length,
       },
       codingWorkflow: {
-        reserved: conversation.commandDedupe.filter((command) =>
+        reserved: coordinatorConversationCommands(conversation).filter((command) =>
           command.kind === 'delegate_goal' && command.state === 'reserved').length,
-        dispatched: conversation.commandDedupe.filter((command) =>
+        dispatched: coordinatorConversationCommands(conversation).filter((command) =>
           command.kind === 'delegate_goal' && command.state === 'dispatched').length,
-        uncertain: conversation.commandDedupe.filter((command) =>
+        uncertain: coordinatorConversationCommands(conversation).filter((command) =>
           command.kind === 'delegate_goal' && command.state === 'uncertain').length,
         // Execution outcomes of dispatched children; none is goal verification.
         outcomes: this.goalOutcomes(conversation).reduce<Record<string, number>>((counts, item) => {
@@ -3402,7 +2603,7 @@ export class CoordinatorConversationService {
           authority.authorizationId, authority.status, authority.consumedTurns, authority.expiresAt,
           authority.workstreamRevision, authority.goalRevision,
         ]),
-        codingWorkflow: conversation.commandDedupe
+        codingWorkflow: coordinatorConversationCommands(conversation)
           .filter((command) => command.kind === 'delegate_goal')
           .map((command) => [command.goalId, command.state, command.delegationId, command.childSessionId]),
         goalOutcomes: this.goalOutcomeIdentities(conversation),
@@ -3434,7 +2635,7 @@ export class CoordinatorConversationService {
       continuations: conversation.continuations.map((authority) => [
         authority.authorizationId, authority.status, authority.consumedTurns, authority.expiresAt,
       ]),
-      codingWorkflow: conversation.commandDedupe
+      codingWorkflow: coordinatorConversationCommands(conversation)
         .filter((command) => command.kind === 'delegate_goal')
         .map((command) => [command.goalId, command.state, command.delegationId, command.childSessionId]),
       goalOutcomes: this.goalOutcomeIdentities(conversation),
@@ -3582,79 +2783,6 @@ export class CoordinatorConversationService {
     };
   }
 
-  /**
-   * Honest chat-visible state of one G2 workflow grant, derived only from the
-   * durable workstream/job rows. Manager prose never maps to "done".
-   */
-  workflowStatus(
-    conversation: CoordinatorConversation,
-    authority: CoordinatorConversationContinuationAuthority,
-  ): { state: string; text: string } {
-    const status = (state: string, text: string) => ({ state, text });
-    let workstream: ReturnType<AgentWorkstreamsRepository['find']> = null;
-    let job: AgentBridgeJobRow | null = null;
-    try {
-      workstream = this.dependencies.workstreams?.find(conversation.ownerUserId, conversation.projectId, authority.workstreamId) ?? null;
-      job = workstream?.lastJobId
-        ? this.dependencies.jobs?.getNativeForWorkstream({
-          localUserId: conversation.ownerUserId, workstreamId: workstream.id, jobId: workstream.lastJobId,
-        }) ?? null
-        : null;
-    } catch {
-      return status('unavailable', 'Workflow state could not be read; nothing is assumed done.');
-    }
-    const ordinal = `ordinal ${authority.consumedTurns} of ${authority.maxTurns}`;
-    if (authority.status === 'authorized') return status('authorized', 'Acknowledged; no manager has started yet.');
-    if (workstream?.state === 'completed') {
-      const criteria = workstream.checkpoint.criteria;
-      const verified = criteria.length === 2 &&
-        ['selected_reference_current', 'reviewed_summary_with_citation']
-          .every((id) => criteria.filter((criterion) => criterion.id === id).length === 1) &&
-        criteria.every((criterion) => criterion.status === 'verified' &&
-          typeof criterion.receiptId === 'string' && criterion.receiptId.trim().length > 0) &&
-        new Set(criteria.map((criterion) => criterion.receiptId!.trim())).size === 2;
-      if (!verified) {
-        return status('unavailable', `Held at ${ordinal}: the current checkpoint is not server-verified; no completion is claimed.`);
-      }
-      return status('completed', `Completed: selected_reference_current is server-checked and verified; reviewed_summary_with_citation is server-checked and verified through citation checks and independent verification-gate review. Checked stop at ${ordinal}; no further ordinal will run.`);
-    }
-    if (workstream?.state === 'paused') return status('paused', `Paused at ${ordinal}; nothing runs or advances while paused.`);
-    if (workstream?.state === 'cancelled') return status('cancelled', `Cancelled at ${ordinal}; no further ordinal will run.`);
-    const result = (() => { try { return job?.native_result_json ? JSON.parse(job.native_result_json) as Record<string, unknown> : null; } catch { return null; } })();
-    if (job?.state === 'failed') {
-      return result?.reason === 'workflow_delivery_rejected'
-        ? status('refused', `Refused before the manager was exposed (${ordinal}); nothing ran and the ordinal is not retried.`)
-        : status('failed', `The manager run failed (${ordinal}); nothing is verified and nothing advances.`);
-    }
-    if (typeof result?.workflowCoverageHold === 'string') {
-      return status('membership_unavailable', `Held (${ordinal}): the workflow's sessions and usage could not be fully proven, so nothing advances.`);
-    }
-    if (job?.state === 'unknown' && !(() => { try { return JSON.parse(job.native_metadata_json ?? '{}').workflow?.prepared; } catch { return null; } })()) {
-      // Never prepared = never exposed: the claim was fenced before any SDK request.
-      return status('planning_dispatch_hold', `Held before the manager ran (${ordinal}); it is not retried automatically.`);
-    }
-    if (job?.state === 'unknown') {
-      return status('unknown', `Delivery or usage is unknown (${ordinal}); it is never retried or treated as done.`);
-    }
-    if (new Date(authority.expiresAt).valueOf() <= this.now().valueOf()) {
-      return status('expired', `Authorization expired at ${ordinal}; no further ordinal will run.`);
-    }
-    if (!job || job.idempotency_key !== this.conversationCommandKey(conversation.id, authority.goalId, authority.authorizationId, authority.consumedTurns)) {
-      return status('planning_dispatch_hold', `Held before dispatch (${ordinal}): no manager is running for this ordinal and it is not retried automatically.`);
-    }
-    if (job.state !== 'succeeded' && workstream?.state === 'blocked') {
-      return status('planning_dispatch_hold', `Held before the manager ran (${ordinal}); it is not retried automatically.`);
-    }
-    if (['queued', 'claimed', 'running'].includes(job.state)) {
-      return status('running', `Running ${ordinal}; manager output is unverified until the server checks it.`);
-    }
-    const sourceVerified = workstream?.checkpoint.criteria.some((c) => c.id === 'selected_reference_current' && c.status === 'verified');
-    if (sourceVerified && authority.consumedTurns >= authority.maxTurns) {
-      return status('cap_reached', 'Source verified, but the acknowledged ordinal cap is reached; the brief will not be produced.');
-    }
-    return status('awaiting_check', `Manager finished ${ordinal}; no criterion is resolved until the server check passes (a model "done" completes nothing).`);
-  }
-
   private modelStatusText(
     conversation: CoordinatorConversation,
     context: CoordinatorConversationContextProjection,
@@ -3695,9 +2823,8 @@ export class CoordinatorConversationService {
       finite: conversation.continuations.slice(0, 12).map((authority) => ({
         goalId: authority.goalId, status: authority.status, consumedTurns: authority.consumedTurns,
         maxTurns: authority.maxTurns, expiresAt: authority.expiresAt,
-        ...(authority.purpose === 'workflow' ? { workflow: this.workflowStatus(conversation, authority) } : {}),
       })),
-      codingWorkflow: conversation.commandDedupe
+      codingWorkflow: coordinatorConversationCommands(conversation)
         .filter((command) => command.kind === 'delegate_goal')
         .slice(0, 12)
         .map((command) => ({
@@ -3753,7 +2880,7 @@ export class CoordinatorConversationService {
       },
       goalCount: conversation.goals.length,
       finiteAuthorizationCount: conversation.continuations.length,
-      codingWorkflowDelegationCount: conversation.commandDedupe.filter((command) => command.kind === 'delegate_goal').length,
+      codingWorkflowDelegationCount: coordinatorConversationCommands(conversation).filter((command) => command.kind === 'delegate_goal').length,
       dayflow: {
         availability: context.availability.manualActivity,
         coverage: context.coverage.manualActivity,
@@ -3889,130 +3016,6 @@ export class CoordinatorConversationService {
         managedReadOnly: true,
       },
     };
-  }
-
-  /**
-   * Workflow admission snapshots the same current parent permission decision,
-   * but labels the fixed manager as a distinct non-read-only lane.  It does
-   * not upgrade a schema-1 worker record or provide any model/tool scope.
-   */
-  private workflowPermissionAuthority(selection: ManagedSelection): CoordinatorConversationPermissionAuthority {
-    return {
-      schemaVersion: 2,
-      parent: { ...selection.permissionAuthority.parent },
-      worker: {
-        parentSessionId: selection.session.id,
-        permissionMode: 'default',
-        managedReadOnly: false,
-      },
-      workflow: {
-        parentSessionId: selection.session.id,
-        permissionMode: selection.permissionAuthority.parent.permissionMode,
-        approvalBypassExplicit: selection.permissionAuthority.parent.approvalBypassExplicit,
-        targetAgentConfigId: 'workflow-orchestrator',
-      },
-    };
-  }
-
-  /** Synchronous current authority proof used immediately beside SDK exposure. */
-  private workflowDispatchStillCurrent(input: {
-    ownerUserId: number;
-    request: { sessionId: string; projectId: string };
-    authority: CoordinatorConversationContinuationAuthority;
-    jobId: string;
-    ordinal: number;
-  }): boolean {
-    if (!this.dependencies.jobs || !this.dependencies.workstreams) return false;
-    const current = this.repository.get(scope(input.ownerUserId, input.request));
-    if (current.kind !== 'found') return false;
-    const authority = this.authorityForId(current.conversation, input.authority.authorizationId);
-    const workstream = authority
-      ? this.dependencies.workstreams.find(input.ownerUserId, input.request.projectId, authority.workstreamId)
-      : null;
-    const selection = this.currentInternalManagedSelection(input.ownerUserId, input.request);
-    const job = authority
-      ? this.dependencies.jobs.getNativeForWorkstream({
-        localUserId: input.ownerUserId, workstreamId: authority.workstreamId, jobId: input.jobId,
-      })
-      : null;
-    if (
-      !authority || authority.purpose !== 'workflow' || !authority.workflow || !workstream || !selection || !job ||
-      authority.consumedTurns !== input.ordinal || authority.status !== 'consumed' ||
-      !this.authorityStillCurrent(current.conversation, authority, selection, workstream) ||
-      !['claimed', 'running'].includes(job.state) || job.cancel_requested_at !== null ||
-      job.direction !== 'rhythm_to_native' || job.native_execution_kind !== 'coordinator' ||
-      job.local_user_id !== input.ownerUserId || job.workstream_project_id !== input.request.projectId ||
-      job.workstream_revision !== workstream.revision || job.parent_session_id !== selection.session.id ||
-      job.idempotency_key !== this.conversationCommandKey(
-        current.conversation.id, authority.goalId, authority.authorizationId, input.ordinal,
-      )
-    ) return false;
-    return workstream.lastJobId === input.jobId;
-  }
-
-  /** Revalidates the server-owned source and Dayflow dependency after every await. */
-  private async workflowDispatchCurrentAfterAwait(input: {
-    ownerUserId: number;
-    request: { sessionId: string; projectId: string };
-    authority: CoordinatorConversationContinuationAuthority;
-    jobId: string;
-    ordinal: number;
-  }): Promise<boolean> {
-    if (!this.workflowDispatchStillCurrent(input)) return false;
-    const current = this.repository.get(scope(input.ownerUserId, input.request));
-    if (current.kind !== 'found') return false;
-    const authority = this.authorityForId(current.conversation, input.authority.authorizationId);
-    const workstream = authority && this.dependencies.workstreams?.find(
-      input.ownerUserId, input.request.projectId, authority.workstreamId,
-    );
-    if (!authority || authority.purpose !== 'workflow' || !authority.workflow || !workstream) return false;
-    const check = authority.workflow.check;
-    const resolver = this.dependencies.artifactResolver ?? new WorkstreamArtifactAuthorityResolver();
-    let resolved: Awaited<ReturnType<WorkstreamArtifactAuthorityResolver['resolveReference']>>;
-    try {
-      resolved = await resolver.resolveReference({
-        ownerUserId: input.ownerUserId,
-        projectId: input.request.projectId,
-        workstreamId: authority.workstreamId,
-        workstreamRevision: workstream.revision,
-        reference: {
-          sourceId: check.sourceId,
-          expectedVersion: check.expectedVersion,
-          scope: input.request.projectId,
-          provenance: 'user_reference',
-        },
-      });
-    } catch {
-      return false;
-    }
-    const receipt = resolved.receipt;
-    if (
-      !resolved.eligible || !resolved.managedReference || receipt.kind !== 'memory_vault' || receipt.verified !== true ||
-      receipt.reason !== null || receipt.canonicalId !== check.canonicalId || receipt.observedVersion !== check.observedVersion ||
-      receipt.observedHash !== check.observedHash || receipt.sourceNamespace !== check.sourceNamespace ||
-      receipt.sourceInstance !== check.sourceInstance
-    ) return false;
-    const dependencies = await this.currentDayflowDependency(current.conversation);
-    if (dependencies.kind === 'hold' || !this.sameDayflowDependency(authority.dayflowDependency, dependencies.manifest)) return false;
-    return this.workflowDispatchStillCurrent(input);
-  }
-
-  private workflowPreparedMatches(
-    jobId: string,
-    expiresAt: string,
-    binding: CodingWorkflowPreparedBinding,
-    authorization: CodingWorkflowAuthorization,
-  ): boolean {
-    return binding.authorization.authorizationId === authorization.authorizationId &&
-      binding.authorization.ordinal === authorization.ordinal &&
-      binding.authorization.workstreamId === authorization.workstreamId &&
-      binding.authorization.goalId === authorization.goalId &&
-      binding.workflowBinding.schemaVersion === 1 && binding.workflowBinding.jobId === jobId &&
-      binding.workflowBinding.rootSdkSessionId === binding.owner.rootSdkSessionId &&
-      binding.workflowBinding.managerSdkSessionId === binding.delegation.managerSdkSessionId &&
-      binding.workflowBinding.expiresAt === expiresAt &&
-      binding.owner.rootSdkSessionId === binding.delegation.nativeParentSdkSessionId &&
-      binding.owner.rootSdkSessionId !== binding.delegation.managerSdkSessionId;
   }
 
   private currentManagedSelection(
@@ -4238,7 +3241,6 @@ export function createCoordinatorForegroundSender(deps: CoordinatorForegroundSen
     }
     const coordinatorToolAvailable = deps.profileAllowsRhythmTool(resolved, 'rhythm_get_coordinator_status');
     const coordinatorGoalToolAvailable = deps.profileAllowsRhythmTool(resolved, 'rhythm_start_coordinator_goal');
-    const boundedWorkflowToolsAvailable = ['rhythm_get_coordinator_status', 'rhythm_search_memory', 'rhythm_propose_bounded_coding_workflow', 'rhythm_start_bounded_coding_workflow'].every(tool => deps.profileAllowsRhythmTool(resolved, tool));
     const dayflowToolsAvailable = deps.profileAllowsRhythmTool(resolved, 'rhythm_search_dayflow_activity') &&
       deps.profileAllowsRhythmTool(resolved, 'rhythm_recent_dayflow_summaries');
     // Profile scope only: the session model is validated separately above.
@@ -4274,13 +3276,8 @@ export function createCoordinatorForegroundSender(deps: CoordinatorForegroundSen
         ? 'The signed read-only tool rhythm_get_coordinator_status is in your current profile scope. Use it for current coordinator attention/state, including its cached calendar and project-session observations, only.'
         : 'No signed coordinator status tool is in your current profile scope. Do not claim one exists.',
       coordinatorGoalToolAvailable
-        ? 'The signed rhythm_start_coordinator_goal control is in your current profile scope. It can start one exact captured goal through the existing Coding Workflow only; use it only after reading current coordinator status and never claim its child result verifies a goal.'
-        : boundedWorkflowToolsAvailable
-          ? 'The ordinary rhythm_start_coordinator_goal control is unavailable in this profile scope. Use only the separately scoped exact finite proposal and signed human approval path described below.'
-          : 'No signed coordinator goal-action control is in your current profile scope. Do not claim an async workflow can be started here.',
-      boundedWorkflowToolsAvailable
-        ? 'The signed chat-only finite Coding Workflow tools are in scope. Discover the human-named current note with rhythm_search_memory, use its referenceSourceId and referenceVersion, and select one captured goal from current coordinator status. Estimate task-specific soft total tokens (input/output/reasoning/cache), per-worker wall seconds and an expiry allowance sufficient for two checked outer turns with a distinct reviewer. Explain the estimate; do not choose fixed defaults or always use maximum bounds. Call rhythm_propose_bounded_coding_workflow with these values and a rationale. This creates a same-chat human approval card, not finite authority. A human chat adjustment creates a revised exact card. Wait for the signed human decision and dedicated native wake, then call rhythm_start_bounded_coding_workflow once with that wake’s approval_id/proposal_digest. You cannot approve, acknowledge, grant, or substitute prose for human consent. Report only actual server-checked selected_reference_current/reviewed_summary_with_citation and the checked stop.'
-        : 'Chat-only finite Coding Workflow setup is unavailable in this profile scope; hold rather than inventing an approval or grant.',
+        ? 'The signed rhythm_start_coordinator_goal control is in your current profile scope. You never do coding work yourself (this chat is read-only). When the user gives a coding goal that names a repository by absolute path, start its goal id from startableGoals in the coordinator snapshot (or current coordinator status) with that control: each goal runs once through the existing workflow-orchestrator in its own git worktree and branch, and several may run at once. When a run result arrives, report each run once in this chat under Changed, Branch / PR, Verification (commands and real results) and Needs your decision, taken only from that run\'s report; never claim a run verifies a goal beyond what its checks showed.'
+        : 'No signed coordinator goal-action control is in your current profile scope. Do not claim an async workflow can be started here.',
       dayflowToolsAvailable
         ? 'The signed Dayflow activity tools are in your current profile scope. Use them only for current qualified activity; their output is reference/source data, not completion evidence.'
         : 'No signed Dayflow activity tool is in your current profile scope. Do not substitute generic memory tools for it.',

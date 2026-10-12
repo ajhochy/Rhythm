@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { requireAuth } from '../middleware/auth_middleware';
-import { env } from '../config/env';
+import { env, opencodeConfigFile } from '../config/env';
 import { opencodeClient } from '../services/opencode_engine';
 import {
   PROVIDER_TO_AGENT_KIND,
@@ -62,7 +62,7 @@ function aggregatorLabel(providerId: string): string {
 function loadConfiguredProviders(): Record<string, ConfiguredProvider> {
   try {
     const file = JSON.parse(
-      readFileSync(join(homedir(), '.config/opencode/opencode.json'), 'utf8'),
+      readFileSync(opencodeConfigFile(), 'utf8'),
     ) as { provider?: unknown };
     if (file.provider && typeof file.provider === 'object') {
       return file.provider as Record<string, ConfiguredProvider>;

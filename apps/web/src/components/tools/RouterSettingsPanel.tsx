@@ -16,8 +16,9 @@ type Draft = {
   jev: { model: string };
   custom: { baseUrl: string; model: string; scoreScale: RouterScoreScale };
   systemone: { baseUrl: string; model: string };
-  apiKey: { jev: string; custom: string; systemone: string };
-  clearKey: { jev: boolean; custom: boolean; systemone: boolean };
+  openaiDecisions: { baseUrl: string; model: string };
+  apiKey: { jev: string; custom: string; systemone: string; openaiDecisions: string };
+  clearKey: { jev: boolean; custom: boolean; systemone: boolean; openaiDecisions: boolean };
   timeoutMs: string;
   consent: boolean;
   features: Record<RouterFeatureKey, RouterFeatureMode>;
@@ -28,6 +29,7 @@ const BACKENDS: Array<{ id: RouterBackend; label: string; hint: string }> = [
   { id: 'jev', label: 'Jev (TypeSafe API)', hint: 'Hosted by TypeSafe; needs an API key.' },
   { id: 'custom', label: 'Custom (network or other server)', hint: 'Any compatible reranker, for example on another computer.' },
   { id: 'systemone', label: 'System One (Kev / Jev)', hint: 'One typed tier question per first prompt. Tools and memories stay on the local reranker.' },
+  { id: 'openai_decisions', label: 'OpenAI Decisions (GPT-6 Luna)', hint: 'One scored question per first prompt via OpenAI. Sends the prompt to OpenAI; needs an API key and remote-data consent. Tools and memories stay on the local reranker.' },
 ];
 const SYSTEMONE_DEFAULT_TIMEOUT_MS = '1000';
 const KEV_START = 'uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009';
@@ -48,8 +50,9 @@ const toDraft = (config: RouterConfig): Draft => ({
   jev: { model: config.jev.model },
   custom: { baseUrl: config.custom.baseUrl, model: config.custom.model, scoreScale: config.custom.scoreScale },
   systemone: { baseUrl: config.systemone?.baseUrl ?? 'http://127.0.0.1:8009', model: config.systemone?.model ?? 'kev-latest' },
-  apiKey: { jev: '', custom: '', systemone: '' },
-  clearKey: { jev: false, custom: false, systemone: false },
+  openaiDecisions: { baseUrl: config.openaiDecisions?.baseUrl ?? 'https://api.openai.com', model: config.openaiDecisions?.model ?? 'gpt-6-luna' },
+  apiKey: { jev: '', custom: '', systemone: '', openaiDecisions: '' },
+  clearKey: { jev: false, custom: false, systemone: false, openaiDecisions: false },
   timeoutMs: String(config.timeoutMs),
   consent: config.remoteDataConsent,
   features: { ...config.features },
@@ -105,7 +108,7 @@ export function RouterSettingsPanel({ onSaved }: { onSaved?(config: RouterConfig
   const backend = draft.backend;
   const customUrl = draft.custom.baseUrl.trim();
   const systemoneUrl = draft.systemone.baseUrl.trim();
-  const needsConsent = backend === 'jev'
+  const needsConsent = backend === 'jev' || backend === 'openai_decisions'
     || (backend === 'custom' && !isLoopback(customUrl))
     || (backend === 'systemone' && !isLoopback(systemoneUrl));
   const consentBlocked = needsConsent && !draft.consent;
@@ -136,6 +139,14 @@ export function RouterSettingsPanel({ onSaved }: { onSaved?(config: RouterConfig
         ...(systemoneKey !== undefined ? { apiKey: systemoneKey } : {}),
       };
     }
+    if (config.openaiDecisions) {
+      const key = draft.apiKey.openaiDecisions || (draft.clearKey.openaiDecisions ? '' : undefined);
+      input.openaiDecisions = {
+        ...(locked('openaiDecisions.baseUrl') ? {} : { baseUrl: draft.openaiDecisions.baseUrl.trim() }),
+        ...(locked('openaiDecisions.model') ? {} : { model: draft.openaiDecisions.model.trim() }),
+        ...(key !== undefined ? { apiKey: key } : {}),
+      };
+    }
     const timeout = Number(draft.timeoutMs);
     if (!locked('timeoutMs') && Number.isFinite(timeout) && timeout > 0) input.timeoutMs = Math.round(timeout);
     if (!lockedConsent) input.remoteDataConsent = draft.consent;
@@ -161,8 +172,8 @@ export function RouterSettingsPanel({ onSaved }: { onSaved?(config: RouterConfig
   };
 
   const envNote = (...names: string[]) => locked(...names) ? <small className="router-settings-locked">set by environment</small> : null;
-  const keyField = (id: 'jev' | 'custom' | 'systemone', label: string) => {
-    const saved = id === 'systemone' ? Boolean(config.systemone?.hasApiKey) : config[id].hasApiKey;
+  const keyField = (id: 'jev' | 'custom' | 'systemone' | 'openaiDecisions', label: string) => {
+    const saved = Boolean(config[id]?.hasApiKey);
     const cleared = draft.clearKey[id];
     return <div className="router-settings-field">
       <label>{label}<input type="password" autoComplete="off" value={draft.apiKey[id]} disabled={locked(`${id}.apiKey`)} placeholder={saved && !cleared ? 'Leave blank to keep the saved key' : ''} onChange={(event) => update({ apiKey: { ...draft.apiKey, [id]: event.target.value }, clearKey: { ...draft.clearKey, [id]: false } })} data-testid={`router-${id}-key`} /></label>
@@ -183,11 +194,11 @@ export function RouterSettingsPanel({ onSaved }: { onSaved?(config: RouterConfig
     <p className="router-settings-note">The small model that ranks candidates for Auto model routing, tools, and memories. Effective now: <strong data-testid="router-effective">{config.effective ? `${config.effective.backend} · ${config.effective.model}` : config.backend}</strong></p>
     <fieldset className="router-settings-backends" disabled={locked('backend')}>
       <legend>Backend {envNote('backend')}</legend>
-      {BACKENDS.filter((option) => option.id !== 'systemone' || config.systemone).map((option) => <label key={option.id} className="router-settings-radio">
+      {BACKENDS.filter((option) => (option.id !== 'systemone' || config.systemone) && (option.id !== 'openai_decisions' || config.openaiDecisions)).map((option) => <label key={option.id} className="router-settings-radio">
         <input type="radio" name="router-backend" value={option.id} checked={backend === option.id} onChange={() => update({
           backend: option.id,
           // An untouched timeout follows the backend default (System One: 1000 ms).
-          ...(option.id === 'systemone' && config.backend !== 'systemone' && draft.timeoutMs === String(config.timeoutMs) ? { timeoutMs: SYSTEMONE_DEFAULT_TIMEOUT_MS } : {}),
+          ...((option.id === 'systemone' || option.id === 'openai_decisions') && config.backend !== option.id && draft.timeoutMs === String(config.timeoutMs) ? { timeoutMs: SYSTEMONE_DEFAULT_TIMEOUT_MS } : {}),
         })} data-testid={`router-backend-${option.id}`} />
         <span><strong>{option.label}</strong><small>{option.hint}</small></span>
       </label>)}
@@ -208,6 +219,11 @@ export function RouterSettingsPanel({ onSaved }: { onSaved?(config: RouterConfig
         {keyField('custom', 'API key (optional)')}
         {scaleField('custom')}
       </>}
+      {backend === 'openai_decisions' && <>
+        <div className="router-settings-field"><label>Base URL<input value={draft.openaiDecisions.baseUrl} disabled={locked('openaiDecisions.baseUrl')} placeholder="https://api.openai.com" onChange={(event) => update({ openaiDecisions: { ...draft.openaiDecisions, baseUrl: event.target.value } })} data-testid="router-openaiDecisions-url" /></label>{envNote('openaiDecisions.baseUrl')}</div>
+        <div className="router-settings-field"><label>Model<input value={draft.openaiDecisions.model} disabled={locked('openaiDecisions.model')} placeholder="gpt-6-luna" onChange={(event) => update({ openaiDecisions: { ...draft.openaiDecisions, model: event.target.value } })} data-testid="router-openaiDecisions-model" /></label>{envNote('openaiDecisions.model')}</div>
+        {keyField('openaiDecisions', 'API key')}
+      </>}
       {backend === 'systemone' && <>
         <div className="router-settings-field"><label>Base URL<input value={draft.systemone.baseUrl} disabled={locked('systemone.baseUrl')} placeholder="http://127.0.0.1:8009" onChange={(event) => update({ systemone: { ...draft.systemone, baseUrl: event.target.value } })} data-testid="router-systemone-url" /></label>{envNote('systemone.baseUrl')}</div>
         <div className="router-settings-field"><label>Model<input value={draft.systemone.model} disabled={locked('systemone.model')} placeholder="kev-latest" onChange={(event) => update({ systemone: { ...draft.systemone, model: event.target.value } })} data-testid="router-systemone-model" /></label>{envNote('systemone.model')}</div>
@@ -218,7 +234,7 @@ export function RouterSettingsPanel({ onSaved }: { onSaved?(config: RouterConfig
     </div>
     {needsConsent && <label className="router-settings-consent">
       <input type="checkbox" checked={draft.consent} disabled={lockedConsent} onChange={(event) => update({ consent: event.target.checked })} data-testid="router-consent" />
-      <span>{backend === 'systemone' ? 'Session prompts will be sent to this server to pick a model tier (never memories).' : 'Prompts, tool names and memories will be sent to this server to rank them.'} {envNote('remoteDataConsent')}</span>
+      <span>{backend === 'systemone' || backend === 'openai_decisions' ? 'Session prompts will be sent to this server to pick a model tier (never memories).' : 'Prompts, tool names and memories will be sent to this server to rank them.'} {envNote('remoteDataConsent')}</span>
     </label>}
     <div className="router-settings-features" role="group" aria-label="Router features">
       <h4>Where the router is used</h4>
@@ -245,7 +261,7 @@ export function RouterSettingsPanel({ onSaved }: { onSaved?(config: RouterConfig
       {saveError && <p role="alert" data-testid="router-save-error">{saveError}</p>}
       {testError && <p role="alert" data-testid="router-test-error">{testError}</p>}
       {test && (test.ok
-        ? <div data-testid="router-test-result"><p><strong>Connected</strong> · {test.model ?? draft[backend].model}{test.tier ? <> · tier <strong data-testid="router-test-tier">{test.tier}</strong></> : null} · {test.latencyMs ?? '?'} ms</p>
+        ? <div data-testid="router-test-result"><p><strong>Connected</strong> · {test.model ?? (backend === 'openai_decisions' ? draft.openaiDecisions.model : draft[backend].model)}{test.tier ? <> · tier <strong data-testid="router-test-tier">{test.tier}</strong></> : null} · {test.latencyMs ?? '?'} ms</p>
           {test.ranked && test.ranked.length > 0 && <ol className="router-settings-ranked">{test.ranked.map((row, index) => <li key={index}><span>{row.text}</span><code>{Number(row.score).toFixed(3)}</code></li>)}</ol>}</div>
         : <p role="alert" data-testid="router-test-result">Test failed{test.message ? `: ${test.message}` : ''}</p>)}
     </div>

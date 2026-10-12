@@ -768,3 +768,23 @@
 - **Criteria**: native Copy, installed generated Secretary routing/registry, Dayflow height/host scroll/chrome.
 - **Process**: release-input/dependency metadata holds and old-runtime restarts preserved; idle guards remained enabled. Exact-root helper gate corrected before any resync POST.
 - **Follow-up**: real-model status/dispatch/callback evaluation remains distinct from scripted API/engine/MCP proof. Prior human failure and historical zero-call cause remain recorded.
+
+
+## 2026-10-11 installed 0.18.69 ordinary chat
+
+Bounded owned-session fixture c7 passed, while fresh native UI creation produced an owner-NULL session and Dayflow refused with `history_ambiguous`. Category C2: the fixture did not cover ordinary UI ownership wiring. Keep the safeguard; add an end-to-end UI ownership/admission check. Grid separately returned `no_usable_route` because current policy candidates were disabled or absent from the native inventory. Only connected Sol 6.1 was enabled through supported test-database curation. Full workflow qualification remains open.
+
+
+## 2026-10-11 — installed0.18.69 live followup
+
+- **Result:** smoke FAIL; full installed qualification was pending, no complete PASS claim contradicted.
+- **Categories:** C1 actual native data isolation/status coverage missing; C2 owned unenrolled fixture omitted ordinary UI ownership; C3 actual Memory relevance challenge fails.
+- **Root cause:** private API/config paths did not isolate independently derived native durable paths. Engine wrote15 synthetic SDK sessions to regular OpenCode DB. Memory admitted unrelated source under budget pressure; specialized Coordinator final status disagreed with completed native replies.
+- **Observed passes:** actual On/Grid Sol6.1/xhigh/account selection, matching served model and restart persistence; bounded consent/account/refusal fixtures; Memory canonical/budget/body-free and limited fresh-context abstention; evaluator component only.
+- **Required followup:** verify all actual engine/API durable paths in fresh private HOME/XDG lane before any dispatch, qualify normal UI ownership and relevant continuation admission, then run genuine human-approved Coordinator worker/artifact/delivery/recovery/authority gates. No shared-history cleanup or approval fabrication. Profile-control authority question remains pending.
+- **Process:** retained original catalog.fetchedAt-only restart comparison failure, qualified persistent values separately; no extra model turn/restart to hide it. Structured receipt: `.agent-stack/postmortems/2026-10-11-installed-69-live-followup.json`.
+
+
+## 2026-10-11 installed69 isolated closeout
+
+Actual live proposal hold with installed strict-schema/binding-spread contradiction (C3 inference); native repairedskills absent in fresh HOME (C5); owned unenrolled fixture missed normal ownerNULL UI creation (C2); irrelevant Memory excerpt admitted (C3); Dayflow fixture primary_designation setup refuses after ordinaryroot designation (C5); planning receipt/status display lacks accurate sync coverage (C1); sign-in modelcatalog stale until normal relaunch (C5). Keep current8passes/6setuprefusals separate from earlierfresh14passes. True bare retired Memory continuation abstains but misexplains olderhiddenevidence. Routing choice persists restart; supported Reconnect required, no addedturn. No full deliverable PASS or current platformevaluatorhold; coding artifact/delivery/cancellation gates blocked. Evidence: docs/ai/runs/2026-10-11-installed-69-isolated-closeout.md and private current receipts.

@@ -312,6 +312,7 @@ function defaultCascadeDeps(): FallbackCascadeDeps {
       new AgentSessionsRepository().updateFields(localSessionId, {
         providerId: decision.providerID,
         modelId: decision.modelID,
+        routerVariant: null,
       });
     },
     notifyDecision: async (localSessionId, decision, signal) => {
@@ -584,12 +585,13 @@ export async function redispatchTurn(
     } catch {
       // Provenance must never prevent the actual fallback attempt.
     }
+    const { variant: _oldVariant, ...replayOpts } = turn.sdkOpts ?? {};
     const ok = await d.prompt(
       turn.sdkSessionId,
       turn.data,
       { providerID, modelID },
       turn.cwd,
-      turn.sdkOpts,
+      turn.sdkOpts ? replayOpts : undefined,
       turn.parts,
     );
     if (!ok) throw new Error('promptAsync declined the re-dispatch');

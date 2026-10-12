@@ -400,21 +400,22 @@ describe('C3 mobile delivery guard', () => {
     }]);
   });
 
-  it('drops stale, archived, rebound, foreign and body-bearing hints', async () => {
-    expect(await deliver({ mutate: () => getDb().prepare('UPDATE agent_sessions SET archived_at=? WHERE id=?').run('x', primaryId) })).toEqual([]);
-    expect(await deliver({ mutate: () => getDb().prepare('UPDATE agent_sessions SET owner_user_id=99 WHERE id=?').run(primaryId) })).toEqual([]);
-    expect(await deliver({ mutate: () => getDb().prepare('UPDATE agent_sessions SET project_id=? WHERE id=?').run('elsewhere', primaryId) })).toEqual([]);
-    expect(await deliver({ userId: 99 })).toEqual([]);
-    expect(await deliver({ envelope: hint({ conversationId: 'stale-conversation' }) })).toEqual([]);
-    expect(await deliver({ envelope: hint({ localSessionId: 'other-session' }) })).toEqual([]);
-    const withBody = hint() as { payload: { properties: Record<string, unknown> } };
-    withBody.payload.properties.text = 'private body';
-    expect(await deliver({ envelope: withBody })).toEqual([]);
-    const extra = hint() as { payload: Record<string, unknown> };
-    extra.payload.sessionID = 'ses_primary';
-    expect(await deliver({ envelope: extra })).toEqual([]);
-    expect(await deliver({ projectResolver: () => ({ id: projectId, root: '/rebound' }) })).toEqual([]);
-    expect(await deliver({ projectResolver: () => { throw new Error('gone'); } })).toEqual([]);
+  // Each invalid identity may correctly cause a durable integrity hold. Every
+  // negative gets beforeEach's fresh DB; never clear a production-style hold.
+  it.each([
+    ['archived', () => ({ mutate: () => getDb().prepare('UPDATE agent_sessions SET archived_at=? WHERE id=?').run('x', primaryId) })],
+    ['rebound owner', () => ({ mutate: () => getDb().prepare('UPDATE agent_sessions SET owner_user_id=99 WHERE id=?').run(primaryId) })],
+    ['rebound project', () => ({ mutate: () => getDb().prepare('UPDATE agent_sessions SET project_id=? WHERE id=?').run('elsewhere', primaryId) })],
+    ['foreign viewer', () => ({ userId: 99 })],
+    ['stale conversation', () => ({ envelope: hint({ conversationId: 'stale-conversation' }) })],
+    ['wrong session', () => ({ envelope: hint({ localSessionId: 'other-session' }) })],
+    ['body-bearing', () => { const envelope = hint(); Object.assign(envelope.payload.properties, { text: 'private body' }); return { envelope }; }],
+    ['SDK-bearing', () => { const envelope = hint(); Object.assign(envelope.payload, { sessionID: 'ses_primary' }); return { envelope }; }],
+    ['rebound directory', () => ({ projectResolver: () => ({ id: projectId, root: '/rebound' }) })],
+    ['missing project', () => ({ projectResolver: () => { throw new Error('gone'); } })],
+  ] as const)('drops %s hints', async (_name, options) => {
+    expect(new CoordinatorConversationsRepository().findCanonicalNotificationScope({ sessionId: primaryId })).not.toBeNull();
+    expect(await deliver(options())).toEqual([]);
   });
 
   it('never serves the hint on the per-SDK-session feed or the engine fallback', async () => {

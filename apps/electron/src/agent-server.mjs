@@ -9,7 +9,7 @@
 // RHYTHM_SHELL_USER_DATA; main.mjs never starts this service for --smoke runs.
 import { execFile, spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { homedir } from 'node:os';
@@ -82,6 +82,25 @@ export function findServerEntry(nodePath, executablePath = process.execPath) {
 }
 
 export function electronDbPath() {
+  const manifest = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
+  if (manifest) {
+    /** @param {string} p @param {number} mode @param {boolean} [directory] */
+    const owned = (p, mode, directory = false) => {
+      const st = lstatSync(p);
+      if (realpathSync(p) !== p || st.isSymbolicLink() || (directory ? !st.isDirectory() : !st.isFile()) || st.uid !== process.getuid?.() || (!directory && st.nlink!==1) || (st.mode & 0o777) !== mode) throw new Error('qualification fixture ownership invalid');
+    };
+    if (!manifest.startsWith('/private/tmp/') || resolve(manifest) !== manifest) throw new Error('qualification fixture manifest path invalid');
+    owned(dirname(manifest), 0o700, true); owned(manifest, 0o600);
+    const m = JSON.parse(readFileSync(manifest, 'utf8'));
+    const identityPath = resolve(dirname(dirname(process.execPath)), 'Resources/api_server/build-identity.json');
+    const build = JSON.parse(readFileSync(identityPath, 'utf8'));
+    if (m.schemaVersion !== 1 || !/^[a-f0-9]{40}$/.test(m.sourceRevision) || build.schemaVersion !== 1 || build.sourceRevision !== m.sourceRevision ||
+        !/^[a-f0-9]{64}$/.test(m.tokenSha256) || !m.ownerId || !Number.isSafeInteger(m.ownerUserId) || m.ownerUserId <= 0 ||
+        typeof m.fixtureRoot !== 'string' || !m.fixtureRoot.startsWith('/private/tmp/') || resolve(m.fixtureRoot) !== m.fixtureRoot || m.dbPath !== join(m.fixtureRoot, 'rhythm.db')) throw new Error('qualification fixture build or scope invalid');
+    owned(m.fixtureRoot, 0o700, true);
+    try { const db=lstatSync(m.dbPath); if(!db.isFile() || db.isSymbolicLink() || realpathSync(m.dbPath)!==m.dbPath || db.uid!==process.getuid?.() || db.nlink!==1 || (db.mode & 0o077)!==0)throw new Error('qualification fixture database ownership invalid'); } catch(e){if(!(e && typeof e==='object' && 'code' in e && e.code==='ENOENT'))throw e;}
+    return m.dbPath;
+  }
   const supportDir = join(homedir(), 'Library/Application Support/Rhythm Electron');
   return join(supportDir, 'rhythm.db');
 }
@@ -136,6 +155,30 @@ export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, human
   env.PORT = String(port);
   env.RHYTHM_OPENCODE_ENGINE_PORT = String(enginePort);
   env.DB_PATH = dbPathValue;
+  if(baseEnv.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST){
+    const m=JSON.parse(readFileSync(baseEnv.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST,'utf8'));
+    if(electronDbPath()!==dbPathValue)throw new Error('qualification database differs');
+    env.DB_CLIENT='sqlite';
+    env.XDG_CONFIG_HOME=join(m.fixtureRoot,'xdg-config');
+    // The engine derives its data/cache/state dirs (opencode.db, auth.json, logs) from
+    // these, else from HOME: config alone left the 0.18.69 qualification engine
+    // writing the user's regular ~/.local/share/opencode/opencode.db.
+    env.XDG_DATA_HOME=join(m.fixtureRoot,'xdg-data');
+    env.XDG_CACHE_HOME=join(m.fixtureRoot,'xdg-cache');
+    env.XDG_STATE_HOME=join(m.fixtureRoot,'xdg-state');
+    env.RHYTHM_MANAGED_COMMANDS_DIR=join(m.fixtureRoot,'opencode-config','commands');
+    env.RHYTHM_API_LOG_PATH=join(m.fixtureRoot,'logs','api_server.log'); // not the user's ~/Library/Logs/Rhythm
+    env.OPENCODE_TEST_HOME=join(m.fixtureRoot,'engine-home');
+    env.OPENCODE_CONFIG_DIR=join(m.fixtureRoot,'opencode-config');
+    env.RHYTHM_MANAGED_SKILLS_DIR=join(env.OPENCODE_CONFIG_DIR,'skills');
+    env.RHYTHM_LEGACY_MANAGED_SKILLS_DIR=join(m.fixtureRoot,'legacy-managed-skills');
+    env.RHYTHM_OPENCODE_CONFIG_PATH=join(env.OPENCODE_CONFIG_DIR,'opencode.json');
+    env.RHYTHM_ORG_INSTRUCTIONS_FILE=join(env.OPENCODE_CONFIG_DIR,'rhythm-org-instructions.md');
+    env.MEMORY_VAULT_PATH=join(m.fixtureRoot,'memory');env.MEMORY_VAULT_SUBDIR='';
+    env.LIVE_ARTIFACT_STORAGE_DIR=join(m.fixtureRoot,'live-artifacts');
+    env.RHYTHM_DECISION_ROUTER_FILE=join(m.fixtureRoot,'decision-router.json');
+    env.RHYTHM_ACCOUNTS_FILE=join(m.fixtureRoot,'anthropic-accounts.json');env.RHYTHM_OPENAI_ACCOUNTS_FILE=join(m.fixtureRoot,'openai-accounts.json');
+  }
   env.AGENT_LOCAL = 'true';
   env.RHYTHM_LOCAL_RENDERER_ORIGINS = 'rhythm://app';
   // Research Projects are on for the Electron desktop; an explicit caller value still wins.

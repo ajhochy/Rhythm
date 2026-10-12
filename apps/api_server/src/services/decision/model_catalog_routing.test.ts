@@ -23,6 +23,9 @@ import { listDecisions } from './decision_log';
 import { resetDecisionSettingsCacheForTests } from './decision_settings';
 import { resetModelCatalogCache } from './model_catalog';
 import { routeTurnForSession } from './turn_routing';
+import { routeTurnTier, waitForShadowRoutingForTests } from './model_router';
+import { opencodeClient } from '../opencode_engine';
+import * as catalog from './model_catalog';
 
 const CAPS = { input: { text: true }, output: { text: true }, toolcall: true };
 const model = (id: string, out: number, date: string, family: string) => ({
@@ -79,6 +82,7 @@ beforeEach(() => {
   resetDecisionSettingsCacheForTests();
   resetModelCatalogCache();
   providerSnapshot.mockReset().mockResolvedValue(LIVE);
+  vi.mocked(opencodeClient.listAuthedProviders).mockReset().mockResolvedValue(['anthropic', 'openai']);
   getUsageBudget.mockReset().mockResolvedValue({ providers: [], fetchedAt: '2026-09-29T00:00:00Z' });
   db = new Database(':memory:');
   runMigrations(db);
@@ -86,7 +90,9 @@ beforeEach(() => {
   // Rhythm's Models curation: everything in the live catalog is enabled unless a test says otherwise.
   for (const p of LIVE.providers) for (const m of p.models) setVisible(p.id, m.id, true);
 });
-afterEach(() => {
+afterEach(async () => {
+  await waitForShadowRoutingForTests();
+  vi.restoreAllMocks();
   for (const k of ENV) {
     if (saved[k] === undefined) delete process.env[k];
     else process.env[k] = saved[k];
@@ -139,6 +145,61 @@ describe('router chooses only models enabled in Rhythm curation', () => {
 });
 
 describe('router picks from the live catalog, not the hardcoded table', () => {
+  it('D2: shadow computes the same concrete live pick without changing route or session', async () => {
+    process.env.AGENT_DECISION_MODEL_ROUTING = 'shadow';
+    const row = session('anthropic', 'claude-sonnet-5-5');
+    const before = new AgentSessionsRepository().findById(row.id);
+    await catalog.getRouteTierClassifier();
+    const warmSnapshotCalls = providerSnapshot.mock.calls.length;
+    const r = await route(row, [0.02, 0.05, 0.95]);
+    expect(r).toMatchObject({ applied: false, source: 'baseline', requestedSource: 'auto' });
+    expect(r.route).toEqual({ providerID: 'anthropic', modelID: 'claude-sonnet-5-5' });
+    expect(new AgentSessionsRepository().findById(row.id)).toEqual(before);
+    await waitForShadowRoutingForTests();
+    const [log] = listDecisions({ feature: 'model_routing' });
+    expect(log).toMatchObject({ chosen: 'frontier', applied: false });
+    expect(log.detail).toMatchObject({ wouldApply: true, catalog: 'live', pickedModel: 'anthropic/claude-opus-5-5', catalogLatencyMs: expect.any(Number) });
+    expect(log.detail.routeReason).toBe('live catalog: frontier tier via cost');
+    expect(log.detail.catalogLatencyMs as number).toBeGreaterThanOrEqual(0);
+    // Warm-up includes curation reads; the shadow pick must reuse that cache.
+    expect(warmSnapshotCalls).toBeGreaterThan(0);
+    expect(providerSnapshot).toHaveBeenCalledTimes(warmSnapshotCalls);
+    console.info(`D2 cached shadow catalog latency: ${log.detail.catalogLatencyMs}ms`);
+  });
+
+  it('D2: shadow catalog failure is recorded and swallowed', async () => {
+    // Fail engine catalog AND static auth recovery, not routeModelForTier itself.
+    providerSnapshot.mockRejectedValue(new Error('engine catalog unavailable'));
+    vi.mocked(opencodeClient.listAuthedProviders).mockRejectedValue(new Error('auth snapshot unavailable'));
+    const r = await routeTurnTier({ prompt: 'plan', agentId: 'claude-code', requestedSource: 'agent_default', modeOverride: 'shadow', client: fake([0.02, 0.05, 0.95]) });
+    expect(r).toMatchObject({ tier: null, applied: false, reason: 'shadow' });
+    expect(r.route).toBeUndefined();
+    await waitForShadowRoutingForTests();
+    expect(listDecisions()[0].detail).toMatchObject({ wouldApply: true, routeReason: 'shadow_catalog_error', catalogLatencyMs: expect.any(Number) });
+  });
+
+  it.each(['turn_override', 'session', 'agent_config'])('D6: pinned %s never classifies or calls the catalog picker', async (requestedSource) => {
+    const pick = vi.spyOn(catalog, 'routeModelForTier');
+    const client = fake([0.02, 0.05, 0.95]);
+    for (const modeOverride of ['on', 'shadow'] as const) {
+      expect(await routeTurnTier({ prompt: 'plan', agentId: 'claude-code', requestedSource, modeOverride, client }))
+        .toMatchObject({ tier: null, applied: false, reason: 'pinned_source' });
+    }
+    expect(client.rerank).not.toHaveBeenCalled();
+    expect(pick).not.toHaveBeenCalled();
+    expect(providerSnapshot).not.toHaveBeenCalled();
+    expect(listDecisions()).toHaveLength(0);
+  });
+
+  it('D2: a closed shadow gate never evaluates the catalog', async () => {
+    const r = await routeTurnTier({ prompt: 'plan', agentId: 'claude-code', requestedSource: 'auto', modeOverride: 'shadow', client: fake([0.02, 0.05, 0.95]), scopeGate: () => ({ apply: false, reason: 'closed' }) });
+    expect(r).toMatchObject({ tier: null, applied: false });
+    await waitForShadowRoutingForTests();
+    expect(providerSnapshot).not.toHaveBeenCalled();
+    expect(listDecisions()[0].detail).toMatchObject({ wouldApply: false, scope: 'closed' });
+    expect(listDecisions()[0].detail.pickedModel).toBeUndefined();
+  });
+
   it('frontier turn on an anthropic session -> the newest live opus, which is not in ROUTE_FALLBACKS', async () => {
     expect(staticModelIds.has('claude-opus-5-5')).toBe(false);
     expect(staticModelIds.has('claude-sonnet-5-5')).toBe(false);

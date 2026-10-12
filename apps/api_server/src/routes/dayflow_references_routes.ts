@@ -1,3 +1,4 @@
+import { qualificationDayflowForSdk } from '../services/qualification_fixture_service';
 import { Router, type RequestHandler } from 'express';
 
 import { requireLocalOrCloudAuth } from '../middleware/auth_middleware';
@@ -43,7 +44,10 @@ export function createDayflowReferencesRouter(options: {
   if (options.providerAdmission) {
     router.post('/provider-admission', requireLocalOrCloudAuth, async (req, res) => {
       try {
-        const result = req.auth ? await options.providerAdmission!.admit(req.auth, req.body) : { ok: false as const };
+        const sdk=req.body?.sdkSessionId ?? req.body?.request?.sdkSessionId;
+        const fixture=typeof sdk==='string'?qualificationDayflowForSdk(sdk):null;
+        const admission=fixture?.admission??options.providerAdmission!;
+        const result = req.auth ? await admission.admit(req.auth, req.body) : { ok: false as const };
         if (!result.ok) {
           res.status(400).json({ schemaVersion: 1, error: 'invalid_request' });
           return;

@@ -28,6 +28,7 @@ import { resetDecisionSettingsCacheForTests } from './decision_settings';
 import type { RerankClient } from './decision_client';
 import { listDecisions } from './decision_log';
 import { routeTurnForSession } from './turn_routing';
+import { waitForShadowRoutingForTests } from './model_router';
 
 const ENV = [
   'RHYTHM_DECISION_ROUTER_FILE', 'AGENT_DECISION_MODEL_ROUTING', 'AGENT_DECISION_CAPACITY_ROUTING',
@@ -77,7 +78,8 @@ beforeEach(() => {
   runMigrations(db);
   prev = setDb(db);
 });
-afterEach(() => {
+afterEach(async () => {
+  await waitForShadowRoutingForTests();
   for (const k of ENV) {
     if (saved[k] === undefined) delete process.env[k];
     else process.env[k] = saved[k];
@@ -88,6 +90,24 @@ afterEach(() => {
 });
 
 describe('routeTurnForSession scope', () => {
+  it('D2: shadow session turn returns its baseline while classification is blocked', async () => {
+    process.env.AGENT_DECISION_MODEL_ROUTING = 'shadow';
+    const s = makeSession();
+    const before = new AgentSessionsRepository().findById(s.id);
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const rerank = vi.fn(async () => { await blocked; return { status: 'ok' as const, scores: [0.02, 0.05, 0.95], latencyMs: 1, model: 'fake' }; });
+    const pending = run(s.id, { rerank });
+    try {
+      expect(await Promise.race([pending, new Promise<string>((resolve) => setTimeout(() => resolve('blocked'), 25))]))
+        .toEqual({ route: SONNET, applied: false, source: 'baseline', requestedSource: 'auto', requestedTier: null });
+      expect(listDecisions()).toHaveLength(0);
+    } finally { release(); await pending; }
+    await waitForShadowRoutingForTests();
+    expect(rerank).toHaveBeenCalledTimes(1);
+    expect(listDecisions({ feature: 'model_routing' })).toHaveLength(1);
+    expect(new AgentSessionsRepository().findById(s.id)).toEqual(before);
+  });
   it('first_prompt (default): first prompt routes + persists, second skips the reranker entirely', async () => {
     const s = makeSession();
     const first = fake([0.05, 0.1, 0.95]);
@@ -144,7 +164,14 @@ describe('routeTurnForSession scope', () => {
   it('shadow logs a would-apply flag but persists nothing and keeps the route', async () => {
     process.env.AGENT_DECISION_MODEL_ROUTING = 'shadow';
     const s = makeSession();
-    const r = await run(s.id, fake([0.02, 0.05, 0.95]).client);
+    const f = fake([0.02, 0.05, 0.95]);
+    const r = await run(s.id, f.client);
+    const second = await run(s.id, f.client);
+    await waitForShadowRoutingForTests();
+    expect(second.route).toEqual(SONNET);
+    expect(second.applied).toBe(false);
+    expect(f.rerank).toHaveBeenCalledTimes(1);
+    expect(listDecisions({ feature: 'model_routing' })).toHaveLength(1);
     expect(r.applied).toBe(false);
     expect(r.route).toEqual(SONNET);
     const row = new AgentSessionsRepository().findById(s.id)!;
@@ -153,6 +180,7 @@ describe('routeTurnForSession scope', () => {
     const log = listDecisions({}).find((d) => d.feature === 'model_routing')!;
     expect(log.applied).toBe(false);
     expect(JSON.stringify(log.detail)).toContain('"wouldApply":true');
+    expect(log.detail).toMatchObject({ catalog: 'static', pickedModel: 'anthropic/claude-opus-4-7', catalogLatencyMs: expect.any(Number) });
   });
 
   it('PATCH-style modelMode:auto clears router_decided_at so the next prompt routes again', async () => {

@@ -1,5 +1,6 @@
 import {
   sameDayflowQualifiedEvidenceCandidate,
+  sameDayflowQualifiedEvidenceRenewal,
   type DayflowQualifiedEvidenceCandidate,
 } from '../contracts/dayflow_coordinator_reader_contract';
 import {
@@ -81,6 +82,7 @@ export class DayflowReceivingHistoryGuard implements DayflowSdkHistoryGuard {
     reader: DayflowQualifiedReader;
     authority: DayflowPersistedQualificationAuthority;
     enrollment?: DayflowGuardEnrollment;
+    evidence?: Pick<DayflowQualifiedEvidenceService, 'canonicalCandidateCurrent'>;
   }) {}
 
   async shouldBindPrompt(sdkSessionId: string): Promise<boolean> {
@@ -95,9 +97,11 @@ export class DayflowReceivingHistoryGuard implements DayflowSdkHistoryGuard {
     if (before === null) return this.fail(sdkSessionId);
     if (before.length === 0) return true;
     for (const dependency of before) {
-      let page;
+      let page, admission, admittedPage;
+      const request={ownerUserId:dependency.binding.ownerUserId,projectId:dependency.binding.projectId,limit:3000};
       try {
-        page = await this.dependencies.reader.readQualifiedEvidence({
+        if(this.dependencies.evidence){const read=await this.dependencies.reader.readQualifiedEvidenceWithAdmission(request);page=read.page;admission=read.admission;admittedPage=read.page;}
+        else page = await this.dependencies.reader.readQualifiedEvidence({
           ownerUserId: dependency.binding.ownerUserId,
           projectId: dependency.binding.projectId,
           limit: 3000,
@@ -105,8 +109,11 @@ export class DayflowReceivingHistoryGuard implements DayflowSdkHistoryGuard {
       } catch {
         return this.fail(sdkSessionId);
       }
+      if(this.dependencies.evidence && (!admission || !admittedPage || !this.dependencies.reader.isQualifiedEvidenceAdmissionCurrent(request,admittedPage,admission) ||
+        dependency.candidates.some(candidate=>!this.dependencies.evidence!.canonicalCandidateCurrent({...request,candidate}))))return this.fail(sdkSessionId);
+      // Routine scheduler renewal must not brick the chat; any scope change still fails closed.
       if (page.status !== 'available' || !dependency.candidates.every((candidate) =>
-        page.candidates.some((current) => sameDayflowQualifiedEvidenceCandidate(candidate, current)))) {
+        page.candidates.some((current) => sameDayflowQualifiedEvidenceRenewal(candidate, current)))) {
         return this.fail(sdkSessionId);
       }
     }
@@ -353,7 +360,7 @@ export class DayflowProviderAdmissionService {
       // A known manager/descendant row is not itself retained Dayflow evidence.
       // Its current owned root/project join must still be exact; ambiguous,
       // foreground and unsafe receivers cannot use this ordinary path.
-      if (lookup.kind === 'ambiguous' || lookup.kind === 'unbound_scheduled' || (lookup.kind === 'found' && (
+      if (lookup.kind === 'ambiguous' || lookup.kind === 'unbound' || (lookup.kind === 'found' && (
         lookup.scope.ownerUserId !== auth.user.id || lookup.scope.rootChat || lookup.scope.unsafeCode !== null ||
         lookup.scope.sdkSessionId !== request.request.sdkSessionId || root?.kind !== 'found' ||
         root.scope.ownerUserId !== auth.user.id || !root.scope.rootChat || root.scope.unsafeCode !== null ||
@@ -435,7 +442,7 @@ export class DayflowProviderAdmissionService {
     }
     const lookup = records.lookupProviderSession(request.sdkSessionId);
     if (lookup.kind === 'ambiguous') return this.hold(request, 'history_ambiguous');
-    if (lookup.kind === 'unbound_scheduled') {
+    if (lookup.kind === 'unbound') {
       const scheduled = lookup.session;
       if (scheduled.ownerUserId !== null && scheduled.ownerUserId !== auth.user.id) {
         return this.hold(request, 'receiver_changed');
@@ -451,7 +458,7 @@ export class DayflowProviderAdmissionService {
       });
       FINALIZERS.set(ordinary, () => {
         const current = records.lookupProviderSession(request.sdkSessionId);
-        if (current.kind !== 'unbound_scheduled' || current.session.sessionId !== scheduled.sessionId ||
+        if (current.kind !== 'unbound' || current.session.sessionId !== scheduled.sessionId ||
             current.session.scheduledTaskId !== scheduled.scheduledTaskId ||
             current.session.directory !== scheduled.directory ||
             current.session.ownerUserId !== scheduled.ownerUserId || current.session.projectId !== scheduled.projectId ||

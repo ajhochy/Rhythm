@@ -126,6 +126,15 @@ function rowToStructured(row: AgentSessionMessageRow): StructuredAgentSessionMes
 }
 
 export class AgentSessionMessagesRepository {
+  /** Bounded newest-first input history for automatic continuation resolution. */
+  listRecentInputTexts(sessionId: string, limit = 8): string[] {
+    const bounded = Number.isFinite(limit) ? Math.max(1, Math.min(8, Math.floor(limit))) : 8;
+    return (getDb().prepare(`
+      SELECT COALESCE(stripped_text, raw_text) AS text FROM agent_session_messages
+      WHERE session_id = ? AND role = 'input' ORDER BY id DESC LIMIT ?
+    `).all(sessionId, bounded) as Array<{ text: string }>).map(row => row.text);
+  }
+
   /** Latest persisted agent-message timestamp across all sessions. */
   latestPersistedAt(): number | null {
     const row = getDb()

@@ -500,6 +500,11 @@ export async function handleInputFrame(
     }
   }
 
+  if (attachmentSession?.sdkSessionId) {
+    try { await opencodeClient.assertDayflowSdkHistoryMayBeReused(attachmentSession.sdkSessionId); }
+    catch { ws.send(JSON.stringify({v:1,type:'error',id,message:'SDK history is withheld because Dayflow dependencies changed.'})); return; }
+  }
+
   // OPC-M1-4: If the session is in status='error', clear the error
   // state before forwarding the prompt. This is the "explicit user
   // action" that transitions the session out of error — the new
@@ -602,11 +607,12 @@ export async function handleInputFrame(
   } | undefined;
   const turnModelMode: 'auto' | 'fixed' = frameModelMode ?? sessionModelMode;
   const turnSessionAuto = turnModelMode === 'auto';
-  if (scopeAgentId && (agentKind || sessionProfileId || perTurnProfileId || legacyCanonicalProfileId || trustedScopeAgent)) {
+  let routedVariant: string | undefined;
+  if (scopeAgentId || turnSessionAuto) {
     try {
       const { resolveModelForSessionTurnWithProvenance } = await import('./agent_model_resolver');
       const resolution = await resolveModelForSessionTurnWithProvenance({
-        agentId: scopeAgentId,
+        agentId: scopeAgentId ?? 'build',
         sessionProviderId,
         sessionModelId,
         perTurnOverride,
@@ -633,12 +639,24 @@ export async function handleInputFrame(
           sessionRow: routingRow,
           sessionId: id,
           prompt: data ?? '',
-          agentId: scopeAgentId,
+          agentId: scopeAgentId ?? 'build',
           requestedSource: resolution.requestedSource,
           requestedTier: resolution.requestedTier,
           baseRoute: resolution.route,
           sessionAuto: turnSessionAuto,
         });
+        if (turnRouting.held) {
+          // Free Mode F1: held for paid capacity; nothing is dispatched to any model. D2: keep the
+          // owner-scoped original input so the turn can drain automatically once paid capacity returns.
+          const { recordHeldTurn } = await import('./decision/router_free_held_turns');
+          await recordHeldTurn({ sessionId: id, origin: trustedTurn?.origin === 'prompt_api' ? 'prompt_api' : 'desktop', inputText: data ?? '',
+            options: { modelOverride: msg.modelOverride, thinking: msg.thinking, fastMode: typeof msg.fastMode === 'boolean' ? msg.fastMode : undefined,
+              agent: typeof msg.agent === 'string' ? msg.agent : null, ...(Array.isArray(partsInput) ? { parts: partsInput } : {}) } })
+            .catch(err => console.error('[ws_gateway] held turn record failed (turn stays held, not sent):', err));
+          ws.send(JSON.stringify({ v: 1, type: 'error', id, message: turnRouting.held.message }));
+          return;
+        }
+        routedVariant = turnRouting.variant;
         if (turnRouting.applied) {
           resolvedTurnModel = turnRouting.route;
           resolvedTurnProvenance = {
@@ -651,6 +669,10 @@ export async function handleInputFrame(
     } catch (err) {
       console.error(`[ws_gateway] early model resolution for Gemini tool cap failed (non-fatal):`, err);
     }
+  }
+  if ((await import('./qualification_fixture_service')).qualificationStopBeforeSdk(id)) {
+    ws.send(JSON.stringify({v:1,type:'error',id,message:'Qualification router observation complete; intentional pre-SDK stop.'}));
+    return;
   }
   const resolvedTurnProviderId: string | null = resolvedTurnModel?.providerID ?? null;
 
@@ -960,15 +982,24 @@ export async function handleInputFrame(
     //   wsOcAgent is null when the profile has no ocAgent; perTurnAgent is null when
     //   the Flutter client didn't send an explicit per-turn agent override.
     const effectiveAgent: string | null = legacyCanonicalProfileId ? wsOcAgent : perTurnAgent ?? wsOcAgent;
-    let sdkOpts = (effectiveThinkingBudget !== null || effectiveFastMode || effectiveAgent !== null || sessionPermissionMode !== 'default' || wsSystemPrompt !== null)
+    // #1039 Cause B parity with agent_runner.ts (runningAsOwnAgent): running AS the
+    // profile's own registered agent, its .md body already IS the profile prompt and the
+    // engine layers `system:` after it, so forwarding it again duplicates it (and makes the
+    // Dayflow projection's single-occurrence user.system removal ambiguous). The mcpRole
+    // path keeps the override, exactly like the runner.
+    const profileSystemPrompt = !wsMcpRoleConfig && effectiveAgent !== null && effectiveAgent === scopeAgentId
+      ? null
+      : wsSystemPrompt;
+    let sdkOpts = (routedVariant !== undefined || effectiveThinkingBudget !== null || effectiveFastMode || effectiveAgent !== null || sessionPermissionMode !== 'default' || profileSystemPrompt !== null)
       ? {
+          ...(routedVariant !== undefined ? { variant: routedVariant } : {}),
           ...(effectiveThinkingBudget !== null
             ? { reasoningConfig: { type: 'enabled', budgetTokens: effectiveThinkingBudget } }
             : {}),
           ...(effectiveFastMode ? { fastMode: true } : {}),
           ...(effectiveAgent !== null ? { agent: effectiveAgent } : {}),
           ...(sessionPermissionMode !== 'default' ? { permissionMode: sessionPermissionMode } : {}),
-          ...(wsSystemPrompt !== null ? { system: wsSystemPrompt } : {}),
+          ...(profileSystemPrompt !== null ? { system: profileSystemPrompt } : {}),
         }
       : undefined;
 
@@ -1033,7 +1064,7 @@ export async function handleInputFrame(
     if (transientSystemBlocks.length > 0) {
       sdkOpts = {
         ...(sdkOpts ?? {}),
-        system: [wsSystemPrompt, ...transientSystemBlocks]
+        system: [profileSystemPrompt, ...transientSystemBlocks]
           .filter((block): block is string => typeof block === 'string' && block.length > 0)
           .join('\n\n'),
       };

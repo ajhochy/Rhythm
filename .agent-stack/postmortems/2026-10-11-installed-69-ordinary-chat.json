@@ -1,0 +1,72 @@
+{
+  "run_id": "2026-10-11-installed-69-ordinary-chat",
+  "issue": "deliverables-completion",
+  "date": "2026-10-11",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS for bounded fixture c7 only; full deliverable qualification was not claimed",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-deliverables-completion-c7",
+      "text": "Unenrolled authorized work proceeds without optional Dayflow history.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Frozen fixture uses an owned unenrolled session. Normal native UI creation in the fresh declared test database creates an owner-NULL session; actual provider guard refuses history_ambiguous before a model answer. These are different boundary conditions; fixture PASS did not cover normal UI ownership wiring."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "startup-authority",
+      "description": "Actual Coordinator workspace requires an exact startup environment binding. Operator relaunch pending; current running host preserved.",
+      "detected_by": "Installed-source workspace guard plus native root session/cwd and frozen launch command"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "failure-postmortem",
+      "project-state-updater"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W3",
+        "affected_skill": "failure-postmortem",
+        "description": "TodoWrite is not available in this tool environment; checklist status is recorded in this receipt.",
+        "detected_by": "Enabled tool catalog"
+      }
+    ]
+  },
+  "implementation_files": [],
+  "failure_output": "Dayflow provider guard held this request (history_ambiguous).",
+  "overall_category": "C2",
+  "suggested_follow_up": "Qualify ordinary UI-created session ownership and Dayflow admission together; preserve the unknown-owner refusal rather than weakening it.",
+  "follow_up_issue": null,
+  "follow_up_issue_note": "This is a request qualification, with no assigned GitHub issue; finding recorded in the canonical run and evidence instead of inventing an issue number.",
+  "sourceRevision": "a426383e08ea4a665837b1d2dea85c94563393cd",
+  "apiPid": 70130,
+  "enginePid": 70182,
+  "engineBootId": "e65d7b40-c2a9-475a-a178-8153126fe0c1",
+  "evidence": [
+    "/Users/ajhochhalter/Documents/Codex/2026-10-10/rhythm-deliverables-completion/admission-authenticated-live-contract.json",
+    "/Users/ajhochhalter/Documents/Codex/2026-10-10/rhythm-deliverables-completion/admission-normal-c7-first-readback.json",
+    "/Users/ajhochhalter/Documents/Codex/2026-10-10/rhythm-deliverables-completion/admission-normal-c7-routing-ledger.json"
+  ],
+  "limits": [
+    "No implementation fixes in this verification turn. No actual coding proposal/human approval/manager/worker/artifact result yet."
+  ]
+}

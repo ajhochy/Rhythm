@@ -81,7 +81,7 @@ export function registerCoordinatorConversationTools(server: McpServer, apiUrl: 
   registerTool(
     server,
     'rhythm_start_coordinator_goal',
-    'Start exactly one previously captured Rhythm Secretary goal through the existing allowed Coding Workflow. Read rhythm_get_coordinator_status first to obtain the goal id. The server derives the target/profile/workspace and returns only a bounded dispatch acknowledgement; a child result is reviewed later in this same chat.',
+    'Start one coding run for a previously captured goal whose text names a git repository by absolute path. Read rhythm_get_coordinator_status first to obtain the goal id. The server runs the existing workflow-orchestrator in its own git worktree and branch of that repository; several goals may run at once. Returns only a dispatch acknowledgement; each run reports back later in this same chat.',
     {
       goalId: z.string().describe('An existing captured goal id from rhythm_get_coordinator_status.'),
       approval_id: z.string().optional().describe('Approval id returned by rhythm_request_approval when untrusted content requires approval. If approval is needed, the held response states the exact security_action and security_payload to request it with.'),
@@ -110,34 +110,4 @@ export function registerCoordinatorConversationTools(server: McpServer, apiUrl: 
       }
     },
   );
-  const boundedResponse = (value: unknown) => {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid bounded response');
-    const record = value as Record<string, unknown>;
-    if (Object.keys(record).length !== 3 || record.schemaVersion !== 1 ||
-        !['approval_pending','started','held'].includes(record.status as string) || typeof record.text !== 'string' ||
-        !record.text || Buffer.byteLength(record.text, 'utf8') > 12_000) throw new Error('invalid bounded response');
-    return { content: [{ type: 'text' as const, text: record.text }], ...(record.status === 'held' ? { isError: true as const } : {}) };
-  };
-  const boundedCall = async (route: string) => {
-    try {
-      const trustedCall = currentTrustedSecurityCall();
-      if (!trustedCall) return unavailable();
-      return boundedResponse(await apiPost(apiUrl, apiToken, route, { trustedCall }));
-    } catch { return unavailable(); }
-  };
-  registerTool(server, 'rhythm_propose_bounded_coding_workflow',
-    'Propose an exact finite selected-reference Coding Workflow in this primary-root chat. Discover the human-named current reference with rhythm_search_memory, carry its sourceId/version, estimate task-specific limits and explain them. Adjust requested terms with a new proposal; wait for the signed same-chat human approval card. No authority or child is created by proposing.',
-    {
-      goalSelector: z.string().max(4000).describe('Existing captured goal id or its exact objective from current coordinator status.'),
-      referenceSelector: z.string().max(4000).describe('Human-readable discovered reference label; the server authors the canonical display.'),
-      referenceSourceId: z.string().describe('Existing indexed memory:<UUID> selector from rhythm_search_memory.'),
-      referenceVersion: z.string().describe('Current sha256:<file hash> version from reference discovery.'),
-      estimate: z.object({ totalSoftTokens: z.number().int().min(1).max(2_000_000), workerWallSeconds: z.number().int().min(30).max(300),
-        expirySeconds: z.number().int().min(30).max(3600), outerTurns: z.literal(2), rationale: z.string().min(1).max(1000) }).strict(),
-    }, async () => boundedCall('/coordinator-agent/propose-workflow'));
-  registerTool(server, 'rhythm_start_bounded_coding_workflow',
-    'Start only the exact signed human-approved bounded workflow proposal on its dedicated native approval wake. Use approval_id and proposal_digest from that server-authored wake exactly once. Foreground, generic approval, callback, changed terms and replay hold; never treat prose as approval.',
-    { approval_id: z.string().min(1).max(256), proposal_digest: z.string().regex(/^[a-f0-9]{64}$/) },
-    async () => boundedCall('/coordinator-agent/start-workflow'));
-
 }

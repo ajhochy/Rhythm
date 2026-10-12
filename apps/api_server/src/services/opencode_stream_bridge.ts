@@ -1,4 +1,6 @@
+import { syncAutoAccountSessionProvenance } from './decision/capacity_router';
 import { broadcast, broadcastSessionUpdated } from './ws_gateway';
+import { pushAgentNotification } from './agent_notifications';
 import { opencodeClient } from './opencode_engine';
 import { opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
@@ -443,6 +445,47 @@ export class OpencodeStreamBridge {
     });
   }
 
+  /**
+   * Withdraw every request a stopped run session is waiting on, telling clients
+   * so its cards, "waiting on you" marks and desktop banners clear.
+   */
+  withdrawPendingRequests(localSessionId: string): void {
+    const prefix = `${localSessionId}:`;
+    for (const [key, permission] of [...this.pendingPermissions]) {
+      if (!key.startsWith(prefix)) continue;
+      this.pendingPermissions.delete(key);
+      broadcast({ v: 1, type: 'permission.resolved', sessionId: localSessionId, permissionId: permission.permissionId, decision: 'deny' });
+    }
+    for (const [key, question] of [...this.pendingQuestions]) {
+      if (!key.startsWith(prefix)) continue;
+      this.pendingQuestions.delete(key);
+      broadcast({ v: 1, type: 'question.resolved', sessionId: localSessionId, requestId: question.requestId, rejected: true });
+    }
+  }
+
+  /**
+   * In-app (bell) notice that a background session (a delegated run or one of
+   * its specialists) is now waiting on the user. A root chat's request card is
+   * already in front of the user, so it gets no bell entry. Never blocks the request.
+   */
+  private notifyWaiting(localSessionId: string, what: 'approval' | 'answer'): void {
+    try {
+      const session = this.sessionsRepo.findById(localSessionId);
+      if (!session?.parentSessionId) return;
+      const name = session.name?.trim() || 'An agent session';
+      pushAgentNotification('Rhythm needs you', `${name} is waiting for your ${what}.`, { sessionId: localSessionId });
+    } catch (error) {
+      logger.warn(`[OpencodeStreamBridge] waiting notification failed for ${localSessionId}: ${String(error)}`);
+    }
+  }
+
+  /** Local session ids waiting on a person: an unanswered permission or question. */
+  listWaitingSessionIds(): Set<string> {
+    const ids = new Set(this.listPendingPermissions().map((permission) => permission.sessionId));
+    for (const [key, question] of this.pendingQuestions) ids.add(key.slice(0, -(question.requestId.length + 1)));
+    return ids;
+  }
+
   /** Remove a pending permission after it is resolved. */
   clearPendingPermission(localSessionId: string, permissionId: string): void {
     this.pendingPermissions.delete(`${localSessionId}:${permissionId}`);
@@ -504,6 +547,7 @@ export class OpencodeStreamBridge {
       createdAt: entry.createdAt ?? new Date().toISOString(),
     };
     this.pendingPermissions.set(key, normalized);
+    this.notifyWaiting(localSessionId, 'approval');
     broadcast({
       v: 1,
       type: 'permission.asked',
@@ -932,6 +976,7 @@ export class OpencodeStreamBridge {
       this.resolvingQuestions.has(key)
     ) return false;
     this.pendingQuestions.set(key, entry);
+    this.notifyWaiting(localSessionId, 'answer');
     broadcast({
       v: 1,
       type: 'question.asked',
@@ -2511,6 +2556,7 @@ export class OpencodeStreamBridge {
               childCwd,
               childMcpAllowlist ? JSON.stringify(childMcpAllowlist) : null,
             );
+            if (childRow) syncAutoAccountSessionProvenance(childRow);
             if (childRow) {
               // Register in the session map so subsequent events route correctly.
               opencodeSessionMap.set(childRow.id, opencodeSessionId);

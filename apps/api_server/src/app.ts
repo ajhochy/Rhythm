@@ -1,9 +1,9 @@
+import { createQualificationFixtureRouter } from './routes/qualification_fixture_routes';
+import type { QualificationFixtureService } from './services/qualification_fixture_service';
 import cors from 'cors';
 import express, { type Router } from 'express';
 
 import { env } from './config/env';
-import { getDb } from './database/db';
-import { agentApprovalContinuationService } from './services/agent_approval_continuation_service';
 import { errorHandler } from './middleware/error_handler';
 import { localAgentSurfaceGuard } from './middleware/local_agent_surface_guard';
 import { authRouter } from './routes/auth_routes';
@@ -59,6 +59,7 @@ import { requireAuth } from './middleware/auth_middleware';
 import agentSchedulesRouter from './routes/agentSchedulesRoutes';
 import { createAgentMemoryRouter } from './routes/agentMemoryRoutes';
 import agentDecisionsRouter from './routes/agent_decisions_routes';
+import agentFreeRouter from './routes/agent_free_routes';
 import agentWebhookRouter from './routes/agentWebhookRoutes';
 import agentResearchRouter from './routes/agentResearchRoutes';
 import agentCookbookRouter from './routes/agentCookbookRoutes';
@@ -100,6 +101,7 @@ import type { ManagedMemorySearchService } from './services/managed_workstream_e
 import type { PersistentWorkstreamCoordinator } from './services/persistent_workstream_coordinator';
 import type { CoordinatorConversationService } from './services/coordinator_conversation_service';
 import type { CoordinatorConversationModelStatusService } from './services/coordinator_conversation_model_status_service';
+import { initializeRouterFreeRecovery } from './services/decision/router_grid_turn';
 
 export function isLoopbackAddress(address: string | undefined): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
@@ -107,6 +109,7 @@ export function isLoopbackAddress(address: string | undefined): boolean {
 
 export function createApp(options: {
   mobileGatewayRouter?: Router;
+  qualificationFixtures?: QualificationFixtureService;
   dayflowService?: DayflowManagementService;
   dayflowAuthenticatedConsent?: DayflowAuthenticatedConsentService;
   dayflowQualifiedEvidence?: DayflowQualifiedEvidenceService;
@@ -116,6 +119,7 @@ export function createApp(options: {
   coordinatorConversationService?: CoordinatorConversationService;
   coordinatorAgentTools?: CoordinatorConversationModelStatusService;
 } = {}) {
+  initializeRouterFreeRecovery(); // cold-start listener before any route can refresh usage
   const app = express();
   const dayflowLocalSurface = Boolean(
     options.dayflowService &&
@@ -196,6 +200,7 @@ export function createApp(options: {
   // limit is sufficient for normal requests but we raise it to 1 MB as a
   // safety margin.
   app.use(express.json({ limit: '1mb' }));
+  if(options.qualificationFixtures)app.use('/qualification-fixtures',createQualificationFixtureRouter(options.qualificationFixtures));
   // Signed evidence tools are default-off until both current receiving and
   // persisted source qualification authorities are composed in server.ts.
   if (env.agentExecutionEnabled && (options.dayflowQualifiedEvidence || options.dayflowProviderAdmission)) {
@@ -295,13 +300,6 @@ export function createApp(options: {
     app.use('/agent-capability-status', agentCapabilityStatusRouter);
     app.use('/creative-platform', creativePlatformRouter);
     app.use('/setup-readiness', setupReadinessRouter);
-    // Local server-only probe is bound to this composition's actual SQLite
-    // instance; a later test/runtime DB cannot borrow its readiness.
-    const workflowConversations = options.coordinatorConversationService;
-    const workflowDb = workflowConversations ? getDb() : null;
-    agentApprovalContinuationService.configureWorkflowReadiness(workflowConversations
-      ? async () => getDb() === workflowDb && await workflowConversations.boundedWorkflowRuntimeReady() && getDb() === workflowDb
-      : null);
     app.use('/agent-approvals', agentApprovalsRouter);
     app.use('/agents/usage-budget', usageBudgetRouter);
     app.use('/agents/run-quality', runQualityRouter);
@@ -350,6 +348,8 @@ export function createApp(options: {
     // registered only inside this agent-execution gate and reads the SQLite-only
     // agent_decision_log (prompt previews never reach Postgres).
     app.use('/agent-decisions', agentDecisionsRouter);
+    // Free structured extraction (local agent surface only, like /agent-decisions).
+    app.use('/agent-free', agentFreeRouter);
     // #1096 WP1 — device-local Engraph backend manager status/action API.
     // Standalone prefix (not nested under /agent-memory) so it never risks
     // colliding with that router's `/:id` catch-all route.

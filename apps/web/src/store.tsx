@@ -730,8 +730,14 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
         } : session));
         return;
       }
-      if (event.type === 'permission.replied' && event.sessionId && event.permissionID) {
-        const { sessionId, permissionID } = event;
+      // The server can settle a request itself (recovery poll, mode change, coding
+      // authority) and then sends permission.resolved, never permission.replied: the
+      // card stayed up although the tool had already run.
+      const resolvedId = event.type === 'permission.resolved' ? (event as { permissionId?: unknown }).permissionId : undefined;
+      if ((event.type === 'permission.replied' && event.sessionId && event.permissionID)
+        || (event.type === 'permission.resolved' && event.sessionId && typeof resolvedId === 'string' && resolvedId)) {
+        const sessionId = event.sessionId!;
+        const permissionID = (event.type === 'permission.resolved' ? resolvedId : event.permissionID) as string;
         removeDecision(sessionId, 'permissions', permissionID);
         setSessions((current) => current.map((session) => session.id === sessionId && session.livePermission?.permissionID === permissionID ? { ...session, livePermission: undefined } : session));
         return;
@@ -758,12 +764,13 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
         // c4c: the wire frame is {v:1,type:'notification.push',id,title,body} — `id` here is a
         // numeric WS-broadcast id, not the string session id the shared SessionWireEvent type
         // declares, so it is read through an unchecked cast rather than widening that field.
-        const push = event as unknown as { id?: number; title?: string; body?: string };
+        const push = event as unknown as { id?: number; title?: string; body?: string; sessionId?: string };
         if (typeof push.id === 'number' && typeof push.title === 'string' && typeof push.body === 'string' && !pushSeenIdsRef.current.has(push.id)) {
           pushSeenIdsRef.current.add(push.id);
           const { id, title, body } = push as { id: number; title: string; body: string };
           setPushNotifications((current) => [{ id, title, body }, ...current]);
-          emitAgentNotification({ v: 1, type: 'push', id, title, body }, live);
+          // A "waiting on you" notice already has its own clickable banner (the ask event).
+          if (!push.sessionId) emitAgentNotification({ v: 1, type: 'push', id, title, body }, live);
         }
       }
     };
@@ -790,7 +797,12 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
         sessionSocketRef.current?.send({ v: 1, type: 'session.subscribe', id });
         if (pendingSessionRef.current.id === id && pendingSessionRef.current.sdkSessionId) rehydratePendingPermission(id);
       }
-      void requestReconcile().catch(onError);
+      // A successful automatic reconcile ends the outage onError reported; only the
+      // manual Reconnect cleared it, so a runtime restart left "unavailable" over a
+      // live bridge. Other errors (a failed reply, a missing session) stay.
+      void requestReconcile().then(() => {
+        if (active) setLiveSessionError((current) => current === 'Session service unavailable' ? null : current);
+      }).catch(onError);
     };
     sessionSocketRef.current = sessionGateway.connect(onEvent, onError, () => {
       onReconnect();
@@ -924,13 +936,6 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     if (!context || context.gateway !== gateway || context.deciding.has(id)) return;
     const approval = pendingApprovals.find((item) => item.id === id);
     if (!approval) return;
-    if (approval.securityAction === 'coordinator.workflow.start') {
-      const native = (window as Window & { rhythmShell?: { humanApproval?: { signDecision?: unknown } } }).rhythmShell?.humanApproval;
-      if (typeof native?.signDecision !== 'function' || !approval.payloadDigest?.trim()) {
-        setApprovalState((state) => ({ ...state, decisionError: 'Native signer unavailable. Reopen the signed Rhythm desktop chat to decide this workflow proposal.' }));
-        return;
-      }
-    }
     if (!approval.decisionNonce?.trim()) { setApprovalState((state) => ({ ...state, decisionError: 'This legacy approval cannot be signed. Ask the agent to request approval again.' })); return; }
     const current = () => approvalContextRef.current === context && currentApprovalGateway.current === gateway;
     context.deciding.add(id); setApprovalState((state) => ({ ...state, deciding: [...context.deciding] }));
