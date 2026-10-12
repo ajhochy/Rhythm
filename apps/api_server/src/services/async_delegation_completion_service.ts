@@ -1424,6 +1424,8 @@ export class AsyncDelegationCompletionService {
             if(receipt.verification==='passed' && (!proposal || proposal.purpose!=='coordinator_coding_execution_v1' ||
               !codingResultAuthorityCurrent(proposal) || !receipt.snapshot || !codingSnapshotCurrent(receipt.snapshot))){
               receipt.verification='stale';receipt.limits.push('Current artifact or signed execution authority changed before delivery');
+              // The success summary was written for a passed verdict; never deliver it beside 'stale'.
+              receipt.summary='Independent checks passed when evaluated, but the artifact or signed authority changed before delivery; treat this result as unverified.';
               db.prepare('UPDATE agent_async_delegations SET coding_result_receipt_json=? WHERE id=? AND result_message_id IS NULL').run(JSON.stringify(receipt),row.id);
             }
           }
