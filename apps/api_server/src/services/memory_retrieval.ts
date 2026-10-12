@@ -328,7 +328,7 @@ export function resolveAutomaticMemoryQuery(current: string, priorUserTexts: str
   ).replace(/[\s,.;]+/g, '');
   const topic = question && constraintTail === '' ? question[1] : current;
   const own = relevanceTokens(topic).length;
-  const continuationCue = (text: string) => /\b(?:resume|continue|proceed|it|that|this|those)\b|^\s*what about\b/i.test(text);
+  const continuationCue = (text: string) => /\b(?:resume|continue|proceed|it|that|this|those|they|them|their)\b|^\s*what about\b/i.test(text);
   const concreteCommand = (text: string) => /^\s*(?:push|deploy|ship|stage|write|draft|revise|edit|fix|run|check|implement|lookup)\b/i.test(text)
     && relevanceTokens(text).length >= 1;
   if (/^\s*(?:yes|yeah|ok|okay|thanks|thank you|great|good|sure|alright|done)\b/i.test(current)
@@ -408,6 +408,17 @@ function automaticMemoryTitle(memory: AgentMemory): string {
   return (memory.sourceId ?? '').split(/[\\/]/).pop()?.replace(/\.md$/i, '').replace(/[-_]+/g, ' ') ?? '';
 }
 
+/**
+ * Tokens of the subject the request names (runs of 2+ capitalized words, e.g.
+ * "Cobalt Lantern"). A fact that mentions none of them is about something else,
+ * however many topic words it lists ("no relation to rooms or arrival times").
+ * ponytail: capitalization heuristic; title-cased prose over-constrains facts —
+ * swap for an entity extractor if that shows up.
+ */
+function namedSubjectTokens(evidence: string): string[] {
+  return relevanceTokens((evidence.match(/\b[A-Z][\w'-]*(?:[ \t]+[A-Z][\w'-]*)+/g) ?? []).join(' '));
+}
+
 export interface AutomaticMemoryScore {
   score: number;
   matchedTokens: number;
@@ -425,7 +436,8 @@ export function scoreMemoryForAutomaticInjection(
 ): AutomaticMemoryScore {
   const queryTokens = relevanceTokens(query);
   const candidateTokens = new Set(relevanceTokens([
-    boundedRelevantExcerpt(query, candidate.content),
+    boundedRelevantExcerpt(query, candidate.content, AUTOMATIC_MEMORY_MAX_ITEM_CHARS,
+      isBroadAutomaticMemory(candidate) ? '' : automaticMemoryTitle(candidate)),
     isBroadAutomaticMemory(candidate) ? '' : automaticMemoryTitle(candidate),
   ].join(' ')));
   const matchedTokens = queryTokens.filter((token) => candidateTokens.has(token)).length;
@@ -1380,20 +1392,32 @@ function logSemanticStatus(
   logger.info(`[MemoryRetrieval] semantic status=${status} hits=${hitCount}${phase}`);
 }
 
-function boundedRelevantExcerpt(query: string, content: string, limit = AUTOMATIC_MEMORY_MAX_ITEM_CHARS): string {
+function boundedRelevantExcerpt(query: string, content: string, limit = AUTOMATIC_MEMORY_MAX_ITEM_CHARS, title = ''): string {
   const sentences = content
     .replace(/\s+/g, ' ')
     .trim()
     .split(/(?<=[.!?])\s+/)
     .filter(Boolean);
   const querySet = new Set(relevanceTokens(query));
-  const ranked = sentences
-    .map((sentence, index) => ({
+  const titleSet = new Set(relevanceTokens(title));
+  const scored = sentences.map((sentence, index) => {
+    const tokens = relevanceTokens(sentence);
+    return {
       sentence,
       index,
-      matches: relevanceTokens(sentence).filter((token) => querySet.has(token)).length,
-    }))
-    .sort((a, b) => b.matches - a.matches || a.index - b.index);
+      tokens: Math.max(1, tokens.length),
+      // A sentence that only restates the cited title displays no fact.
+      titleOnly: titleSet.size > 0 && tokens.every((token) => titleSet.has(token)),
+      matches: tokens.filter((token) => querySet.has(token)).length,
+    };
+  });
+  const pool = scored.some((s) => !s.titleOnly) ? scored.filter((s) => !s.titleOnly) : scored;
+  // ponytail: among sentences with enough overlap, the densest is the stated fact,
+  // not the longest keyword list; a 5-of-20 sentence can lose to a 2-of-4 one.
+  const floor = Math.min(2, Math.max(...pool.map((s) => s.matches)));
+  const ranked = pool
+    .filter((s) => s.matches >= floor)
+    .sort((a, b) => b.matches / b.tokens - a.matches / a.tokens || b.matches - a.matches || a.index - b.index);
   const selected = ranked[0]?.sentence ?? content.replace(/\s+/g, ' ').trim();
   if (selected.length <= limit) return selected;
   const cut = selected.slice(0, Math.max(0, limit - 1));
@@ -1547,7 +1571,8 @@ export async function buildMemoryPreface(
         || !genericAdmitted(memory)) continue;
       try { if (opts.automaticAdmission?.(memory) === false) continue; } catch { continue; }
       const excerpt = applicablePreferenceSection(resolved.evidenceText, memory)?.excerpt
-        ?? boundedRelevantExcerpt(resolved.evidenceText, memory.content);
+        ?? boundedRelevantExcerpt(resolved.evidenceText, memory.content, AUTOMATIC_MEMORY_MAX_ITEM_CHARS,
+          isBroadAutomaticMemory(memory) ? '' : automaticMemoryTitle(memory));
       if (memory.source === 'obsidian-memory') {
         if (!memory.sourceId) continue;
         const canonical = await settleBeforeDeadline(deadline, () => validateCanonicalNativeReference(
@@ -1667,6 +1692,7 @@ async function assembleMemoryPreface(
       return false;
     }
   };
+  const subject = namedSubjectTokens(query);
   const candidates = new Map<string, AutomaticMemoryCandidate>();
   const excerpts = new Map<string, string>();
   const sections = new Map<string, { heading: string; excerpt: string }>();
@@ -1676,7 +1702,8 @@ async function assembleMemoryPreface(
     // The title slug is already visible in the citation; no duplicate heading.
     const section = applicablePreferenceSection(query, memory);
     if (section) sections.set(memory.id, section);
-    const excerpt = escapeFenceDelimiters(section?.excerpt ?? boundedRelevantExcerpt(query, memory.content));
+    const excerpt = escapeFenceDelimiters(section?.excerpt
+      ?? boundedRelevantExcerpt(query, memory.content, AUTOMATIC_MEMORY_MAX_ITEM_CHARS, title));
     excerpts.set(memory.id, excerpt);
     const tokens = new Set(relevanceTokens(`${excerpt} ${title}`));
     const sharedTokenCount = relevanceTokens(query).filter(token => tokens.has(token)).length;
@@ -1686,7 +1713,10 @@ async function assembleMemoryPreface(
       : !admitted(memory) || (opts.genericAdmission && !genericAdmitted(memory)) ? 'withheld'
       : !isAutomaticallyInjectable(memory) ? 'not_injectable'
       // An excerpt with almost no words of its own (e.g. a bare heading) cannot help, whatever the title says.
-      : (!section && sharedTokenCount < (broad ? 3 : 2)) || relevanceTokens(excerpt).length < 2 ? 'insufficient_overlap'
+      : (!section && sharedTokenCount < (broad ? 3 : 2)) || relevanceTokens(excerpt).length < 2
+        // Preferences are cross-cutting; a fact must be about the subject the request names.
+        || (!section && memory.kind !== 'preference' && subject.length > 0 && !subject.some(token => tokens.has(token)))
+        ? 'insufficient_overlap'
       : rerankScore !== undefined && rerankScore < minScore ? 'rerank_below_min' : 'budget';
     const evidence = retrievalEvidence.get(memory);
     candidates.set(memory.id, { memoryId: memory.id, sourceId: memory.sourceId,
