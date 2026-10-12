@@ -806,32 +806,15 @@ logs/guard markers and invented-data SQLite snapshots before stock teardown.
 A held, timed-out or interrupted run is unqualified; retain its receipt for
 failure triage rather than changing a guard response or weakening an assertion.
 
-### Chat-only bounded Workflow live check
+### Coordinator coding runs live check
 
-`live_chat_bounded_workflow.test.ts` adds real scoped MCP reference discovery,
-proposal, a signed human decision, the dedicated native approval wake, and
-one-use admission to the same bounded execution path. It runs two cases: an
-idle wake and a stock sandbox API/engine restart after approval. External model
-responses and semantic ranking hints are invented fixtures; the actual API,
-fork, MCP, indexed source, filesystem checks, approval verification, accounting
-and manager/reviewer execution are exercised.
-
-From `apps/api_server` on the committed clean candidate, use an existing
-task-owned external receipt parent and the full source SHA:
+The chat-only bounded Workflow and its `live_chat_bounded_workflow.test.ts` were
+retired (see decisions/2026-10-12-coordinator-runs-over-existing-workflow.md).
+Coordinator goals now start the existing workflow-orchestrator in a worktree of
+the repo the goal names. The env-gated live check runs against a
+`tools/dev/sandbox.sh` sandbox (never the 4001/4096 runtime):
 
 ```sh
-env -i PATH="$PATH" RHYTHM_LIVE_E2E=1 \
-  RHYTHM_LIVE_SOURCE_SHA=<full-40-hex-candidate-sha> \
-  RHYTHM_CHAT_LIVE_TEST_OUT=<absolute-external-receipt-parent> \
-  node_modules/.bin/vitest run src/__tests__/live_chat_bounded_workflow.test.ts
+RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_API=http://127.0.0.1:4098 RHYTHM_LIVE_BEARER=<sandbox token> \
+  RHYTHM_LIVE_DB=<sandbox dir>/rhythm.db node_modules/.bin/vitest run src/__tests__/coordinator_workflow_runs_live.test.ts
 ```
-
-Each case owns the same isolated ports and stock sandbox lifecycle described
-above. Do not run another sandbox or build in that worktree concurrently.
-The harness checks the exact SHA and clean tracked source before and after,
-actual MCP inventory (111 tools), unchanged signed proposal/deadline after
-restart, exact approved values, one consumed approval, held native replay,
-both checked criteria, two ordinals, reviewer membership and 65 seconds of
-quiescence, plus source/fixture/listener cleanup. New unqualified recon receipts
-must remain distinct from these exact committed-source results. Browser card
-tests and native installed-app acceptance are separate evidence.
