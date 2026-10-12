@@ -646,18 +646,23 @@ export class AsyncDelegationCompletionService {
       : null;
 
     const codingClaims=claimed.filter(item=>(getDb().prepare('SELECT coding_delivery_mode FROM agent_async_delegations WHERE id=?').get(item.id) as {coding_delivery_mode:string|null})?.coding_delivery_mode==='coding_worker_v1');
-    if(codingClaims.length && (claimed.length!==1 || activeNative.length || bridgeClaimed.length)){this.delegationsRepo.releaseClaims(ids);return;}
+    if(codingClaims.length && (claimed.length!==1 || activeNative.length || bridgeClaimed.length)){
+      console.warn(`[coding-callback] held: claim_shape claimed=${claimed.length} activeNative=${activeNative.length} bridge=${bridgeClaimed.length}`);
+      this.delegationsRepo.releaseClaims(ids);return;}
     let codingCallback: ReturnType<typeof codingGrantDelegation> = null;
     if (claimed.length === 1 && activeNative.length === 0 && bridgeClaimed.length === 0) {
       const coded = getDb().prepare('SELECT coding_delivery_mode FROM agent_async_delegations WHERE id=?').get(claimed[0].id) as {coding_delivery_mode:string|null};
       if (coded?.coding_delivery_mode === 'coding_worker_v1') {
         try {
           codingCallback = codingGrantDelegation(parent.id,parentSdkSessionId,parent.ownerUserId ?? 0);
-          if (!codingCallback || codingCallback.role !== 'worker' || !codingCallback.current() ||
-              profileScope.model?.providerID !== codingCallback.proposal.chain.manager.providerId ||
-              profileScope.model?.modelID !== codingCallback.proposal.chain.manager.modelId) throw new Error('coding callback held');
+          if (!codingCallback) throw new Error('coding callback held: no grant');
+          if (codingCallback.role !== 'worker') throw new Error(`coding callback held: role ${codingCallback.role}`);
+          if (!codingCallback.current()) throw new Error('coding callback held: not current');
+          if (profileScope.model?.providerID !== codingCallback.proposal.chain.manager.providerId ||
+              profileScope.model?.modelID !== codingCallback.proposal.chain.manager.modelId)
+            throw new Error(`coding callback held: parent model ${profileScope.model?.providerID}/${profileScope.model?.modelID} != ${codingCallback.proposal.chain.manager.providerId}/${codingCallback.proposal.chain.manager.modelId}`);
           const variant=codingEffortVariant(codingCallback.proposal.chain.manager,await opencodeClient.providerSnapshot());
-          if(!variant || !codingCallback.current())throw new Error('coding callback effort held');
+          if(!variant || !codingCallback.current())throw new Error(`coding callback held: effort variant=${String(variant)}`);
           promptOpts.variant=variant;
           const binding = getDb().prepare('SELECT callback_dispatch_id FROM coordinator_conversation_commands WHERE root_session_id=? AND command_key=?')
             .get(codingCallback.scope.sessionId,codingCallback.scope.commandKey) as {callback_dispatch_id:string|null};
@@ -665,7 +670,11 @@ export class AsyncDelegationCompletionService {
           const exact = codingCallback;
           callbackContext = { kind:'coordinator_callback_v1', validate:async () => exact.current(),
             onPrepared: b => exact.current() && exact.journal.recordCallbackPrepared(exact.scope,b) };
-        } catch { this.delegationsRepo.releaseClaims(ids); return; }
+        } catch (error) {
+          // Logged: this exit re-queues forever, and silence hid every cause.
+          console.warn(`[coding-callback] ${error instanceof Error ? error.message : String(error)}`);
+          this.delegationsRepo.releaseClaims(ids); return;
+        }
       }
     }
 
