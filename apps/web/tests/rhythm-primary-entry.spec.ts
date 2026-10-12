@@ -247,6 +247,10 @@ async function openRhythmFixture(page: Page, options: {
 }
 
 async function expectRhythmRoot(page: Page, state: FixtureState) {
+  // The coding-runs panel lives in Details → Runs, not in the transcript.
+  await expect(page.getByTestId('inspector-runs').or(page.getByTestId('inspector-collapsed-runs'))).toBeVisible();
+  if (await page.getByTestId('inspector-runs').isVisible()) await page.getByTestId('inspector-runs').click();
+  else await page.getByTestId('inspector-collapsed-runs').click();
   await expect(page.getByTestId('coordinator-conversation-card')).toBeVisible();
   await expect(page.getByText('Persisted Rhythm history', { exact: true })).toBeVisible();
   await expect(page.getByTestId('composer-input')).toBeVisible();

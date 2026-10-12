@@ -1,12 +1,16 @@
 import { execFileSync } from 'node:child_process';
 import { getDb } from '../database/db';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { cancelDelegation } from './async_delegation_status_service';
+import { opencodeClient } from './opencode_engine';
+import { logger } from '../utils/logger';
 import type {
   CoordinatorConversationScope,
   CoordinatorConversationsRepository,
 } from '../repositories/coordinator_conversations_repository';
 import { goalRepoPath } from './coordinator_goal_repo';
 
-export type CoordinatorGoalRunStatus = 'running' | 'needs_you' | 'finished' | 'failed' | 'unknown';
+export type CoordinatorGoalRunStatus = 'running' | 'needs_you' | 'finished' | 'failed' | 'cancelled' | 'unknown';
 
 export interface CoordinatorGoalRunUsage {
   inputTokens: number;
@@ -118,7 +122,7 @@ export function listCoordinatorGoalRuns(
       ? (sessionIds.some((id) => ports.pendingSessionIds.has(id)) ? 'needs_you' : 'running')
       : outcome.outcome === 'returned_result_unverified'
         ? 'finished'
-        : outcome.outcome === 'unknown' ? 'unknown' : 'failed';
+        : outcome.outcome === 'unknown' ? 'unknown' : outcome.outcome === 'cancelled' ? 'cancelled' : 'failed';
     const reported = outcome.delegationId
       ? Boolean((notified.get(outcome.delegationId) as { notified_at: string | null } | undefined)?.notified_at)
       : false;
@@ -136,4 +140,36 @@ export function listCoordinatorGoalRuns(
       usage,
     };
   });
+}
+
+/**
+ * Stop one run the user started from this conversation: cancel its delegation
+ * (no completion report follows) and abort every session in the run's tree,
+ * so the specialists it delegated to stop too. Returns false when the goal
+ * has no run here; an already-finished run is refused by cancelDelegation.
+ */
+export async function cancelCoordinatorGoalRun(
+  repository: CoordinatorConversationsRepository,
+  scope: CoordinatorConversationScope,
+  goalId: string,
+): Promise<boolean> {
+  const outcome = repository.listGoalDelegationOutcomes(scope)
+    .find((candidate) => candidate.goalId === goalId && candidate.delegationId && candidate.childSessionId);
+  if (!outcome) return false;
+  await cancelDelegation(scope.sessionId, outcome.delegationId!);
+  const sessions = new AgentSessionsRepository();
+  const descendants = (getDb().prepare(`WITH RECURSIVE tree(id) AS (
+      SELECT id FROM agent_sessions WHERE parent_session_id = ?
+      UNION SELECT s.id FROM agent_sessions s JOIN tree t ON s.parent_session_id = t.id
+    ) SELECT id FROM tree`).all(outcome.childSessionId) as Array<{ id: string }>).map((row) => row.id);
+  // Dynamic: the stream bridge imports this module's helpers indirectly.
+  const { streamBridge } = await import('./opencode_stream_bridge');
+  for (const id of [outcome.childSessionId!, ...descendants]) streamBridge.withdrawPendingRequests(id);
+  for (const id of descendants) {
+    const session = sessions.findById(id);
+    if (!session?.sdkSessionId) continue;
+    await opencodeClient.abortSession(session.sdkSessionId, session.cwd ?? undefined)
+      .catch((error: unknown) => logger.warn(`[coordinator-runs] abort ${id} failed: ${String(error)}`));
+  }
+  return true;
 }

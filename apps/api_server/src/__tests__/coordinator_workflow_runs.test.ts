@@ -18,7 +18,7 @@ import { AgentConfigsRepository } from '../repositories/agent_configs_repository
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { CoordinatorConversationsRepository } from '../repositories/coordinator_conversations_repository';
 
-const { engine, sessionMap, streamSession } = vi.hoisted(() => ({
+const { engine, sessionMap, streamSession, withdrawPendingRequests } = vi.hoisted(() => ({
   engine: {
     createSession: vi.fn(),
     createWorktree: vi.fn(),
@@ -30,6 +30,7 @@ const { engine, sessionMap, streamSession } = vi.hoisted(() => ({
   },
   sessionMap: new Map<string, string>(),
   streamSession: vi.fn(),
+  withdrawPendingRequests: vi.fn(),
 }));
 
 vi.mock('../services/opencode_engine', () => ({
@@ -37,12 +38,12 @@ vi.mock('../services/opencode_engine', () => ({
   opencodeSessionMap: sessionMap,
 }));
 vi.mock('../services/opencode_stream_bridge', () => ({
-  streamBridge: { streamSession },
+  streamBridge: { streamSession, withdrawPendingRequests },
 }));
 
 import { delegateToAgentAsync } from '../services/agent_delegation_service';
 import { goalRepoPath } from '../services/coordinator_goal_repo';
-import { listCoordinatorGoalRuns } from '../services/coordinator_goal_runs';
+import { cancelCoordinatorGoalRun, listCoordinatorGoalRuns } from '../services/coordinator_goal_runs';
 import { AsyncDelegationCompletionService } from '../services/async_delegation_completion_service';
 
 const NOW = '2026-10-12T12:00:00.000Z';
@@ -255,6 +256,41 @@ describe('coordinator-workflow-runs-c3: the run list reports goal, repo/branch, 
     expect(runs[1]).toMatchObject({ status: 'running', branch: 'feature/b-fix', usage: { totalTokens: 0 } });
     expect(runs[2]).toMatchObject({ status: 'finished', reported: true });
     expect(runs[3]).toMatchObject({ status: 'failed' });
+  });
+});
+
+describe('coordinator-workflow-runs-c7: Stop cancels a run and every specialist it delegated to', () => {
+  it('coordinator-workflow-runs-c7: cancels the delegation (no report), aborts the run tree, and lists it as cancelled', async () => {
+    // Regressions caught: Stop leaves the coding-agent the run delegated to
+    // still editing, or the stopped run still reports/looks running.
+    getDb().prepare("INSERT INTO projects (id, name, cwd, created_at) VALUES ('project-a', 'Rhythm Coordinator', '/x', ?)").run(NOW);
+    seedProfile('secretary', true, ['workflow-orchestrator']);
+    const insert = getDb().prepare(`INSERT INTO agent_sessions
+      (id, name, agent_kind, status, cwd, sdk_session_id, category, owner_user_id, project_id, parent_session_id, profile_id, created_at, updated_at)
+      VALUES (?, ?, 'secretary', 'working', '/wt', ?, 'chat', 42, 'project-a', ?, 'secretary', ?, ?)`);
+    insert.run('root', 'root', 'sdk-root', null, NOW, NOW);
+    const repository = new CoordinatorConversationsRepository(getDb(), () => new Date(NOW));
+    const scope = { ownerUserId: 42, projectId: 'project-a', sessionId: 'root' };
+    expect(repository.designatePrimaryOwnerRoot(scope)).toMatchObject({ kind: 'found' });
+    const added = repository.addGoal({ ...scope, expectedControlRevision: 1, commandKey: 'g', objective: 'fix it in /r' });
+    if (added.kind !== 'created') throw new Error(added.kind);
+    const reserved = repository.reserveGoalDelegation({ ...scope, expectedControlRevision: added.conversation.controlRevision, commandKey: 'd', goalId: added.goal.id, parentSdkSessionId: 'sdk-root' });
+    if (reserved.kind !== 'reserved') throw new Error(reserved.kind);
+    insert.run('run', 'run', 'sdk-run', 'root', NOW, NOW);
+    insert.run('specialist', 'specialist', 'sdk-specialist', 'run', NOW, NOW);
+    repository.settleGoalDelegation({ ...scope, expectedControlRevision: reserved.conversation.controlRevision, commandKey: 'd', goalId: added.goal.id, outcome: 'dispatched', delegationId: 'dg-run', childSessionId: 'run' });
+    getDb().prepare(`INSERT INTO agent_async_delegations (id, parent_session_id, child_session_id, target_agent_config_id, status, created_at, updated_at)
+      VALUES ('dg-run', 'root', 'run', 'workflow-orchestrator', 'dispatched', ?, ?)`).run(NOW, NOW);
+    engine.abortSession.mockResolvedValue(true);
+
+    await expect(cancelCoordinatorGoalRun(repository, scope, added.goal.id)).resolves.toBe(true);
+
+    expect(engine.abortSession.mock.calls.map((call) => call[0]).sort()).toEqual(['sdk-run', 'sdk-specialist']);
+    // Its "waiting on you" cards/banners are withdrawn for the whole run tree.
+    expect(withdrawPendingRequests.mock.calls.map((call) => call[0]).sort()).toEqual(['run', 'specialist']);
+    expect(getDb().prepare("SELECT status FROM agent_async_delegations WHERE id='dg-run'").get()).toEqual({ status: 'cancelled' });
+    expect(listCoordinatorGoalRuns(repository, scope, { pendingSessionIds: new Set(), gitBranch: () => null })[0]?.status).toBe('cancelled');
+    await expect(cancelCoordinatorGoalRun(repository, scope, 'no-such-goal')).resolves.toBe(false);
   });
 });
 

@@ -251,7 +251,7 @@ export type CoordinatorMessageInput = Pick<CoordinatorConversationScope, 'sessio
   message: string;
 };
 
-export type CoordinatorGoalRunStatus = 'running' | 'needs_you' | 'finished' | 'failed' | 'unknown';
+export type CoordinatorGoalRunStatus = 'running' | 'needs_you' | 'finished' | 'failed' | 'cancelled' | 'unknown';
 
 /** One coding run started from a coordinator goal (server read model). */
 export interface CoordinatorGoalRun {
@@ -266,7 +266,7 @@ export interface CoordinatorGoalRun {
   usage: { totalTokens: number; inputTokens: number; outputTokens: number; cost: number };
 }
 
-const RUN_STATUSES = new Set(['running', 'needs_you', 'finished', 'failed', 'unknown']);
+const RUN_STATUSES = new Set(['running', 'needs_you', 'finished', 'failed', 'cancelled', 'unknown']);
 
 function isGoalRun(value: unknown): value is CoordinatorGoalRun {
   return isRecord(value) && string(value.goalId) && typeof value.objective === 'string' &&
@@ -296,6 +296,7 @@ export interface CoordinatorConversationGateway {
     signal?: AbortSignal,
   ): Promise<CoordinatorHistoryResult>;
   runs?(input: Pick<CoordinatorConversationScope, 'sessionId' | 'projectId'>, signal?: AbortSignal): Promise<CoordinatorGoalRun[]>;
+  cancelRun?(input: Pick<CoordinatorConversationScope, 'sessionId' | 'projectId'> & { goalId: string }, signal?: AbortSignal): Promise<CoordinatorGoalRun[]>;
   message(input: CoordinatorMessageInput, signal?: AbortSignal): Promise<CoordinatorConversationResult>;
   goals?(input: Omit<CoordinatorMessageInput, 'message'> & { objective: string }, signal?: AbortSignal): Promise<CoordinatorConversationResult>;
   preparePlan?(input: CoordinatorPreparePlanInput, signal?: AbortSignal): Promise<CoordinatorConversationResult>;
@@ -621,7 +622,7 @@ function malformedAcknowledgementError(status: number): CoordinatorTransportErro
 
 function endpoint(
   apiBase: string,
-  operation: 'resolve' | 'setup' | 'open' | 'status' | 'message' | 'history' | 'runs' | 'goals' | 'prepare-plan' | 'continue-plan',
+  operation: 'resolve' | 'setup' | 'open' | 'status' | 'message' | 'history' | 'runs' | 'runs/cancel' | 'goals' | 'prepare-plan' | 'continue-plan',
 ): string {
   return apiBase.replace(/\/$/, '') + COORDINATOR_CONVERSATIONS_PATH + '/' + operation;
 }
@@ -649,7 +650,7 @@ export function createLiveCoordinatorConversationGateway(
   // The trailing comma keeps this generic arrow unambiguous when a consumer
   // transpiles the source in TSX mode (as the source-level gateway tests do).
   const request = async <Result,>(
-    operation: 'resolve' | 'setup' | 'open' | 'status' | 'message' | 'history' | 'runs' | 'goals' | 'prepare-plan' | 'continue-plan',
+    operation: 'resolve' | 'setup' | 'open' | 'status' | 'message' | 'history' | 'runs' | 'runs/cancel' | 'goals' | 'prepare-plan' | 'continue-plan',
     payload: Record<string, unknown>,
     parse: (value: unknown, status: number) => Result | undefined,
     signal?: AbortSignal,
@@ -717,6 +718,8 @@ export function createLiveCoordinatorConversationGateway(
       ...(input.beforeId === undefined ? {} : { beforeId: input.beforeId }),
     }, (body, status) => parseCoordinatorHistoryResult(body, input, status), signal),
     runs: (input, signal) => request('runs', { sessionId: input.sessionId, projectId: input.projectId },
+      parseCoordinatorRunsResult, signal),
+    cancelRun: (input, signal) => request('runs/cancel', { sessionId: input.sessionId, projectId: input.projectId, goalId: input.goalId },
       parseCoordinatorRunsResult, signal),
     message: (input, signal) => request('message', {
       sessionId: input.sessionId,

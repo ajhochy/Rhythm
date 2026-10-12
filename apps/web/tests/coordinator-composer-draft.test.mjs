@@ -72,10 +72,6 @@ new Function('require', 'module', 'exports', ts.transpileModule(composerSource, 
 );
 
 const cardSource = await readFile(new URL('../src/components/CoordinatorConversationCard.tsx', import.meta.url), 'utf8');
-const runViewModule = { exports: {} };
-new Function('require', 'module', 'exports', ts.transpileModule(await readFile(new URL('../src/components/managed-run-view.ts', import.meta.url), 'utf8'), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-}).outputText)(() => { throw new Error('managed-run-view has no imports'); }, runViewModule, runViewModule.exports);
 const cardModule = { exports: {} };
 new Function('require', 'module', 'exports', ts.transpileModule(cardSource, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
@@ -84,7 +80,6 @@ new Function('require', 'module', 'exports', ts.transpileModule(cardSource, {
     if (id === 'react') return React;
     if (id === 'react/jsx-runtime') return requireFromMobile('react/jsx-runtime');
     if (id.endsWith('.css')) return {};
-    if (id === './managed-run-view') return runViewModule.exports;
     throw new Error('Unexpected coordinator card test import: ' + id);
   },
   cardModule,
@@ -178,80 +173,49 @@ test('an ordinary SDK-less error session remains disabled without coordinator au
   await act(async () => { tree.unmount(); });
 });
 
-test('the rendered desktop coordinator card keeps details collapsed while surfacing holds without opaque workstream IDs', async () => {
-  const availability = { state: 'available' };
+test('the Details → Runs panel lists each coding run and goals waiting to start, with no planning form', async () => {
+  // Regressions caught: a run without its status/branch/tokens, a started goal
+  // listed again as waiting, or the retired "Plan this goal" form coming back.
+  const run = (goalId, status, branch, totalTokens, reported) => ({
+    goalId, objective: `fix ${goalId}`, repoPath: '/repo', childSessionId: `child-${goalId}`, worktreePath: '/wt', branch,
+    status, reported, usage: { totalTokens, inputTokens: 0, outputTokens: 0, cost: 0 },
+  });
+  const goals = ['a', 'b', 'c'].map((id) => ({ id, commandKey: id, objective: `fix ${id}`, state: 'captured', linkedWorkstreamId: null, revision: 1 }));
   const state = {
-    enabled: true,
-    phase: 'ready',
-    conversation: { schemaVersion: 1, id: 'conversation', sessionId: 'root', projectId: 'project', controlRevision: 1, goals: [] },
-    context: {
-      timeZone: 'America/Los_Angeles', asOf: '2026-10-05T00:00:00Z', today: '2026-10-05', yesterday: '2026-10-04',
-      availability: { tasks: availability, schedules: availability, workstreams: availability, receipts: availability, manualActivity: availability },
-      todayTasks: [], waitingForReply: [], doneWithUnknownCompletionDate: [], scheduledPriorities: [],
-      activeWorkstreams: [{ id: 'opaque-workstream-id', state: 'running' }],
-      executionSucceededGoalUnverified: [], staleExecutions: [], verifiedYesterday: [], receipts: [],
-      usageHolds: [{ id: 'hold-1', workstreamId: 'opaque-workstream-id', jobId: 'job-1', actualUsage: { state: 'unknown' } }],
-    },
+    enabled: true, phase: 'ready',
+    conversation: { schemaVersion: 4, id: 'conversation', sessionId: 'root', projectId: 'project', controlRevision: 1, primaryOwnerRoot: true, goals },
+    runs: [run('a', 'finished', 'opencode/goal-a', 78830, true), run('b', 'needs_you', 'opencode/goal-b', 1200, false)],
   };
+  const opened = [];
   let tree;
   await act(async () => {
     tree = create(React.createElement(cardModule.exports.CoordinatorConversationCard, {
       state, onRefresh: blank, onRetry: blank, onReviewConflict: blank,
-      onBeginNewMessageAfterReview: blank, onReturnToNormal: blank, onInspectWorkstream: blank,
+      onBeginNewMessageAfterReview: blank, onReturnToNormal: blank,
+      onOpenRun: (id) => opened.push(id), onCancelRun: async () => true,
     }));
   });
-  const details = tree.root.findByType('details');
-  assert.equal(details.props.open, false);
   const text = JSON.stringify(tree.toJSON());
-  assert.match(text, /Unknown usage — hold needs review/);
-  assert.doesNotMatch(text, /opaque-workstream-id/);
-  await act(async () => { details.props.onToggle({ currentTarget: { open: true } }); });
-  assert.equal(tree.root.findByType('details').props.open, true);
+  assert.match(text, /Finished/);
+  assert.match(text, /opencode\/goal-a · 78,830 tokens · reported in chat/);
+  assert.match(text, /Needs you/);
+  assert.match(text, /Waiting to start/);
+  assert.equal(tree.root.findByProps({ 'aria-label': 'Goals waiting to start' }).findAllByType('li').length, 1);
+  assert.doesNotMatch(text, /Plan this goal/);
+  // A waiting run says so and opens its own session; only active runs can be stopped.
+  assert.match(text, /Needs you — open to answer/);
+  assert.equal(tree.root.findAllByProps({ 'data-testid': 'coordinator-run-stop' }).length, 1);
+  await act(async () => { tree.root.findAllByProps({ 'data-testid': 'coordinator-run-open' })[0].props.onClick(); });
+  assert.deepEqual(opened, ['child-b']);
+  // Stop asks inline (no native dialog) before cancelling.
+  const cancelled = [];
+  await act(async () => { tree.update(React.createElement(cardModule.exports.CoordinatorConversationCard, {
+    state, onRefresh: blank, onRetry: blank, onReviewConflict: blank, onBeginNewMessageAfterReview: blank, onReturnToNormal: blank,
+    onOpenRun: blank, onCancelRun: async (goalId) => { cancelled.push(goalId); return true; },
+  })); });
+  await act(async () => { tree.root.findByProps({ 'data-testid': 'coordinator-run-stop' }).props.onClick(); });
+  assert.deepEqual(cancelled, []);
+  await act(async () => { tree.root.findByProps({ 'data-testid': 'coordinator-run-stop-confirm' }).props.onClick(); });
+  assert.deepEqual(cancelled, ['b']);
   await act(async () => { tree.unmount(); });
-});
-
-test('the rendered desktop coordinator card exposes finite actions only for a schema v3 server root', async () => {
-  const goal = {
-    id: 'goal-a', commandKey: 'goal-command-a', objective: 'Prepare a finite plan',
-    state: 'captured', linkedWorkstreamId: null, revision: 1,
-  };
-  const shared = {
-    enabled: true,
-    phase: 'ready',
-    conversation: {
-      id: 'conversation', sessionId: 'root', projectId: 'project', controlRevision: 1,
-      primaryOwnerRoot: true, ownerUserId: 7, commandDedupe: [], goals: [goal],
-      continuations: [{
-        authorizationId: 'authority-a', goalId: 'goal-a', workstreamId: 'workstream-a',
-        status: 'consumed', maxTurns: 2, consumedTurns: 1, expiresAt: '2026-10-05T12:00:00Z',
-      }],
-    },
-  };
-  const props = {
-    onRefresh: blank, onRetry: blank, onReviewConflict: blank,
-    onBeginNewMessageAfterReview: blank, onReturnToNormal: blank, onInspectWorkstream: blank,
-    onPreparePlan: blank, onContinuePlan: blank,
-  };
-  let current;
-  await act(async () => {
-    current = create(React.createElement(cardModule.exports.CoordinatorConversationCard, {
-      ...props,
-      state: { ...shared, conversation: { ...shared.conversation, schemaVersion: 3 } },
-    }));
-  });
-  const currentText = JSON.stringify(current.toJSON());
-  assert.match(currentText, /Plan this goal/);
-  assert.match(currentText, /Continue managed work/);
-
-  let legacy;
-  await act(async () => {
-    legacy = create(React.createElement(cardModule.exports.CoordinatorConversationCard, {
-      ...props,
-      state: { ...shared, conversation: { ...shared.conversation, schemaVersion: 2 } },
-    }));
-  });
-  const legacyText = JSON.stringify(legacy.toJSON());
-  assert.doesNotMatch(legacyText, /Plan this goal/);
-  assert.doesNotMatch(legacyText, /Continue managed work/);
-  await act(async () => { current.unmount(); legacy.unmount(); });
 });

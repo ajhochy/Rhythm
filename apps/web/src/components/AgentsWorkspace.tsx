@@ -812,23 +812,21 @@ export function AgentsWorkspace() {
           </div>
         </header>
         <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="agent-activity-status">{activityAnnouncement}</span>
-        <div className="transcript-reader"><Transcript coordinatorTranscript={coordinatorTranscript} coordinatorStatus={coordinatorScope ? <CoordinatorConversationCard
-          state={coordinator.state}
-          onRefresh={() => { void coordinator.refresh(); }}
-          onRetry={() => { void coordinator.retry(); }}
-          onRetryPlan={() => { void coordinator.retryPlan(); }}
-          onPreparePlan={(goalId, consent) => { void coordinator.preparePlan(goalId, consent); }}
-          onContinuePlan={(goalId, authorizationId) => { void coordinator.continuePlan(goalId, authorizationId); }}
-          onReviewConflict={() => { void coordinator.reviewConflict(); }}
-          onBeginNewMessageAfterReview={coordinator.beginNewMessageAfterReview}
-          onReturnToNormal={coordinator.returnToNormal}
-          onInspectWorkstream={() => setWorkstreamsOpen(true)}
-        /> : undefined} /></div>
+        <div className="transcript-reader"><Transcript coordinatorTranscript={coordinatorTranscript} /></div>
         {!liveChildView && <Composer renderSecondaryChatActions={secondaryChatActions} coordinator={coordinatorScope ? { active: coordinator.state.enabled, onSend: coordinator.send } : undefined} />}
         </>}
       </section>
       {!inspectorCollapsed && <Splitter orientation="vertical" storageKey="layout.agents.inspector" min={286} max={470} defaultSize={336} onResize={resizeInspector} ariaLabel="Resize Inspector" resizeEdge="end" className="inspector-resize" testId="inspector-resizer" />}
-      {selectedProject ? <aside className={`inspector${inspectorCollapsed ? ' collapsed' : ''}`} aria-label="Project context" /> : <Inspector collapsed={inspectorCollapsed} onToggle={toggleInspector} />}
+      {selectedProject ? <aside className={`inspector${inspectorCollapsed ? ' collapsed' : ''}`} aria-label="Project context" /> : <Inspector collapsed={inspectorCollapsed} onToggle={toggleInspector} runs={coordinatorScope && coordinator.state.enabled ? <CoordinatorConversationCard
+        state={coordinator.state}
+        onRefresh={() => { void coordinator.refresh(); }}
+        onRetry={() => { void coordinator.retry(); }}
+        onReviewConflict={() => { void coordinator.reviewConflict(); }}
+        onBeginNewMessageAfterReview={coordinator.beginNewMessageAfterReview}
+        onReturnToNormal={coordinator.returnToNormal}
+        onOpenRun={(childSessionId) => { void selectLiveSession(childSessionId); }}
+        onCancelRun={coordinator.cancelRun}
+      /> : undefined} />}
       <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="panel-resize-status">{resizeAnnouncement}</span>
 
       <FocusDialog open={sessionSettings} onClose={() => setSessionSettings(false)} title="Session settings" description="Update the fields supported by PATCH /agent-sessions/:id." testId="session-settings-dialog" wide returnFocusTo={chatMenuTriggerRef.current}>

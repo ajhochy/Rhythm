@@ -764,12 +764,13 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
         // c4c: the wire frame is {v:1,type:'notification.push',id,title,body} — `id` here is a
         // numeric WS-broadcast id, not the string session id the shared SessionWireEvent type
         // declares, so it is read through an unchecked cast rather than widening that field.
-        const push = event as unknown as { id?: number; title?: string; body?: string };
+        const push = event as unknown as { id?: number; title?: string; body?: string; sessionId?: string };
         if (typeof push.id === 'number' && typeof push.title === 'string' && typeof push.body === 'string' && !pushSeenIdsRef.current.has(push.id)) {
           pushSeenIdsRef.current.add(push.id);
           const { id, title, body } = push as { id: number; title: string; body: string };
           setPushNotifications((current) => [{ id, title, body }, ...current]);
-          emitAgentNotification({ v: 1, type: 'push', id, title, body }, live);
+          // A "waiting on you" notice already has its own clickable banner (the ask event).
+          if (!push.sessionId) emitAgentNotification({ v: 1, type: 'push', id, title, body }, live);
         }
       }
     };
