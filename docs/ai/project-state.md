@@ -1,30 +1,29 @@
 # Rhythm — project state
 
-**Focus:** Deliverables repair (Coordinator coding workflow, workflow skills, Router/Memory/Dayflow, routing UI).
-**Branch:** `codex/rhythm-deliverables-completion-20261010` (pushed) · no PR open.
-**Installed:** `/Applications/Rhythm.app` = 0.18.74 (source 03a07ad0, CI qualification-only build, signed/notarized),
-installed as the regular app at AJ's request on 2026-10-12. Previous 0.18.67 is in the Trash.
+## Current focus
+Coordinator tracks multiple runs of the existing coding workflow (workflow-orchestrator) from one chat;
+bounded coding layer retired. Plan: [plans/2026-10-12-coordinator-workflow-runs.md](plans/2026-10-12-coordinator-workflow-runs.md).
 
-## Demonstrated (isolated qualification candidates 0.18.71 / 0.18.73)
-- Contract c1–c11, c13–c15 PASS on 0.18.71 (fresh fixture); c12 (completed-before-delivery recovery,
-  duplicates → one worker/result/wake) PASS on 0.18.73 after a real coding run + in-app runtime restart.
-- Full chain from an ordinary chat request: goal → card → approve (agent-clicked per AJ) → 1 manager →
-  1 worker → edit → protected evaluator 7/7 → held → restart → delivered once to the original chat.
-- Engine/API data, config, plugin list and logs isolated (lsof-verified); user's opencode.json untouched.
-- Catalog refresh after OpenAI sign-in without relaunch; Grid routing UI edits persist across restart.
+## Active branch / PR
+`feature/coordinator-workflow-runs` (from `codex/rhythm-deliverables-completion-20261010` @ ff0e8c84) — draft PR,
+awaiting AJ's manual smoke. Never merge without AJ.
+Installed app: `/Applications/Rhythm.app` 0.18.74 (unchanged; does not contain this branch).
 
-## Direction change (AJ, 2026-10-12)
-AJ considers the bounded coding layer (signed proposals, grants, fixed fixture workspace, Docker evaluator)
-over-built. Intended product: one coordinator agent that starts and tracks multiple runs of the EXISTING coding
-workflow (workflow-orchestrator → coding-agent → verification-gate), with verification as a workflow step.
-Next: make the coordinator delegate straight to the existing workflow per goal, track runs via existing
-async-delegation/workstream records, and retire or bypass `coordinator_coding_execution_v1`. Awaiting AJ's go.
+## In progress
+Manual smoke by AJ (checklist in the PR). Run log: [runs/2026-10-12-coordinator-workflow-runs.md](runs/2026-10-12-coordinator-workflow-runs.md).
 
-## Risks / open
-- Bounded path handles only the selectTasks fixture (see decisions/2026-10-11-workflow-rule-enforcement-map.md).
-- Human-click approval on a full delivered run not demonstrated (agent clicked, per AJ).
+## Risks / known issues
+- Coordinator runs use bypassPermissions confined to their worktree (`external_directory: deny`); a goal must name
+  the repo by absolute path.
+- First coordinator message right after a runtime restart can return `foreground_uncertain` (engine warm-up vs 2 s
+  prompt-anchor timeout); the card's Retry only replays it.
+- Not run: Electron packaged smoke; one web test needing `apps/mobile` React; `sandbox_attached_transport_contract_test.mjs`.
+- Fork still carries the schema-2 provider-guard protocol of the retired typed adapter.
 - 3,795 historical NULL-owner sessions not backfilled; 8 pre-existing FK orphans in agent_session_messages.
-- Test goals and decided approval cards remain in the live Coordinator journal (journal-integrity; not removed).
 
 ## Test status
-api_server full suite: 28 failures in 12 files, all identical on pre-change source a426383e.
+api_server full suite: 29 failed / 20 files, all pre-existing (baseline ff0e8c84: 31 / 21); mcp_server 224/224;
+contract + coordinator tests 98/98; live sandbox demo + `coordinator_workflow_runs_live.test.ts` passed.
+
+## Next step
+AJ manual smoke against the sandbox (or a qualification build), then decide merge; follow-ups listed in the run log.

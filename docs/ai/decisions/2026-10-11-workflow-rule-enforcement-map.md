@@ -3,6 +3,9 @@ tags: [decision, rhythm]
 ---
 # Which workflow rules are enforced vs prompt-only
 
+> Superseded 2026-10-12: the bounded coordinator coding path described here was removed — see
+> [2026-10-12-coordinator-runs-over-existing-workflow](2026-10-12-coordinator-runs-over-existing-workflow.md).
+
 ## Context
 The brief requires separating engine/server-enforced safeguards from prompt instructions. The six rules live as prompt text in config_seeds/skills/{workflow-orchestrator,acceptance-contract,coding-agent,verification-gate}.
 
