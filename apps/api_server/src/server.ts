@@ -1557,6 +1557,10 @@ async function main() {
       } catch (e) {
         logger.warn(`[server] Claude auto-bridge errored (non-fatal): ${String(e)}`);
       }
+      } // private qualification boot never bridges the user's Claude Code / Keychain credentials
+      // OpenAI accounts and the auth.json watcher below touch only the engine's own
+      // data dir, which qualification isolates (XDG_DATA_HOME), so they run there too:
+      // without them a fixture sign-in never reached its engine or the router catalog.
 
       // Multi-account OpenAI (ChatGPT/Codex OAuth) — same store model as the
       // Anthropic block above. First run imports the engine's existing single
@@ -1604,7 +1608,6 @@ async function main() {
           `[server] auth credential watcher failed to start (non-fatal): ${String(err)}`,
         );
       }
-      } // private qualification boot never migrates, refreshes or mirrors live credentials
     })
     .catch((err) => {
       console.warn('[Opencode] SDK init failed (non-fatal):', err);
