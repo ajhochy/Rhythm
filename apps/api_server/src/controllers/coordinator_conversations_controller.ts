@@ -83,6 +83,15 @@ export class CoordinatorConversationsController {
     } catch (error) { next(error); }
   }
 
+  async cancelRun(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { goalId, ...conversation } = (req.body ?? {}) as { goalId?: unknown } & Record<string, unknown>;
+      if (typeof goalId !== 'string' || goalId.length === 0 || goalId.length > 256) throw AppError.badRequest('goalId is required');
+      const result = await this.service.cancelRun(actor(req), { ...parseCoordinatorConversationOpen(conversation), goalId });
+      res.status(coordinatorConversationResponseStatus(result.kind)).json(result);
+    } catch (error) { next(error); }
+  }
+
   async runs(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const result = await this.service.runs(actor(req), parseCoordinatorConversationOpen(req.body));

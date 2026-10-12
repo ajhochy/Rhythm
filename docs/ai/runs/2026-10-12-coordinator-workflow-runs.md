@@ -58,3 +58,19 @@ Stale engines shadowing the fresh build were renamed `*.stale-20261011` (gitigno
 - Fork-side schema-2 provider-guard protocol for the retired typed adapter remains in `apps/opencode_fork`.
 - One web test (needs `apps/mobile` React) and `sandbox_attached_transport_contract_test.mjs` not run.
 - Electron packaged smoke not run.
+
+## Follow-up (same day, AJ feedback): Runs tab, actions, notifications
+- The coordination card no longer sits in the transcript (it hid the chat). It is a **Runs** tab in Details
+  (shown only in a Rhythm Coordinator chat): coding runs newest first, goals waiting to start, recovery
+  buttons only when a message is stuck. "Plan this goal", the planning form and context dump were removed
+  from the UI (the finite-plan controller/route remain; no UI entry).
+- Card actions: click a run → opens its own session (watch it / answer it); "Needs you — open to answer";
+  Stop → inline confirm → `POST /coordinator-conversations/runs/cancel` cancels the delegation (no report),
+  aborts the whole run tree and withdraws its pending requests (cards/"!"/banners clear). Status "Stopped".
+- Notifications: a background session (run or its specialist) that starts waiting on the user pushes one
+  bell notice ("Rhythm needs you") tagged with the session; the renderer skips a second macOS banner for it
+  because Electron already raises the clickable per-request banner. Root chats get no bell entry.
+- Live (sandbox): Runs tab, open-run, needs-you → question card in the run session, bell notice, UI Stop with
+  inline confirm → Stopped, no report, sidebar mark cleared. macOS banner path is Electron-only (unchanged
+  code) and was not exercised in the browser. Evidence: evidence/2026-10-12-runs-tab-needs-you-stop.jpg.
+- Checks: api/mcp/web tsc clean; api_server full suite 28 failed vs 31 baseline, no new failures.

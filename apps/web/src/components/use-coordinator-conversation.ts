@@ -278,6 +278,21 @@ export class CoordinatorConversationController {
     private readonly journal: CoordinatorConversationJournal = createCoordinatorConversationJournal(),
   ) {}
 
+  /** Stop one run; the server cancels its delegation and aborts its sessions. */
+  async cancelRun(scope: CoordinatorConversationScope, goalId: string): Promise<boolean> {
+    const key = coordinatorScopeKey(scope);
+    const gateway = this.gatewayFor();
+    if (!gateway?.cancelRun || key !== this.activeKey || !this.records.get(key)?.enabled) return false;
+    try {
+      const runs = await gateway.cancelRun({ sessionId: scope.sessionId, projectId: scope.projectId, goalId });
+      if (this.activeKey === key) this.update(key, (next) => { next.runs = runs; });
+      return true;
+    } catch {
+      await this.reconcileRuns(scope);
+      return false;
+    }
+  }
+
   /** Re-read the coding runs started from this conversation's goals. */
   async reconcileRuns(scope: CoordinatorConversationScope): Promise<boolean> {
     const key = coordinatorScopeKey(scope);
@@ -1323,6 +1338,10 @@ export function useCoordinatorConversation(
     const timer = setInterval(poll, 10_000);
     return () => clearInterval(timer);
   }, [controller, key, enabled]);
+  const cancelRun = useCallback((goalId: string) => {
+    const requestedScope = scopeRef.current;
+    return requestedScope ? controller.cancelRun(requestedScope, goalId) : Promise.resolve(false);
+  }, [controller]);
   return useMemo(() => ({
     state,
     open,
@@ -1336,5 +1355,6 @@ export function useCoordinatorConversation(
     reviewConflict,
     beginNewMessageAfterReview,
     returnToNormal,
-  }), [beginNewMessageAfterReview, continuePlan, loadOlderHistory, open, preparePlan, refresh, retry, retryPlan, reviewConflict, returnToNormal, send, state]);
+    cancelRun,
+  }), [cancelRun, beginNewMessageAfterReview, continuePlan, loadOlderHistory, open, preparePlan, refresh, retry, retryPlan, reviewConflict, returnToNormal, send, state]);
 }

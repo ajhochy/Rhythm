@@ -8,7 +8,7 @@ export type SessionStatus =
 
 export type SessionScope = 'chats' | 'scheduled' | 'background';
 export type SessionGroup = 'active' | 'resumable' | 'archived';
-export type InspectorTab = 'context' | 'changes' | 'terminal' | 'files' | 'artifacts';
+export type InspectorTab = 'context' | 'changes' | 'terminal' | 'files' | 'artifacts' | 'runs';
 export type Theme = 'light' | 'dark';
 export type DemoState =
   | 'running'

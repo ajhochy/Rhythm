@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { goalRepoPath } from './coordinator_goal_repo';
-import { listCoordinatorGoalRuns, liveGitBranch, type CoordinatorGoalRun } from './coordinator_goal_runs';
+import { cancelCoordinatorGoalRun, listCoordinatorGoalRuns, liveGitBranch, type CoordinatorGoalRun } from './coordinator_goal_runs';
 
 import {
   MAX_COORDINATOR_GOAL_CHARS,
@@ -812,6 +812,17 @@ export class CoordinatorConversationService {
    * refresh a workstream. A current authenticated owner/project proof is
    * required before the local session id can be used as a transcript selector.
    */
+  /** Stop one run this conversation started, then return the current run list. */
+  async cancelRun(
+    actor: ConversationActor,
+    request: CoordinatorConversationOpenRequest & { goalId: string },
+  ): Promise<{ kind: 'runs'; runs: CoordinatorGoalRun[] } | { kind: 'not_found' } | ReadFailure> {
+    const requestScope = this.currentActorScope(actor, request);
+    if (!requestScope) return { kind: 'not_found' };
+    if (!(await cancelCoordinatorGoalRun(this.repository, requestScope, request.goalId))) return { kind: 'not_found' };
+    return this.runs(actor, request);
+  }
+
   /** Coding runs started from this conversation's goals, with server-side status and usage. */
   async runs(
     actor: ConversationActor,

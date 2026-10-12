@@ -82,8 +82,8 @@ function FocusDialog({ open, children, testId }) {
   return open ? React.createElement('section', { 'data-testid': testId }, children) : null;
 }
 
-function Transcript({ coordinatorStatus, coordinatorTranscript }) {
-  return React.createElement('div', null, coordinatorStatus,
+function Transcript({ coordinatorTranscript }) {
+  return React.createElement('div', null,
     coordinatorTranscript?.messages?.map((message) => React.createElement('p', { key: message.id }, message.rawText)));
 }
 
@@ -142,7 +142,7 @@ const imports = {
   '../store': { emptyLiveProfile: () => ({ id: '', label: 'Profile', icon: 'AG' }), useFixtures },
   './Composer': { Composer },
   './FocusDialog': { FocusDialog },
-  './Inspector': { Inspector: () => null },
+  './Inspector': { Inspector: ({ runs }) => runs ?? null },
   './Profiles': { ProfileAvatar: () => null },
   './RemoteComputers': { RemoteComputers: () => null },
   './SessionRail': { SessionRail },

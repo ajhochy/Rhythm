@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from '../icons';
 import { useGateway } from '../gateway/context';
 import { useAuthUser } from '../gateway/auth';
@@ -15,7 +15,10 @@ import type { PtyGateway } from '../gateway/pty';
 import '@xterm/xterm/css/xterm.css';
 import './terminal.css';
 
-const tabs: { id: InspectorTab; label: string; icon: 'activity' | 'diff' | 'terminal' | 'file' | 'artifact' }[] = [
+type InspectorTabSpec = { id: InspectorTab; label: string; icon: 'activity' | 'diff' | 'terminal' | 'file' | 'artifact' | 'branch' };
+/** Shown only in a Rhythm Coordinator chat: the coding runs it started. */
+const runsTab: InspectorTabSpec = { id: 'runs', label: 'Runs', icon: 'branch' };
+const baseTabs: InspectorTabSpec[] = [
   { id: 'context', label: 'Context', icon: 'activity' }, { id: 'changes', label: 'Changes', icon: 'diff' }, { id: 'terminal', label: 'Terminal', icon: 'terminal' }, { id: 'files', label: 'Files', icon: 'file' }, { id: 'artifacts', label: 'Artifacts', icon: 'artifact' },
 ];
 
@@ -728,8 +731,11 @@ function ArtifactsPanel({ trace, setTrace }: { trace: InspectorTrace | null; set
   </section>;
 }
 
-export function Inspector({ collapsed, onToggle }: { collapsed: boolean; onToggle(): void }) {
-  const { inspectorTab, setInspectorTab, todos, selected, sessionGatewayMode } = useFixtures();
+export function Inspector({ collapsed, onToggle, runs }: { collapsed: boolean; onToggle(): void; runs?: ReactNode }) {
+  const { inspectorTab: storedTab, setInspectorTab, todos, selected, sessionGatewayMode } = useFixtures();
+  const tabs = runs ? [runsTab, ...baseTabs] : baseTabs;
+  // A chat without coding runs falls back to Context when Runs was last selected.
+  const inspectorTab = tabs.some((tab) => tab.id === storedTab) ? storedTab : 'context';
   const actorId = useAuthUser()?.user.id;
   const identityKey = `${actorId ?? 'anonymous'}:${selected.id}`;
   const terminals = useRef(new Map<string, LocalTerminal>()).current;
@@ -752,7 +758,7 @@ export function Inspector({ collapsed, onToggle }: { collapsed: boolean; onToggl
   const pty = ptySessions[selected.id] ?? { id: `pty-${selected.id}`, status: 'connected' as const, output: ['$ pwd', selected.cwd] };
   const updatePty = (next: PtyFixture) => setPtySessions((current) => ({ ...current, [selected.id]: next }));
   const live = sessionGatewayMode === 'live';
-  const panel = inspectorTab === 'context' ? <ContextPanel key={identityKey} /> : inspectorTab === 'changes' ? (live ? <LiveChangesPanel /> : <ChangesPanel trace={trace} setTrace={setTrace} />) : inspectorTab === 'terminal' ? <TerminalPanel pty={pty} updatePty={updatePty} trace={trace} setTrace={setTrace} live={live} terminals={terminals} /> : inspectorTab === 'files' ? (live ? <LiveFilesPanel /> : <FilesPanel trace={trace} setTrace={setTrace} />) : live ? <LiveResources key={identityKey} sessionId={selected.id} /> : <ArtifactsPanel trace={trace} setTrace={setTrace} />;
+  const panel = inspectorTab === 'runs' ? runs : inspectorTab === 'context' ? <ContextPanel key={identityKey} /> : inspectorTab === 'changes' ? (live ? <LiveChangesPanel /> : <ChangesPanel trace={trace} setTrace={setTrace} />) : inspectorTab === 'terminal' ? <TerminalPanel pty={pty} updatePty={updatePty} trace={trace} setTrace={setTrace} live={live} terminals={terminals} /> : inspectorTab === 'files' ? (live ? <LiveFilesPanel /> : <FilesPanel trace={trace} setTrace={setTrace} />) : live ? <LiveResources key={identityKey} sessionId={selected.id} /> : <ArtifactsPanel trace={trace} setTrace={setTrace} />;
   const moveTab = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
     event.preventDefault();
@@ -765,7 +771,7 @@ export function Inspector({ collapsed, onToggle }: { collapsed: boolean; onToggl
   return <aside id="session-inspector" className="inspector" aria-label="Session inspector" data-od-id="session-inspector">
     <header className="inspector-header"><div role="tablist" aria-label="Inspector views" onKeyDown={moveTab}>{tabs.map((tab) => <button role="tab" aria-selected={inspectorTab === tab.id} tabIndex={inspectorTab === tab.id ? 0 : -1} type="button" key={tab.id} onClick={() => { setInspectorTab(tab.id); setTrace(null); }} data-testid={`inspector-${tab.id}`}><Icon name={tab.icon} size={15} /><span>{tab.label}</span></button>)}</div><button ref={collapseControl} className="icon-button small" type="button" onClick={onToggle} aria-label="Collapse Inspector" data-testid="inspector-collapse"><Icon name="collapse" size={16} /></button></header>
     {/* ponytail: gate mounting, not just requests, so every session panel drops stale state. */}
-    <div className="inspector-content" role="region" aria-label={`${tabs.find((tab) => tab.id === inspectorTab)?.label ?? 'Session'} inspector content`} tabIndex={0} data-testid="inspector-content">{live && <SharedWithMePanel />}{selected.id ? panel : <p className="inspector-empty" role="status">Select a session to inspect its details.</p>}</div>
+    <div className="inspector-content" role="region" aria-label={`${tabs.find((tab) => tab.id === inspectorTab)?.label ?? 'Session'} inspector content`} tabIndex={0} data-testid="inspector-content">{live && inspectorTab !== 'runs' && <SharedWithMePanel />}{selected.id ? panel : <p className="inspector-empty" role="status">Select a session to inspect its details.</p>}</div>
     {selected.id && (live ? <LiveTodos key={identityKey} sessionId={selected.id} /> : <footer className={`todo-footer ${todosCollapsed ? 'collapsed' : ''}`}><button className="todo-title" type="button" onClick={() => setCollapsedTodos((current) => ({ ...current, [selected.id]: !current[selected.id] }))} aria-expanded={!todosCollapsed} data-testid="todo-toggle"><span><Icon name="todo" size={15} /><strong>Session plan</strong></span><small>{todos.filter((todo) => todo.done).length}/{todos.length}</small></button>{!todosCollapsed && <div>{todos.map((todo) => <label key={todo.id}><input type="checkbox" checked={todo.done} disabled readOnly data-testid={`todo-${todo.id}`} /><span>{todo.label}</span></label>)}</div>}</footer>)}
   </aside>;
 }
