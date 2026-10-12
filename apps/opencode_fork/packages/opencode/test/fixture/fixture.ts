@@ -76,39 +76,47 @@ type TmpDirOptions<T> = {
 }
 export async function tmpdir<T>(options?: TmpDirOptions<T>) {
   const dirpath = sanitizePath(path.join(os.tmpdir(), "opencode-test-" + Math.random().toString(36).slice(2)))
-  await fs.mkdir(dirpath, { recursive: true })
-  if (options?.git) {
-    await $`git init`.cwd(dirpath).quiet()
-    await $`git config core.fsmonitor false`.cwd(dirpath).quiet()
-    await $`git config commit.gpgsign false`.cwd(dirpath).quiet()
-    await $`git config user.email "test@opencode.test"`.cwd(dirpath).quiet()
-    await $`git config user.name "Test"`.cwd(dirpath).quiet()
-    await $`git commit --allow-empty -m "root commit ${dirpath}"`.cwd(dirpath).quiet()
+  const created = await fs.mkdir(dirpath, { recursive: true })
+  try {
+    if (options?.git) {
+      await $`git init`.cwd(dirpath).quiet()
+      await $`git config core.fsmonitor false`.cwd(dirpath).quiet()
+      await $`git config commit.gpgsign false`.cwd(dirpath).quiet()
+      await $`git config user.email "test@opencode.test"`.cwd(dirpath).quiet()
+      await $`git config user.name "Test"`.cwd(dirpath).quiet()
+      await $`git commit --allow-empty -m "root commit ${dirpath}"`.cwd(dirpath).quiet()
+    }
+    if (options?.config) {
+      await Bun.write(
+        path.join(dirpath, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          ...options.config,
+        }),
+      )
+    }
+    const realpath = sanitizePath(await fs.realpath(dirpath))
+    const extra = await options?.init?.(realpath)
+    const result = {
+      [Symbol.asyncDispose]: async () => {
+        try {
+          await options?.dispose?.(realpath)
+        } finally {
+          if (options?.git) await stop(realpath).catch(() => undefined)
+          await clean(realpath).catch(() => undefined)
+        }
+      },
+      path: realpath,
+      extra: extra as T,
+    }
+    return result
+  } catch (error) {
+    if (created === dirpath) {
+      if (options?.git) await stop(dirpath).catch(() => undefined)
+      await clean(dirpath).catch(() => undefined)
+    }
+    throw error
   }
-  if (options?.config) {
-    await Bun.write(
-      path.join(dirpath, "opencode.json"),
-      JSON.stringify({
-        $schema: "https://opencode.ai/config.json",
-        ...options.config,
-      }),
-    )
-  }
-  const realpath = sanitizePath(await fs.realpath(dirpath))
-  const extra = await options?.init?.(realpath)
-  const result = {
-    [Symbol.asyncDispose]: async () => {
-      try {
-        await options?.dispose?.(realpath)
-      } finally {
-        if (options?.git) await stop(realpath).catch(() => undefined)
-        await clean(realpath).catch(() => undefined)
-      }
-    },
-    path: realpath,
-    extra: extra as T,
-  }
-  return result
 }
 
 /** Effectful scoped tmpdir. Cleaned up when the scope closes. Make sure these stay in sync */

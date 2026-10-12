@@ -9,6 +9,9 @@ import { Identifier } from "@/id/id"
 
 const log = Log.create({ service: "bus" })
 
+/** Published once per streamed token; see the publish() comment below. */
+export const HIGH_FREQUENCY_EVENT_TYPE = "message.part.delta"
+
 type BusProperties<D extends BusEvent.Definition<string, Schema.Top>> = Schema.Schema.Type<D["properties"]>
 
 export const InstanceDisposed = BusEvent.define(
@@ -123,7 +126,11 @@ export const layer = Layer.effect(
       return Effect.gen(function* () {
         const s = yield* InstanceState.get(state)
         const payload: Payload = { id: options?.id ?? createID(), type: def.type, properties }
-        log.info("publishing", { type: def.type })
+        // One line per streamed token: measured 2026-10-06, message.part.delta
+        // was 12,093 of 26,041 log lines (46%) in a single session, every one a
+        // synchronous write on the hot transcript path. Other event types stay
+        // logged — they are per-part or per-message, not per-token.
+        if (def.type !== HIGH_FREQUENCY_EVENT_TYPE) log.info("publishing", { type: def.type })
 
         const ps = s.typed.get(def.type)
         if (ps) yield* PubSub.publish(ps, payload)

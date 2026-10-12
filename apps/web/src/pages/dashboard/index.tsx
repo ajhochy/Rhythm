@@ -405,18 +405,18 @@ function LiveDashboardPage({ route, active = true }: { route: string; active?: b
   const isContentVisible = surfaceState === 'ready';
 
   // Shared with Planner/Tasks (components/quickActions.ts) so the Secretary handoff is one
-  // capability, not three. Available even with an empty summary — there is no task to bind yet,
-  // so the session launches unbound (launchQuickActionSession accepts a null task).
+  // capability, not three. A contextual handoff is unavailable until there is an eligible task;
+  // launching an unbound session would falsely imply that task context reached the model.
   const nextLiveTask: WorkTask | null = summary && !workspaceReadonly
     ? [...summary.tasks.today, ...summary.tasks.thisWeek, ...summary.tasks.pastDue, ...summary.tasks.unscheduled].find(task => openWork(task) && !sourceReadonly(task) && task.sourceType !== 'project_step') ?? null
     : null;
 
   const launchDashboardQuickAction = async (actionId: QuickActionPresetId) => {
-    if (quickActionPending) return;
+    if (quickActionPending || !nextLiveTask) return;
     setQuickActionPending(true);
     try {
       const createFollowUpTask = async (): Promise<QuickActionTaskContext> => {
-        const created = await gateway.createTask({ title: `Follow-up: ${nextLiveTask?.title ?? 'task'}` });
+        const created = await gateway.createTask({ title: `Follow-up: ${nextLiveTask.title}` });
         appendReceipt('POST /tasks {title} → 201');
         await load();
         return { id: created.id, title: created.title };
@@ -424,13 +424,16 @@ function LiveDashboardPage({ route, active = true }: { route: string; active?: b
       await launchQuickActionSession(
         rendererGateway.domains.sessions!,
         actionId,
-        nextLiveTask ? { id: nextLiveTask.id, title: nextLiveTask.title } : null,
+        { id: nextLiveTask.id, title: nextLiveTask.title },
         actionId === 'follow-up-tasks' ? createFollowUpTask : undefined,
       );
-      appendReceipt(`POST /agent-sessions {profileId,mcpRole,cwd,name${nextLiveTask ? ',taskId' : ''}} → 201`);
+      appendReceipt('POST /agent-sessions {profileId,mcpRole,cwd,name,taskId,taskTitle} → 201');
       notify('Secretary session created');
       navigate('/agents');
-    } catch (error) { setErrorMessage(recordError('POST', '/agent-sessions', error)); } finally { setQuickActionPending(false); }
+    } catch (error) {
+      appendReceipt('POST /agent-sessions → blocked before dispatch');
+      setErrorMessage(error instanceof Error ? error.message : 'Agent handoff unavailable');
+    } finally { setQuickActionPending(false); }
   };
 
   const applyTaskStatusToSummary = (changed: WorkTask, nextStatus: LiveTaskStatus) => {
@@ -710,7 +713,7 @@ function LiveDashboardPage({ route, active = true }: { route: string; active?: b
               <section className="work-queue"><div className="list-head"><h2>Unread messages</h2><button className="icon-button" type="button" aria-label="Open messages" onClick={() => navigate('/messages')} data-testid="open-messages">→</button></div>{summary.messages.unreadPreviews.slice(0, 3).map(preview => <button key={preview.threadId} className="thread-preview" type="button" onClick={() => navigate(`/messages/${preview.threadId}`)} data-testid={`unread-preview-thread-${preview.threadId}`}><span><strong>{preview.threadTitle}</strong><small>{preview.senderName}: {preview.preview}</small></span><em>{preview.unreadCount} unread</em></button>)}{!summary.messages.unreadPreviews.length && <p className="empty-copy">No unread threads.</p>}</section>
               <details className="work-queue" data-testid="dashboard-goals"><summary>Goals and rhythms</summary>{summary.goals.items.map(goal => <article key={goal.id} data-testid={`dashboard-goal-${goal.id}`}><strong>{goal.title}</strong><p>{goal.currentValue} / {goal.endValue} {goal.metricType} · {goal.health}</p><progress value={goal.progress} max={1} aria-label={`${goal.title} progress`} /></article>)}{summary.rhythms.items.map(rhythm => <p key={rhythm.id}>{rhythm.title} · {rhythm.completedCount}/{rhythm.totalCount}</p>)}{!summary.goals.items.length && !summary.rhythms.items.length && <p>No active goals or rhythms.</p>}</details>
             </>}
-            <details className="work-queue" data-testid="dashboard-agent-actions"><summary>Agent actions</summary><p>{nextLiveTask ? `Task: ${nextLiveTask.title}` : 'No task selected · starts an unbound session.'}</p><div className="quick-list">{quickActionPresets.map(action => <button key={action.id} className="action-chip" type="button" disabled={quickActionPending || workspaceReadonly} onClick={() => void launchDashboardQuickAction(action.id)} data-testid={`quick-action-${action.id}`}>{action.label}</button>)}</div></details>
+            <details className="work-queue" data-testid="dashboard-agent-actions"><summary>Agent actions</summary><p>{nextLiveTask ? `Task: ${nextLiveTask.title}` : 'No eligible task selected · choose a task in Tasks or Planner first.'}</p><div className="quick-list">{quickActionPresets.map(action => <button key={action.id} className="action-chip" type="button" disabled={quickActionPending || workspaceReadonly || !nextLiveTask} onClick={() => void launchDashboardQuickAction(action.id)} data-testid={`quick-action-${action.id}`}>{action.label}</button>)}</div></details>
           </aside>
         </div>
       </div>

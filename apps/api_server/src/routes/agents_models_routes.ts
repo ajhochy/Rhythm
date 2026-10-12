@@ -3,14 +3,14 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { requireAuth } from '../middleware/auth_middleware';
-import { env } from '../config/env';
+import { env, opencodeConfigFile } from '../config/env';
 import { opencodeClient } from '../services/opencode_engine';
 import {
   PROVIDER_TO_AGENT_KIND,
   PROVIDER_CONNECT_URL,
   ROUTE_FALLBACKS_BY_AGENT,
 } from '../services/agent_model_resolver';
-import { getDb } from '../database/db';
+import { loadModelVisibility } from '../services/model_visibility';
 import {
   eligibleModel,
   probeDeclaredModelInventory,
@@ -62,7 +62,7 @@ function aggregatorLabel(providerId: string): string {
 function loadConfiguredProviders(): Record<string, ConfiguredProvider> {
   try {
     const file = JSON.parse(
-      readFileSync(join(homedir(), '.config/opencode/opencode.json'), 'utf8'),
+      readFileSync(opencodeConfigFile(), 'utf8'),
     ) as { provider?: unknown };
     if (file.provider && typeof file.provider === 'object') {
       return file.provider as Record<string, ConfiguredProvider>;
@@ -71,21 +71,6 @@ function loadConfiguredProviders(): Record<string, ConfiguredProvider> {
     // Configuration is optional while the engine starts.
   }
   return {};
-}
-
-function loadVisibilityMap(): Map<string, boolean> {
-  const visibility = new Map<string, boolean>();
-  try {
-    const rows = getDb().prepare(
-      'SELECT provider, model_id, visible FROM agent_model_visibility',
-    ).all() as { provider: string; model_id: string; visible: number }[];
-    for (const row of rows) {
-      visibility.set(`${row.provider}\0${row.model_id}`, row.visible === 1);
-    }
-  } catch {
-    // Table may not exist on first run.
-  }
-  return visibility;
 }
 
 type FallbackMetadata = {
@@ -189,7 +174,7 @@ export async function listAgentModelCatalog(options?: { includeHidden?: boolean 
     const usage = await getUsageBudget({ cachedOnly: true }).catch(() => null);
     const openAiUsage = usage?.providers.find((entry) => entry.provider === 'openai');
     const geminiUsage = usage?.providers.find((entry) => entry.provider === 'gemini');
-    const visibility = loadVisibilityMap();
+    const visibility = loadModelVisibility();
     const configured = loadConfiguredProviders();
     const metadata = fallbackMetadata();
     const snapshotProviderIds = new Set(snapshot.providers.map((provider) => provider.id));

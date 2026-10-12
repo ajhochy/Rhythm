@@ -6,9 +6,11 @@ type ToolHandler = (args: Record<string, unknown>, extra?: unknown) => Promise<u
 
 class FakeServer {
   registered = new Map<string, ToolHandler>();
+  descriptions = new Map<string, string>();
 
-  tool(name: string, _description: string, _schema: unknown, handler: ToolHandler) {
+  tool(name: string, description: string, _schema: unknown, handler: ToolHandler) {
     this.registered.set(name, handler);
+    this.descriptions.set(name, description);
   }
 }
 
@@ -32,6 +34,8 @@ describe('issue #1123 — rhythm_delegate_async MCP tool', () => {
     );
 
     expect(server.registered.get('rhythm_delegate')).toBeDefined();
+    expect(server.descriptions.get('rhythm_delegation_status')).toContain('direct-caller only');
+    expect(server.descriptions.get('rhythm_delegation_status')).toContain('rhythm_list_sessions');
     const handler = server.registered.get('rhythm_delegate_async');
     expect(handler).toBeDefined();
     vi.stubGlobal(

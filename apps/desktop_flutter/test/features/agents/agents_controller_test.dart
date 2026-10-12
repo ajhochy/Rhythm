@@ -1,6 +1,11 @@
 import 'dart:async';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:rhythm_desktop/app/theme/app_theme.dart';
+import 'package:rhythm_desktop/features/agents/models/agent_model_route.dart';
+import 'package:rhythm_desktop/features/agents/views/_unified_agent_model_picker.dart';
 import 'package:rhythm_desktop/app/core/agents/agent_server_controller.dart';
 import 'package:rhythm_desktop/app/core/errors/app_error.dart';
 import 'package:rhythm_desktop/app/core/notifications/local_notification_service.dart';
@@ -196,9 +201,30 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool? fastMode,
     String? anthropicAccountId,
     String? agentId,
+    String? modelMode,
   }) async {
-    throw UnimplementedError();
+    updateSessionCalls.add((
+      id: id,
+      providerId: providerId,
+      modelId: modelId,
+      modelMode: modelMode,
+    ));
+    final base = _makeSession(id, AgentSessionStatus.idle);
+    return base.copyWith(
+      providerId: providerId,
+      modelId: modelId,
+      modelMode: modelMode,
+    );
   }
+
+  /// Records of updateSession calls (model-mode tests).
+  final List<
+      ({
+        String id,
+        String? providerId,
+        String? modelId,
+        String? modelMode,
+      })> updateSessionCalls = [];
 
   @override
   Future<AgentSession> updateSessionThinkingBudget(
@@ -1710,6 +1736,182 @@ void main() {
       // The session remains in the list until the WS SessionClosedMessage
       // arrives — that is the existing online behaviour.
       expect(localController.sessions, hasLength(1));
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Auto (router) model mode
+  // --------------------------------------------------------------------------
+
+  group('Auto (router) model mode', () {
+    AgentSession sessionWithMode(String id, String? mode) {
+      final now = DateTime.now();
+      return AgentSession.fromJson({
+        'id': id,
+        'agent_id': 'claude-code',
+        'status': 'idle',
+        'cwd': '/tmp',
+        'name': 'S',
+        'providerId': 'anthropic',
+        'modelId': 'claude-sonnet-4-6',
+        if (mode != null) 'modelMode': mode,
+        'createdAt': now.toIso8601String(),
+        'updatedAt': now.toIso8601String(),
+      });
+    }
+
+    test('AgentSession parses modelMode; missing reads as fixed', () {
+      expect(sessionWithMode('a', 'auto').modelMode, 'auto');
+      expect(sessionWithMode('a', 'auto').isAutoModel, isTrue);
+      expect(sessionWithMode('a', 'fixed').modelMode, 'fixed');
+      final legacy = sessionWithMode('a', null);
+      expect(legacy.modelMode, 'fixed');
+      expect(legacy.isAutoModel, isFalse);
+      expect(AgentSession.fromJson(legacy.toJson()).modelMode, 'fixed');
+      expect(sessionWithMode('a', 'auto').toJson()['modelMode'], 'auto');
+    });
+
+    test('setSessionModelAuto PATCHes only modelMode and clears turn override',
+        () async {
+      controller.setTurnOverride(
+        const AgentModelRoute(
+          providerId: 'openai',
+          modelId: 'gpt-5',
+          routeKind: 'direct',
+          label: 'GPT-5',
+        ),
+      );
+      await controller.setSessionModelAuto('s1');
+      expect(fakeRepo.updateSessionCalls.single, (
+        id: 's1',
+        providerId: null,
+        modelId: null,
+        modelMode: 'auto',
+      ));
+      expect(controller.pendingTurnOverride, isNull);
+    });
+
+    test('setSessionModel PATCHes fixed with provider and model', () async {
+      await controller.setSessionModel(
+        's1',
+        const AgentModelRoute(
+          providerId: 'openai',
+          modelId: 'gpt-5',
+          routeKind: 'direct',
+          label: 'GPT-5',
+        ),
+      );
+      expect(fakeRepo.updateSessionCalls.single, (
+        id: 's1',
+        providerId: 'openai',
+        modelId: 'gpt-5',
+        modelMode: 'fixed',
+      ));
+    });
+
+    test('sendInput omits modelOverride for auto sessions, keeps staged one',
+        () async {
+      controller.handleWsMessageForTest(
+        SessionCreatedMessage(session: sessionWithMode('auto-s', 'auto')),
+      );
+      controller.sendInput('auto-s', 'hello\n');
+      var frame = fakeRepo.sentMessages.last;
+      expect(frame.containsKey('modelOverride'), isFalse);
+      expect(frame['modelMode'], 'auto');
+
+      controller.setTurnOverride(
+        const AgentModelRoute(
+          providerId: 'openai',
+          modelId: 'gpt-5',
+          routeKind: 'direct',
+          label: 'GPT-5',
+        ),
+      );
+      controller.sendInput('auto-s', 'again\n');
+      frame = fakeRepo.sentMessages.last;
+      expect(frame['modelOverride'], {
+        'providerId': 'openai',
+        'modelId': 'gpt-5',
+      });
+      expect(controller.pendingTurnOverride, isNull);
+    });
+
+    Future<void> pumpPicker(
+      WidgetTester tester,
+      AgentSession session,
+      _FakeAgentModelsDataSource models,
+    ) async {
+      final c = AgentsController(
+        fakeRepo,
+        _FakeAgentServerController(ready: true, anyAgent: true),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+        modelsDataSource: models,
+      );
+      addTearDown(c.dispose);
+      await c.refreshCatalog();
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AgentsController>.value(
+          value: c,
+          child: MaterialApp(
+            theme: AppTheme.light(),
+            home: Scaffold(
+              body: Center(child: UnifiedAgentModelPicker(session: session)),
+            ),
+          ),
+        ),
+      );
+    }
+
+    late _FakeAgentModelsDataSource models;
+    setUp(() {
+      models = _FakeAgentModelsDataSource()
+        ..catalogToReturn = const [
+          CatalogModelEntry(
+            agent: 'opencode',
+            provider: 'anthropic',
+            modelId: 'claude-sonnet-4-6',
+            displayName: 'Claude Sonnet 4.6',
+            route: 'direct',
+            authorized: true,
+            authProvider: 'anthropic',
+          ),
+        ];
+    });
+
+    testWidgets('picker lists Auto first and shows it selected in auto mode',
+        (tester) async {
+      await pumpPicker(tester, sessionWithMode('s1', 'auto'), models);
+      expect(find.text(autoRouterLabel), findsOneWidget); // pill
+      await tester.tap(find.text(autoRouterLabel));
+      await tester.pumpAndSettle();
+      final autoRow = find.byKey(const ValueKey('model-picker-auto'));
+      expect(autoRow, findsOneWidget);
+      expect(
+        find.descendant(of: autoRow, matching: find.byIcon(Icons.check)),
+        findsOneWidget,
+      );
+      // Auto sits above the first model row.
+      expect(
+        tester.getTopLeft(autoRow).dy,
+        lessThan(tester.getTopLeft(find.text('Claude Sonnet 4.6')).dy),
+      );
+    });
+
+    testWidgets('fixed session: Auto unchecked; tapping Auto PATCHes auto',
+        (tester) async {
+      await pumpPicker(tester, sessionWithMode('s1', 'fixed'), models);
+      await tester.tap(find.text('claude-sonnet-4-6'));
+      await tester.pumpAndSettle();
+      final autoRow = find.byKey(const ValueKey('model-picker-auto'));
+      expect(
+        find.descendant(of: autoRow, matching: find.byIcon(Icons.check)),
+        findsNothing,
+      );
+      await tester.tap(autoRow);
+      await tester.pumpAndSettle();
+      expect(fakeRepo.updateSessionCalls.single.modelMode, 'auto');
+      expect(fakeRepo.updateSessionCalls.single.modelId, isNull);
     });
   });
 }

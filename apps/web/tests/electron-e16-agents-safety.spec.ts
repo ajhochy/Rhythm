@@ -175,9 +175,9 @@ test('composer-drop-c1: real dropped files stay on chat, preview, and use the ex
   });
 });
 
-test('composer-drop-c2: PDF, other binary, and oversized drops retain existing send behavior', async ({ page }) => {
+test('composer-drop-c2: PDF, other binary, and oversized drops retain selected bytes and send behavior', async ({ page }) => {
   // Regression: routing dropped Files around the existing resolver could lose PDF data URLs,
-  // binary file: references, or the pre-send 20 MiB rejection that keeps the file pending.
+  // selected binary bytes, or the pre-send 20 MiB rejection that keeps the file pending.
   const net = await open(page);
   await dispatchComposerFileEvent(page, 'drop', [
     { name: 'document.pdf', type: 'application/pdf', bytes: [37, 80, 68, 70] },
@@ -188,9 +188,11 @@ test('composer-drop-c2: PDF, other binary, and oversized drops retain existing s
     id: a,
     parts: [
       { type: 'file', mime: 'application/pdf', filename: 'document.pdf', url: expect.stringMatching(/^data:application\/pdf;base64,/) },
-      { type: 'file', mime: 'application/octet-stream', filename: 'archive.bin', url: 'file:archive.bin' },
+      { type: 'file', mime: 'application/octet-stream', filename: 'archive.bin', url: expect.stringMatching(/^data:application\/octet-stream;base64,/) },
     ],
   });
+  const binary = net.frames.filter((frame) => frame.type === 'session.input').at(-1)?.parts?.[1];
+  expect([...Buffer.from(binary.url.split(',')[1], 'base64')]).toEqual([0, 1, 2]);
 
   const sentFrames = net.frames.filter((frame) => frame.type === 'session.input').length;
   await dispatchComposerFileEvent(page, 'drop', [

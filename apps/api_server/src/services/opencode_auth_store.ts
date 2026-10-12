@@ -1,3 +1,4 @@
+import { opencodeDataFile } from '../config/env';
 import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -23,7 +24,7 @@ export class OpencodeAuthStore {
 
   constructor(authPath?: string, geminiCredsPath?: string) {
     this.authPath =
-      authPath ?? join(homedir(), '.local', 'share', 'opencode', 'auth.json');
+      authPath ?? opencodeDataFile('auth.json');
     this.geminiCredsPath =
       geminiCredsPath ?? join(homedir(), '.gemini', 'oauth_creds.json');
   }
@@ -36,6 +37,16 @@ export class OpencodeAuthStore {
       providers.push('google');
     }
     return providers;
+  }
+
+  /** Key of an `api`-type auth entry, or null. Never logged or returned to clients. */
+  apiKey(provider: string): string | null {
+    try {
+      const entry = (JSON.parse(readFileSync(this.authPath, 'utf8')) as Record<string, unknown>)?.[provider] as { type?: unknown; key?: unknown } | undefined;
+      return entry?.type === 'api' && typeof entry.key === 'string' && entry.key ? entry.key : null;
+    } catch {
+      return null;
+    }
   }
 
   private readAuthJsonProviders(): string[] {

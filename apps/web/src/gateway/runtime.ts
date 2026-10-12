@@ -30,10 +30,27 @@ export interface RuntimeRestartResult {
   previousBootId: string | null;
 }
 
+export type SessionRetentionMode = 'off' | 'dry-run' | 'on';
+
+/** GET/PUT /system/session-retention on the local API (docs/ai/decisions/2026-09-29-session-db-retention.md). */
+export interface SessionRetentionState {
+  mode: SessionRetentionMode;
+  source: 'env' | 'setting' | 'default';
+  setting: SessionRetentionMode | null;
+  lastReport?: {
+    mode: SessionRetentionMode;
+    finishedAt: string;
+    reclaimableBytes: { engine: number | null; rhythm: number | null };
+    rowsWritten: { engine: number | null; rhythm: number | null };
+  };
+}
+
 export interface RuntimeGateway {
   readonly mode: GatewayMode;
   get(): Promise<RuntimeInfo>;
   restartEngine(): Promise<RuntimeRestartResult>;
+  sessionRetention(): Promise<SessionRetentionState>;
+  setSessionRetention(mode: SessionRetentionMode): Promise<SessionRetentionState>;
 }
 
 export class RuntimeGatewayError extends Error {
@@ -74,5 +91,9 @@ export function createLiveRuntimeGateway(apiBase: string, fetcher: typeof fetch 
     mode: 'live',
     get: () => response<RuntimeInfo>('Load runtime', fetcher(`${apiBase}/opencode/runtime`, { method: 'GET' })),
     restartEngine: () => response<RuntimeRestartResult>('Restart engine', fetcher(`${apiBase}/system/restart-engine`, { method: 'POST' })),
+    sessionRetention: () => response<SessionRetentionState>('Load session cleanup', fetcher(`${apiBase}/system/session-retention`, { method: 'GET' })),
+    setSessionRetention: (mode) => response<SessionRetentionState>('Save session cleanup', fetcher(`${apiBase}/system/session-retention`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }),
+    })),
   };
 }

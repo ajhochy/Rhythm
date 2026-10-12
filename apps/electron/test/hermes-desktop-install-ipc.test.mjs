@@ -21,6 +21,7 @@ async function interactiveRuntime(argv, userData, selectDirectory = async () => 
   const calls = [], windows = [], handlers = new Map(), paths = new Map();
   const processBoundary = Object.assign(new EventEmitter(), {
     argv, env: { RHYTHM_LIVE_API_URL: 'http://127.0.0.1:4098', RHYTHM_LIVE_ENGINE_URL: 'http://127.0.0.1:4097', ...(userData ? { RHYTHM_SHELL_USER_DATA: userData } : {}) },
+    resourcesPath: '/fixture/Resources', arch: 'arm64',
     cwd: () => '/fixture', stderr: { write: (message) => calls.push(message) }, versions: { electron: '40.10.2' },
   });
   const app = Object.assign(new EventEmitter(), {
@@ -31,8 +32,8 @@ async function interactiveRuntime(argv, userData, selectDirectory = async () => 
   class Server {
     onStatusChange() {} async start() {} async restart() { return { ok: true }; } async stopGracefully() {} async stopForQuit() {}
   }
-  class Window {
-    constructor(options) {
+  class Window extends EventEmitter {
+    constructor(options) { super();
       this.options = options; windows.push(this);
       this.webContents = Object.assign(new EventEmitter(), { mainFrame: { url: 'rhythm://app/index.html#/hermes' }, isDestroyed: () => false, send() {}, setWindowOpenHandler() {}, executeJavaScript: async () => {} });
     }
@@ -42,7 +43,7 @@ async function interactiveRuntime(argv, userData, selectDirectory = async () => 
   }
   const file = new URL('../src/main.mjs', import.meta.url);
   const context = createContext({ process: processBoundary, URL, Response, console });
-  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
+  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.url = file.href; meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
     let values;
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showOpenDialog: selectDirectory, showErrorBox: () => {}, showMessageBox: async () => ({ response: 1 }) } };
@@ -53,7 +54,8 @@ async function interactiveRuntime(argv, userData, selectDirectory = async () => 
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
   await module.evaluate();
-  await new Promise((done) => setImmediate(done));
+  for (let attempt = 0; attempt < 20 && windows.length === 0; attempt += 1) await new Promise((done) => setImmediate(done));
+  assert.equal(windows.length, 1, 'synthetic main did not create a window');
   return { app, calls, windows, handlers, paths, processBoundary };
 }
 
@@ -68,7 +70,7 @@ async function writeUpdateSource(root, { sequence = 5 } = {}) {
   await writeFile(join(root, 'electron', 'preload.cjs'), preload);
   const manifest = {
     schemaVersion: 2, product: 'hermes-desktop',
-    sourceCommit: 'd747cbd9e81870704347738cb702d3f229818557',
+    sourceCommit: '13ade17847a0225dc95b79d9ed5c9c6afc8bc083',
     hermesVersion: '0.20.6', hostApiVersion: 1, electronMajor: 40, electronVersion: '40.10.2',
     sequence, dirty: false, sourceDirty: false,
     files: { renderer: 'renderer/index.html', host: 'electron/embedded-host.mjs', preload: 'electron/preload.cjs' },

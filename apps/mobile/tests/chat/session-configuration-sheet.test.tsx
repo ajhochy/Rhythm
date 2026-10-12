@@ -5,11 +5,12 @@ import {
   waitFor,
 } from '@testing-library/react-native';
 import { Children, Fragment, isValidElement } from 'react';
+import { StyleSheet } from 'react-native';
 import { Dialog, List, PaperProvider } from 'react-native-paper';
 
 import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
 import { normalizeProfileIcon } from '@/components/ui/profile-icon';
-import { Colors } from '@/constants/theme';
+import { Colors, Spacing, TypeScale } from '@/constants/theme';
 import {
   defaultChatPreferences,
   type AgentOption,
@@ -176,4 +177,183 @@ describe('SessionConfigurationSheet', () => {
       screen.getByRole('button', { name: 'Create' }).props.accessibilityState,
     ).toMatchObject({ disabled: true });
   });
+
+  test('task-mobile-chat-list-polish-nc3: sheet is visible with Create disabled before the profile catalog resolves, then enables once it arrives', async () => {
+    // Regression caught (NC-3): openCreateSheet no longer awaits loadSessionProfiles, so the
+    // sheet mounts with an empty catalog first. Create must stay disabled through that window
+    // and only enable once profiles populate the SAME already-open sheet (no remount/visible flip).
+    const onCreate = jest.fn().mockResolvedValue(undefined);
+    const screen = render(
+      sheet([], defaultChatPreferences, onCreate),
+    );
+
+    // Sheet is visible immediately, with the loading/empty catalog, and Create is disabled.
+    expect(screen.getByLabelText('Chat title')).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Create' }).props.accessibilityState,
+    ).toMatchObject({ disabled: true });
+
+    // Profiles resolve in the background while the sheet stays open (visible stays true).
+    screen.rerender(
+      sheet([secretary], defaultChatPreferences, onCreate),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: 'Create' }).props.accessibilityState,
+      ).toMatchObject({ disabled: false });
+    });
+
+    fireEvent.press(screen.getByText('Create'));
+    await waitFor(() => {
+      expect(onCreate).toHaveBeenCalledWith(
+        undefined,
+        expect.objectContaining({ profileId: secretary.profileId }),
+      );
+    });
+  });
+
+  test('task-mobile-chat-list-polish-c5: summary uses compact rows instead of nested cards', () => {
+    // Regression caught: oversized nested cards push Reasoning and Approval Policy below the initial sheet viewport.
+    const screen = render(
+      sheet([secretary], defaultChatPreferences, jest.fn()),
+    );
+    const contentStyle = StyleSheet.flatten(
+      screen.getByTestId('session-configuration-content').props.style,
+    );
+
+    expect(contentStyle.gap).toBeLessThanOrEqual(Spacing.x2);
+    expect(contentStyle.paddingHorizontal).toBeLessThanOrEqual(Spacing.x4);
+    expect(screen.getByTestId('session-profile-row')).toBeTruthy();
+    expect(screen.getByTestId('session-model-row')).toBeTruthy();
+    expect(StyleSheet.flatten(screen.getByLabelText('Reasoning').props.style)).toEqual(
+      expect.objectContaining({ fontSize: TypeScale.footnote }),
+    );
+    expect(screen.getByLabelText('Approval Policy, Ask as needed')).toBeTruthy();
+  });
+
+  test('approval policy uses the same drill-in picker pattern and submits its permission values', async () => {
+    const onCreate = jest.fn().mockResolvedValue(undefined);
+    const screen = render(
+      sheet([secretary], defaultChatPreferences, onCreate),
+    );
+
+    fireEvent.press(screen.getByLabelText('Approval Policy, Ask as needed'));
+    expect(screen.getByLabelText('Choose Approval Policy')).toBeTruthy();
+    expect(screen.getByLabelText('Accept edits')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Accept edits'));
+    expect(screen.getByLabelText('Approval Policy, Accept edits')).toBeTruthy();
+    fireEvent.press(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() => {
+      expect(onCreate).toHaveBeenCalledWith(
+        undefined,
+        expect.objectContaining({
+          autoApprove: false,
+          permissionMode: 'acceptEdits',
+        }),
+      );
+    });
+  });
+
+  test('new chat can switch its target project from the summary', () => {
+    const onProjectChange = jest.fn();
+    const screen = render(
+      <PaperProvider>
+        <SessionConfigurationSheet
+          availableModels={[]}
+          availableProfiles={[secretary]}
+          availableProjects={[
+            { label: 'Alpha', path: '/projects/alpha', source: 'server' },
+            { label: 'Beta', path: '/projects/beta', source: 'server' },
+          ]}
+          availableProviders={[]}
+          mode="create"
+          onCreate={jest.fn()}
+          onDismiss={jest.fn()}
+          onProjectChange={onProjectChange}
+          palette={Colors.light}
+          preferences={defaultChatPreferences}
+          selectedProjectPath="/projects/alpha"
+          visible
+        />
+      </PaperProvider>,
+    );
+
+    expect(screen.getByLabelText('Project, Alpha')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Project, Alpha'));
+    fireEvent.press(screen.getByLabelText('Beta'));
+    expect(onProjectChange).toHaveBeenCalledWith('/projects/beta');
+  });
+
+  test('picker search hides the inert clear container when empty and restores the stock clear control when typing', () => {
+    // Real Paper Searchbar (not mocked). Paper keeps a transparent clear button mounted while empty, which showed as a blank
+    // pale circle. With `right` defined the whole clear wrapper is display:none; nonempty restores the stock clear control.
+    const onCreate = jest.fn().mockResolvedValue(undefined);
+    const builder: AgentOption = {
+      ...secretary,
+      id: 'builder' as AgentOption['id'],
+      profileId: 'builder' as AgentOption['profileId'],
+      opencodeAgentId: 'builder' as AgentOption['opencodeAgentId'],
+      label: 'Builder',
+    };
+    const screen = render(
+      sheet([secretary, builder], defaultChatPreferences, onCreate),
+    );
+    fireEvent.press(screen.getByLabelText('Profile, Secretary'));
+
+    // The empty-state wrapper is intentionally display:none, so the query must include hidden elements.
+    const wrapper = () => screen.getByTestId('search-bar-icon-wrapper', { includeHiddenElements: true });
+    const wrapperDisplay = () => StyleSheet.flatten(wrapper().props.style)?.display;
+    const search = () => screen.getByLabelText('Search profiles');
+
+    // Empty: the clear wrapper is still mounted by Paper but hidden (display:none), so there is no visible circle and no
+    // accessibility-exposed clear button; both profiles are listed.
+    expect(search().props.value).toBe('');
+    expect(wrapperDisplay()).toBe('none');
+    expect(screen.queryByLabelText('clear')).toBeNull();
+    expect(
+      screen.getByLabelText('clear', { includeHiddenElements: true }),
+    ).toBeTruthy();
+    expect(screen.getByText('Secretary')).toBeTruthy();
+    expect(screen.getByText('Builder')).toBeTruthy();
+
+    // Typing filters and exposes the stock accessible clear control.
+    fireEvent.changeText(search(), 'Secretary');
+    expect(search().props.value).toBe('Secretary');
+    expect(wrapperDisplay()).not.toBe('none');
+    expect(screen.getByText('Secretary')).toBeTruthy();
+    expect(screen.queryByText('Builder')).toBeNull();
+    expect(screen.getByLabelText('clear')).toBeTruthy();
+
+    // Pressing clear restores the empty query and all choices, and hides the empty container again.
+    fireEvent.press(screen.getByLabelText('clear'));
+    expect(search().props.value).toBe('');
+    expect(screen.getByText('Secretary')).toBeTruthy();
+    expect(screen.getByText('Builder')).toBeTruthy();
+    expect(wrapperDisplay()).toBe('none');
+    expect(screen.queryByLabelText('clear')).toBeNull();
+
+    // Searching and clearing is presentation only: no create/persistence callback ran.
+    expect(onCreate).not.toHaveBeenCalled();
+  });
+});
+
+
+test.each(['loading', 'unavailable'] as const)('canonical primary %s sheet hides prior ordinary values and keeps controls locked', (status) => {
+  const update = jest.fn();
+  const screen = render(<PaperProvider><SessionConfigurationSheet
+    availableModels={[]} availableProfiles={[secretary]} availableProviders={[]}
+    mode="edit" onPreferencesChange={update} onDismiss={jest.fn()} palette={Colors.light}
+    preferences={{ ...defaultChatPreferences, profileId: secretary.profileId }} visible
+    settingsGate={{ modelOnly: true, unavailableReason: 'Canonical values not ready', valuesUnavailable: status }}
+  /></PaperProvider>);
+  const label = status === 'loading' ? 'Loading…' : 'Unavailable';
+  for (const field of ['Profile', 'Model', 'Approval Policy']) {
+    const item = screen.getByLabelText(`${field}, ${label}`);
+    expect(item.props.accessibilityState?.disabled).toBe(true);
+    fireEvent.press(item);
+  }
+  expect(screen.queryByLabelText('Profile, Secretary')).toBeNull();
+  expect(screen.queryByLabelText('Approval Policy, Ask as needed')).toBeNull();
+  expect(update).not.toHaveBeenCalled();
 });

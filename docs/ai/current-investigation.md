@@ -1,61 +1,20 @@
-> Current investigation (2026-09-19): [Hermes Desktop replacement — verified state, architecture and open proof gates](plans/2026-09-19-hermes-desktop-in-rhythm.md). Historical investigation below is retained.
+# Investigation — chat-only bounded Coding Workflow
 
-# Investigation — #1123 interactive asynchronous delegation
+Date: 2026-10-06. Targeted read-only pass on baseline be1af7df90e499ad8ec0de3ec62cc619543407d2. Integration checkout, API, fork, and normal app were untouched.
 
-## Trigger and current behavior
+- apps/mcp_server/src/tools/coordinatorConversation.ts has signed rhythm_get_coordinator_status and rhythm_start_coordinator_goal. The latter starts one ordinary async Coding Workflow child, not finite prepareWorkflowPlan.
+- CoordinatorConversationModelStatusService verifies exact signed envelope and active native call. CoordinatorForegroundMcpAuthority binds the call to the current C2 foreground/root or narrow approved goal resume. Child callbacks are status-only.
+- CoordinatorConversationService.preparePlan routes purpose workflow to prepareWorkflowPlan. Existing admission includes explicit soft total-token authorization, outer turns, wall limit, expiry, workflow coverage acknowledgement, and selected_reference_summary_v1 source ID/version. Server re-resolves the indexed memory-vault source, checks plan/non-bypass and current profile, persists finite authority, then dispatches through G2. Existing web CoordinatorConversationCard gathers these via a form.
+- AgentApprovalsRepository has decision nonce, security action, payload digest, expiry, one-use consume, and queued continuation. Human PATCH requires separate capability plus signature. Existing taint approval helper returns no binding for clean/bypass sessions, so it cannot prove finite consent. Goal approval resume is limited to delegation.start-async/{goalId}/current taint.
+- At the original baseline, live_coding_workflow_bounded.test.ts and tools/dev/live-coding-workflow-s8* proved direct-admission G2 with actual API/fork/MCP and synthetic external model; the new chat approval entry had not yet been tested.
 
-`rhythm_delegate` posts to `POST /agent-delegation/delegate`, whose service awaits `agent_runner.run()` through completion. The parent tool call therefore remains blocked and the parent cannot finish its turn while the specialist works.
+Baseline conclusion: add a dedicated signed foreground proposal/start and always-human exact-payload approval card, reusing the existing G2 checked path and durable approval state. The C9 implementation and formal live result below close the previously open discovery, restart, and same-chat approval questions.
 
-## Existing seams to reuse
 
-- `OpencodeClientService.createSession` and `promptAsync` already create and enqueue real engine sessions.
-- `AgentSessionsRepository.upsertChildSession` persists a child by SDK `parentID`, and the stream bridge maps subsequent child events to the local row.
-- `resolveProfileScope` resolves the target model, MCP scope, skill scope, system prompt, and OpenCode agent.
-- `OpencodeStreamBridge._relayEvent` persists message parts and treats `session.idle` as the real interactive turn boundary.
-- Parent session status is durable in `agent_sessions`, so callback delivery can defer while the parent is `starting` or `working`.
+## C9 resolution and current status (2026-10-06)
 
-## Gaps
+Exact source `54888e924c5b31cb7700b6eb1f5da7c4c450e930` / apps tree `47f1828030f1b14c2175975e47e72a5796b0cb47` passed the full issue/PR gates and both browser suites. Formal actual API/fork/MCP qualification passed idle and stock restart: 111 tools, 19/20 qualification checks and 5 operational checks per case, exact criteria, ordinals 1/2, 65-second stop. External model and ranking were synthetic; provider semantics and real human-native P256 fixture remain unproven.
 
-- Session creation does not currently accept an engine `parentID` from api_server callers.
-- No durable record distinguishes async-delegated children from native `task` children or records whether a callback was already delivered.
-- The stream bridge has no child-completion callback hook.
-- Existing manager/delegate guards do not distinguish interactive from scheduled/system invocation because synchronous headless delegation is intentionally supported.
-- Concurrent child completions have no parent-keyed serialization/coalescing mechanism.
+The C8 normal-profile signed app's blank Dayflow view was caused by global CSS overriding an equal-specificity one-row selector under production import order. C9 raises only the selector specificity; production-order tests and signed-app CUA now pass. The C9 CUA run at 1280×800, 1280×560 and actual 3440×1296 exercised native macOS scrolling, restored the Timeline top state, and retained original controls without outer Rhythm header/footer. Approximate screenshot geometry is explicitly not direct `NSRect` measurement. The exact receipt is `dayflow-C9-signed-native-CUA-receipt.json`.
 
-## Failure modes to test
-
-1. Listener/map readiness race before the child emits its first event.
-2. Child completes while the parent is processing a user turn.
-3. Two children complete before one parent wake begins.
-4. A second child completes while an earlier callback wake is in flight.
-5. Duplicate/replayed `session.idle` events.
-6. API restart after child dispatch or completion.
-7. Prompt enqueue failure after the engine child/local row exists.
-8. Headless/scheduled/system caller attempts to bypass tool exposure.
-
-## Resolved implementation direction
-
-Use a small durable delegation table and an in-process per-parent coordinator backed by transactional state. The database supplies restart/idempotency guarantees; the in-memory coordinator only serializes the current process. Completion uses the already-persisted final assistant text and wakes the parent with `promptAsync`. No native fork tool changes or Flutter-specific protocol are required.
-
-## Live recon result
-
-The isolated branch-built sandbox ran on API `:4198` and fork engine `:4197`.
-The manual Recon sequence created disposable manager/child profiles, started a
-parent user turn, dispatched the child while the parent was working, and
-observed the completion only through the parent's `/ws/agents` stream:
-
-- dispatch returned HTTP 202 in 43 ms with local and SDK child identifiers;
-- the concurrent parent turn emitted `USER_STEER_ACCEPTED` first;
-- the child emitted `CHILD_RECON_DONE`;
-- the completion coordinator injected one normal parent input beginning
-  `[Async delegation update]` with the stable local child id;
-- the parent emitted `PARENT_WAKE_RECON` and `CHILD_RECON_DONE` on its existing
-  `message.part.delta` stream;
-- `/agent-sessions/:parent/children` exposed the real engine child with
-  `parentID` equal to the manager's SDK session id.
-
-The first codified run failed only because that last endpoint returns SDK
-session identities rather than local database identities. Failure triage
-corrected the assertion domain without weakening the behavior check. The
-second live run passed in 6.31 seconds and cleaned up all disposable profiles
-and sessions.
+Native AppKit C1–C3, compile-only wrapper, package/sign/stable-copy/verifier/signed-smoke/origin checks passed. Immutable source/payload inputs were 749/280 files. The signed app is not notarized. TestFlight 1.0.9 build 21 is valid/internal; C9 makes no mobile product change and physical phone proof remains unrun. Final-doc CI and owned worktree cleanup remain pending.

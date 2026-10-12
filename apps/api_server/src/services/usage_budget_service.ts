@@ -24,7 +24,7 @@ import { readFileSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { logger } from '../utils/logger';
-import { GEMINI_CODE_ASSIST_PROJECT_ID } from '../config/env';
+import { GEMINI_CODE_ASSIST_PROJECT_ID, opencodeDataFile } from '../config/env';
 import { CredentialsBridgeService } from './credentials_bridge_service';
 import { anthropicAccountsService } from './anthropic_accounts_service';
 import { openaiAccountsService, identityFromTokens } from './openai_accounts_service';
@@ -67,7 +67,7 @@ export interface UsageBudgetSnapshot {
   fetchedAt: string;
 }
 
-const AUTH_PATH = join(homedir(), '.local', 'share', 'opencode', 'auth.json');
+const AUTH_PATH = opencodeDataFile('auth.json');
 const ANTHROPIC_PROBE_MODEL = 'claude-haiku-4-5-20251001';
 const CACHE_TTL_MS = 60_000;
 const PROBE_TIMEOUT_MS = 12_000;
@@ -75,6 +75,16 @@ const PROBE_TIMEOUT_MS = 12_000;
 const credsBridge = new CredentialsBridgeService();
 
 let _cache: { snapshot: UsageBudgetSnapshot; at: number } | null = null;
+type UsageBudgetRefreshListener = (snapshot: UsageBudgetSnapshot) => void | Promise<void>;
+const refreshListeners = new Set<UsageBudgetRefreshListener>();
+/** Fresh provider snapshots only: cache hits/fallbacks never signal paid recovery. */
+export function subscribeUsageBudgetRefresh(listener: UsageBudgetRefreshListener): () => void {
+  refreshListeners.add(listener); return () => refreshListeners.delete(listener);
+}
+async function publishFreshSnapshot(snapshot: UsageBudgetSnapshot): Promise<void> {
+  for (const result of await Promise.allSettled([...refreshListeners].map(listener => listener(snapshot))))
+    if (result.status === 'rejected') logger.warn(`[UsageBudget] refresh listener failed: ${String(result.reason)}`);
+}
 let _inflight: Promise<UsageBudgetSnapshot> | null = null;
 
 function readAuthJson(): Record<string, unknown> {
@@ -456,6 +466,7 @@ export async function getUsageBudget(opts?: {
     try {
       const snapshot = await buildSnapshot();
       _cache = { snapshot, at: Date.now() };
+      await publishFreshSnapshot(snapshot);
       return snapshot;
     } catch (err) {
       logger.warn(`[UsageBudget] snapshot failed: ${String(err)}`);

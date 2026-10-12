@@ -270,6 +270,32 @@ try {
     Authorization: `Device ${pairing.deviceToken}`,
     'X-Rhythm-Project-ID': 'project-demo',
   };
+  const researchBase = `${gatewayPrefix}/tools/agent-research/projects`;
+  const researchProjects = await request(researchBase, { headers: gatewayHeaders });
+  assert(researchProjects[0].budget.maxPasses === 0, 'Research fixture must preserve zero passes');
+  const researchCreated = await request(researchBase, {
+    ...json('POST', { name: 'Self-test research', question: 'What evidence?', goals: [] }), headers: gatewayHeaders,
+  });
+  const researchProjectPath = `${researchBase}/${researchCreated.id}`;
+  assert((await request(researchProjectPath, { headers: gatewayHeaders })).name === 'Self-test research', 'Research project detail mismatch');
+  const updatedResearch = await request(researchProjectPath, {
+    ...json('PATCH', { budget: { ...researchCreated.budget, maxCostUsd: 0.5 } }), headers: gatewayHeaders,
+  });
+  assert(updatedResearch.budget.maxCostUsd === 0.5 && updatedResearch.budget.maxPasses === 0, 'Research budget update mismatch');
+  const researchRun = await request(`${researchProjectPath}/runs`, {
+    ...json('POST', { triggerType: 'manual' }), headers: gatewayHeaders,
+  });
+  const researchRunPath = `${researchProjectPath}/runs/${researchRun.id}`;
+  assert((await request(`${researchProjectPath}/runs`, { headers: gatewayHeaders })).some((run) => run.id === researchRun.id), 'Research run list mismatch');
+  assert((await request(researchRunPath, { headers: gatewayHeaders })).status === 'running', 'Research run detail mismatch');
+  await assertStatus(`${researchRunPath}/export?format=markdown`, 409, { headers: gatewayHeaders });
+  assert((await request(`${researchRunPath}/cancel`, { method: 'POST', headers: gatewayHeaders })).status === 'canceled', 'Research cancel mismatch');
+  assert((await request(`${researchRunPath}/resume`, { method: 'POST', headers: gatewayHeaders })).status === 'running', 'Research resume mismatch');
+  const stoppedRunPath = `${researchBase}/research-project-demo/runs/research-run-stopped`;
+  assert((await request(`${stoppedRunPath}/finish`, { method: 'POST', headers: gatewayHeaders })).status === 'done', 'Research finish mismatch');
+  assert((await request(`${stoppedRunPath}/export?format=markdown`, { headers: gatewayHeaders })).markdown.startsWith('# Guest follow-up evidence'), 'Research export envelope mismatch');
+  await assertStatus(`${researchProjectPath}/runs/missing`, 404, { headers: gatewayHeaders });
+  await assertStatus(`${researchBase}/missing`, 404, { headers: gatewayHeaders });
   await assertStatus(
     `${gatewayPrefix}/profile-catalog`,
     403,

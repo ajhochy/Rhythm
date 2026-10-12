@@ -1,0 +1,97 @@
+{
+  "issue": null,
+  "task_slug": "chat-bounded-workflow",
+  "identity_exception": "Direct user request; no GitHub issue was created, so criterion IDs use the stable chat-bounded-c1 through chat-bounded-c5 prefix.",
+  "generated": "2026-10-06",
+  "criteria": [
+    {
+      "criterion_id": "chat-bounded-c1",
+      "text": "From a primary-root Secretary chat, asking to run a captured goal against a named current reference produces a human-readable unique source and task-specific estimated finite terms with rationale, without requiring a setup form or opaque IDs. Missing, ambiguous, stale, or ineligible inputs (uncaptured goal, revoked project, wrong root/profile, non-plan or bypass root) produce a bounded hold and create no approval, finite authority, or child job.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/chat_bounded_workflow.contract.test.ts",
+      "test_id": "chat-bounded-c1: signed Secretary proposal exposes a unique current reference and reasoned estimate without issuing finite authority or a child",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "chat-bounded-c2",
+      "text": "The desktop Transcript composes an actionable bounded-workflow approval card only in the matching session. It shows the server-authored goal, source/version, exact finite values and scope; approve and deny use the existing signed `decideApproval` / native `signApprovalDecision` path. Missing native signing material or API decision errors remain visible as a hold and preserve the pending card; untrusted text is rendered as text. A decision queues a durable wake, and the exact approved proposal resumes after idle/restart. Pending, rejected, expired, unsigned, generic, or auto-approved cards create no finite authority and dispatch no job. Chat limit adjustments issue a revised card rather than mutating the pending decision.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/chat-bounded-workflow.spec.ts",
+      "test_id": "chat-bounded-c2: composed Transcript signs approve and deny only for the matching session and preserves held/error cards",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "chat-bounded-c3",
+      "text": "Secretary's dedicated start tool accepts only the exact signed proposal on the approved native wake, after current C2/root/project/profile/goal/source/version checks. An altered field or digest, changed SDK message, stale proof, forged wake, cross-session call, callback, rejection, expiry, or replay creates no extra ordinal. Approval consumption and finite-authority issuance are atomic: failed issuance does not consume approval; unknown dispatch remains held.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/chat_bounded_workflow.contract.test.ts",
+      "test_id": "chat-bounded-c3: signed human decision wakes the exact proposal once, issues one finite authority, and rejects replay",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "chat-bounded-c4",
+      "text": "Through the real API, built fork, and MCP tool entrypoint in the approved sandbox, a real manager and reviewer finish the selected-reference case. Chat reports `selected_reference_current` and `reviewed_summary_with_citation` as server-checked, exact ordinals 1 and 2, and no third ordinal after 65 seconds of quiescence. Prose-only success, missing citation/reviewer membership, source drift, missing usage accounting, budget/expiry hold, or duplicate callback cannot verify criteria or spawn extra work.",
+      "mode": "integration",
+      "reason": "C17 actual API/built fork/MCP formal idle/restart qualification passed 2/2 with exact-source preservation and cleanup. Provider decisions and semantic ranking remained scripted.",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/live_chat_bounded_workflow.test.ts",
+      "test_ids": [
+        "consumes exact same-chat consent after idle, checks two ordinals and stops",
+        "consumes exact same-chat consent after stock API/engine restart, checks two ordinals and stops"
+      ],
+      "receipt": {
+        "source_sha": "36595fe0595e40f8ff7c9d9ee30465afecd2d95f",
+        "apps_tree": "ac4f73181c262655207c0b82d37175ef10fdcaff",
+        "command": "RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_SOURCE_SHA=36595fe0595e40f8ff7c9d9ee30465afecd2d95f node ./node_modules/vitest/vitest.mjs run src/__tests__/live_chat_bounded_workflow.test.ts --reporter=verbose",
+        "cwd": "apps/api_server",
+        "tests_passed": 2,
+        "duration_seconds": 347.88,
+        "actual_mcp_tool_count": 111,
+        "idle_qualification_checks": "19/19",
+        "idle_operational_checks": "5/5",
+        "restart_qualification_checks": "20/20",
+        "restart_operational_checks": "5/5",
+        "quiescence_seconds": 65,
+        "evidence": "/Users/ajhochhalter/Documents/Codex/2026-10-06/coordinator-response-live/combined-C17-formal/summary.json",
+        "evidence_sha256": "8631fb3d0d7607f6ac8e04c9bb1cdf6881c135f2dc54e434829643449c9160ea"
+      },
+      "prior_c9_receipt": {
+        "source_sha": "54888e924c5b31cb7700b6eb1f5da7c4c450e930",
+        "apps_tree": "47f1828030f1b14c2175975e47e72a5796b0cb47",
+        "command": "PATH=/Users/ajhochhalter/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_SOURCE_SHA=54888e924c5b31cb7700b6eb1f5da7c4c450e930 RHYTHM_CHAT_LIVE_TEST_OUT=/Users/ajhochhalter/Documents/Codex/2026-10-06/codex-dayflow-cascade-c9-build ./node_modules/.bin/vitest run src/__tests__/live_chat_bounded_workflow.test.ts --reporter=verbose",
+        "tests_passed": 2,
+        "duration_seconds": 375.56,
+        "actual_mcp_tool_count": 111,
+        "idle_qualification_checks": "19/19",
+        "idle_operational_checks": "5/5",
+        "restart_qualification_checks": "20/20",
+        "restart_operational_checks": "5/5",
+        "quiescence_seconds": [
+          65.26,
+          65.25
+        ],
+        "evidence": "codex-dayflow-cascade-c9-build/formal-live-C9-summary.json and formal-live-C9-54888e92.log"
+      }
+    },
+    {
+      "criterion_id": "chat-bounded-c5",
+      "text": "Secretary estimates limits from the goal and reference and explains them. The human can request an in-range adjustment in chat. The final card and persisted authority contain precisely the approved values. Out-of-range values hold before approval; each changed proposal receives a fresh exact digest and signature, and an older approval cannot fund revised terms.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/chat_bounded_workflow.contract.test.ts",
+      "test_id": "chat-bounded-c5: an adjusted limit proposal supersedes the old digest and only its exact signed values fund authority",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [],
+  "test_commands": [
+    "cd apps/api_server && PATH=/Users/ajhochhalter/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin ./node_modules/.bin/vitest run src/contract/chat_bounded_workflow.contract.test.ts",
+    "cd apps/mcp_server && PATH=/Users/ajhochhalter/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin ./node_modules/.bin/vitest run src/tools/__tests__/chatBoundedWorkflow.contract.test.ts",
+    "cd apps/web && PATH=/Users/ajhochhalter/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin ./node_modules/.bin/playwright test --config tests/chat-bounded-workflow-playwright.config.ts --workers=1"
+  ],
+  "limitations": [
+    "Formal live qualification used synthetic external model transport and semantic ranking; provider-semantic behavior was not tested.",
+    "No real human-native P256 approval fixture or physical human/device proof was recorded.",
+    "The chat workflow result does not itself qualify native Dayflow issue-1605-c4."
+  ]
+}

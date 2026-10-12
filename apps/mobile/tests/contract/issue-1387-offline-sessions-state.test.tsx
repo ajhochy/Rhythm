@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from '@testing-library/react-native';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
 import { PaperProvider } from 'react-native-paper';
 
@@ -202,6 +202,17 @@ jest.mock('@/providers/use-conversation-screen-dim', () => ({
   useConversationScreenDim: jest.fn(),
 }));
 
+// Since 0fc650d8 (task-mobile-project-list) project groups start collapsed;
+// the mirrored session row is only reachable after expanding its project.
+async function expandMirroredProject(
+  screen: ReturnType<typeof render>,
+) {
+  const header = await waitFor(() =>
+    screen.getByLabelText(`${PROJECT_NAME}, 0 active, collapsed`),
+  );
+  fireEvent.press(header);
+}
+
 function renderOfflineCatalog() {
   return render(
     <PaperProvider>
@@ -244,6 +255,7 @@ describe('issue-1387 offline Agents catalog state', () => {
     // The offline message assertion fails if the UI ignores the real
     // OpencodeProvider desktop-offline state.
     const screen = renderOfflineCatalog();
+    await expandMirroredProject(screen);
 
     await waitFor(() => {
       expect(screen.getByText(mockSession.title)).toBeTruthy();
@@ -266,6 +278,7 @@ describe('issue-1387 offline Agents catalog state', () => {
     // the unavailable live project catalog and renders "Unknown project".
     // The metadata assertion fails if the session's mirrored label is dropped.
     const screen = renderOfflineCatalog();
+    await expandMirroredProject(screen);
 
     await waitFor(() => {
       expect(screen.getByText(mockSession.title)).toBeTruthy();

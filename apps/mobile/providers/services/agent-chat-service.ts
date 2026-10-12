@@ -151,13 +151,17 @@ export function getStableRecoveryEventId(event: unknown): string | null {
     !Array.isArray(record.properties)
       ? (record.properties as Record<string, unknown>)
       : {};
-  const explicitId =
+  const type = readString(record, 'type') ?? 'event';
+  const explicitEventId =
     readString(record, 'id', 'eventId', 'eventID') ??
-    readString(
+    readString(properties, 'id', 'eventId', 'eventID');
+  // OpenCode's SDK delta payload has no event identity. messageID/partID
+  // address the mutation, not the individual chunk, so using either here
+  // drops every later delta for that message or part.
+  const fallbackRecoveryId = type === 'message.part.delta'
+    ? null
+    : readString(
       properties,
-      'id',
-      'eventId',
-      'eventID',
       'requestID',
       'requestId',
       'messageID',
@@ -165,14 +169,14 @@ export function getStableRecoveryEventId(event: unknown): string | null {
       'partID',
       'partId',
     );
-  if (!explicitId) return null;
-  const type = readString(record, 'type') ?? 'event';
+  const stableId = explicitEventId ?? fallbackRecoveryId;
+  if (!stableId) return null;
   const sessionId = readString(
     properties,
     'sessionID',
     'sessionId',
   ) ?? '';
-  return `${type}:${sessionId}:${explicitId}`;
+  return `${type}:${sessionId}:${stableId}`;
 }
 
 export function dedupeRecoveryEvents<T>(events: T[]): T[] {

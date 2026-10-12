@@ -29,11 +29,13 @@
  */
 
 import { promises as fs } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { resolveMemoryVaultPath } from '../config/env';
 import { logger } from '../utils/logger';
+import { publishCanonicalMutation } from './memory_canonical_mutation';
 import {
   parseMemoryNote,
   frontmatterString,
@@ -98,7 +100,8 @@ export function toVaultRelativeKey(vaultRoot: string, absNotePath: string): stri
  * BOTH layouts.
  */
 export function resolveVaultRootForMemoryDir(memoryDir: string): string {
-  const sub = process.env.MEMORY_VAULT_SUBDIR ?? 'memory';
+  const sub =
+    process.env.MEMORY_VAULT_SUBDIR ?? (process.env.MEMORY_VAULT_PATH ? 'memory' : '');
   const resolved = path.resolve(memoryDir);
   return sub ? path.dirname(resolved) : resolved;
 }
@@ -273,8 +276,9 @@ export async function scanVaultNotes(vaultPath: string): Promise<ScannedNote[]> 
       raw = await fs.readFile(path.join(vaultPath, rel), 'utf8');
       fileStat = await fs.stat(path.join(vaultPath, rel));
     } catch (err) {
-      logger.warn(`[MemoryVaultScan] Could not read note "${rel}": ${String(err)}`);
-      continue;
+      // An omitted canonical file is never evidence of deletion. Abort the
+      // complete-scan claim so callers preserve prior rows/signatures.
+      throw new Error(`[MemoryVaultScan] incomplete canonical read: ${rel}`);
     }
     const parsed = parseNote(raw);
     // birthtime is epoch 0 on filesystems that do not record it → fall back to mtime.
@@ -304,7 +308,8 @@ async function collectMarkdownFiles(root: string, dir: string): Promise<string[]
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
   } catch {
-    return out;
+    // A failed directory enumeration must not be collapsed to an empty vault.
+    throw new Error('[MemoryVaultScan] incomplete canonical enumeration');
   }
   for (const entry of entries) {
     // Skip Obsidian config / hidden dirs (e.g. .obsidian, .trash).
@@ -330,6 +335,8 @@ export interface SyncMemoryVaultOptions {
 }
 
 const repo = new AgentMemoryRepository();
+const canonicalSignatures = new Map<string, { signature: string; sourceIds: Set<string> }>();
+let syncTail: Promise<void> = Promise.resolve();
 
 /**
  * Run one mirror-sync pass. Idempotent. Never throws on a missing vault path.
@@ -337,8 +344,26 @@ const repo = new AgentMemoryRepository();
 export async function syncMemoryVault(
   options: SyncMemoryVaultOptions = {},
 ): Promise<MemoryVaultSyncSummary> {
-  const vaultPath = options.vaultPath ?? resolveMemoryVaultPath();
-  const ownerUserId = options.ownerUserId ?? null;
+  const submitted = { vaultPath: options.vaultPath ?? resolveMemoryVaultPath(), ownerUserId: options.ownerUserId ?? null, subdir: options.vaultPath === undefined ? (process.env.MEMORY_VAULT_SUBDIR ?? 'memory') : '' };
+  const previous = syncTail;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  syncTail = previous.catch(() => undefined).then(() => gate);
+  await previous.catch(() => undefined);
+  try {
+    return await syncMemoryVaultPass(submitted);
+  } finally {
+    release();
+  }
+}
+
+async function syncMemoryVaultPass(
+  options: Required<SyncMemoryVaultOptions> & { subdir: string },
+): Promise<MemoryVaultSyncSummary> {
+  const vaultPath = options.vaultPath;
+  const ownerUserId = options.ownerUserId;
+  const subdir = options.subdir;
+  const memoryDir = subdir ? path.join(vaultPath, subdir) : vaultPath;
 
   // Missing/unmounted/non-directory is unavailable, not an authoritative empty
   // vault. Preserve the derived cache until the canonical source is reachable
@@ -402,6 +427,35 @@ export async function syncMemoryVault(
     navigationMemoryDirForVaultRoot(vaultPath),
     { createIfMissing: false },
   );
+
+  // Signature publication follows a complete successful scan and all derived
+  // writes. Upsert counts are intentionally not used: they include unchanged
+  // rows. The bridge retains rejected admission independently of this cache.
+  // Parsed rows deliberately omit unknown/frontmatter formatting details, so
+  // their equality cannot acknowledge a canonical change. Hash the exact
+  // Markdown bytes for every previously scanned file after the pass succeeds.
+  const canonicalNotes = subdir
+    ? notes.filter((note) => note.sourceId === subdir || note.sourceId.startsWith(`${subdir}${path.sep}`))
+    : notes;
+  const signatureParts: string[] = [];
+  for (const note of canonicalNotes) {
+    let raw: string;
+    try { raw = await fs.readFile(path.join(vaultPath, note.sourceId), 'utf8'); }
+    catch {
+      // Do not advance a signature or publish a successful scan when the
+      // post-pass raw-byte proof is incomplete.
+      logger.warn('[MemoryVaultSync] canonical byte proof incomplete; withholding refresh publication.');
+      return { scanned: notes.length, upserted, deleted };
+    }
+    signatureParts.push(`${note.sourceId}\u0000${createHash('sha256').update(raw).digest('hex')}`);
+  }
+  const signature = signatureParts.sort().join('\u0001');
+  const previous = canonicalSignatures.get(memoryDir);
+  const sourceIds = new Set(canonicalNotes.map((note) => note.sourceId));
+  canonicalSignatures.set(memoryDir, { signature, sourceIds });
+  if (previous?.signature !== signature) {
+    publishCanonicalMutation({ memoryDir, destructive: [...(previous?.sourceIds ?? [])].some((id) => !sourceIds.has(id)) });
+  }
 
   return { scanned: notes.length, upserted, deleted };
 }

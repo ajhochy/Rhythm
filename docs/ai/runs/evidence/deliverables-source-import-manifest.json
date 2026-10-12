@@ -1,0 +1,2573 @@
+{
+  "sourceRoot": "/Users/ajhochhalter/Documents/Rhythm-pr-worktrees/coordinator-repair-first-20261009",
+  "sourceHead": "edb7158c4e01bd99b3c42d905bec0b0ed2648d15",
+  "baseline": "b2fce6894aaf4ab107b36fee5f789703183ff1fb",
+  "patchSha256": "f7a1e688001f3a8d00be78213e283d3933a9860309075802b939e2709d87ecdd",
+  "conflictResolutions": [
+    "messages: retain baseline listRecentInputTexts plus candidate appendCodingResult",
+    "sandbox: candidate preservation refusal/ownership receipts retained"
+  ],
+  "files": [
+    {
+      "path": "apps/api_server/src/__tests__/coordinator_chat_controls_parity.test.ts",
+      "sourceSha256": "5b26b3a839d90f55c6eae94dc70de329c7eb02668a27c452c3dc78acf3dda7dc",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/__tests__/helpers/real_server.ts",
+      "sourceSha256": "79206a0a5b476ef3bc7809b31c25c862aed5d8c5b568a39c30ba8ba7f0d645eb",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/__tests__/mobile_canonical_notification.test.ts",
+      "sourceSha256": "735ea5a19ebd3dc7609839cdcb8027c3200b09eddf73c72fb1eeeec57895770d",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/contract/chat_bounded_workflow.contract.test.ts",
+      "sourceSha256": "b64948703852bdae96a1d8b9ececd817e5e245aa80608f03ca86f1533dfd2aab",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/contracts/coordinator_conversation_contract.ts",
+      "sourceSha256": "33d52eafedf6c67ff5786dc48fc39046872334d48e16893cb6782821730815c5",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/database/coordinator_conversation_schema.ts",
+      "sourceSha256": "c424d9a88cefd7db1aa4b07d5e762f1d7b3d9bd760e7d1541da1a66df7387816",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/database/migrations.ts",
+      "sourceSha256": "f85b1fa87bb3986a3e7e1220dcd2e8ab594147d83270bdf9c6b5ebf3bb2c9ac2",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/database/postgres_bootstrap.ts",
+      "sourceSha256": "96633b79da1ec6201f581c907a001520d5241a72f5e46024d6ae8343e84581b2",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/repositories/agent_async_delegations_repository.ts",
+      "sourceSha256": "60721a4d6b591e089b985bf55a32ceb12ca93c3186ade29b8ed4027fedd604fa",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/repositories/agent_session_messages_repository.ts",
+      "sourceSha256": "3d507c88085eeaf42c1024bf90d3075b26a07e9f2f5e51dada0a792df3907781",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "sourceSha256": "458023774fa5e22010d3e476657615291e8307491578bdc1520cacb940e2086f",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/repositories/dayflow_receiving_context_repository.ts",
+      "sourceSha256": "529ba16b30ccb59e303c2d4929daceda998bc4658f3647bcae7ce87191c2af86",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/routes/agent_sessions_routes.ts",
+      "sourceSha256": "1627409644c51aa80b79f9408a94049e9579a3b064af364c190a8e04eadab6af",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/security/security_advisories.test.ts",
+      "sourceSha256": "b4de7810a5a3b9adbeb6c0795c4afee1e3d33d967d96c704e7b1e6266cc0aa80",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/services/agent_approval_continuation_service.ts",
+      "sourceSha256": "f89ff74fcde82817c5c2773c603d3c4e320b68840be3ecb985cc600d080cf313",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/services/agent_delegation_service.ts",
+      "sourceSha256": "c249f4990123a7a95b1384c72dbf75b8414bdb9a8ddcf72aba15b145d31dc6af",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/services/async_delegation_completion_service.ts",
+      "sourceSha256": "595ce680c6e4f268368d01fe51204d04d294c5a2f8f8febde6bb7f7c32cedbb0",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/services/chat_bounded_workflow.ts",
+      "sourceSha256": "d3dd2f9d439864737d2d0cb0c39d935dbea7af97d4b807673a80e45b958a44b8",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/services/coordinator_conversation_model_status_service.ts",
+      "sourceSha256": "70df959047dda371165affbb3b534b512b1ef4ae000341b9ee08031debbf1d99",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/services/coordinator_conversation_service.ts",
+      "sourceSha256": "0a8b12f31c876ad841ffe0248b1592e6f552f3a3f1ea6a8cd09d82caf1fca70e",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/services/opencode_client_service.ts",
+      "sourceSha256": "964b2f2e1b017b14ae6ccf1a5ea67cc109224ee474ce0e42bbff3fb53367031b",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/services/opencode_stream_bridge.ts",
+      "sourceSha256": "8a2e61937d1e0b27d5c6794da6bc4ba2b8e747fe35fabdf84d674e6148abffc5",
+      "trackedDelta": true
+    },
+    {
+      "path": "tools/dev/sandbox.sh",
+      "sourceSha256": "57ae8db15dfeba70308a812f8d80aa72e43a5bfa9cfd2565c1b50f80a41aa7ae",
+      "trackedDelta": true
+    },
+    {
+      "path": "tools/dev/sandbox_bootstrap_test.py",
+      "sourceSha256": "a5fe1bfdbd0bb0d70dae0875a177709962008194d6e55c350a94d677c565cc7b",
+      "trackedDelta": true
+    },
+    {
+      "path": "tools/dev/sandbox_guard_test.sh",
+      "sourceSha256": "129f48261826e1ae4b000b2114f49444f0ef739ede836369aa782ab7df53be64",
+      "trackedDelta": true
+    },
+    {
+      "path": "apps/api_server/src/__tests__/coordinator_coding_approval_continuation.test.ts",
+      "sourceSha256": "b7d6c0784916562827978dfc68094a16a17fec6b11b832bd9f88b93cfddb237e",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/__tests__/coordinator_coding_delivery_controls.test.ts",
+      "sourceSha256": "5a25efae72e3d8f3ccf517d2e0ac3e71974bd7d2f650b517cb2beb16b138b015",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/__tests__/coordinator_coding_docker_contract.test.ts",
+      "sourceSha256": "5393103b970b41a812ec0b419552c1d04cce8b0507eb373099cbd9a712497695",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/__tests__/coordinator_coding_execution_proposal.test.ts",
+      "sourceSha256": "60b3fd9f99f4e7481e7bd8d34503f53ae1e16a492808a4c8baa1b407c3b1b097",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/__tests__/coordinator_coding_grant_journal.test.ts",
+      "sourceSha256": "d90d14769c642d5137725c48e57f32cc170db13fbf876fa5655020b54c9fa1b9",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/__tests__/coordinator_coding_snapshot_result.test.ts",
+      "sourceSha256": "e8231cbcd85b53e71e3efee1bb407bcfd4bfd27a964eff6a804b24c8466e7bd5",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/__tests__/coordinator_coding_terminal_recovery.test.ts",
+      "sourceSha256": "ccf1f1d5e28a692ee44b0dc64a4c9cf3f4aa2d83e792ed3b1373b0661eef1496",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/__tests__/coordinator_command_journal.test.ts",
+      "sourceSha256": "88f247026e8e5288ac92347fb151d63c5f513a0e9d565a1e7564d1cba3900623",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/__tests__/helpers/preserved_fixture.cjs",
+      "sourceSha256": "03d6a825f420e06b51d1f7c5a35e8e1f586246b63f405e2eff59b74d1c514394",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/__tests__/live_coordinator_coding_delivery_recovery.test.ts",
+      "sourceSha256": "3a49d0330eaaffc540743e12569d39d53cbf16437b8e23c8108ecc18c4a70578",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/__tests__/live_coordinator_coding_grant_negative.test.ts",
+      "sourceSha256": "cddef4f8fa57814dc894cef623334899b07541a506f9493edbe052696e8524a0",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/__tests__/live_coordinator_command_journal.test.ts",
+      "sourceSha256": "f4271053d0ae376c230d57fa3dab9ae6d6b8169ded40366e29c391d0262feeff",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/contracts/coordinator_coding_execution_contract.ts",
+      "sourceSha256": "2d804c5b48fd5693bef7a4ff97ef2518ef0e64fd1ba927f566f87045b845f605",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/database/coordinator_coding_result_schema.ts",
+      "sourceSha256": "6fabffd7d0af0ff635f23b0566ae7eb2f165ea1ad57e51d3bd790c2289a9a65e",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/routes/coordinator_coding_delivery_test_handlers.ts",
+      "sourceSha256": "0ee95a9fd927f741ac4aee20d31c68a77110c7fa5d0aaf889080193ca7a90d02",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/services/coordinator_coding_artifact_verifier.ts",
+      "sourceSha256": "543654fb664b5cb64bb0d1ab1d9c024456883500b8d7f5f88cdaad6df4bc9ec1",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/services/coordinator_coding_delivery_controls.ts",
+      "sourceSha256": "ed58b7d2bf8705c8b50e5c20e2c9742480ac3ba03803bdec5d27da570284d85c",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/services/coordinator_coding_grant_journal.ts",
+      "sourceSha256": "e4e8b2c0bcc3c3a77aed34765a8210b3e612075da5c888fdb608c81154dac304",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/services/coordinator_coding_grant_permission.ts",
+      "sourceSha256": "26958fe7fd3a8a09a2653bebc73563f2ca6694c896ecb128d34f16ae43949228",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/services/coordinator_coding_operation_grant.ts",
+      "sourceSha256": "869f2e594aeb865e3dd651845821e99a7118561e45385d8498b5296a1980bd4b",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/services/coordinator_coding_terminal.ts",
+      "sourceSha256": "0e054b833bb90f55078400052b983408190fa921c6dc5db967e1ea9ed4ec74fb",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/src/services/sandbox_engine_attachment.ts",
+      "sourceSha256": "1c521071f088b74c574830e29752ba5757f43be50fc68cd48f0a2b8379bb00a2",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/vitest.coordinator-core.config.ts",
+      "sourceSha256": "fc1bdf5008c0d5b32b6f0c58c82be7323ca14eec4bfa1b849232b442cc481bf2",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/vitest.coordinator-preserving.config.ts",
+      "sourceSha256": "92048c91370e01cc37f686c8f3732b3f9c0c1160662572dcd0a13c982975b947",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/vitest.coordinator-preserving.global-setup.ts",
+      "sourceSha256": "b04f9de7f3fe22d404c7045052e8a34e7b5aa81ac871a4143233efd38a2a6842",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/vitest.coordinator-preserving.setup.ts",
+      "sourceSha256": "92f48a47f253cd6180f867a9892b14149b104dfb4134c4545964e7cbdf0147d0",
+      "trackedDelta": false
+    },
+    {
+      "path": "apps/api_server/vitest.coordinator-qualification.config.ts",
+      "sourceSha256": "48fd9f604cda42736fee42c43d066199b9cdf9b4e81cb04c78ca05b94d70ed38",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/coordinator_evaluator.test.mjs",
+      "sourceSha256": "d51d7694246d8e62aee59adeac9cee9fba031eb6beac2475e71a97b1534a775a",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/coordinator_fixture/src/selectTasks.ts",
+      "sourceSha256": "79dc069a9d2c1f5b441ace9f8ee5ad228ef2e1c884a78b9d26b1086ba8ce21b3",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/coordinator_fixture/tests/selectTasks.test.mjs",
+      "sourceSha256": "058f3eb36508bc7d44cf01b9e92fb807c032ca15d84f0b54bce9c669af96c5dd",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/coordinator_nondeleting_build_test.py",
+      "sourceSha256": "cec600dadfc74de4a75c063626657a3accde68b54c45bb766537ede83f2a9418",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/coordinator_preservation_contract_test.py",
+      "sourceSha256": "4a49a8d01f6825354676201600d1f796389f685fdc91e67e787bc5449106cedd",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/coordinator_runtime_copy_test.py",
+      "sourceSha256": "0ae0801b6d0ca6022d735b01db8775dce9eab7249fc9823835341c2811389f8c",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_api_recovery.py",
+      "sourceSha256": "4d6adee554b3ef4fa4eef77990c29631e15e29ca61b6bcd95a015d2c72e3b418",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_attached_transport_contract_test.mjs",
+      "sourceSha256": "09144b7708e4ced51082a553253aa09c03fcdce35eef9d64ea79423e0d080658",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_attachment_test.mjs",
+      "sourceSha256": "241e592104fc955efc6e449376a1d65ca0b9db61980dd1c2eb7e74ffcb7dd8cc",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_build_envelope_test.py",
+      "sourceSha256": "e3b9e4f552303af8ca57069095847d2934b3ad6545c1c29f9d0d4b1e9099ab39",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_cold_api_environment_test.py",
+      "sourceSha256": "522c2e5225eeb98a551f2d0c120349d428d69623ccc7a6cdc1ce27e098636e11",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_copy_fixture.py",
+      "sourceSha256": "b9d5b0d083ee148ecf846cb9f7348811359c6568e49145ed27c374316336940d",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_failed_api_holder_contract_test.py",
+      "sourceSha256": "496e14e480df734b104e36e2d5490643f55a9b8499866fbee427e5114bd207d1",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_hoisted_dependency_test.py",
+      "sourceSha256": "fc53dde2abdd92368c8bb307b989ff49314de94dcc454e335395a9d141aa1479",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_holder_envelope_contract_test.mjs",
+      "sourceSha256": "b8381d178969d2261f07d194c8c4415a16b12f48fab274a26d9cae2207d68ed3",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_import_realm_diagnostic.mjs",
+      "sourceSha256": "652babd3445088ca23c07d47a06af8599c15f196db8f525cf0315e7c9e5b0d45",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_kernel_inspector_test.py",
+      "sourceSha256": "8cc34cfba7ee2f2ebc6a1d470af4fdfe48d508c213da902a9c824e8018aa2895",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_native_ownership_negative_test.py",
+      "sourceSha256": "0d6d45b9b8f30d0f5437db170f09a46ed480f185c0e909b3531e7611500a1590",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_prebuilt_intake.py",
+      "sourceSha256": "4754c2743965300b17ae53d0a23cbe98abe2d20070bcafe4d1d3cca565e915b2",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_prebuilt_intake_test.py",
+      "sourceSha256": "5abf68b291b2da084b067f6f91a771c3cee029ffd14fecc626fbae923781549a",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_preservation_test.py",
+      "sourceSha256": "2a03ee7b6824848775ae5c36aa7b52691f939cb059b0e5e5c65ba0480db9d5a6",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_recovery_prepare_contract_test.py",
+      "sourceSha256": "066798b95a8f062d35300e7fd9635e879ba72df9e9f2a9c35372bb01c0b02459",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_restart_api_test.py",
+      "sourceSha256": "08648ea55b9b17b4a4af4d16a8b04cf3bda0c47fcd9fad66cc5df60f3bf6b8a0",
+      "trackedDelta": false
+    },
+    {
+      "path": "tools/dev/sandbox_shell_inspector_test.py",
+      "sourceSha256": "208548919e418fb6aaf3d961590b9f2c8d80678834a4a11ee1a22335e88bee91",
+      "trackedDelta": false
+    }
+  ],
+  "impacts": [
+    {
+      "name": "parseStoredCoordinatorConversation",
+      "file": "apps/api_server/src/contracts/coordinator_conversation_contract.ts",
+      "result": {
+        "target": {
+          "id": "Function:apps/api_server/src/contracts/coordinator_conversation_contract.ts:parseStoredCoordinatorConversation",
+          "name": "parseStoredCoordinatorConversation",
+          "type": "Function",
+          "filePath": "apps/api_server/src/contracts/coordinator_conversation_contract.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 31,
+        "risk": "MEDIUM",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 2,
+          "processes_affected": 1,
+          "modules_affected": 2
+        },
+        "byDepthCounts": {
+          "1": 2,
+          "2": 10,
+          "3": 19
+        },
+        "affected_processes": [
+          {
+            "name": "onCoordinatorTerminal",
+            "type": "Function",
+            "filePath": "apps/api_server/src/services/coordinator_conversation_service.ts",
+            "affected_process_count": 3,
+            "total_hits": 8,
+            "earliest_broken_step": 3
+          }
+        ],
+        "affected_modules": [
+          {
+            "name": "Repositories",
+            "hits": 24,
+            "impact": "direct"
+          },
+          {
+            "name": "Services",
+            "hits": 5,
+            "impact": "indirect"
+          }
+        ]
+      }
+    },
+    {
+      "name": "installCoordinatorConversationSchema",
+      "file": "apps/api_server/src/database/coordinator_conversation_schema.ts",
+      "result": {
+        "target": {
+          "id": "Function:apps/api_server/src/database/coordinator_conversation_schema.ts:installCoordinatorConversationSchema",
+          "name": "installCoordinatorConversationSchema",
+          "type": "Function",
+          "filePath": "apps/api_server/src/database/coordinator_conversation_schema.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 31,
+        "risk": "HIGH",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 4
+        },
+        "byDepthCounts": {
+          "1": 1,
+          "2": 14,
+          "3": 16
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Repositories",
+            "hits": 25,
+            "impact": "direct"
+          },
+          {
+            "name": "Release",
+            "hits": 4,
+            "impact": "indirect"
+          },
+          {
+            "name": "Database",
+            "hits": 1,
+            "impact": "indirect"
+          },
+          {
+            "name": "Services",
+            "hits": 1,
+            "impact": "indirect"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runMigrations",
+      "file": "apps/api_server/src/database/migrations.ts",
+      "result": {
+        "target": {
+          "id": "Function:apps/api_server/src/database/migrations.ts:runMigrations",
+          "name": "runMigrations",
+          "type": "Function",
+          "filePath": "apps/api_server/src/database/migrations.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 34,
+        "risk": "HIGH",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 14,
+          "processes_affected": 0,
+          "modules_affected": 4
+        },
+        "byDepthCounts": {
+          "1": 14,
+          "2": 16,
+          "3": 4
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Repositories",
+            "hits": 24,
+            "impact": "direct"
+          },
+          {
+            "name": "Release",
+            "hits": 7,
+            "impact": "direct"
+          },
+          {
+            "name": "Database",
+            "hits": 1,
+            "impact": "direct"
+          },
+          {
+            "name": "Services",
+            "hits": 1,
+            "impact": "indirect"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runPostgresBootstrap",
+      "file": "apps/api_server/src/database/postgres_bootstrap.ts",
+      "result": {
+        "target": {
+          "id": "Function:apps/api_server/src/database/postgres_bootstrap.ts:runPostgresBootstrap",
+          "name": "runPostgresBootstrap",
+          "type": "Function",
+          "filePath": "apps/api_server/src/database/postgres_bootstrap.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 3,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 2
+        },
+        "byDepthCounts": {
+          "1": 1,
+          "2": 1,
+          "3": 1
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Database",
+            "hits": 1,
+            "impact": "direct"
+          },
+          {
+            "name": "Services",
+            "hits": 1,
+            "impact": "indirect"
+          }
+        ]
+      }
+    },
+    {
+      "name": "claimCompletedForParent",
+      "file": "apps/api_server/src/repositories/agent_async_delegations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/agent_async_delegations_repository.ts:AgentAsyncDelegationsRepository.claimCompletedForParent#1",
+          "name": "claimCompletedForParent",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/agent_async_delegations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 0,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 0,
+          "processes_affected": 0,
+          "modules_affected": 0
+        },
+        "byDepthCounts": {},
+        "affected_processes": [],
+        "affected_modules": []
+      }
+    },
+    {
+      "name": "listWakingParentIds",
+      "file": "apps/api_server/src/repositories/agent_async_delegations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/agent_async_delegations_repository.ts:AgentAsyncDelegationsRepository.listWakingParentIds#2",
+          "name": "listWakingParentIds",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/agent_async_delegations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 0,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 0,
+          "processes_affected": 0,
+          "modules_affected": 0
+        },
+        "byDepthCounts": {},
+        "affected_processes": [],
+        "affected_modules": []
+      }
+    },
+    {
+      "name": "isValidAuthorityFor",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Function:apps/api_server/src/repositories/coordinator_conversations_repository.ts:isValidAuthorityFor",
+          "name": "isValidAuthorityFor",
+          "type": "Function",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 4,
+        "risk": "HIGH",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 3
+        },
+        "byDepthCounts": {
+          "1": 1,
+          "2": 2,
+          "3": 1
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 2,
+            "impact": "indirect"
+          },
+          {
+            "name": "Repositories",
+            "hits": 1,
+            "impact": "direct"
+          },
+          {
+            "name": "Controllers",
+            "hits": 1,
+            "impact": "indirect"
+          }
+        ]
+      }
+    },
+    {
+      "name": "findForegroundMcpSessionScope",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.findForegroundMcpSessionScope#1",
+          "name": "findForegroundMcpSessionScope",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 3,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 3,
+          "processes_affected": 0,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 3
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Repositories",
+            "hits": 2,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "coordinatorDelegationCallbackReason",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.coordinatorDelegationCallbackReason#1",
+          "name": "coordinatorDelegationCallbackReason",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 0,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 0,
+          "processes_affected": 0,
+          "modules_affected": 0
+        },
+        "byDepthCounts": {},
+        "affected_processes": [],
+        "affected_modules": []
+      }
+    },
+    {
+      "name": "findDelegationCallbackMcpDispatch",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.findDelegationCallbackMcpDispatch#1",
+          "name": "findDelegationCallbackMcpDispatch",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 0,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 0,
+          "processes_affected": 0,
+          "modules_affected": 0
+        },
+        "byDepthCounts": {},
+        "affected_processes": [],
+        "affected_modules": []
+      }
+    },
+    {
+      "name": "goalApprovalResumeState",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.goalApprovalResumeState#1",
+          "name": "goalApprovalResumeState",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 2,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 2,
+          "processes_affected": 0,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 2
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Repositories",
+            "hits": 2,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "record",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.record#1",
+          "name": "record",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 56,
+        "risk": "HIGH",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 10,
+          "processes_affected": 1,
+          "modules_affected": 3
+        },
+        "byDepthCounts": {
+          "1": 10,
+          "2": 20,
+          "3": 26
+        },
+        "affected_processes": [
+          {
+            "name": "onCoordinatorTerminal",
+            "type": "Function",
+            "filePath": "apps/api_server/src/services/coordinator_conversation_service.ts",
+            "affected_process_count": 7,
+            "total_hits": 14,
+            "earliest_broken_step": 1
+          }
+        ],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 30,
+            "impact": "direct"
+          },
+          {
+            "name": "Repositories",
+            "hits": 21,
+            "impact": "direct"
+          },
+          {
+            "name": "Controllers",
+            "hits": 4,
+            "impact": "indirect"
+          }
+        ]
+      }
+    },
+    {
+      "name": "get",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.get#1",
+          "name": "get",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 46,
+        "risk": "HIGH",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 25,
+          "processes_affected": 1,
+          "modules_affected": 3
+        },
+        "byDepthCounts": {
+          "1": 25,
+          "2": 15,
+          "3": 6
+        },
+        "affected_processes": [
+          {
+            "name": "onCoordinatorTerminal",
+            "type": "Function",
+            "filePath": "apps/api_server/src/services/coordinator_conversation_service.ts",
+            "affected_process_count": 7,
+            "total_hits": 8,
+            "earliest_broken_step": 1
+          }
+        ],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 38,
+            "impact": "direct"
+          },
+          {
+            "name": "Controllers",
+            "hits": 6,
+            "impact": "indirect"
+          },
+          {
+            "name": "Repositories",
+            "hits": 1,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "findCanonicalNotificationScope",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.findCanonicalNotificationScope#1",
+          "name": "findCanonicalNotificationScope",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 9,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 1,
+          "2": 2,
+          "3": 6
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Repositories",
+            "hits": 9,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "findMirroredPrimaryRoot",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.findMirroredPrimaryRoot#1",
+          "name": "findMirroredPrimaryRoot",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 0,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 0,
+          "processes_affected": 0,
+          "modules_affected": 0
+        },
+        "byDepthCounts": {},
+        "affected_processes": [],
+        "affected_modules": []
+      }
+    },
+    {
+      "name": "listGoalDelegationOutcomes",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.listGoalDelegationOutcomes#1",
+          "name": "listGoalDelegationOutcomes",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 9,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 1,
+          "2": 3,
+          "3": 5
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 9,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "findPrimaryOwnerRoot",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.findPrimaryOwnerRoot#1",
+          "name": "findPrimaryOwnerRoot",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 7,
+        "risk": "HIGH",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 3,
+          "processes_affected": 0,
+          "modules_affected": 3
+        },
+        "byDepthCounts": {
+          "1": 3,
+          "2": 2,
+          "3": 2
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Controllers",
+            "hits": 3,
+            "impact": "indirect"
+          },
+          {
+            "name": "Repositories",
+            "hits": 2,
+            "impact": "direct"
+          },
+          {
+            "name": "Services",
+            "hits": 2,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "listFiniteReconciliationCandidates",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.listFiniteReconciliationCandidates#2",
+          "name": "listFiniteReconciliationCandidates",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 2,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 1,
+          "2": 1
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 2,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "designatePrimaryOwnerRoot",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.designatePrimaryOwnerRoot#2",
+          "name": "designatePrimaryOwnerRoot",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 4,
+        "risk": "HIGH",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 3
+        },
+        "byDepthCounts": {
+          "1": 1,
+          "2": 1,
+          "3": 2
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 2,
+            "impact": "indirect"
+          },
+          {
+            "name": "Repositories",
+            "hits": 1,
+            "impact": "direct"
+          },
+          {
+            "name": "Controllers",
+            "hits": 1,
+            "impact": "indirect"
+          }
+        ]
+      }
+    },
+    {
+      "name": "addGoalInternal",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.addGoalInternal#3",
+          "name": "addGoalInternal",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 6,
+        "risk": "HIGH",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 2,
+          "processes_affected": 0,
+          "modules_affected": 3
+        },
+        "byDepthCounts": {
+          "1": 2,
+          "2": 2,
+          "3": 2
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 3,
+            "impact": "direct"
+          },
+          {
+            "name": "Controllers",
+            "hits": 2,
+            "impact": "indirect"
+          },
+          {
+            "name": "Repositories",
+            "hits": 1,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "recordStatusMessage",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.recordStatusMessage#1",
+          "name": "recordStatusMessage",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 3,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 2
+        },
+        "byDepthCounts": {
+          "1": 1,
+          "2": 1,
+          "3": 1
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Controllers",
+            "hits": 2,
+            "impact": "indirect"
+          },
+          {
+            "name": "Services",
+            "hits": 1,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reserveForegroundMessage",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.reserveForegroundMessage#1",
+          "name": "reserveForegroundMessage",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 3,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 2
+        },
+        "byDepthCounts": {
+          "1": 1,
+          "2": 1,
+          "3": 1
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 2,
+            "impact": "direct"
+          },
+          {
+            "name": "Controllers",
+            "hits": 1,
+            "impact": "indirect"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reserveGoalDelegation",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.reserveGoalDelegation#1",
+          "name": "reserveGoalDelegation",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 2,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 2,
+          "processes_affected": 0,
+          "modules_affected": 2
+        },
+        "byDepthCounts": {
+          "1": 2
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Repositories",
+            "hits": 1,
+            "impact": "direct"
+          },
+          {
+            "name": "Services",
+            "hits": 1,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "linkGoal",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.linkGoal#1",
+          "name": "linkGoal",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 4,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 2,
+          "processes_affected": 0,
+          "modules_affected": 2
+        },
+        "byDepthCounts": {
+          "1": 2,
+          "2": 1,
+          "3": 1
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Controllers",
+            "hits": 2,
+            "impact": "indirect"
+          },
+          {
+            "name": "Services",
+            "hits": 2,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "setContinuationAuthority",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.setContinuationAuthority#1",
+          "name": "setContinuationAuthority",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 4,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 2,
+          "processes_affected": 0,
+          "modules_affected": 2
+        },
+        "byDepthCounts": {
+          "1": 2,
+          "2": 1,
+          "3": 1
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Controllers",
+            "hits": 2,
+            "impact": "indirect"
+          },
+          {
+            "name": "Services",
+            "hits": 2,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "saveCurrent",
+      "file": "apps/api_server/src/repositories/coordinator_conversations_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/coordinator_conversations_repository.ts:CoordinatorConversationsRepository.saveCurrent#4",
+          "name": "saveCurrent",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/coordinator_conversations_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 27,
+        "risk": "HIGH",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 10,
+          "processes_affected": 1,
+          "modules_affected": 3
+        },
+        "byDepthCounts": {
+          "1": 10,
+          "2": 12,
+          "3": 5
+        },
+        "affected_processes": [
+          {
+            "name": "onCoordinatorTerminal",
+            "type": "Function",
+            "filePath": "apps/api_server/src/services/coordinator_conversation_service.ts",
+            "affected_process_count": 7,
+            "total_hits": 8,
+            "earliest_broken_step": 1
+          }
+        ],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 12,
+            "impact": "direct"
+          },
+          {
+            "name": "Repositories",
+            "hits": 11,
+            "impact": "direct"
+          },
+          {
+            "name": "Controllers",
+            "hits": 3,
+            "impact": "indirect"
+          }
+        ]
+      }
+    },
+    {
+      "name": "findProviderReceiver",
+      "file": "apps/api_server/src/repositories/dayflow_receiving_context_repository.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/repositories/dayflow_receiving_context_repository.ts:DayflowReceivingContextRepository.findProviderReceiver#2",
+          "name": "findProviderReceiver",
+          "type": "Method",
+          "filePath": "apps/api_server/src/repositories/dayflow_receiving_context_repository.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 2,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 2,
+          "processes_affected": 0,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 2
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Repositories",
+            "hits": 2,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "flushSessionLocked",
+      "file": "apps/api_server/src/services/agent_approval_continuation_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/agent_approval_continuation_service.ts:AgentApprovalContinuationService.flushSessionLocked#1",
+          "name": "flushSessionLocked",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/agent_approval_continuation_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 0,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 0,
+          "processes_affected": 0,
+          "modules_affected": 0
+        },
+        "byDepthCounts": {},
+        "affected_processes": [],
+        "affected_modules": []
+      }
+    },
+    {
+      "name": "delegateToAgentAsync",
+      "file": "apps/api_server/src/services/agent_delegation_service.ts",
+      "result": {
+        "target": {
+          "id": "Function:apps/api_server/src/services/agent_delegation_service.ts:delegateToAgentAsync",
+          "name": "delegateToAgentAsync",
+          "type": "Function",
+          "filePath": "apps/api_server/src/services/agent_delegation_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 1,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 1,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 1
+        },
+        "affected_processes": [
+          {
+            "name": "delegateAsync",
+            "type": "Function",
+            "filePath": "apps/api_server/src/controllers/agent_delegation_controller.ts",
+            "affected_process_count": 1,
+            "total_hits": 1,
+            "earliest_broken_step": 1
+          }
+        ],
+        "affected_modules": [
+          {
+            "name": "Repositories",
+            "hits": 1,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "recoverAfterRestart",
+      "file": "apps/api_server/src/services/async_delegation_completion_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/async_delegation_completion_service.ts:AsyncDelegationCompletionService.recoverAfterRestart#1",
+          "name": "recoverAfterRestart",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/async_delegation_completion_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 2,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 1,
+          "2": 1
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 2,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "onChildIdle",
+      "file": "apps/api_server/src/services/async_delegation_completion_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/async_delegation_completion_service.ts:AsyncDelegationCompletionService.onChildIdle#1",
+          "name": "onChildIdle",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/async_delegation_completion_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 5,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 1,
+          "2": 2,
+          "3": 2
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 5,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "onChildFailed",
+      "file": "apps/api_server/src/services/async_delegation_completion_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/async_delegation_completion_service.ts:AsyncDelegationCompletionService.onChildFailed#2",
+          "name": "onChildFailed",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/async_delegation_completion_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 5,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 1,
+          "2": 2,
+          "3": 2
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 5,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "flushParentLocked",
+      "file": "apps/api_server/src/services/async_delegation_completion_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/async_delegation_completion_service.ts:AsyncDelegationCompletionService.flushParentLocked#1",
+          "name": "flushParentLocked",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/async_delegation_completion_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 1,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 1
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 1,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reconcileWakingClaims",
+      "file": "apps/api_server/src/services/async_delegation_completion_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/async_delegation_completion_service.ts:AsyncDelegationCompletionService.reconcileWakingClaims#1",
+          "name": "reconcileWakingClaims",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/async_delegation_completion_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 2,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 1,
+          "2": 1
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 2,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "readWorkflowProposal",
+      "file": "apps/api_server/src/services/chat_bounded_workflow.ts",
+      "result": {
+        "target": {
+          "id": "Function:apps/api_server/src/services/chat_bounded_workflow.ts:readWorkflowProposal",
+          "name": "readWorkflowProposal",
+          "type": "Function",
+          "filePath": "apps/api_server/src/services/chat_bounded_workflow.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 11,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 4,
+          "processes_affected": 0,
+          "modules_affected": 2
+        },
+        "byDepthCounts": {
+          "1": 4,
+          "2": 5,
+          "3": 2
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 8,
+            "impact": "direct"
+          },
+          {
+            "name": "Controllers",
+            "hits": 1,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "workflowApprovalResumeCandidate",
+      "file": "apps/api_server/src/services/chat_bounded_workflow.ts",
+      "result": {
+        "target": {
+          "id": "Function:apps/api_server/src/services/chat_bounded_workflow.ts:workflowApprovalResumeCandidate",
+          "name": "workflowApprovalResumeCandidate",
+          "type": "Function",
+          "filePath": "apps/api_server/src/services/chat_bounded_workflow.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 5,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 4,
+          "processes_affected": 0,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 4,
+          "2": 1
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 5,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "proposeWorkflow",
+      "file": "apps/api_server/src/services/coordinator_conversation_model_status_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/coordinator_conversation_model_status_service.ts:CoordinatorConversationModelStatusService.proposeWorkflow#2",
+          "name": "proposeWorkflow",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/coordinator_conversation_model_status_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 0,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 0,
+          "processes_affected": 0,
+          "modules_affected": 0
+        },
+        "byDepthCounts": {},
+        "affected_processes": [],
+        "affected_modules": []
+      }
+    },
+    {
+      "name": "startWorkflow",
+      "file": "apps/api_server/src/services/coordinator_conversation_model_status_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/coordinator_conversation_model_status_service.ts:CoordinatorConversationModelStatusService.startWorkflow#2",
+          "name": "startWorkflow",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/coordinator_conversation_model_status_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 0,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 0,
+          "processes_affected": 0,
+          "modules_affected": 0
+        },
+        "byDepthCounts": {},
+        "affected_processes": [],
+        "affected_modules": []
+      }
+    },
+    {
+      "name": "boundedWorkflowSelection",
+      "file": "apps/api_server/src/services/coordinator_conversation_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/coordinator_conversation_service.ts:CoordinatorConversationService.boundedWorkflowSelection#4",
+          "name": "boundedWorkflowSelection",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/coordinator_conversation_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 0,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 0,
+          "processes_affected": 0,
+          "modules_affected": 0
+        },
+        "byDepthCounts": {},
+        "affected_processes": [],
+        "affected_modules": []
+      }
+    },
+    {
+      "name": "startCodingWorkflow",
+      "file": "apps/api_server/src/services/coordinator_conversation_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/coordinator_conversation_service.ts:CoordinatorConversationService.startCodingWorkflow#2",
+          "name": "startCodingWorkflow",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/coordinator_conversation_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 0,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 0,
+          "processes_affected": 0,
+          "modules_affected": 0
+        },
+        "byDepthCounts": {},
+        "affected_processes": [],
+        "affected_modules": []
+      }
+    },
+    {
+      "name": "sendForegroundMessage",
+      "file": "apps/api_server/src/services/coordinator_conversation_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/coordinator_conversation_service.ts:CoordinatorConversationService.sendForegroundMessage#3",
+          "name": "sendForegroundMessage",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/coordinator_conversation_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 3,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 2
+        },
+        "byDepthCounts": {
+          "1": 1,
+          "2": 1,
+          "3": 1
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Controllers",
+            "hits": 2,
+            "impact": "indirect"
+          },
+          {
+            "name": "Services",
+            "hits": 1,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "preparePlan",
+      "file": "apps/api_server/src/services/coordinator_conversation_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/coordinator_conversation_service.ts:CoordinatorConversationService.preparePlan#3",
+          "name": "preparePlan",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/coordinator_conversation_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 3,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 2
+        },
+        "byDepthCounts": {
+          "1": 1,
+          "2": 1,
+          "3": 1
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Controllers",
+            "hits": 2,
+            "impact": "direct"
+          },
+          {
+            "name": "Routes",
+            "hits": 1,
+            "impact": "indirect"
+          }
+        ]
+      }
+    },
+    {
+      "name": "prepareCallbackContext",
+      "file": "apps/api_server/src/services/coordinator_conversation_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/coordinator_conversation_service.ts:CoordinatorConversationService.prepareCallbackContext#1",
+          "name": "prepareCallbackContext",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/coordinator_conversation_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 0,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 0,
+          "processes_affected": 0,
+          "modules_affected": 0
+        },
+        "byDepthCounts": {},
+        "affected_processes": [],
+        "affected_modules": []
+      }
+    },
+    {
+      "name": "foregroundSystemContract",
+      "file": "apps/api_server/src/services/coordinator_conversation_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/coordinator_conversation_service.ts:CoordinatorConversationService.foregroundSystemContract#2",
+          "name": "foregroundSystemContract",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/coordinator_conversation_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 4,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 2,
+          "processes_affected": 0,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 2,
+          "2": 1,
+          "3": 1
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 4,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "foregroundContextFingerprint",
+      "file": "apps/api_server/src/services/coordinator_conversation_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/coordinator_conversation_service.ts:CoordinatorConversationService.foregroundContextFingerprint#2",
+          "name": "foregroundContextFingerprint",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/coordinator_conversation_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 6,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 2,
+          "processes_affected": 0,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 2,
+          "2": 2,
+          "3": 2
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 6,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "foregroundUnqualifiedFingerprint",
+      "file": "apps/api_server/src/services/coordinator_conversation_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/coordinator_conversation_service.ts:CoordinatorConversationService.foregroundUnqualifiedFingerprint#1",
+          "name": "foregroundUnqualifiedFingerprint",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/coordinator_conversation_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 6,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 2,
+          "processes_affected": 0,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 2,
+          "2": 2,
+          "3": 2
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 6,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "modelStatusText",
+      "file": "apps/api_server/src/services/coordinator_conversation_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/coordinator_conversation_service.ts:CoordinatorConversationService.modelStatusText#2",
+          "name": "modelStatusText",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/coordinator_conversation_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 1,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 1
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 1,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "getDayflowProviderFrame",
+      "file": "apps/api_server/src/services/opencode_client_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/opencode_client_service.ts:OpencodeClientService.getDayflowProviderFrame#4",
+          "name": "getDayflowProviderFrame",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/opencode_client_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 0,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 0,
+          "processes_affected": 0,
+          "modules_affected": 0
+        },
+        "byDepthCounts": {},
+        "affected_processes": [],
+        "affected_modules": []
+      }
+    },
+    {
+      "name": "getWorkflowProviderFrame",
+      "file": "apps/api_server/src/services/opencode_client_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/opencode_client_service.ts:OpencodeClientService.getWorkflowProviderFrame#4",
+          "name": "getWorkflowProviderFrame",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/opencode_client_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 0,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 0,
+          "processes_affected": 0,
+          "modules_affected": 0
+        },
+        "byDepthCounts": {},
+        "affected_processes": [],
+        "affected_modules": []
+      }
+    },
+    {
+      "name": "enrollDayflowGuard",
+      "file": "apps/api_server/src/services/opencode_client_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/opencode_client_service.ts:OpencodeClientService.enrollDayflowGuard#2",
+          "name": "enrollDayflowGuard",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/opencode_client_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 0,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 0,
+          "processes_affected": 0,
+          "modules_affected": 0
+        },
+        "byDepthCounts": {},
+        "affected_processes": [],
+        "affected_modules": []
+      }
+    },
+    {
+      "name": "enrollWorkflowProviderGuard",
+      "file": "apps/api_server/src/services/opencode_client_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/opencode_client_service.ts:OpencodeClientService.enrollWorkflowProviderGuard#3",
+          "name": "enrollWorkflowProviderGuard",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/opencode_client_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 1,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 1
+        },
+        "byDepthCounts": {
+          "1": 1
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 1,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hasOwnedEngine",
+      "file": "apps/api_server/src/services/opencode_client_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/opencode_client_service.ts:OpencodeClientService.hasOwnedEngine#0",
+          "name": "hasOwnedEngine",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/opencode_client_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 0,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 0,
+          "processes_affected": 0,
+          "modules_affected": 0
+        },
+        "byDepthCounts": {},
+        "affected_processes": [],
+        "affected_modules": []
+      }
+    },
+    {
+      "name": "_initializeImpl",
+      "file": "apps/api_server/src/services/opencode_client_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/opencode_client_service.ts:OpencodeClientService._initializeImpl#1",
+          "name": "_initializeImpl",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/opencode_client_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 10,
+        "risk": "HIGH",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 2,
+          "modules_affected": 3
+        },
+        "byDepthCounts": {
+          "1": 1,
+          "2": 3,
+          "3": 6
+        },
+        "affected_processes": [
+          {
+            "name": "resume",
+            "type": "Function",
+            "filePath": "apps/api_server/src/controllers/agent_sessions_controller.ts",
+            "affected_process_count": 6,
+            "total_hits": 6,
+            "earliest_broken_step": 1
+          },
+          {
+            "name": "create",
+            "type": "Function",
+            "filePath": "apps/api_server/src/controllers/agent_sessions_controller.ts",
+            "affected_process_count": 1,
+            "total_hits": 1,
+            "earliest_broken_step": 1
+          }
+        ],
+        "affected_modules": [
+          {
+            "name": "Repositories",
+            "hits": 4,
+            "impact": "indirect"
+          },
+          {
+            "name": "Routes",
+            "hits": 3,
+            "impact": "direct"
+          },
+          {
+            "name": "Services",
+            "hits": 1,
+            "impact": "indirect"
+          }
+        ]
+      }
+    },
+    {
+      "name": "createSession",
+      "file": "apps/api_server/src/services/opencode_client_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/opencode_client_service.ts:OpencodeClientService.createSession#10",
+          "name": "createSession",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/opencode_client_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 16,
+        "risk": "HIGH",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 6,
+          "processes_affected": 4,
+          "modules_affected": 3
+        },
+        "byDepthCounts": {
+          "1": 6,
+          "2": 5,
+          "3": 5
+        },
+        "affected_processes": [
+          {
+            "name": "resume",
+            "type": "Function",
+            "filePath": "apps/api_server/src/controllers/agent_sessions_controller.ts",
+            "affected_process_count": 6,
+            "total_hits": 6,
+            "earliest_broken_step": 1
+          },
+          {
+            "name": "prompt",
+            "type": "Function",
+            "filePath": "apps/api_server/src/controllers/agent_sessions_controller.ts",
+            "affected_process_count": 4,
+            "total_hits": 4,
+            "earliest_broken_step": 1
+          },
+          {
+            "name": "delegateAsync",
+            "type": "Function",
+            "filePath": "apps/api_server/src/controllers/agent_delegation_controller.ts",
+            "affected_process_count": 1,
+            "total_hits": 1,
+            "earliest_broken_step": 1
+          },
+          {
+            "name": "create",
+            "type": "Function",
+            "filePath": "apps/api_server/src/controllers/agent_sessions_controller.ts",
+            "affected_process_count": 1,
+            "total_hits": 1,
+            "earliest_broken_step": 1
+          }
+        ],
+        "affected_modules": [
+          {
+            "name": "Repositories",
+            "hits": 9,
+            "impact": "direct"
+          },
+          {
+            "name": "Services",
+            "hits": 4,
+            "impact": "indirect"
+          },
+          {
+            "name": "Controllers",
+            "hits": 2,
+            "impact": "indirect"
+          }
+        ]
+      }
+    },
+    {
+      "name": "promptAsync",
+      "file": "apps/api_server/src/services/opencode_client_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/opencode_client_service.ts:OpencodeClientService.promptAsync#13",
+          "name": "promptAsync",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/opencode_client_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 5,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 3,
+          "processes_affected": 1,
+          "modules_affected": 2
+        },
+        "byDepthCounts": {
+          "1": 3,
+          "2": 2
+        },
+        "affected_processes": [
+          {
+            "name": "delegateAsync",
+            "type": "Function",
+            "filePath": "apps/api_server/src/controllers/agent_delegation_controller.ts",
+            "affected_process_count": 1,
+            "total_hits": 1,
+            "earliest_broken_step": 1
+          }
+        ],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 3,
+            "impact": "direct"
+          },
+          {
+            "name": "Repositories",
+            "hits": 2,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "mintManagedPromptAnchor",
+      "file": "apps/api_server/src/services/opencode_client_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/opencode_client_service.ts:OpencodeClientService.mintManagedPromptAnchor#2",
+          "name": "mintManagedPromptAnchor",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/opencode_client_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 12,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 3,
+          "processes_affected": 1,
+          "modules_affected": 2
+        },
+        "byDepthCounts": {
+          "1": 3,
+          "2": 6,
+          "3": 3
+        },
+        "affected_processes": [
+          {
+            "name": "delegateAsync",
+            "type": "Function",
+            "filePath": "apps/api_server/src/controllers/agent_delegation_controller.ts",
+            "affected_process_count": 1,
+            "total_hits": 1,
+            "earliest_broken_step": 1
+          }
+        ],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 9,
+            "impact": "direct"
+          },
+          {
+            "name": "Repositories",
+            "hits": 3,
+            "impact": "indirect"
+          }
+        ]
+      }
+    },
+    {
+      "name": "getManagedActiveToolCall",
+      "file": "apps/api_server/src/services/opencode_client_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/opencode_client_service.ts:OpencodeClientService.getManagedActiveToolCall#4",
+          "name": "getManagedActiveToolCall",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/opencode_client_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 1,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 1,
+          "processes_affected": 0,
+          "modules_affected": 0
+        },
+        "byDepthCounts": {
+          "1": 1
+        },
+        "affected_processes": [],
+        "affected_modules": []
+      }
+    },
+    {
+      "name": "serverUrl",
+      "file": "apps/api_server/src/services/opencode_client_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/opencode_client_service.ts:OpencodeClientService.serverUrl#0",
+          "name": "serverUrl",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/opencode_client_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 0,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 0,
+          "processes_affected": 0,
+          "modules_affected": 0
+        },
+        "byDepthCounts": {},
+        "affected_processes": [],
+        "affected_modules": []
+      }
+    },
+    {
+      "name": "dispose",
+      "file": "apps/api_server/src/services/opencode_client_service.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/opencode_client_service.ts:OpencodeClientService.dispose#0",
+          "name": "dispose",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/opencode_client_service.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 8,
+        "risk": "LOW",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 2,
+          "processes_affected": 0,
+          "modules_affected": 2
+        },
+        "byDepthCounts": {
+          "1": 2,
+          "2": 4,
+          "3": 2
+        },
+        "affected_processes": [],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 2,
+            "impact": "direct"
+          },
+          {
+            "name": "Routes",
+            "hits": 2,
+            "impact": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "name": "decidePermission",
+      "file": "apps/api_server/src/services/opencode_stream_bridge.ts",
+      "result": {
+        "target": {
+          "id": "Method:apps/api_server/src/services/opencode_stream_bridge.ts:OpencodeStreamBridge.decidePermission#4",
+          "name": "decidePermission",
+          "type": "Method",
+          "filePath": "apps/api_server/src/services/opencode_stream_bridge.ts"
+        },
+        "direction": "upstream",
+        "impactedCount": 10,
+        "risk": "HIGH",
+        "epistemic": "exact",
+        "summary": {
+          "direct": 2,
+          "processes_affected": 3,
+          "modules_affected": 2
+        },
+        "byDepthCounts": {
+          "1": 2,
+          "2": 4,
+          "3": 4
+        },
+        "affected_processes": [
+          {
+            "name": "fork",
+            "type": "Function",
+            "filePath": "apps/api_server/src/controllers/agent_sessions_controller.ts",
+            "affected_process_count": 6,
+            "total_hits": 6,
+            "earliest_broken_step": 1
+          },
+          {
+            "name": "resume",
+            "type": "Function",
+            "filePath": "apps/api_server/src/controllers/agent_sessions_controller.ts",
+            "affected_process_count": 6,
+            "total_hits": 6,
+            "earliest_broken_step": 1
+          },
+          {
+            "name": "create",
+            "type": "Function",
+            "filePath": "apps/api_server/src/controllers/agent_sessions_controller.ts",
+            "affected_process_count": 1,
+            "total_hits": 1,
+            "earliest_broken_step": 1
+          }
+        ],
+        "affected_modules": [
+          {
+            "name": "Services",
+            "hits": 7,
+            "impact": "direct"
+          },
+          {
+            "name": "Repositories",
+            "hits": 3,
+            "impact": "indirect"
+          }
+        ]
+      }
+    }
+  ]
+}

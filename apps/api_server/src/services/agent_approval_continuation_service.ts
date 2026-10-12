@@ -1,5 +1,9 @@
 import { AgentApprovalsRepository, type AgentApproval } from '../repositories/agent_approvals_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import {
+  CoordinatorConversationsRepository,
+  type CoordinatorGoalApprovalResumeCandidate,
+} from '../repositories/coordinator_conversations_repository';
 import { logger } from '../utils/logger';
 import { resolveProfileScope } from './agent_profile_scope';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
@@ -106,7 +110,11 @@ export class AgentApprovalContinuationService {
       }
       if (!this.approvals.claimContinuation(approval.id)) continue;
 
-      const continuation = this.buildContinuation(approval);
+      // Qualified from CURRENT rows after every producer await above and only
+      // for the exact approved goal approval; anything else is the ordinary wake.
+      const resume = this.qualifyGoalResume(approval, sdkSessionId);
+      const controls = resume ? this.captureControls(session.id) : null;
+      const continuation = this.buildContinuation(approval, resume);
       try {
         const accepted = await opencodeClient.promptAsync(
           sdkSessionId,
@@ -128,7 +136,21 @@ export class AgentApprovalContinuationService {
             routeAuthed: null,
             finalProviderId: scope.model?.providerID ?? null,
             finalModelId: scope.model?.modelID ?? null,
+            ...(resume ? { reasonCode: resume.reasonCode } : {}),
           },
+          undefined,
+          undefined,
+          undefined,
+          // Distinct internal context (generic wakes pass none): the client mints
+          // the native message id, persists the exact dispatch row with it before
+          // exposure and runs this SYNCHRONOUS check again immediately before the
+          // SDK call, after its last awaited history/authority guard.
+          resume
+            ? {
+              kind: 'coordinator_goal_approval_resume_v1' as const,
+              validate: () => this.resumeCurrent(approval, session.id, sdkSessionId, resume, controls),
+            }
+            : undefined,
         );
         if (accepted) {
           this.approvals.markContinuationDelivered(approval.id);
@@ -205,14 +227,80 @@ export class AgentApprovalContinuationService {
     }
   }
 
-  private buildContinuation(approval: AgentApproval): string {
+  /**
+   * Narrow qualification of the exact approved coordinator-goal approval. The
+   * repository proves (synchronously, from current rows) that this approval is
+   * the current primary root's approved, unconsumed, unexpired
+   * `delegation.start-async` approval bound to the current taint, and that its
+   * digest uniquely selects one captured, unlinked, uncommanded goal. Rejected,
+   * pending, generic and ambiguous approvals return null and are untouched.
+   */
+  private qualifyGoalResume(
+    approval: AgentApproval,
+    sdkSessionId: string,
+  ): CoordinatorGoalApprovalResumeCandidate | null {
+    if (approval.status !== 'approved') return null;
+    try {
+      const candidate = new CoordinatorConversationsRepository().findGoalApprovalResumeCandidate({
+        id: approval.id,
+        sessionId: approval.sessionId,
+      });
+      return candidate && candidate.sdkSessionId === sdkSessionId ? candidate : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Controls captured when the wake was qualified; a change after that is stale. */
+  private captureControls(sessionId: string): { permissionMode: string; approvalBypassExplicit: boolean } | null {
+    const row = this.sessions.findById(sessionId);
+    return row ? { permissionMode: row.permissionMode, approvalBypassExplicit: row.approvalBypassExplicit === true } : null;
+  }
+
+  /**
+   * SYNCHRONOUS current-fingerprint proof (no await anywhere): the approval is
+   * still approved/unconsumed/unexpired for the exact action/digest, the goal
+   * revision, root/profile/owner/project/SDK and taint are those qualified, the
+   * live SDK mapping is unchanged and the root's permission controls are the
+   * same. Any difference (or a throw) is a refusal.
+   */
+  private resumeCurrent(
+    approval: AgentApproval,
+    sessionId: string,
+    sdkSessionId: string,
+    expected: CoordinatorGoalApprovalResumeCandidate,
+    controls: { permissionMode: string; approvalBypassExplicit: boolean } | null,
+  ): boolean {
+    try {
+      const current = this.qualifyGoalResume(approval, sdkSessionId);
+      if (!current || current.fingerprint !== expected.fingerprint || current.reasonCode !== expected.reasonCode) return false;
+      const live = opencodeSessionMap.get(sessionId) ?? this.sessions.findById(sessionId)?.sdkSessionId ?? null;
+      const now = this.captureControls(sessionId);
+      return live === sdkSessionId && controls !== null && now !== null &&
+        now.permissionMode === controls.permissionMode &&
+        now.approvalBypassExplicit === controls.approvalBypassExplicit;
+    } catch {
+      return false;
+    }
+  }
+
+  private buildContinuation(
+    approval: AgentApproval,
+    resume: CoordinatorGoalApprovalResumeCandidate | null = null,
+  ): string {
     const marker = this.marker(approval.id);
     if (approval.status === 'approved') {
       return (
         '[Rhythm human approval decision]\n' +
         `approval_id: ${approval.id}\n` +
+        // Server-derived ids only; never the goal objective or any model text.
+        (resume ? `goal_id: ${resume.goalId}\n` : '') +
         'Retry the identical protected action exactly once now using this approval_id. ' +
-        'Keep the original action and payload unchanged. Do not request a replacement approval for that retry.\n' +
+        'Keep the original action and payload unchanged. Do not request a replacement approval for that retry.' +
+        (resume
+          ? ' Call rhythm_start_coordinator_goal once with exactly this goal_id and approval_id.'
+          : '') +
+        '\n' +
         marker
       );
     }

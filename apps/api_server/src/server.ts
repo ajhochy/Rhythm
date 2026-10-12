@@ -1,12 +1,15 @@
+import { loadQualificationFixtureAuthority } from './services/qualification_fixture_authority';
 import http from 'http';
 import path from 'path';
+import { mkdir } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { config as loadDotenv } from 'dotenv';
 import { Agent as UndiciAgent, setGlobalDispatcher } from 'undici';
 import { opencodeClient } from './services/opencode_engine';
 import { managedChromeService } from './services/managed_chrome_service';
 import { MobilePtyProxy } from './services/mobile_pty_proxy';
 import { runAdvisoryCheck, formatStartupWarning } from './security/security_advisories';
-import { env } from './config/env';
+import { env, resolveLiveArtifactStorageDir, opencodeDataFile } from './config/env';
 import { validateHumanApprovalConfiguration } from './security/human_approval_security';
 
 // Load .env before deriving the AgentRunner transport guard below.
@@ -44,7 +47,7 @@ async function main() {
 
   const [
     { createApp },
-    { initDb },
+    { initDb, getDb },
     { startRecurrenceGenerationJob },
     { startSyncOrchestratorJob },
     { logger },
@@ -56,6 +59,38 @@ async function main() {
     { createMobileGatewayRouter },
     { createMobileGatewaySurface },
     { mobileGatewayListenPort },
+    { ManagedWorkstreamContextRepository },
+    { ManagedMemorySearchService },
+    { PersistentWorkstreamCoordinator },
+    { CoordinatorConversationContextAssembler },
+    { CoordinatorConversationService, createCoordinatorForegroundSender },
+    { CoordinatorConversationModelStatusService },
+    { selectCoordinatorSetupProfile, validateCoordinatorSetupReplay },
+    { createCoordinatorConversationContextAdapters },
+    { createDayflowCoordinatorReferenceAdapter },
+    { AgentWorkstreamsRepository },
+    { AgentSessionsRepository, listPage: listAgentSessionsPage },
+    { AgentSessionMessagesRepository },
+    { AgentConfigsRepository, agentConfigExecutionBlockReason },
+    { ProjectsRepository },
+    { AgentBridgeJobsRepository },
+    { AgentAsyncDelegationsRepository },
+    { CoordinatorConversationsRepository },
+    { delegateToAgentAsync },
+    { resolveProfileScope },
+    { perServerToolGrants },
+    { prepareAutomaticMemoryPreface },
+    { buildSkillsPreface, isSkillInjectionEnabled },
+    { resolveFiniteExecutionScope },
+    { DayflowPersistedQualificationAuthority },
+    { AuthenticatedDayflowMemoryClient },
+    { DayflowQualifiedEvidenceService },
+    { DayflowReceivingContextAuthorityService, DayflowGuardEnrollmentService },
+    { DayflowReceivingContextRepository },
+    { DayflowReceivingHistoryGuard, DayflowProviderAdmissionService },
+    { IntegrationAccountsRepository },
+    { CalendarShadowEventsRepository },
+    { computeCodingWorkflowCapability },
   ] = await Promise.all([
     import('./app'),
     import('./database/db'),
@@ -70,6 +105,38 @@ async function main() {
     import('./routes/mobile_gateway_routes'),
     import('./mobile_gateway_surface'),
     import('./mobile_gateway_config'),
+    import('./repositories/managed_workstream_context_repository'),
+    import('./services/managed_workstream_evidence_capture'),
+    import('./services/persistent_workstream_coordinator'),
+    import('./services/coordinator_conversation_context'),
+    import('./services/coordinator_conversation_service'),
+    import('./services/coordinator_conversation_model_status_service'),
+    import('./services/coordinator_setup_profile_selection'),
+    import('./services/coordinator_conversation_runtime_adapters'),
+    import('./services/dayflow_coordinator_reference_adapter'),
+    import('./repositories/agent_workstreams_repository'),
+    import('./repositories/agent_sessions_repository'),
+    import('./repositories/agent_session_messages_repository'),
+    import('./repositories/agent_configs_repository'),
+    import('./repositories/projects_repository'),
+    import('./shared_agents/delegation_jobs_repository'),
+    import('./repositories/agent_async_delegations_repository'),
+    import('./repositories/coordinator_conversations_repository'),
+    import('./services/agent_delegation_service'),
+    import('./services/agent_profile_scope'),
+    import('./services/mcp_dispatch_guard'),
+    import('./services/automatic_memory_preface'),
+    import('./services/skill_retrieval'),
+    import('./services/coordinator_finite_execution_scope'),
+    import('./integrations/dayflow/persisted_qualification_authority'),
+    import('./integrations/dayflow/authenticated_memory_client'),
+    import('./services/dayflow_qualified_evidence_service'),
+    import('./services/dayflow_receiving_context_authority'),
+    import('./repositories/dayflow_receiving_context_repository'),
+    import('./services/dayflow_receiving_history_guard'),
+    import('./repositories/integration_accounts_repository'),
+    import('./repositories/calendar_shadow_events_repository'),
+    import('./services/coding_workflow_capability'),
   ]);
 
   logger.info(`[server] durable log: ${apiServerLogPath()}`);
@@ -117,6 +184,433 @@ async function main() {
   // #1396: abort rather than advertise healthy when the configured mount is unusable.
   await verifyLiveArtifactStorageDir();
   await initDb();
+  (await import('./services/qualification_fixture_bootstrap')).bootstrapQualificationFixture();
+
+  // Persistent workstreams are an explicit local opt-in.  The shared MCP
+  // selector is deliberately absent while off, preserving ordinary memory
+  // search without installing a strict managed path into every session.
+  let workstreamCoordinator: InstanceType<typeof PersistentWorkstreamCoordinator> | undefined;
+  let managedMemorySearch: InstanceType<typeof ManagedMemorySearchService> | undefined;
+  let coordinatorConversationService: InstanceType<typeof CoordinatorConversationService> | undefined;
+  let coordinatorAgentTools: InstanceType<typeof CoordinatorConversationModelStatusService> | undefined;
+  // These are initialized by the authenticated Dayflow composition below.
+  // The coordinator receives lazy ports because its durable conversation
+  // service is constructed first; status reads remain inactive until both
+  // current qualified dependencies are present.
+  let dayflowService: import('./integrations/dayflow/service').DayflowIntegrationService | undefined;
+  let dayflowQualificationAuthority: import('./integrations/dayflow/persisted_qualification_authority').DayflowPersistedQualificationAuthority | undefined;
+  if (env.workstreamsEnabled && env.dbClient === 'sqlite' && env.agentExecutionEnabled) {
+    let coordinatorRef: InstanceType<typeof PersistentWorkstreamCoordinator> | undefined;
+    const contextPolicy = {
+      enabled: () => env.workstreamsEnabled,
+      dbClient: env.dbClient,
+      role: env.role,
+    } as const;
+    const records = new ManagedWorkstreamContextRepository(getDb(), contextPolicy);
+    managedMemorySearch = new ManagedMemorySearchService({
+      db: getDb(),
+      records,
+      engine: opencodeClient,
+      policy: {
+        ...contextPolicy,
+        currentHostEpoch: () => coordinatorRef?.hostEpoch ?? null,
+        rhythmMcpServerName: 'rhythm',
+      },
+    });
+    coordinatorRef = new PersistentWorkstreamCoordinator({
+      engine: opencodeClient,
+      records,
+      // The coordinator independently checks the live rhythm MCP status; this
+      // callback additionally proves that its owned capture persistence seam
+      // is present instead of treating service construction as readiness.
+      captureAvailable: () => managedMemorySearch?.coordinatorCaptureAvailable() ?? false,
+      enabled: () => env.workstreamsEnabled,
+      dbClient: env.dbClient,
+      role: env.role,
+      rhythmMcpServerName: 'rhythm',
+      terminalObserver: {
+        // The observer contains only IDs/state from a strict terminal receipt.
+        // It cannot wake a parent or send a model request by itself; the C2
+        // service re-reads the finite authority before a possible next ordinal.
+        onCoordinatorTerminal: (input) => coordinatorConversationService?.onCoordinatorTerminal(input),
+      },
+    });
+    workstreamCoordinator = coordinatorRef;
+    // The adapter sees only the existing qualified metadata reader plus its
+    // current persisted-consent authority. It never receives management
+    // status, a ledger, raw activity, or a generic memory-search fallback.
+    const dayflowReferences = createDayflowCoordinatorReferenceAdapter({
+      reader: () => dayflowService,
+      authority: () => dayflowQualificationAuthority,
+    });
+    const conversationSessions = new AgentSessionsRepository();
+    const conversationMessages = new AgentSessionMessagesRepository();
+    const conversationConfigs = new AgentConfigsRepository();
+    const conversationProjects = new ProjectsRepository();
+    const conversationWorkstreams = new AgentWorkstreamsRepository();
+    const conversationJobs = new AgentBridgeJobsRepository(getDb());
+    const conversationRepository = new CoordinatorConversationsRepository(getDb());
+    // Generic projects carry no owner column or membership ACL in this local
+    // schema. Do not treat catalog presence as access. The one additional C2
+    // proof is an explicit server-created fresh workspace receipt, which has
+    // an owner/key/profile provenance in this same store; it never claims an
+    // existing generic project or turns a caller path into authority.
+    const ownerProjectAccess = (ownerUserId: number, projectId: string): boolean => {
+      try {
+        const project = conversationProjects.findById(projectId);
+        if (!project || project.archivedAt !== null) return false;
+        if (conversationProjects.isCoordinatorOwnedBy(ownerUserId, projectId)) return true;
+        return listAgentSessionsPage({
+          scope: 'chats', projectId, ownerUserId, limit: 100,
+        }).sessions.some((session) =>
+          session.ownerUserId === ownerUserId && session.projectId === projectId &&
+          session.parentSessionId === null && session.isSystem === false && session.archivedAt === null,
+        );
+      } catch {
+        return false;
+      }
+    };
+    const profileAllowsRhythmTool = (
+      scope: Awaited<ReturnType<typeof resolveProfileScope>>,
+      toolName: string,
+    ): boolean => {
+      if (scope.mcpRoleConfig === null) return true;
+      const configured = scope.mcpRoleConfig.mcpServers.rhythm;
+      if (configured === undefined) return false;
+      const grants = perServerToolGrants(configured);
+      return grants.length === 0 || grants.includes(toolName);
+    };
+    coordinatorConversationService = new CoordinatorConversationService({
+      repository: conversationRepository,
+      context: new CoordinatorConversationContextAssembler({
+        ...createCoordinatorConversationContextAdapters({
+          dayflow: dayflowReferences,
+          // Optional status-only sources. Calendar: owner-local cached mirror
+          // reads only (no sync/refresh/provider call). Project sessions: the
+          // existing pager + the existing owner/project access proof above.
+          calendar: { accounts: new IntegrationAccountsRepository(), events: new CalendarShadowEventsRepository() },
+          projectSessions: {
+            listPage: listAgentSessionsPage,
+            projects: conversationProjects,
+            ownerProjectAccess,
+            profiles: conversationConfigs,
+          },
+        }),
+        // Status-only: the lane is usable only where the schema-2 provider
+        // admission below is composed (same env gate) and the roster is live.
+        codingWorkflowCapability: {
+          read: (scope) => computeCodingWorkflowCapability({
+            configs: conversationConfigs,
+            projectAuthorized: ownerProjectAccess(scope.ownerUserId, scope.projectId),
+          }),
+        },
+      }),
+      workstreams: conversationWorkstreams,
+      jobs: conversationJobs,
+      sessions: conversationSessions,
+      messages: conversationMessages,
+      configs: conversationConfigs,
+      projects: conversationProjects,
+      projectAccess: {
+        canAccess: ({ actor, projectId }) => ownerProjectAccess(actor.user.id, projectId),
+        canOwnerAccess: ({ ownerUserId, projectId }) => ownerProjectAccess(ownerUserId, projectId),
+      },
+      projectSetup: {
+        create: async ({ actor, commandKey, profileId }) => {
+          // Exact replay is checked before any filesystem work. The record is
+          // scoped by authenticated owner+command, not by catalog/cwd input.
+          const replay = conversationProjects.findCoordinatorSetup(actor.user.id, commandKey);
+          if (replay) {
+            const replayProfile = validateCoordinatorSetupReplay(
+              conversationConfigs.listEnabled(),
+              replay.coordinatorProfileId ?? undefined,
+              profileId,
+            );
+            // A command key is bound to its original profile. A later caller
+            // cannot use it to switch scope, and a disabled/locked/missing
+            // persisted profile cannot become fresh setup authority.
+            return conversationProjects.isCoordinatorOwnedBy(actor.user.id, replay.id) &&
+              replayProfile !== null &&
+              replayProfile.id === replay.coordinatorProfileId
+              ? { kind: 'ready' as const, project: replay, created: false }
+              : { kind: 'unavailable' as const };
+          }
+          const selected = selectCoordinatorSetupProfile(conversationConfigs.listEnabled(), profileId);
+          if (selected.kind === 'choice_required') {
+            return { kind: 'choice_required' as const, profileChoices: selected.profileChoices };
+          }
+          if (selected.kind !== 'selected') return { kind: 'unavailable' as const };
+          const setupRoot = path.resolve(resolveLiveArtifactStorageDir(), 'coordinator-workspaces');
+          const workspace = path.resolve(setupRoot, `rhythm-${randomUUID()}`);
+          if (!workspace.startsWith(`${setupRoot}${path.sep}`)) return { kind: 'unavailable' as const };
+          try {
+            await mkdir(setupRoot, { recursive: true });
+            await mkdir(workspace, { recursive: false });
+            // A profile can be disabled/locked/replaced while workspace setup
+            // awaits. Re-read the current server store before persisting it.
+            const current = selectCoordinatorSetupProfile(conversationConfigs.listEnabled(), profileId);
+            if (current.kind !== 'selected' || current.profile.id !== selected.profile.id) {
+              return { kind: 'unavailable' as const };
+            }
+            const created = conversationProjects.createCoordinatorOwned({
+              ownerUserId: actor.user.id,
+              setupKey: commandKey,
+              cwd: workspace,
+              profileId: current.profile.id,
+              name: 'Rhythm Coordinator',
+              workspaceGeneration: 1,
+            });
+            if (
+              !conversationProjects.isCoordinatorOwnedBy(actor.user.id, created.project.id) ||
+              created.project.coordinatorSetupKey !== commandKey ||
+              created.project.coordinatorProfileId !== current.profile.id
+            ) return { kind: 'unavailable' as const };
+            return { kind: 'ready' as const, project: created.project, created: !created.replay };
+          } catch {
+            return { kind: 'unavailable' as const };
+          }
+        },
+      },
+      executionScope: {
+        resolve: async ({ ownerUserId, projectId, parentSessionId, profileId, profileRevision, expected }) => {
+          const project = conversationProjects.findById(projectId);
+          const parent = conversationSessions.findById(parentSessionId);
+          const profile = conversationConfigs.getById(profileId);
+          if (
+            !project || !parent || !profile || project.archivedAt !== null ||
+            !conversationProjects.isCoordinatorOwnedBy(ownerUserId, projectId) ||
+            !ownerProjectAccess(ownerUserId, projectId) ||
+            parent.ownerUserId !== ownerUserId || parent.projectId !== projectId ||
+            parent.parentSessionId !== null || parent.isSystem || parent.category !== 'chat' ||
+            parent.profileId !== profileId || !parent.cwd ||
+            profile.id !== profileId || (profile.revision ?? 1) !== profileRevision ||
+            profile.enabled !== true || profile.isAgent !== true || profile.locked === true ||
+            agentConfigExecutionBlockReason(profile) !== null ||
+            project.coordinatorProfileId !== profileId || project.cwd !== parent.cwd
+          ) return null;
+          let profileScope: Awaited<ReturnType<typeof resolveProfileScope>>;
+          try {
+            profileScope = await resolveProfileScope(profileId);
+          } catch {
+            return null;
+          }
+          const afterProject = conversationProjects.findById(projectId);
+          const afterParent = conversationSessions.findById(parentSessionId);
+          const afterProfile = conversationConfigs.getById(profileId);
+          if (
+            !afterProject || !afterParent || !afterProfile ||
+            !conversationProjects.isCoordinatorOwnedBy(ownerUserId, projectId) ||
+            !ownerProjectAccess(ownerUserId, projectId) ||
+            afterProject.archivedAt !== null || afterProject.cwd !== parent.cwd ||
+            afterParent.id !== parent.id || afterParent.ownerUserId !== ownerUserId ||
+            afterParent.projectId !== projectId || afterParent.parentSessionId !== null ||
+            afterParent.isSystem || afterParent.category !== 'chat' || afterParent.profileId !== profileId ||
+            afterParent.cwd !== parent.cwd || afterProfile.id !== profileId ||
+            (afterProfile.revision ?? 1) !== profileRevision || afterProfile.enabled !== true ||
+            afterProfile.isAgent !== true || afterProfile.locked === true ||
+            agentConfigExecutionBlockReason(afterProfile) !== null
+          ) return null;
+          const resolved = resolveFiniteExecutionScope({
+            ownerUserId,
+            project: afterProject,
+            profile: afterProfile,
+            profileScope,
+            parentCwd: afterParent.cwd,
+          });
+          if (!resolved) return null;
+          if (
+            expected !== null && (
+              resolved.preview.schemaVersion !== expected.schemaVersion ||
+              resolved.preview.kind !== expected.kind || resolved.preview.projectId !== expected.projectId ||
+              resolved.preview.workspaceGeneration !== expected.workspaceGeneration ||
+              resolved.preview.profileId !== expected.profileId || resolved.preview.profileRevision !== expected.profileRevision ||
+              resolved.preview.targetFingerprint !== expected.targetFingerprint ||
+              resolved.preview.scopeSignature !== expected.scopeSignature
+            )
+          ) return null;
+          return resolved;
+        },
+      },
+      rootInitializer: {
+        initialize: async ({ actor, localSessionId, projectId, profileId }) => {
+          const before = conversationSessions.findById(localSessionId);
+          const profile = conversationConfigs.getById(profileId);
+          if (
+            !before || before.ownerUserId !== actor.user.id || before.projectId !== projectId ||
+            before.parentSessionId !== null || before.isSystem || before.category !== 'chat' ||
+            before.profileId !== profileId || before.sdkSessionId || !before.cwd || !profile ||
+            profile.enabled !== true || profile.isAgent !== true || profile.locked === true ||
+            !profile.modelProvider || !profile.modelId || !ownerProjectAccess(actor.user.id, projectId)
+          ) return { kind: 'unavailable' as const };
+          let resolved: Awaited<ReturnType<typeof resolveProfileScope>>;
+          try {
+            resolved = await resolveProfileScope(profile.id);
+          } catch {
+            return { kind: 'unavailable' as const };
+          }
+          if (
+            resolved.model.providerID !== profile.modelProvider || resolved.model.modelID !== profile.modelId
+          ) return { kind: 'unavailable' as const };
+          const created = await opencodeClient.createSession(
+            'Rhythm Coordinator',
+            before.cwd,
+            resolved.mcpRoleConfig ?? undefined,
+            [],
+            resolved.model.providerID,
+            undefined,
+            'plan',
+            false,
+            false,
+          );
+          if (!created.id) return { kind: 'unavailable' as const };
+          // The engine call is an await boundary. No prompt has been sent, and
+          // changed owner/project/profile/root controls win over this result.
+          const after = conversationSessions.findById(localSessionId);
+          const afterProfile = conversationConfigs.getById(profileId);
+          if (
+            !after || after.id !== before.id || after.ownerUserId !== actor.user.id || after.projectId !== projectId ||
+            after.parentSessionId !== null || after.isSystem || after.category !== 'chat' || after.profileId !== profileId ||
+            after.sdkSessionId || !afterProfile || afterProfile.revision !== profile.revision ||
+            afterProfile.enabled !== true || afterProfile.isAgent !== true || afterProfile.locked === true ||
+            afterProfile.modelProvider !== resolved.model.providerID || afterProfile.modelId !== resolved.model.modelID ||
+            !ownerProjectAccess(actor.user.id, projectId)
+          ) return { kind: 'unavailable' as const };
+          conversationSessions.setSdkSessionId(after.id, created.id);
+          const bound = conversationSessions.findById(after.id);
+          return bound && bound.sdkSessionId === created.id
+            ? { kind: 'ready' as const, session: bound }
+            : { kind: 'unavailable' as const };
+        },
+      },
+      // An ordinary foreground turn is deliberately composed at the same
+      // server boundary as the existing session stream and SDK client. The
+      // durable service has already reserved the exact user command; this
+      // closure rechecks the current local root/profile/owner binding before
+      // exposure and returns only an acknowledgement. Assistant/history rows
+      // are emitted by the existing stream bridge, never manufactured here.
+      foreground: {
+        // The sender lives beside the service so its session-model, reasoning
+        // and Fast behavior is exercised by tests; this only injects the
+        // server's existing collaborators.
+        send: createCoordinatorForegroundSender({
+          sessions: conversationSessions,
+          configs: conversationConfigs,
+          ownerProjectAccess,
+          resolveProfileScope,
+          resolveSessionModel: async (input) => (await import('./services/agent_model_resolver')).resolveModelForSessionTurn(input),
+          profileAllowsRhythmTool,
+          client: opencodeClient,
+          streamSession: async (localSessionId, sdkSessionId, cwd) => {
+            const { streamBridge } = await import('./services/opencode_stream_bridge');
+            await streamBridge.streamSession(localSessionId, sdkSessionId, cwd);
+          },
+          skills: { enabled: isSkillInjectionEnabled, build: buildSkillsPreface },
+          memory: prepareAutomaticMemoryPreface,
+        }),
+      },
+      waitingSessionIds: async () => {
+        const { streamBridge } = await import('./services/opencode_stream_bridge');
+        return streamBridge.listWaitingSessionIds();
+      },
+      codingWorkflow: {
+        dispatch: async ({ actor, parentSessionId, parentSdkSessionId, parentProfileId, goalId, objective, repoPath }) => {
+          // This is a narrow server-derived adapter over the existing async
+          // delegation route. The model supplies no target/profile/cwd/model
+          // or child prompt; the durable captured objective is the only text.
+          const beforeParent = conversationSessions.findById(parentSessionId);
+          const beforeProfile = conversationConfigs.getById(parentProfileId);
+          const parentProjectId = beforeParent?.projectId;
+          const currentConversation = conversationRepository.get({
+            ownerUserId: actor.user.id,
+            projectId: parentProjectId ?? '',
+            sessionId: parentSessionId,
+          });
+          if (
+            !beforeParent || !beforeProfile || !parentProjectId || currentConversation.kind !== 'found' ||
+            !currentConversation.conversation.primaryOwnerRoot ||
+            beforeParent.ownerUserId !== actor.user.id || beforeParent.sdkSessionId !== parentSdkSessionId ||
+            beforeParent.parentSessionId !== null || beforeParent.isSystem || beforeParent.category !== 'chat' ||
+            beforeParent.profileId !== parentProfileId || beforeParent.permissionMode !== 'plan' ||
+            beforeParent.approvalBypassExplicit === true ||
+            !ownerProjectAccess(actor.user.id, parentProjectId) ||
+            beforeProfile.id !== parentProfileId || beforeProfile.enabled !== true ||
+            beforeProfile.isAgent !== true || beforeProfile.locked === true ||
+            agentConfigExecutionBlockReason(beforeProfile) !== null
+          ) return null;
+          let dispatched: Awaited<ReturnType<typeof delegateToAgentAsync>>;
+          try {
+            dispatched = await delegateToAgentAsync({
+              authenticatedUserId: actor.user.id,
+              callerAgentConfigId: parentProfileId,
+              targetAgentConfigId: 'workflow-orchestrator',
+              prompt: objective,
+              callerSessionId: parentSessionId,
+              context: 'Coordinator goal run. Your current directory is your own git worktree of the repository, on its own branch. Work and commit only there; paths outside it are denied.',
+              // One run per goal, each on its own branch of the repo the user named.
+              cwd: repoPath,
+              isolateWorktree: true,
+              worktreeName: `goal-${goalId.replace(/[^A-Za-z0-9]/g, '').slice(0, 12)}`,
+              childPermissionMode: 'bypassPermissions',
+            });
+          } catch {
+            return null;
+          }
+          const afterParent = conversationSessions.findById(parentSessionId);
+          const afterProfile = conversationConfigs.getById(parentProfileId);
+          const afterConversation = conversationRepository.get({
+            ownerUserId: actor.user.id,
+            projectId: parentProjectId,
+            sessionId: parentSessionId,
+          });
+          if (
+            !afterParent || !afterProfile || afterConversation.kind !== 'found' ||
+            !afterConversation.conversation.primaryOwnerRoot ||
+            afterParent.id !== beforeParent.id || afterParent.ownerUserId !== actor.user.id ||
+            afterParent.sdkSessionId !== parentSdkSessionId || afterParent.projectId !== parentProjectId ||
+            afterParent.parentSessionId !== null || afterParent.isSystem || afterParent.category !== 'chat' ||
+            afterParent.profileId !== parentProfileId || afterParent.permissionMode !== 'plan' ||
+            afterParent.approvalBypassExplicit === true ||
+            !ownerProjectAccess(actor.user.id, parentProjectId) ||
+            afterProfile.id !== parentProfileId || afterProfile.enabled !== true ||
+            afterProfile.isAgent !== true || afterProfile.locked === true ||
+            agentConfigExecutionBlockReason(afterProfile) !== null ||
+            dispatched.targetAgentConfigId !== 'workflow-orchestrator'
+          ) return null;
+          const delegation = new AgentAsyncDelegationsRepository().findByChildSessionId(dispatched.sessionId);
+          return delegation && delegation.parentSessionId === parentSessionId &&
+            delegation.childSessionId === dispatched.sessionId &&
+            delegation.targetAgentConfigId === 'workflow-orchestrator' &&
+            ['dispatched', 'completed', 'waking', 'notified'].includes(delegation.status)
+            ? {
+              delegationId: delegation.id,
+              childSessionId: delegation.childSessionId,
+              targetAgentConfigId: 'workflow-orchestrator' as const,
+            }
+            : null;
+        },
+      },
+      coordinator: coordinatorRef,
+      enabled: () => env.workstreamsEnabled && env.dbClient === 'sqlite' && env.agentExecutionEnabled,
+    });
+    // The exact child-completion wake gets the same fresh, bounded coordinator
+    // contract as a foreground turn. The service re-derives owner/project/root
+    // from durable records; nothing here is a user, a reservation or a grant.
+    const callbackContextService = coordinatorConversationService;
+    const { asyncDelegationCompletionService: completionWakes } = await import(
+      './services/async_delegation_completion_service'
+    );
+    completionWakes.setCoordinatorCallbackContext({
+      prepare: (input) => callbackContextService.prepareCallbackContext(input),
+    });
+    coordinatorAgentTools = new CoordinatorConversationModelStatusService({
+      conversations: coordinatorConversationService,
+      records: conversationRepository,
+      engine: opencodeClient,
+    });
+    // Initialize only after the terminal observer can see the composed service.
+    // This is status-only boot reconciliation, not a model wake or scheduler.
+    coordinatorRef.initialize();
+  }
 
   const missingArtifactContent = await diagnoseLiveArtifactContent();
   if (missingArtifactContent.length > 0) {
@@ -161,6 +655,13 @@ async function main() {
     const mediaRetentionTimer = setInterval(() => void sweepMediaArtifacts(), 86_400_000);
     mediaRetentionTimer.unref();
   }
+  // Session-DB retention (docs/ai/decisions/2026-09-29-session-db-retention.md): daily 02:15,
+  // mode = RHYTHM_SESSION_RETENTION env if set, else the Settings value (PUT /system/session-retention),
+  // else dry-run (read-only report). Resolved on every run.
+  if (process.env.VITEST !== 'true' && env.dbClient === 'sqlite') {
+    const { startSessionRetentionJob } = await import('./jobs/session_retention_job');
+    startSessionRetentionJob();
+  }
   logger.info('Database initialized');
   try {
     const { recoverStaleResearchJobs } = await import('./controllers/agentResearchController');
@@ -191,6 +692,7 @@ async function main() {
   // shutdown handler can stop its managed child process. Nullable for the
   // 'cloud' role, where the agent runtime (and this manager) never starts.
   let engraphManagerRef: { shutdown: () => Promise<void> } | null = null;
+  let engraphRefreshBridge: { dispose: () => void } | null = null;
   // Issue #856: watches ~/.local/share/opencode/auth.json and bounces the
   // opencode engine on a genuine credential change (e.g. a Claude account
   // switch), so the engine re-reads fresh tokens instead of 401ing on stale
@@ -214,6 +716,19 @@ async function main() {
   let openaiAccountsServiceRef: { stopRefreshLoop: () => void } | null = null;
 
   if (env.agentExecutionEnabled) {
+    // Register admission before any startup rebuild/sync can observe canonical
+    // bytes. The bridge never starts the manager; it only retains intent until
+    // the existing owner accepts a refresh.
+    try {
+      const [{ engraphManager }, { EngraphMemoryRefreshBridge }] = await Promise.all([
+        import('./services/engraph_manager'),
+        import('./services/engraph_memory_refresh_bridge'),
+      ]);
+      engraphManagerRef = engraphManager;
+      engraphRefreshBridge = new EngraphMemoryRefreshBridge(engraphManager);
+    } catch (err) {
+      logger.warn(`[server] Engraph refresh bridge setup failed (non-fatal): ${String(err)}`);
+    }
     // Seed and project Researcher before any scheduler or page-launched run can
     // request the `research` engine agent.
     try {
@@ -339,7 +854,8 @@ async function main() {
       const { populateWorkflowSkillsOnce } = await import(
         './services/skill_seed_importer'
       );
-      const r = populateWorkflowSkillsOnce();
+      const fixture=(await import('./services/qualification_fixture_authority')).loadQualificationFixtureAuthority();
+      const r = populateWorkflowSkillsOnce(fixture?{claudeSkillsDir:path.join(fixture.fixtureRoot,'empty-claude-skills')}:{});
       if (!r.alreadyDone) {
         logger.info(
           `[server] workflow-skill one-time population: copied=${r.copied} alreadyPresent=${r.alreadyPresent}`,
@@ -418,7 +934,7 @@ async function main() {
     // Non-fatal — never blocks startup; no-op under Postgres.
     try {
       const { seedConfigAssets } = await import('./services/config_seeds_seeder');
-      const r = seedConfigAssets();
+      const r = seedConfigAssets((await import('./services/qualification_fixture_authority')).loadQualificationFixtureAuthority()?{sourceDir:null}:{});
       if (!r.alreadyDone) {
         logger.info(
           `[server] config-seeds: skillsCopied=${r.skillsCopied} ` +
@@ -482,7 +998,21 @@ async function main() {
       logger.warn(`[server] org-optimizer seed failed (non-fatal): ${String(err)}`);
     }
     if (legacyOrgSchedulesRetired) {
-      agentSchedulerJob = startAgentSchedulerJob();
+      agentSchedulerJob = startAgentSchedulerJob({
+        // Reuses the scheduler's existing minute tick; this callback owns no
+        // timer and remains a no-op unless the local coordinator was opted in.
+        onOneShotWorkstreamTick: async () => {
+          // One existing minute callback owns both bounded local coordinator
+          // observations. Neither branch creates its own timer or dispatches
+          // a new authority; finite continuation remains terminal-observer
+          // gated inside the conversation service.
+          await Promise.all([
+            workstreamCoordinator?.sweepOneShotAutomation(),
+            coordinatorConversationService?.sweepFiniteConversationReconciliation(),
+            dayflowService?.renewQualifiedEvidenceOnSchedulerTick(),
+          ]);
+        },
+      });
     } else {
       logger.error('[server] agent scheduler not started because legacy org schedules were not safely retired');
     }
@@ -527,9 +1057,100 @@ async function main() {
   }
 
   const mobileGatewayRouter = env.agentExecutionEnabled
-    ? createMobileGatewayRouter()
+    ? createMobileGatewayRouter({ workstreamCoordinator, coordinatorConversationService })
     : undefined;
-  const app = createApp({ mobileGatewayRouter });
+  // Dayflow's private config/ledger live beside the app database. Selection is
+  // always explicit in Settings; startup never discovers a journal or reads
+  // activity. Missing setup is a normal, visible "unconfigured" state.
+  let dayflowManagementService: import('./integrations/dayflow/public_contract').DayflowManagementService | undefined;
+  let dayflowQualifiedEvidence: import('./services/dayflow_qualified_evidence_service').DayflowQualifiedEvidenceService | undefined;
+  let dayflowProviderAdmission: import('./services/dayflow_receiving_history_guard').DayflowProviderAdmissionService | undefined;
+  let dayflowShared: import('./services/qualification_fixture_service').QualificationDayflowSeam | undefined;
+  if (env.agentExecutionEnabled && env.agentLocal && env.agentOriginGuardEnabled) {
+    const { resolveDayflowIntegrationStateDir } = await import('./config/env');
+    const resolvedStateRoot = resolveDayflowIntegrationStateDir();
+    const [
+      { DayflowIntegrationService },
+      { createDayflowManagementAdapter },
+      { DayflowSqliteSource, verifyDayflowJournal },
+      { DayflowConfigStore },
+      { MemoryLedger },
+    ] = await Promise.all([
+      import('./integrations/dayflow/service'),
+      import('./integrations/dayflow/management_adapter'),
+      import('./integrations/dayflow/sqlite_source'),
+      import('./integrations/dayflow/config_store'),
+      import('./integrations/dayflow/ledger'),
+    ]);
+    const dayflowConfigStore = new DayflowConfigStore(path.join(resolvedStateRoot, 'config.json'));
+    const dayflowLedger = new MemoryLedger(path.join(resolvedStateRoot, 'ownership-ledger.json'));
+    dayflowQualificationAuthority = new DayflowPersistedQualificationAuthority(dayflowConfigStore, dayflowLedger);
+    dayflowService = new DayflowIntegrationService({
+      source: new DayflowSqliteSource(),
+      memoryClient: new AuthenticatedDayflowMemoryClient(dayflowQualificationAuthority),
+      configStore: dayflowConfigStore,
+      ledger: dayflowLedger,
+      journalVerifier: { verify: verifyDayflowJournal },
+      sourceForJournal: (journal) => new DayflowSqliteSource(journal),
+      qualificationAuthority: dayflowQualificationAuthority,
+    });
+    dayflowManagementService = createDayflowManagementAdapter(dayflowService);
+    const dayflowRecords = new DayflowReceivingContextRepository(getDb());
+    const dayflowReceiver = new DayflowReceivingContextAuthorityService({
+      engine: opencodeClient,
+      records: dayflowRecords,
+    });
+    // One shared enrollment seam: native must durably record the SDK as guarded
+    // BEFORE any V1 signed-tool body or V2 automatic overlay is released.
+    const dayflowEnrollment = new DayflowGuardEnrollmentService({ engine: opencodeClient, records: dayflowRecords });
+    // The only evidence construction: the qualification fixture's isolated
+    // reader goes through this same factory, so it shares the enrollment too.
+    const dayflowEvidenceFor = (
+      reader: ConstructorParameters<typeof DayflowQualifiedEvidenceService>[0]['reader'],
+      canonical?: ConstructorParameters<typeof DayflowQualifiedEvidenceService>[0]['canonical'],
+    ) => new DayflowQualifiedEvidenceService({
+      reader,
+      receiver: dayflowReceiver,
+      enrollment: dayflowEnrollment,
+      ...(canonical ? { canonical } : {}),
+    });
+    dayflowQualifiedEvidence = dayflowEvidenceFor(dayflowService);
+    dayflowShared = { guardEnrollment: dayflowEnrollment, evidenceFor: dayflowEvidenceFor };
+    const ordinaryHistoryGuard=new DayflowReceivingHistoryGuard({
+      records: dayflowRecords,
+      reader: dayflowService,
+      authority: dayflowQualificationAuthority,
+      enrollment: dayflowEnrollment,
+      evidence: dayflowQualifiedEvidence,
+    });
+    opencodeClient.setDayflowSdkHistoryGuard({
+      async shouldBindPrompt(sdk){const f=(await import('./services/qualification_fixture_service')).qualificationDayflowForSdk(sdk);return (f?.guard??ordinaryHistoryGuard).shouldBindPrompt(sdk);},
+      async revalidateBeforeSdk(sdk){const f=(await import('./services/qualification_fixture_service')).qualificationDayflowForSdk(sdk);return (f?.guard??ordinaryHistoryGuard).revalidateBeforeSdk(sdk);},
+      async revalidateForProjectedLoad(sdk){const f=(await import('./services/qualification_fixture_service')).qualificationDayflowForSdk(sdk);return (f?.guard??ordinaryHistoryGuard).revalidateForProjectedLoad(sdk);},
+    });
+    dayflowProviderAdmission = new DayflowProviderAdmissionService({
+      records: dayflowRecords,
+      engine: opencodeClient,
+      reader: dayflowService,
+      evidence: dayflowQualifiedEvidence,
+      authority: dayflowQualificationAuthority,
+      enrollment: dayflowEnrollment,
+    });
+  }
+  const qualificationFixtures=(await import('./services/qualification_fixture_authority')).loadQualificationFixtureAuthority() && coordinatorConversationService
+    ? new (await import('./services/qualification_fixture_service')).QualificationFixtureService(coordinatorConversationService,dayflowShared):undefined;
+  const app = createApp({
+    qualificationFixtures,
+    mobileGatewayRouter,
+    dayflowService: dayflowManagementService,
+    dayflowAuthenticatedConsent: dayflowService,
+    dayflowQualifiedEvidence,
+    dayflowProviderAdmission,
+    managedMemorySearch,
+    workstreamCoordinator,
+    coordinatorConversationService,
+    coordinatorAgentTools,
+  });
 
   const httpServer = http.createServer(app);
   const relayUplink = env.isRelayRole
@@ -656,6 +1277,11 @@ async function main() {
       logger.info('[server] RHYTHM_MANAGED_CHROME=0 — skipping managed Chrome');
     }
 
+    // The explicit private qualification seed bypasses normal profile CRUD.
+    // Project its latest trusted rows after all backfills, before engine boot;
+    // a blocked/missing/failed projection must prevent a misleading candidate.
+    (await import('./services/qualification_fixture_bootstrap')).bootstrapQualificationFixture('project');
+
     // Initialize Opencode SDK (non-blocking — logs on failure, never prevents startup)
     opencodeClient
       .initialize()
@@ -710,6 +1336,23 @@ async function main() {
         logger.warn(`[server] session status resync failed (non-fatal): ${String(e)}`);
       }
 
+      // The coordinator never replays old intent.  Once the already-owned
+      // engine is ready, it performs one bounded status-only inspection so an
+      // exactly bound busy child can be reattached and every ambiguity remains
+      // durably unknown before a new explicit Run next can be admitted.
+      if (workstreamCoordinator) {
+        try {
+          const reconciled = await workstreamCoordinator.reconcileAfterEngineReady();
+          logger.info(
+            `[server] workstream restart reconciliation: status=${reconciled.status} ` +
+              `reason=${reconciled.reason ?? 'none'} examined=${reconciled.examined} ` +
+              `reattached=${reconciled.reattached} unknown=${reconciled.unknown}`,
+          );
+        } catch (e) {
+          logger.warn(`[server] workstream restart reconciliation failed (non-fatal): ${String(e)}`);
+        }
+      }
+
       // #1175 — durable async delegation wakes can be left in `waking` when
       // api_server exits after OpenCode accepts the deterministic parent
       // message but before SQLite records `notified`. Reconcile only after the
@@ -747,6 +1390,7 @@ async function main() {
         );
       }
 
+      if(!loadQualificationFixtureAuthority()){
       // Dual-accounts Task B — the Rhythm accounts store is the source of
       // truth for Claude tokens once it has accounts. Boot order:
       //   1. Store empty + Claude Code creds readable → one-time migration
@@ -831,6 +1475,10 @@ async function main() {
       } catch (e) {
         logger.warn(`[server] Claude auto-bridge errored (non-fatal): ${String(e)}`);
       }
+      } // private qualification boot never bridges the user's Claude Code / Keychain credentials
+      // OpenAI accounts and the auth.json watcher below touch only the engine's own
+      // data dir, which qualification isolates (XDG_DATA_HOME), so they run there too:
+      // without them a fixture sign-in never reached its engine or the router catalog.
 
       // Multi-account OpenAI (ChatGPT/Codex OAuth) — same store model as the
       // Anthropic block above. First run imports the engine's existing single
@@ -866,7 +1514,7 @@ async function main() {
         const { homedir } = await import('os');
         const { join } = await import('path');
         authCredentialWatcher = new AuthCredentialWatcher({
-          path: join(homedir(), '.local', 'share', 'opencode', 'auth.json'),
+          path: opencodeDataFile('auth.json'),
           onReload: async () => {
             await opencodeClient.reloadCredentials();
           },
@@ -982,6 +1630,14 @@ async function main() {
     try { recurrenceJob?.stop(); } catch (_) { /* ignore */ }
     try { syncJob?.stop(); } catch (_) { /* ignore */ }
     try { memoryVaultSyncJob?.stop(); } catch (_) { /* ignore */ }
+    try { workstreamCoordinator?.dispose(); } catch (_) { /* ignore */ }
+    try { engraphRefreshBridge?.dispose(); } catch (_) { /* ignore */ }
+    // The present inert adapter disposes synchronously, but its owner may add
+    // a bounded quiescence promise for admitted synthetic work. Preserve that
+    // contract at the composition boundary without making shutdown disable
+    // preferences, start a source, or wait beyond the existing exit budget.
+    let dayflowCleanup: Promise<void> = Promise.resolve();
+    try { dayflowCleanup = Promise.resolve(dayflowService?.dispose()); } catch (_) { /* inactive service only clears transient previews */ }
     // #1096 WP1 — stop only the exact child process this manager spawned.
     let engraphCleanup: Promise<void> = Promise.resolve();
     try { engraphCleanup = engraphManagerRef?.shutdown() ?? engraphCleanup; } catch (_) { /* ignore */ }
@@ -1010,7 +1666,10 @@ async function main() {
       process.exit(0);
     }, 1500);
     const finish = async () => {
-      await Promise.race([engraphCleanup, new Promise<void>((resolve) => setTimeout(resolve, 1400))]);
+      await Promise.race([
+        Promise.all([engraphCleanup, dayflowCleanup]),
+        new Promise<void>((resolve) => setTimeout(resolve, 1400)),
+      ]);
       clearTimeout(forceExit);
       process.exit(0);
     };

@@ -1,5 +1,5 @@
 import { expect, mock, beforeEach } from "bun:test"
-import { Effect, Layer } from "effect"
+import { Effect, Fiber, Layer } from "effect"
 import { testEffect } from "../lib/effect"
 
 // Mock UnauthorizedError to match the SDK's class
@@ -16,11 +16,18 @@ const transportCalls: Array<{
   url: string
   options: { authProvider?: unknown }
 }> = []
+const streamableFinishers: Array<{ finishAuth: (code: string) => Promise<void> }> = []
 
 // Controls whether the mock transport simulates a 401 that triggers the SDK
 // auth flow (which calls provider.state()) or a simple UnauthorizedError.
 let simulateAuthFlow = true
 let connectSucceedsImmediately = false
+let genericFailure = false
+let genericFailureAfterOAuthSetup = false
+let finishAuthSavesTokens = false
+let holdFinish = false
+let resolveFinish: (() => void) | undefined
+let closeCount = 0
 
 // Mock the transport constructors to simulate OAuth auto-auth on 401
 void mock.module("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
@@ -30,17 +37,28 @@ void mock.module("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
           state?: () => Promise<string>
           redirectToAuthorization?: (url: URL) => Promise<void>
           saveCodeVerifier?: (v: string) => Promise<void>
+          saveTokens?: (tokens: { access_token: string; token_type: string }) => Promise<void>
         }
       | undefined
     constructor(url: URL, options?: { authProvider?: unknown }) {
       this.authProvider = options?.authProvider as typeof this.authProvider
+      streamableFinishers.push(this)
       transportCalls.push({
         type: "streamable",
         url: url.toString(),
         options: options ?? {},
       })
     }
+    async close() {
+      closeCount++
+    }
     async start() {
+      if (genericFailureAfterOAuthSetup && this.authProvider) {
+        await this.authProvider.state?.()
+        await this.authProvider.saveCodeVerifier?.("synthetic-failed-verifier")
+        throw new Error("synthetic connection failure after setup")
+      }
+      if (genericFailure) throw new Error("synthetic connection failure")
       if (connectSucceedsImmediately) return
 
       // Simulate what the real SDK transport does on 401:
@@ -63,7 +81,12 @@ void mock.module("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
       }
       throw new MockUnauthorizedError()
     }
-    async finishAuth(_code: string) {}
+    async finishAuth(_code: string) {
+      if (holdFinish) await new Promise<void>((resolve) => (resolveFinish = resolve))
+      if (finishAuthSavesTokens) {
+        await this.authProvider?.saveTokens?.({ access_token: "finished-flow-token", token_type: "Bearer" })
+      }
+    }
   },
 }))
 
@@ -76,7 +99,11 @@ void mock.module("@modelcontextprotocol/sdk/client/sse.js", () => ({
         options: options ?? {},
       })
     }
+    async close() {
+      closeCount++
+    }
     async start() {
+      if (genericFailure) throw new Error("synthetic connection failure")
       throw new Error("Mock SSE transport cannot connect")
     }
   },
@@ -110,8 +137,15 @@ void mock.module("@modelcontextprotocol/sdk/client/auth.js", () => ({
 
 beforeEach(() => {
   transportCalls.length = 0
+  streamableFinishers.length = 0
   simulateAuthFlow = true
   connectSucceedsImmediately = false
+  genericFailure = false
+  genericFailureAfterOAuthSetup = false
+  finishAuthSavesTokens = false
+  holdFinish = false
+  resolveFinish = undefined
+  closeCount = 0
 })
 
 // Import modules after mocking
@@ -237,4 +271,147 @@ mcpTest.instance(
       }),
     ),
   { config: config("test-oauth-connect") },
+)
+
+mcpTest.instance(
+  "automatic OAuth providers cannot persist into a replacement flow with the same owner",
+  () =>
+    MCP.Service.use((mcp) =>
+      Effect.gen(function* () {
+        const name = "automatic-oauth-stale-provider"
+        yield* mcp.add(name, { type: "remote", url: "https://example.com/mcp" })
+        const oldProvider = transportCalls.find((call) => call.type === "streamable")?.options.authProvider as {
+          saveTokens: (tokens: { access_token: string; token_type: string }) => Promise<void>
+        }
+        expect(oldProvider).toBeDefined()
+
+        yield* mcp.removeAuth(name)
+        yield* mcp.add(name, { type: "remote", url: "https://example.com/mcp" })
+
+        const staleWrite = yield* Effect.tryPromise({
+          try: () => oldProvider.saveTokens({ access_token: "synthetic-stale-token", token_type: "Bearer" }),
+          catch: (error) => error,
+        }).pipe(Effect.exit)
+        const auth = yield* McpAuth.Service
+        const entry = yield* auth.get(name)
+
+        expect(staleWrite._tag).toBe("Failure")
+        expect(entry?.tokens?.accessToken).not.toBe("synthetic-stale-token")
+      }),
+    ),
+  { config: config("automatic-oauth-stale-provider") },
+)
+
+mcpTest.instance(
+  "automatic OAuth generic failures close every attempted transport",
+  () =>
+    MCP.Service.use((mcp) =>
+      Effect.gen(function* () {
+        genericFailure = true
+        const name = "automatic-oauth-network-failure"
+        const result = yield* mcp.add(name, { type: "remote", url: "https://example.com/mcp" })
+
+        expect((result.status as Record<string, { status: string }>)[name]?.status).toBe("failed")
+        expect(closeCount).toBe(2)
+      }),
+    ),
+  { config: config("automatic-oauth-network-failure") },
+)
+
+mcpTest.instance(
+  "automatic OAuth generic failure clears only its own ephemeral state and verifier",
+  () =>
+    MCP.Service.use((mcp) =>
+      Effect.gen(function* () {
+        genericFailure = true
+        genericFailureAfterOAuthSetup = true
+        const name = "automatic-oauth-ephemera"
+        const auth = yield* McpAuth.Service
+        yield* auth.updateTokens(name, { accessToken: "retained-token" })
+
+        yield* mcp.add(name, { type: "remote", url: "https://example.com/mcp" })
+        const entry = yield* auth.get(name)
+
+        expect(entry?.tokens?.accessToken).toBe("retained-token")
+        expect(entry?.oauthState).toBeUndefined()
+        expect(entry?.codeVerifier).toBeUndefined()
+      }),
+    ),
+  { config: config("automatic-oauth-ephemera") },
+)
+
+mcpTest.instance(
+  "automatic OAuth finishing accepts token persistence only for its exact pending record",
+  () =>
+    MCP.Service.use((mcp) =>
+      Effect.gen(function* () {
+        const name = "automatic-oauth-finishing-owner"
+        finishAuthSavesTokens = true
+        yield* mcp.add(name, { type: "remote", url: "https://example.com/mcp" })
+
+        yield* mcp.finishAuth(name, "synthetic-code")
+        const auth = yield* McpAuth.Service
+        const entry = yield* auth.get(name)
+        expect(entry?.tokens?.accessToken).toBe("finished-flow-token")
+      }),
+    ),
+  { config: config("automatic-oauth-finishing-owner") },
+)
+
+mcpTest.instance(
+  "a stale automatic OAuth finishing transport cannot persist after replacement",
+  () =>
+    MCP.Service.use((mcp) =>
+      Effect.gen(function* () {
+        const name = "automatic-oauth-finishing-stale"
+        finishAuthSavesTokens = true
+        yield* mcp.add(name, { type: "remote", url: "https://example.com/mcp" })
+        const oldTransport = streamableFinishers[0]!
+        yield* mcp.removeAuth(name)
+        yield* mcp.add(name, { type: "remote", url: "https://example.com/mcp" })
+
+        const staleCompletion = yield* Effect.tryPromise({
+          try: () => oldTransport.finishAuth("synthetic-old-code"),
+          catch: (error) => error,
+        }).pipe(Effect.exit)
+        const auth = yield* McpAuth.Service
+        const entry = yield* auth.get(name)
+
+        expect(staleCompletion._tag).toBe("Failure")
+        expect(entry?.tokens?.accessToken).not.toBe("finished-flow-token")
+      }),
+    ),
+  { config: config("automatic-oauth-finishing-stale") },
+)
+
+mcpTest.instance(
+  "late OAuth completion preserves a replacement flow's verifier and state",
+  () =>
+    MCP.Service.use((mcp) =>
+      Effect.gen(function* () {
+        const name = "automatic-oauth-late-completion"
+        yield* mcp.add(name, { type: "remote", url: "https://example.com/mcp" })
+        holdFinish = true
+        const oldCompletion = yield* mcp.finishAuth(name, "synthetic-code").pipe(Effect.forkScoped)
+        for (let attempt = 0; attempt < 20 && !resolveFinish; attempt++) yield* Effect.sleep("10 millis")
+        expect(resolveFinish).toBeDefined()
+
+        yield* mcp.removeAuth(name)
+        yield* mcp.add(name, { type: "remote", url: "https://example.com/mcp" })
+        const newProvider = transportCalls.filter((call) => call.type === "streamable").at(-1)?.options.authProvider as {
+          saveCodeVerifier: (codeVerifier: string) => Promise<void>
+        }
+        yield* Effect.promise(() => newProvider.saveCodeVerifier("synthetic-new-flow-verifier"))
+
+        resolveFinish!()
+        const oldResult = yield* Fiber.join(oldCompletion)
+        const auth = yield* McpAuth.Service
+        const entry = yield* auth.get(name)
+
+        expect(oldResult.status).toBe("failed")
+        expect(entry?.codeVerifier).toBe("synthetic-new-flow-verifier")
+        expect(entry?.oauthState).toBeDefined()
+      }),
+    ),
+  { config: config("automatic-oauth-late-completion") },
 )

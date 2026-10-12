@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { Button, Searchbar, Text } from 'react-native-paper';
+import { Button, IconButton, Searchbar, Text } from 'react-native-paper';
 
 import {
   Colors,
@@ -38,6 +38,18 @@ export function BrainSearchSurface({
           onChangeText={onQueryChange}
           onSubmitEditing={onSearch}
           placeholder="Search memories"
+          right={({ color, style, testID }) =>
+            query.trim() ? (
+              <IconButton
+                accessibilityLabel="Clear Brain search"
+                icon="close"
+                iconColor={color}
+                onPress={() => onQueryChange('')}
+                style={style}
+                testID={`${testID}-clear`}
+              />
+            ) : null
+          }
           style={[styles.search, { backgroundColor: palette.surface }]}
           value={query}
         />
@@ -242,8 +254,21 @@ const styles = StyleSheet.create({
   decision: { borderRadius: Radii.control, gap: Spacing.x1, marginTop: Spacing.x2, padding: Spacing.x3 },
   metadataGroup: { borderRadius: Radii.grouped, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
   metadataRow: { alignItems: 'flex-start', flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.x2, minHeight: MinimumTouchTarget, padding: Spacing.x3 },
-  metadataLabel: { flexBasis: 112, fontSize: TypeScale.secondary, fontWeight: '600' },
-  metadataValue: { flex: 1, fontSize: TypeScale.secondary, minWidth: 140 },
+  metadataLabel: {
+    flexBasis: 112,
+    flexGrow: 1,
+    flexShrink: 1,
+    fontSize: TypeScale.secondary,
+    fontWeight: '600',
+    minWidth: 0,
+  },
+  metadataValue: {
+    flexBasis: 0,
+    flexGrow: 2,
+    flexShrink: 1,
+    fontSize: TypeScale.secondary,
+    minWidth: 0,
+  },
   providerHeader: { gap: Spacing.x1, paddingHorizontal: Spacing.x2 },
   modelRow: { gap: Spacing.x1, minHeight: MinimumTouchTarget, padding: Spacing.x3 },
   modelTitle: { flexShrink: 1, fontSize: TypeScale.body, fontWeight: '600' },

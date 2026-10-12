@@ -35,10 +35,20 @@ async function mockColony(page: Page, options: { enabled?: boolean; available?: 
 
 const calls = (page: Page, action: string) => page.evaluate((action) => (window as unknown as FixtureWindow).__colonyCalls.filter((call) => call.action === action), action);
 
+function expectDisjoint(nativeBounds: { height: number; width: number; x: number; y: number } | undefined, overlay: { height: number; width: number; x: number; y: number } | null) {
+  expect(nativeBounds).toBeDefined();
+  expect(overlay).not.toBeNull();
+  const scene = nativeBounds!;
+  const menu = overlay!;
+  expect(scene.x + scene.width <= menu.x || menu.x + menu.width <= scene.x || scene.y + scene.height <= menu.y || menu.y + menu.height <= scene.y).toBe(true);
+}
+
 test('1530:native-host:1 Bot Crossing is an optional destination and overflows at compact widths', async ({ page }) => {
   await mockColony(page);
+  await page.setViewportSize({ width: 1440, height: 800 });
   await openPage(page, '/agents');
   await expect(page.getByTestId('nav-colony')).toHaveText('Bot Crossing');
+  await expect(page.getByTestId('nav-colony')).toBeVisible();
   await page.setViewportSize({ width: 1000, height: 800 });
   await page.getByTestId('nav-more').click();
   await expect(page.getByTestId('nav-colony-overflow')).toHaveText('Bot Crossing');
@@ -145,13 +155,41 @@ test('1530:native-host:5 a missing host requests a rebuild accessibly', async ({
   expect(await new AxeBuilder({ page }).include('.colony-page').analyze()).toMatchObject({ violations: [] });
 });
 
-test('1530:native-host:overlay shell overlays hide the native view and restore its bounds', async ({ page }) => {
+test('1530:native-host:overlay shell menus reserve a positive native scene band and restore its bounds', async ({ page }) => {
   await mockColony(page, { enabled: true });
   await page.setViewportSize({ width: 1000, height: 800 });
   await openPage(page, '/colony');
   await expect.poll(async () => (await calls(page, 'bounds')).length).toBeGreaterThan(0);
+  const initial = (await calls(page, 'bounds')).at(-1)?.payload as { width: number; height: number };
   await page.getByTestId('nav-more').click();
-  await expect.poll(async () => (await calls(page, 'bounds')).at(-1)?.payload).toEqual({ x: 0, y: 0, width: 0, height: 0 });
+  await expect.poll(async () => ((await calls(page, 'bounds')).at(-1)?.payload as { width?: number; height?: number } | undefined)?.width ?? 0).toBeGreaterThan(0);
+  const reserved = (await calls(page, 'bounds')).at(-1)?.payload as { width: number; height: number };
+  expect(reserved.width).toBeLessThan(initial.width);
+  expect(reserved.height).toBe(initial.height);
+  expectDisjoint(reserved as { height: number; width: number; x: number; y: number }, await page.getByRole('menu', { name: 'More destinations' }).boundingBox());
   await page.keyboard.press('Escape');
-  await expect.poll(async () => ((await calls(page, 'bounds')).at(-1)?.payload as { width?: number } | undefined)?.width ?? 0).toBeGreaterThan(0);
+  await expect(page.getByTestId('nav-more')).toBeFocused();
+  await expect.poll(async () => (await calls(page, 'bounds')).at(-1)?.payload).toEqual(initial);
+});
+
+test('1530:native-host:overlay narrow shell menu stacks above the positive scene', async ({ page }) => {
+  await mockColony(page, { enabled: true });
+  await page.setViewportSize({ width: 520, height: 800 });
+  await openPage(page, '/colony');
+  const host = page.getByRole('region', { name: 'Bot Crossing scene' });
+  await expect(host).toBeVisible();
+  await expect.poll(async () => (await calls(page, 'bounds')).length).toBeGreaterThan(0);
+  const initial = (await calls(page, 'bounds')).at(-1)?.payload as { height: number; width: number; x: number; y: number };
+
+  await page.getByTestId('nav-more').click();
+  await expect(page.getByRole('menu', { name: 'More destinations' })).toBeVisible();
+  await expect.poll(async () => ((await calls(page, 'bounds')).at(-1)?.payload as { height?: number } | undefined)?.height ?? 0).toBeGreaterThan(160);
+  const reserved = (await calls(page, 'bounds')).at(-1)?.payload as { height: number; width: number; x: number; y: number };
+  expect(reserved.width).toBe(initial.width);
+  expect(reserved.height).toBeLessThan(initial.height);
+  expectDisjoint(reserved, await page.getByRole('menu', { name: 'More destinations' }).boundingBox());
+
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('nav-more')).toBeFocused();
+  await expect.poll(async () => (await calls(page, 'bounds')).at(-1)?.payload).toEqual(initial);
 });

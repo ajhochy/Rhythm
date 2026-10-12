@@ -121,7 +121,8 @@ test.describe('remaining Flutter parity edge cases', () => {
     await page.getByTestId('inspector-collapse').click();
 
     await page.getByTestId('session-actions').click();
-    await expect(page.getByTestId('session-actions-settings')).toBeVisible();
+    await expect(page.getByTestId('chat-configuration-dialog')).toBeVisible();
+    await page.getByTestId('session-actions-secondary').click();
     await expect(page.getByTestId('session-actions-prepare')).toBeVisible();
     await page.keyboard.press('Escape');
     await page.getByTestId('nav-more').click();
@@ -134,7 +135,8 @@ test.describe('remaining Flutter parity edge cases', () => {
       document.body.style.zoom = '2';
     });
     await page.getByTestId('session-actions').click();
-    await page.getByTestId('session-actions-settings').click();
+    await page.getByTestId('session-actions-secondary').click();
+    await page.getByTestId('session-actions-session-defaults').click();
     await page.getByTestId('session-settings-dialog').getByLabel('Session name').fill('跨團隊服務交接驗證 — 非常長的確定性工作階段名稱 🚦🧪');
     await page.getByTestId('save-session-settings').click();
     await expect(page.getByRole('heading', { name: /跨團隊服務交接驗證/ })).toBeVisible();

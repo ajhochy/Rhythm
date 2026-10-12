@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 
 import Database from 'better-sqlite3';
 import express from 'express';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
@@ -72,6 +72,15 @@ interface RelayContractHarness {
 }
 
 const cleanups: Array<() => Promise<void>> = [];
+// The proxy fails closed (409 RECONCILIATION_REQUIRED) unless the local
+// managed-session ledger positively classifies the SDK session as never
+// managed, so every test starts with an empty migrated ledger.
+beforeEach(() => {
+  const ledger = new Database(':memory:');
+  runMigrations(ledger);
+  setDb(ledger);
+});
+
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   vi.restoreAllMocks();

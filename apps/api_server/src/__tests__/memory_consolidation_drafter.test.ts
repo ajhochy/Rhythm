@@ -567,14 +567,17 @@ describe('memory consolidation pass (#859b)', () => {
       },
     );
 
-    const result = await runMemoryConsolidation({ memoryDir, index, repo });
-    readSpy.mockRestore();
+    // scanVaultNotes now treats an unreadable canonical file as an incomplete
+    // scan (never evidence of deletion) and aborts; the drafter's backlink scan
+    // runs before any snapshot or mutation, so the whole pass fails closed.
+    try {
+      await expect(runMemoryConsolidation({ memoryDir, index, repo })).rejects.toThrow(
+        `[MemoryVaultScan] incomplete canonical read: ${path.join('fact', 'note-b.md')}`,
+      );
+    } finally {
+      readSpy.mockRestore();
+    }
 
-    expect(result.mergedClusters).toBe(0);
-    expect(result.retiredCount).toBe(0);
-    expect(result.beforeSnapshot.entries.map((entry) => entry.vaultRelKey)).toEqual([
-      survivorRel,
-    ]);
     for (const [rel, bytes] of before) {
       expect(readFileSync(fileFor(rel), 'utf8')).toBe(bytes);
     }

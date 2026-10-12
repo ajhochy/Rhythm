@@ -94,7 +94,7 @@ describe('MobilePairingService', () => {
       gatewayVersion: '1',
       rhythmVersion: '0.1.0',
       opencodeVersion: '1.14.49',
-      contractFingerprint: '75aaa1f1f99044e41d837fe72bd00c897f85ec2b1f77bf08a52b49ce2339b78b',
+      contractFingerprint: 'dbe19d8f1ff1f00a24bbf00cd9de8ff2b1d941e42fef222c990961e0997f94a4',
       features: [
         'pairing',
         'device-revocation',

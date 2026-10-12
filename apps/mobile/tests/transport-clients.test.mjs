@@ -31,6 +31,7 @@ const [
   cloudSrc,
   pairedSrc,
   mobileGatewayServiceSrc,
+  providerUtilsSrc,
 ] = await Promise.all([
   readFile(new URL('../lib/transport/api-error.ts', import.meta.url), 'utf8'),
   readFile(new URL('../lib/transport/types.ts', import.meta.url), 'utf8'),
@@ -38,6 +39,7 @@ const [
   readFile(new URL('../lib/transport/rhythm-cloud-client.ts', import.meta.url), 'utf8'),
   readFile(new URL('../lib/transport/paired-mac-client.ts', import.meta.url), 'utf8'),
   readFile(new URL('../providers/services/mobile-gateway-service.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../providers/opencode-provider-utils.ts', import.meta.url), 'utf8'),
 ]);
 
 // ---------------------------------------------------------------------------
@@ -49,7 +51,7 @@ const [
 
 function stripLocalImports(src) {
   // Remove any line that is a local relative import (from './…')
-  return src.replace(/^import\b[^'"]*from\s+['"]\.[^'"]*['"]\s*;?\n?/gm, '');
+  return src.replace(/^import\b[^'"]*from\s+['"](?:\.|@\/)[^'"]*['"]\s*;?\n?/gm, '');
 }
 
 function stripTypeKeyword(src) {
@@ -67,7 +69,15 @@ function prepare(src) {
   return stripReExports(stripTypeKeyword(stripLocalImports(src)));
 }
 
+// mobile-gateway-service imports parseSessionSettingsState at runtime (packet U). opencode-provider-utils shares top-level
+// names with the bundle, so it is loaded as its own module and injected rather than concatenated.
+const providerUtilsJs = ts.transpileModule(prepare(providerUtilsSrc), {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020, strict: false },
+}).outputText;
+
 const bundleSrc = [
+  `const { parseSessionSettingsState } = await import(${JSON.stringify(`data:text/javascript,${encodeURIComponent(providerUtilsJs)}`)});`,
+
   // types.ts — type-only; strip it entirely (no runtime content).
   '// --- types (type-only, stripped) ---',
 
@@ -169,6 +179,53 @@ function assertIsApiError(err, label) {
   assert.equal(err.status, 500);
   assert.ok(err.message.length > 0, 'must have a non-empty message');
   console.log('  ✓ Non-JSON body normalizes to ApiError');
+}
+
+// Nested plain `{ error: { code, message } }` (real parser): safe, bounded, redacted; top-level and fallbacks preserved.
+{
+  const nested = normalizeApiError('paired-mac', 400, JSON.stringify({ error: { code: 'RESEARCH_NOT_RETRYABLE', message: 'This job cannot be retried.' } }), undefined);
+  assertIsApiError(nested, 'nested error');
+  assert.equal(nested.status, 400);
+  assert.equal(nested.source, 'paired-mac');
+  assert.equal(nested.code, 'RESEARCH_NOT_RETRYABLE');
+  assert.equal(nested.message, 'This job cannot be retried.');
+  assert.equal(nested.retryable, false, '4xx stays non-retryable');
+  assert.equal(normalizeApiError('cloud', 503, JSON.stringify({ error: { code: 'BUSY', message: 'later' } }), undefined).retryable, true, '5xx stays retryable');
+
+  const TOKEN = 'secret-device-token-123';
+  const redacted = normalizeApiError('cloud', 400, JSON.stringify({ error: { code: `E_${TOKEN}`, message: `bad ${TOKEN.toUpperCase()} value` } }), TOKEN);
+  assert.ok(!`${redacted.code} ${redacted.message}`.toLowerCase().includes(TOKEN), 'nested token is scrubbed');
+  assert.match(redacted.message, /\[redacted\]/);
+
+  const longMessage = normalizeApiError('cloud', 400, JSON.stringify({ error: { code: 'X', message: 'm'.repeat(5000) } }), undefined);
+  assert.ok(longMessage.message.length <= 200, 'nested message is bounded');
+  const html = normalizeApiError('cloud', 400, JSON.stringify({ error: { code: 'X', message: '<html><body>Bad</body></html>' } }), undefined);
+  assert.equal(html.message, 'Request failed with status 400', 'nested HTML message falls back to generic');
+  const oddCode = normalizeApiError('cloud', 400, JSON.stringify({ error: { code: 'not a code!\n<script>', message: 'ok' } }), undefined);
+  assert.equal(oddCode.code, 'HTTP_400', 'nested non-identifier code falls back');
+
+  // Top-level fields keep precedence and are unchanged; a string `error` is not treated as a nested object.
+  const top = normalizeApiError('cloud', 403, JSON.stringify({ code: 'TOP', message: 'top wins', error: { code: 'NESTED', message: 'nested loses' } }), undefined);
+  assert.equal(top.code, 'TOP');
+  assert.equal(top.message, 'top wins');
+  const stringError = normalizeApiError('cloud', 400, JSON.stringify({ error: 'plain string' }), undefined);
+  assert.equal(stringError.code, 'HTTP_400');
+  assert.equal(stringError.message, 'Request failed with status 400');
+  // One level only: a doubly nested error is not parsed recursively.
+  const deep = normalizeApiError('cloud', 400, JSON.stringify({ error: { error: { code: 'DEEP', message: 'deep' } } }), undefined);
+  assert.equal(deep.code, 'HTTP_400');
+
+  // Paired offline and malformed/HTML/non-JSON fallbacks are preserved.
+  const offline = normalizeApiError('paired-mac', 503, JSON.stringify({ error: 'mac_offline', message: 'Mac is away' }), undefined);
+  assert.equal(offline.name, 'MacOfflineError');
+  assert.equal(offline.code, 'mac_offline');
+  assert.equal(offline.retryable, true);
+  for (const body of ['{not json', '<html>502</html>', '', 'null', '[]']) {
+    const fallback = normalizeApiError('cloud', 502, body, undefined);
+    assert.equal(fallback.code, 'HTTP_502', `fallback code for ${JSON.stringify(body)}`);
+    assert.equal(fallback.message, 'Request failed with status 502');
+  }
+  console.log('  ✓ Nested error shape is safe, bounded and redacted; top-level/offline/malformed behavior preserved');
 }
 
 // ---------------------------------------------------------------------------

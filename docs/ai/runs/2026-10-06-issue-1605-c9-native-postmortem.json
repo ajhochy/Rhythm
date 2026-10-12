@@ -1,0 +1,96 @@
+{
+  "run_id": "2026-10-06-issue-1605-c9-native-pass",
+  "issue": 1605,
+  "date": "2026-10-06",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "verification_scope": "Exact C9 issue4/4, PR22/22, chat1/1, Dayflow16/16, AppKit C1-C3; actual signed native CUA checked separately.",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1605-c1",
+      "text": "**Short native viewport.** With a 445-point host viewport and a hosted native view whose intrinsic/fitting height is 558 points, the lifecycle retains a 445-point visible viewport and a separate scrollable document at least as tall as its measured minimum. Scrolling the owned AppKit document to its bottom makes the document\u2019s bottom region visible without enlarging or moving the native host beyond its owning viewport.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Exact C9 AppKit contract passed in full Electron suite; GUI smoke does not replace isolated ownership/modal/detach checks."
+    },
+    {
+      "criterion_id": "issue-1605-c2",
+      "text": "**Resize and tall viewport.** Resizing from a 944-point viewport to 445 points and back recomputes content dimensions from the current viewport and intrinsic/fitting size; it does not preserve a stale tall frame or truncate the 558-point content. At 944 points, content that fits needs no unnecessary scroll range. The scroll container remains inside the exact trusted parent and uses the current viewport coordinates and zoom.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Exact C9 AppKit contract passed in full Electron suite; GUI smoke does not replace isolated ownership/modal/detach checks."
+    },
+    {
+      "criterion_id": "issue-1605-c3",
+      "text": "**Scroll and lifecycle ownership.** Scrolling changes only the attached Dayflow document\u2019s visible region; the owning viewport, sibling views, and unrelated windows remain fixed. Hiding for an inactive tool, modal, or hidden/minimized window prevents native interaction and preserves the scroll position for reactivation. Detach/teardown removes only the owned scroll/document views, drops stale bounds/input, and does not steal focus from another window or responder.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Exact C9 AppKit contract passed in full Electron suite; GUI smoke does not replace isolated ownership/modal/detach checks."
+    },
+    {
+      "criterion_id": "issue-1605-c4",
+      "text": "**Actual native interaction (manual).** In the signed app with the original Dayflow view at 1280\u00d7800 and no outer Rhythm Dayflow header or footer, the native view fills the available tab height. Then shrink the window to a short native viewport below the measured 558-point document minimum (target window size 1280\u00d7560, recording actual viewport/document dimensions); a native trackpad or mouse-wheel check through CUA reaches the bottom timeline controls and scrolling back restores the top. At 3440\u00d71300, the full content remains visible without unnecessary scrolling. Record CUA/native-input evidence separately from physical-human evidence. This must be checked against the actual native view; a browser facade, synthetic DOM wheel, AppKit `scrollToPoint` fixture, or source-string check does not satisfy this criterion.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Actual signed C9 original Timeline: no outer header/footer, native short-window wheel reaches Copy timeline/Settings/Review cards and back restores top; tall content fits without outer movement; normal navigation fixed. See exact/approx measurement notes."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "planning-agent",
+      "issue-writer",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "failure-postmortem",
+      "project-state-updater"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "planning-agent",
+      "issue-writer",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "failure-postmortem",
+      "project-state-updater"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W3",
+        "affected_skill": "workflow-orchestrator",
+        "description": "TodoWrite is unavailable in this host tool catalog; durable checklists and frozen-source/qualification receipts were used instead of TodoWrite calls.",
+        "detected_by": "Enabled tool inventory and external CHECKLIST/frozen-source-C9 receipts."
+      }
+    ],
+    "notes": "User AGENTS requires canonical project logs in docs/ai; no global memories/skills were written. Human PR smoke/merge remain separate."
+  },
+  "implementation_files": [
+    "apps/web/src/components/ToolWorkspace.css",
+    "apps/web/tests/dayflow-view-harness.tsx",
+    "apps/electron/native/dayflow-host/NativeDayflowOwnedHostLifecycle.h",
+    "apps/electron/native/dayflow-host/NativeDayflowOwnedHostLifecycle.mm",
+    "apps/electron/native/dayflow-host/NativeDayflowProductionBridge.mm"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Retain production-order browser coverage and actual signed native scrolling as distinct gates; human physical-device/provider/permissions checks remain separate.",
+  "sourceCommit": "54888e924c5b31cb7700b6eb1f5da7c4c450e930",
+  "appsTree": "47f1828030f1b14c2175975e47e72a5796b0cb47",
+  "evidence": "dayflow-C9-signed-native-CUA-receipt.json; package/sign/stable/smoke/launch receipts; final-gate-native-scroll/c9 raw logs",
+  "measurement_notes": "Exact CUA JPEG windows 1280x800,1280x560,3440x1296 (nominal tall target1300; actual macOS zoom1296). Short visible native surface about402px, movement about174px, visual extent about576px. Public native getter exposes no exact NSRect/intrinsic/fitting sizes; this is visual estimation.",
+  "humanPhysicalEvidence": "NOT RUN",
+  "originalNativeInputs": "749 original source files and280 baseline payloads unchanged; only addon freshly compiled; 15C/17JS ABI unchanged.",
+  "priorFailurePreserved": "2026-10-06-issue-1605-c8-cascade-postmortem.json"
+}

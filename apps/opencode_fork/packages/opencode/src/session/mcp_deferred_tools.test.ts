@@ -30,6 +30,10 @@ import {
   isDeferredMcpToolAllowed,
   isMcpToolDeferred,
   MCP_DISPATCH_TOOL_ID,
+  resolveDeferredMcpDescribeName,
+  searchDeferredToolCatalog,
+  uniqueRawNames,
+  type DeferredMcpOrigin,
 } from "./mcp_deferred_tools"
 import { filterMcpToolsByAllowlist } from "./mcp_allowlist"
 
@@ -173,5 +177,92 @@ describe("issue-843-c3: filterMcpToolsByAllowlist gating still applies to the di
     const eagerAllowed = filterMcpToolsByAllowlist(toolKeys, keyToServer, undefined)
     const deferredAllowed = toolKeys.filter((k) => isDeferredMcpToolAllowed(k, keyToServer, undefined))
     expect(deferredAllowed).toEqual(eagerAllowed)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Normal-app discovery compatibility: describe accepts an unambiguous registered
+// tool name; execute stays canonical-only. Resolution uses authoritative origins
+// from the FRESH permitted inventory only.
+// ---------------------------------------------------------------------------
+describe("describe-name resolution (registered raw tool names)", () => {
+  const status: DeferredMcpOrigin = {
+    key: "rhythm_rhythm_get_coordinator_status",
+    serverName: "rhythm",
+    toolName: "rhythm_get_coordinator_status",
+  }
+  const memory: DeferredMcpOrigin = { key: "rhythm_rhythm_search_memory", serverName: "rhythm", toolName: "rhythm_search_memory" }
+  const workList: DeferredMcpOrigin = { key: "gmail_work_list", serverName: "gmail-work", toolName: "list" }
+  const underscoreList: DeferredMcpOrigin = { key: "gmail_work_list", serverName: "gmail_work", toolName: "list" }
+  const otherList: DeferredMcpOrigin = { key: "obsidian_list", serverName: "obsidian", toolName: "list" }
+  const keys = (...origins: DeferredMcpOrigin[]) => origins.map((o) => o.key)
+
+  test("actual registered coordinator-status and memory names resolve to their composed keys", () => {
+    const origins = [status, memory]
+    expect(resolveDeferredMcpDescribeName("rhythm_get_coordinator_status", keys(...origins), origins)).toEqual({
+      ok: true,
+      key: "rhythm_rhythm_get_coordinator_status",
+    })
+    expect(resolveDeferredMcpDescribeName("rhythm_search_memory", keys(...origins), origins)).toEqual({
+      ok: true,
+      key: "rhythm_rhythm_search_memory",
+    })
+  })
+
+  test("an exact canonical key always wins, even when it equals another tool's registered name", () => {
+    const clash: DeferredMcpOrigin = { key: "srv_other", serverName: "srv", toolName: "rhythm_rhythm_search_memory" }
+    const origins = [memory, clash]
+    expect(resolveDeferredMcpDescribeName("rhythm_rhythm_search_memory", keys(...origins), origins)).toEqual({
+      ok: true,
+      key: "rhythm_rhythm_search_memory",
+    })
+  })
+
+  test("no substring, prefix, suffix or fuzzy guessing; unknown names hold", () => {
+    const origins = [status, memory]
+    for (const name of ["coordinator_status", "get_coordinator_status", "rhythm_get_coordinator", "rhythm", "status", "RHYTHM_SEARCH_MEMORY"]) {
+      expect(resolveDeferredMcpDescribeName(name, keys(...origins), origins)).toMatchObject({ ok: false, reason: "unknown" })
+    }
+  })
+
+  test("two permitted origins with the same registered name hold and list only permitted candidates", () => {
+    const origins = [workList, otherList]
+    const resolved = resolveDeferredMcpDescribeName("list", keys(...origins), origins)
+    expect(resolved).toEqual({ ok: false, reason: "ambiguous", candidates: ["gmail_work_list", "obsidian_list"] })
+  })
+
+  test("denied or absent aliases are not candidates and never appear in errors", () => {
+    const origins = [workList, otherList]
+    // only gmail is eligible: the denied obsidian tool can neither resolve nor be named
+    expect(resolveDeferredMcpDescribeName("list", ["gmail_work_list"], origins)).toEqual({ ok: true, key: "gmail_work_list" })
+    // only obsidian is eligible: resolves to obsidian, never the denied gmail one
+    expect(resolveDeferredMcpDescribeName("list", ["obsidian_list"], origins)).toEqual({ ok: true, key: "obsidian_list" })
+    // nothing eligible: unknown, with no candidate disclosure
+    expect(resolveDeferredMcpDescribeName("list", [], origins)).toEqual({ ok: false, reason: "unknown", candidates: [] })
+    // an origin whose key is not in the eligible set is ignored even if its raw name matches
+    expect(resolveDeferredMcpDescribeName("get_file", ["gmail_work_list"], [{ key: "obsidian_get_file", serverName: "obsidian", toolName: "get_file" }])).toMatchObject({ ok: false, reason: "unknown" })
+  })
+
+  test("hyphen/underscore server names that sanitize to the same key hold; no split guessing", () => {
+    // gmail-work + list and gmail_work + list both compose gmail_work_list
+    const origins = [workList, underscoreList]
+    expect(uniqueRawNames(["gmail_work_list"], origins)).toEqual({})
+    expect(resolveDeferredMcpDescribeName("list", ["gmail_work_list"], origins)).toMatchObject({ ok: false, reason: "ambiguous" })
+    // the canonical key itself is still a valid exact lookup
+    expect(resolveDeferredMcpDescribeName("gmail_work_list", ["gmail_work_list"], origins)).toEqual({ ok: true, key: "gmail_work_list" })
+    // an unambiguous hyphenated server keeps its actual raw name
+    expect(uniqueRawNames(["gmail_work_list"], [workList])).toEqual({ gmail_work_list: "list" })
+  })
+
+  test("catalog entries carry the registered name only when the origin is unambiguous", () => {
+    const entries = buildDeferredToolCatalog(
+      ["rhythm_rhythm_search_memory", "gmail_work_list"],
+      { rhythm_rhythm_search_memory: "rhythm", gmail_work_list: "gmail-work" },
+      {},
+      uniqueRawNames(["rhythm_rhythm_search_memory", "gmail_work_list"], [memory, workList, underscoreList]),
+    )
+    expect(entries.find((e) => e.name === "rhythm_rhythm_search_memory")?.rawName).toBe("rhythm_search_memory")
+    expect(entries.find((e) => e.name === "gmail_work_list")?.rawName).toBeUndefined()
+    expect(searchDeferredToolCatalog(entries, "rhythm_search_memory")[0]?.name).toBe("rhythm_rhythm_search_memory")
   })
 })

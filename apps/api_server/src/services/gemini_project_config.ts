@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { logger } from '../utils/logger';
-import { GEMINI_CODE_ASSIST_PROJECT_ID } from '../config/env';
+import { GEMINI_CODE_ASSIST_PROJECT_ID, opencodeConfigFile } from '../config/env';
 
 export interface EnsureGeminiProjectConfigResult {
   changed: boolean;
@@ -31,7 +31,7 @@ export function ensureGeminiProjectConfig(opts?: {
 }): EnsureGeminiProjectConfigResult {
   const projectId = opts?.projectId ?? GEMINI_CODE_ASSIST_PROJECT_ID;
   const configPath =
-    opts?.configPath ?? join(homedir(), '.config', 'opencode', 'opencode.json');
+    opts?.configPath ?? opencodeConfigFile();
 
   let parsed: Record<string, unknown> = {};
   if (existsSync(configPath)) {

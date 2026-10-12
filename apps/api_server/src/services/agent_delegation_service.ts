@@ -1,3 +1,4 @@
+import { syncAutoAccountSessionProvenance } from './decision/capacity_router';
 import { AppError } from '../errors/app_error';
 import {
   AgentConfigsRepository,
@@ -7,6 +8,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { AgentAsyncDelegationsRepository } from '../repositories/agent_async_delegations_repository';
 import { run as runAgent } from './agent_runner';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
+import { isInteractiveChatSession } from './opencode_client_service';
 import { resolveProfileScope } from './agent_profile_scope';
 import { listAgentModelCatalog } from '../routes/agents_models_routes';
 
@@ -21,6 +23,12 @@ export interface AgentDelegationInput {
   isolateWorktree?: boolean;
   worktreeName?: string;
   model?: unknown;
+  /**
+   * Server-only: run the child in this mode instead of the caller's. Allowed
+   * only together with an isolated worktree, so an unattended coordinator run
+   * edits its own branch and never a checkout in place.
+   */
+  childPermissionMode?: 'bypassPermissions';
 }
 
 export interface AgentDelegationResult {
@@ -256,6 +264,19 @@ export async function delegateToAgentAsync(
   if (callerSession.ownerUserId !== input.authenticatedUserId) {
     throw AppError.forbidden('caller session is owned by another user');
   }
+  // A specialist's profile supplies its tools, but dispatch must not turn an
+  // interactive parent's selected permission mode into an automatic bypass.
+  const callerPermissionMode = callerSession.permissionMode;
+  if (!['default', 'plan', 'acceptEdits', 'bypassPermissions'].includes(callerPermissionMode)) {
+    throw AppError.forbidden('caller permission mode is invalid');
+  }
+  const assertPermissionScopeCurrent = (): void => {
+    const current = sessionRepo.findById(callerSessionId);
+    if (!current || current.ownerUserId !== input.authenticatedUserId ||
+        current.permissionMode !== callerPermissionMode) {
+      throw AppError.forbidden('caller permission scope changed during async delegation');
+    }
+  };
   if (
     callerSession.isSystem ||
     callerSession.scheduledTaskId !== null ||
@@ -305,14 +326,19 @@ export async function delegateToAgentAsync(
   const profileScope = await resolveProfileScope(targetId);
   const runModel = modelOverride ?? profileScope.model;
   const skillNames = parseSkillNames(profileScope.allowedSkillsJson);
-  const scopedPrompt = input.context?.trim()
+  const delegatedPrompt = input.context?.trim()
     ? `${input.context.trim()}\n\n${prompt}`
     : prompt;
   const childTitle = `Async delegation: ${target.label} (@${targetId} subagent)`;
+  if (input.childPermissionMode !== undefined &&
+      (input.childPermissionMode !== 'bypassPermissions' || input.isolateWorktree !== true)) {
+    throw AppError.forbidden('a child permission override requires an isolated worktree');
+  }
+  const childPermissionMode = input.childPermissionMode ?? callerPermissionMode;
   let effectiveCwd = callerSession.cwd;
   let worktree: { name: string; path: string; branch: string | null } | null = null;
   if (input.isolateWorktree === true) {
-    const created = await opencodeClient.createWorktree(callerSession.cwd, {
+    const created = await opencodeClient.createWorktree(input.cwd ?? callerSession.cwd, {
       name: input.worktreeName,
     });
     effectiveCwd = created.directory;
@@ -322,15 +348,33 @@ export async function delegateToAgentAsync(
       branch: created.branch ?? null,
     };
   }
-  const childSession = await opencodeClient.createSession(
+  // A coordinator run (new worktree) and every specialist it delegates to
+  // (same worktree, inherited) are confined to that worktree directory.
+  const confineToDirectory = childPermissionMode === 'bypassPermissions' &&
+    (worktree !== null || (callerSession.worktreePath !== null && effectiveCwd === callerSession.worktreePath &&
+      callerSession.permissionMode === 'bypassPermissions'));
+  // The run must not be pointed back at the original checkout by its own goal text.
+  const runPrompt = worktree && input.cwd ? delegatedPrompt.split(input.cwd).join(worktree.path) : delegatedPrompt;
+  assertPermissionScopeCurrent();
+  const childArguments = [
     childTitle,
     effectiveCwd,
     profileScope.mcpRoleConfig ?? undefined,
     skillNames,
     runModel.providerID,
     parentSdkSessionId,
-  );
+    childPermissionMode,
+    // The child inherits the caller's category/is_system/scheduled_task_id
+    // (upsertResolvedChildSession), so it is interactive exactly when the
+    // caller is — always, past the gate above. A manager child must also
+    // delegate named profiles via rhythm_delegate_async.
+    isInteractiveChatSession(callerSession),
+  ] as const;
+  const childSession = confineToDirectory
+    ? await opencodeClient.createSession(...childArguments, false, undefined, true)
+    : await opencodeClient.createSession(...childArguments);
   if (!childSession?.id) {
+    console.warn(`[agent-delegation] async child session not created: ${childSession?.error ?? 'no id returned'}`);
     throw AppError.internal('failed to create async delegated child session');
   }
 
@@ -341,18 +385,20 @@ export async function delegateToAgentAsync(
     effectiveCwd,
     profileScope.mcpRoleConfig?.allowedToolsJson ?? null,
   );
+  if (childRow) syncAutoAccountSessionProvenance(childRow);
   if (!childRow) {
     throw AppError.internal('failed to persist async delegated child session');
   }
   if (worktree) sessionRepo.setWorktree(childRow.id, worktree);
 
   opencodeSessionMap.set(childRow.id, childSession.id);
-  sessionRepo.updatePermissionMode(childRow.id, 'bypassPermissions');
+  sessionRepo.updatePermissionMode(childRow.id, childPermissionMode);
   sessionRepo.updateStatus(childRow.id, 'working');
 
   const delegationRepo = new AgentAsyncDelegationsRepository();
   let delegationPersisted = false;
   try {
+    assertPermissionScopeCurrent();
     delegationRepo.create({
       parentSessionId: callerSession.id,
       childSessionId: childRow.id,
@@ -369,19 +415,23 @@ export async function delegateToAgentAsync(
     // awaited stream subscription so a lock applied during setup wins.
     requireExecutableProfile(configRepo, callerId, 'caller');
     requireExecutableProfile(configRepo, targetId, 'target');
+    assertPermissionScopeCurrent();
+    if (sessionRepo.findById(childRow.id)?.permissionMode !== childPermissionMode) {
+      throw AppError.forbidden('child permission scope changed during async delegation');
+    }
 
     const runningAsOwnAgent =
       profileScope.ocAgent !== null && profileScope.ocAgent === targetId;
     const promptOpts: Record<string, unknown> = {
-      permissionMode: 'bypassPermissions',
+      permissionMode: childPermissionMode,
       ...(profileScope.ocAgent ? { agent: profileScope.ocAgent } : {}),
       ...(profileScope.systemPrompt && !runningAsOwnAgent
         ? { system: profileScope.systemPrompt }
         : {}),
     };
-    const enqueued = await opencodeClient.promptAsync(
+    const promptHead = [
       childSession.id,
-      scopedPrompt,
+      runPrompt,
       runModel,
       effectiveCwd,
       promptOpts,
@@ -400,7 +450,8 @@ export async function delegateToAgentAsync(
         finalProviderId: runModel.providerID,
         finalModelId: runModel.modelID,
       },
-    );
+    ] as const;
+    const enqueued = await opencodeClient.promptAsync(...promptHead);
     if (!enqueued) {
       throw AppError.internal('failed to enqueue async delegated prompt');
     }

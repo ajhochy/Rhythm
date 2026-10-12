@@ -87,12 +87,20 @@ export class ScheduleGatewayError extends Error {
 }
 
 const failureText = (status: number, operation: string) =>
-  ({ 0: 'Schedule service unavailable', 401: 'Authentication required', 403: 'Forbidden', 404: 'Scheduled task not found' }[status] ?? `${operation} failed (${status})`);
+  ({ 0: operation === 'Trigger scheduled task' ? 'Connection lost; the run may have been accepted. Refresh to check durable progress before retrying.' : 'Schedule service unavailable. Check connectivity and use Refresh to retry.', 401: 'Authentication required. Sign in again, then retry.', 403: 'Forbidden. Request access from your administrator before retrying.', 404: 'Scheduled task not found. Refresh the schedule list.', 503: `${operation} failed (503). Check schedule service availability, then retry.` }[status] ?? `${operation} failed (${status}). Review configuration or contact your administrator before retrying.`);
 
 async function response<T>(operation: string, pending: Promise<Response>): Promise<T> {
   try {
     const result = await pending;
-    if (!result.ok) throw new ScheduleGatewayError(result.status, failureText(result.status, operation));
+    if (!result.ok) {
+      let message = failureText(result.status, operation);
+      // Preserve non-disclosing auth/404 errors; configuration errors carry the repair instruction.
+      if (result.status === 400 || result.status === 409) {
+        const body = await result.json().catch(() => null) as { error?: { message?: unknown } } | null;
+        if (typeof body?.error?.message === 'string') message = body.error.message;
+      }
+      throw new ScheduleGatewayError(result.status, message);
+    }
     return result.status === 204 ? undefined as T : await result.json() as T;
   } catch (error) {
     if (error instanceof ScheduleGatewayError) throw error;

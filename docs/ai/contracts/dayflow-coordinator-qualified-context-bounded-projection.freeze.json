@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-10-05T21:11:59Z",
+  "kind": "source-only-delta-freeze",
+  "base": {
+    "commit": "16eeeb89b64a3dfeb012f227fa218e0d9d63dab8",
+    "checkout": "rhythm-coordinator-dayflow-binding-20261005/working"
+  },
+  "inherits": {
+    "freeze": "docs/ai/contracts/dayflow-coordinator-qualified-context-composition.freeze.json",
+    "sha256": "89d1ebb6219162236246e531f3070483516e459c287a714bccb6f590bb673b20",
+    "meaning": "The lazy qualified-reader/persisted-authority server composition remains byte-identical."
+  },
+  "deltaPreimages": [
+    {
+      "path": "apps/api_server/src/services/dayflow_coordinator_reference_adapter.ts",
+      "sha256": "bc89bc1b9772ef84123d972b8e551e8d5f17448e1fc289b327c7b4fb4f215671"
+    },
+    {
+      "path": "apps/api_server/src/__tests__/dayflow_coordinator_reference_adapter.test.ts",
+      "sha256": "452c12139d196f8862ffdc7deb9d1f843de7efaf9ac346a8cf4a2dea9e544400"
+    },
+    {
+      "path": "apps/api_server/src/__tests__/dayflow_shared_composition.test.ts",
+      "sha256": "9fb19a63f146f143f02d580a46cb3af8cbe90545b9f28d24b194764d0a47f6d3"
+    }
+  ],
+  "deltaPostimages": [
+    {
+      "path": "apps/api_server/src/services/dayflow_coordinator_reference_adapter.ts",
+      "sha256": "8f9300b4a392dbe42f5ee08e87a514f1fd0e081f999fe3416e1aad1f3bff5313"
+    },
+    {
+      "path": "apps/api_server/src/__tests__/dayflow_coordinator_reference_adapter.test.ts",
+      "sha256": "4412e799fdedfa83c46d95a3e757f33bea72e3ebb002bfbd611eca477129e2d6"
+    },
+    {
+      "path": "apps/api_server/src/__tests__/dayflow_shared_composition.test.ts",
+      "sha256": "813bbe9b2457b7277ff3ae2251f9f5f958ad8aaad1e131157ee3acd991b060ab"
+    }
+  ],
+  "inheritedUnchanged": [
+    {
+      "path": "apps/api_server/src/server.ts",
+      "sha256": "d5d4b49cda72f4580a9b82fdc26aed969e838c6520d4c604eecb97e6d8ab2cd8"
+    },
+    {
+      "path": "apps/api_server/src/__tests__/dayflow_coordinator_server_composition_contract.test.ts",
+      "sha256": "a267c82f9efa8e95d885016c46fa714eed09c434f87cc295894c928108bcc372"
+    },
+    {
+      "path": "apps/api_server/src/integrations/dayflow/service.ts",
+      "sha256": "1dc7746f9c72cd2f319d56b5469464d7eca0e586cad4d563c9db549e9781fb43"
+    },
+    {
+      "path": "apps/api_server/src/integrations/dayflow/persisted_qualification_authority.ts",
+      "sha256": "a6fdf97781f1183c3c2f7e8384975b1b078d90f80cc2d857fc3d9dd654c13f6e"
+    },
+    {
+      "path": "apps/api_server/src/services/coordinator_conversation_context.ts",
+      "sha256": "be26a22e2f328bbe2958d41768fa96e7ddcf8250cc08e9420d8bbbdeb2116000"
+    }
+  ],
+  "patches": {
+    "incrementalFromInheritedFreeze": {
+      "path": "docs/ai/contracts/dayflow-coordinator-qualified-context-bounded-projection.delta.patch",
+      "sha256": "48a9038c5ea363858a95c31fdc31c7a4d37218d9aeaa58afae63d23c1fe6da36",
+      "forwardDryRun": "PASS against reconstructed inherited preimages",
+      "reverseApplyCheck": "PASS against this frozen checkout"
+    },
+    "cumulativeFromBase": {
+      "path": "docs/ai/contracts/dayflow-coordinator-qualified-context-bounded-projection.cumulative.patch",
+      "sha256": "549f02dabce9c11fb9a7ddf4831dee6fed801a82f2d944fe0930e782cbfd9284",
+      "reverseApplyCheck": "PASS against this frozen checkout"
+    }
+  },
+  "semantics": [
+    "The adapter requests one complete current qualified-reader page with limit 3000 per existing fresh snapshot; it does not follow a cursor.",
+    "A cursor, empty scan, page over 3000, malformed, foreign, expired, duplicate, unavailable, changed, or revoked proof remains unavailable.",
+    "The aggregate fingerprint, revision, observed time, and expiry bind every attested reference in the completed scan before deterministic canonical-ID selection.",
+    "At most 25 opaque references enter the model/context manifest. A 27-reference complete scan exposes coverage bounded_relevance totalItems=27 selectedItems=25 maxItems=25.",
+    "The existing two fresh snapshots and before/after persisted-authority checks remain intact; this delta does not edit the producer, consent/import lifecycle, or server construction."
+  ],
+  "impact": {
+    "gitNexus": "UNKNOWN: gitnexus status reported Repository not indexed; no reindex was attempted.",
+    "manualCallers": [
+      "server.ts constructs the lazy reader/authority adapter",
+      "coordinator_conversation_runtime_adapters.ts carries the adapter into context assembly",
+      "coordinator_conversation_context.ts already validates and publishes per-source coverage"
+    ]
+  },
+  "checks": [
+    "PASS node node_modules/vitest/vitest.mjs run src/__tests__/dayflow_coordinator_reference_adapter.test.ts --fileParallelism=false (6 tests)",
+    "PASS node node_modules/vitest/vitest.mjs run src/__tests__/coordinator_conversation_context.test.ts --fileParallelism=false (4 tests)",
+    "PASS node node_modules/vitest/vitest.mjs run src/__tests__/dayflow_coordinator_server_composition_contract.test.ts --fileParallelism=false (1 test)",
+    "PASS node node_modules/vitest/vitest.mjs run src/__tests__/dayflow_shared_composition.test.ts --fileParallelism=false -t 'projects only a current persisted qualified producer|bounds a complete 27-reference persisted qualified producer page' (2 selected tests; 17 skipped by target filter)",
+    "PASS node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "PASS git diff --check"
+  ],
+  "limitations": [
+    "No API, engine, model, import, grant, Dayflow source, UI, or runtime process was launched.",
+    "This is source evidence only; Root retains composition, package, stock-sandbox, and normal-app verification.",
+    "The sandbox rejected removal of the temporary preimage reconstruction directory under /private/tmp; no checkout source was affected."
+  ]
+}

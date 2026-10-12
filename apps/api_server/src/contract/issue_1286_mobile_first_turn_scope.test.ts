@@ -136,6 +136,10 @@ describe('issue #1286 mobile create-before-first-turn scope contract', () => {
       permission: [
         { permission: '*', pattern: '*', action: 'deny' },
         { permission: 'read', pattern: '*', action: 'allow' },
+        // A phone chat is interactive: named profiles go via async delegation.
+        { permission: 'task', pattern: '*', action: 'deny' },
+        { permission: 'task', pattern: 'explore', action: 'allow' },
+        { permission: 'task', pattern: 'general', action: 'allow' },
       ],
     });
   });

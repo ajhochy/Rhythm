@@ -6,11 +6,17 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
 import {
   CallToolResultSchema,
+  InitializeResultSchema,
   ListToolsResultSchema,
+  ServerCapabilitiesSchema,
   ToolSchema,
   type Tool as MCPToolDef,
+  type ClientRequest,
   ToolListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js"
+import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js"
+import type { AnySchema, SchemaOutput } from "@modelcontextprotocol/sdk/server/zod-compat.js"
+import { z } from "zod/v4"
 import { Config } from "@/config/config"
 import { ConfigMCP } from "../config/mcp"
 import * as Log from "@opencode-ai/core/util/log"
@@ -32,6 +38,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { signRhythmMcpCall, type RhythmMcpCallIdentity } from "@/security/rhythm-mcp-proof"
+import { createHash } from "node:crypto"
 
 const log = Log.create({ service: "mcp" })
 const DEFAULT_TIMEOUT = 30_000
@@ -42,6 +49,40 @@ const DEFAULT_TIMEOUT = 30_000
 const LIST_TIMEOUT = 5_000
 const MCP_UI_EXTENSION = "io.modelcontextprotocol/ui"
 const MCP_APP_MIME_TYPE = "text/html;profile=mcp-app"
+
+// SDK 1.27.1 validates initialize responses with a capability schema that
+// strips extension keys. Keep the SDK's normal validation everywhere else and
+// admit only the bounded MCP Apps capability that we advertise.
+const AppInitializeResultSchema = InitializeResultSchema.extend({
+  capabilities: ServerCapabilitiesSchema.extend({
+    extensions: z
+      .object({
+        [MCP_UI_EXTENSION]: z.object({ mimeTypes: z.array(z.string().max(200)).max(8) }).optional(),
+      })
+      .optional(),
+  }),
+})
+
+function createAppAwareClient() {
+  // Resolve the SDK constructor only when connecting. This retains the normal
+  // SDK constructor seam (including test transports) while narrowing only its
+  // initialize result schema.
+  const BaseClient = Client
+  class AppAwareClient extends BaseClient {
+    override request<T extends AnySchema>(
+      request: ClientRequest,
+      resultSchema: T,
+      options?: RequestOptions,
+    ): Promise<SchemaOutput<T>> {
+      const schema = request.method === "initialize" ? AppInitializeResultSchema : resultSchema
+      return super.request(request, schema, options) as Promise<SchemaOutput<T>>
+    }
+  }
+  return new AppAwareClient(
+    { name: "opencode", version: InstallationVersion },
+    mcpAppsClientOptions() as ConstructorParameters<typeof Client>[1],
+  )
+}
 
 type McpAppsMode = "off" | "readonly" | "interactive"
 
@@ -115,6 +156,27 @@ function uiDescriptor(tool: MCPToolDef): UiDescriptorResult {
   return { kind: "valid", resourceUri, visibility: rawVisibility as McpAppVisibility[] }
 }
 
+/** Resolve only already-cached model-visible definitions; never acquires or warms a server. */
+export function resolvePassiveMcpToolIdentity(
+  input: {
+    defs: Record<string, readonly MCPToolDef[] | undefined>
+    mcpAppsSupported: Record<string, boolean | undefined>
+  },
+  toolKey: string,
+): { serverName: string; toolName: string } | undefined {
+  const matches = Object.entries(input.defs).flatMap(([serverName, listed]) =>
+    (listed ?? []).flatMap((mcpTool) => {
+      const descriptor = input.mcpAppsSupported[serverName] ? uiDescriptor(mcpTool) : { kind: "none" as const }
+      if (descriptor.kind === "invalid") return []
+      if (descriptor.kind === "valid" && !descriptor.visibility.includes("model")) return []
+      if (sanitize(serverName) + "_" + sanitize(mcpTool.name) !== toolKey) return []
+      return [{ serverName, toolName: mcpTool.name }]
+    }),
+  )
+  if (matches.length !== 1) return
+  return matches[0]
+}
+
 /**
  * Rhythm-only MCP request metadata. The engine adds this after the model has
  * produced tool arguments, so the model cannot forge session/turn identity.
@@ -148,6 +210,10 @@ export function rhythmSecurityRequestMeta(
   }
 }
 
+function rhythmSecurityContext(options: ToolExecutionOptions) {
+  return (options as RhythmToolExecutionOptions)[RHYTHM_SECURITY_CONTEXT]
+}
+
 const TolerantListToolsResultSchema = ListToolsResultSchema.extend({
   tools: ToolSchema.omit({ outputSchema: true }).array(),
 })
@@ -163,6 +229,18 @@ export type Resource = Schema.Schema.Type<typeof Resource>
 
 export const ToolsChanged = BusEvent.define(
   "mcp.tools.changed",
+  Schema.Struct({
+    server: Schema.String,
+  }),
+)
+
+/**
+ * A directory-local MCP transport acquired or refreshed metadata. Consumers
+ * such as `/command` can refresh their passive catalog without connecting an
+ * otherwise unselected server.
+ */
+export const MetadataChanged = BusEvent.define(
+  "mcp.metadata.changed",
   Schema.Struct({
     server: Schema.String,
   }),
@@ -188,6 +266,9 @@ const StatusConnected = Schema.Struct({ status: Schema.Literal("connected") }).a
 const StatusDisabled = Schema.Struct({ status: Schema.Literal("disabled") }).annotate({
   identifier: "MCPStatusDisabled",
 })
+const StatusConfigured = Schema.Struct({ status: Schema.Literal("configured") }).annotate({
+  identifier: "MCPStatusConfigured",
+})
 const StatusFailed = Schema.Struct({ status: Schema.Literal("failed"), error: Schema.String }).annotate({
   identifier: "MCPStatusFailed",
 })
@@ -202,6 +283,7 @@ const StatusNeedsClientRegistration = Schema.Struct({
 export const Status = Schema.Union([
   StatusConnected,
   StatusDisabled,
+  StatusConfigured,
   StatusFailed,
   StatusNeedsAuth,
   StatusNeedsClientRegistration,
@@ -210,7 +292,62 @@ export type Status = Schema.Schema.Type<typeof Status>
 
 // Store transports for OAuth servers to allow finishing auth
 type TransportWithAuth = StreamableHTTPClientTransport | SSEClientTransport
-const pendingOAuthTransports = new Map<string, TransportWithAuth>()
+type PendingOAuthTransport = {
+  owner?: object
+  transport: TransportWithAuth
+  directory: string
+  configFingerprint?: string
+  state?: string
+  codeVerifier?: string
+  authorizationUrl?: string
+  deadline: number
+  phase: "waiting" | "finishing"
+  timer?: ReturnType<typeof setTimeout>
+}
+const pendingOAuthTransports = new Map<string, PendingOAuthTransport>()
+const OAUTH_PENDING_MS = 5 * 60 * 1000
+
+function oauthConfigFingerprint(mcp: ConfigMCP.Info & { type: "remote" }) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        type: mcp.type,
+        url: mcp.url,
+        oauth: mcp.oauth,
+        headers: Object.fromEntries(Object.entries(mcp.headers ?? {}).sort(([a], [b]) => a.localeCompare(b))),
+      }),
+    )
+    .digest("base64url")
+}
+
+function registerPendingOAuth(
+  name: string,
+  transport: TransportWithAuth,
+  directory: string,
+  input?: Pick<PendingOAuthTransport, "owner" | "configFingerprint" | "state" | "authorizationUrl">,
+) {
+  const existing = pendingOAuthTransports.get(name)
+  if (existing && existing.deadline > Date.now()) return undefined
+  if (existing) {
+    if (existing.timer) clearTimeout(existing.timer)
+    void existing.transport.close().catch(() => {})
+  }
+  const pending: PendingOAuthTransport = {
+    transport,
+    directory,
+    deadline: Date.now() + OAUTH_PENDING_MS,
+    phase: "waiting",
+    ...input,
+  }
+  pending.timer = setTimeout(() => {
+    if (pendingOAuthTransports.get(name) !== pending) return
+    pendingOAuthTransports.delete(name)
+    if (pending.state) McpOAuthCallback.cancelState(pending.state)
+    void pending.transport.close().catch(() => {})
+  }, OAUTH_PENDING_MS)
+  pendingOAuthTransports.set(name, pending)
+  return pending
+}
 
 // Prompt cache types
 type PromptInfo = Awaited<ReturnType<MCPClient["listPrompts"]>>["prompts"][number]
@@ -256,7 +393,12 @@ function listTools(key: string, client: MCPClient, timeout: number) {
 }
 
 // Convert MCP tool definition to AI SDK Tool type
-function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient, timeout?: number): Tool {
+function convertMcpTool(
+  mcpTool: MCPToolDef,
+  client: MCPClient,
+  timeout?: number,
+  execute?: (args: unknown, options: ToolExecutionOptions) => Promise<Awaited<ReturnType<MCPClient["callTool"]>>>,
+): Tool {
   const inputSchema = mcpTool.inputSchema
 
   // Spread first, then override type to ensure it's always "object"
@@ -271,6 +413,7 @@ function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient, timeout?: number
     description: mcpTool.description ?? "",
     inputSchema: jsonSchema(schema),
     execute: async (args: unknown, options: ToolExecutionOptions) => {
+      if (execute) return execute(args, options)
       const securityMeta = rhythmSecurityRequestMeta(options, mcpTool.name, args)
       return client.callTool(
         {
@@ -342,20 +485,106 @@ interface State {
   clients: Record<string, MCPClient>
   defs: Record<string, MCPToolDef[]>
   mcpAppsSupported: Record<string, boolean>
+  /** One acquisition per directory/server. This is deliberately state-local. */
+  acquiring: Record<string, Promise<Status>>
+  leases: Record<string, number>
+  leaseWaiters: Record<string, Array<() => void>>
+  generations: Record<string, number>
+  idleTimers: Record<string, ReturnType<typeof setTimeout>>
+  appOrigins: Record<
+    string,
+    {
+      server: string
+      expiresAt: number
+      client: MCPClient
+      generation: number
+      timer: ReturnType<typeof setTimeout>
+      sessionID: string
+      messageID: string
+      partID: string
+      cwd: string
+      resourceUri: string
+      persisted: boolean
+    }
+  >
+  /** A successful trusted App tool call owns its producing transport until its result is persisted. */
+  provisionalAppOrigins: Record<
+    string,
+    { server: string; client: MCPClient; generation: number; sessionID: string; callID: string }
+  >
+  bridge: EffectBridge.Shape
+  oauthOwner: object
+}
+
+export interface ToolSelection {
+  servers: string[]
+  tools: string[]
+}
+
+export interface AppOriginOwner {
+  sessionID: string
+  callID: string
+  serverName: string
+  cwd: string
+  resourceUri: string
+  expiresAt: string
+  part: {
+    sessionID: string
+    messageID: string
+    partID: string
+  }
+}
+
+export type AppOriginProvenance = Omit<AppOriginOwner, "part">
+
+export interface PersistedAppOriginPart {
+  sessionID: string
+  messageID: string
+  partID: string
 }
 
 export interface Interface {
   readonly status: () => Effect.Effect<Record<string, Status>>
   readonly clients: () => Effect.Effect<Record<string, MCPClient>>
-  readonly tools: () => Effect.Effect<Record<string, Tool>>
+  /**
+   * Acquire only the configured servers selected for a session. An omitted
+   * selection retains legacy unrestricted behaviour; an explicit empty
+   * selection is deny-all and therefore acquires nothing.
+   */
+  readonly tools: (selection?: ToolSelection) => Effect.Effect<Record<string, Tool>>
+  /** Return cached catalog metadata without acquiring a transport. */
+  readonly catalog?: () => Effect.Effect<string[]>
   readonly appTools: () => Effect.Effect<Record<string, McpAppTool>>
   readonly executeAppTool?: (
     key: string,
     args: Record<string, unknown>,
     options: ToolExecutionOptions,
   ) => Effect.Effect<unknown, Error>
+  readonly readAppResource?: (
+    origin: AppOriginProvenance,
+    part: PersistedAppOriginPart,
+  ) => Effect.Effect<Awaited<ReturnType<MCPClient["readResource"]>>, Error>
+  readonly executeAppToolForOrigin?: (
+    origin: AppOriginProvenance,
+    part: PersistedAppOriginPart,
+    key: string,
+    args: Record<string, unknown>,
+    options: ToolExecutionOptions,
+  ) => Effect.Effect<unknown, Error>
+  readonly retainAppOrigin?: (origin: AppOriginOwner) => Effect.Effect<boolean>
+  readonly releaseAppOrigin?: (sessionID: string, callID: string) => Effect.Effect<void>
+  readonly releaseProvisionalAppOrigin?: (sessionID: string, callID: string) => Effect.Effect<void>
   /** Rhythm carried patch (mcp-scope): returns composedKey → raw clientName for every connected tool. */
   readonly toolClientNames: () => Effect.Effect<Record<string, string>>
+  /**
+   * Read-only discovery metadata: for every model-visible cached definition, its composed key, the
+   * ACTUAL server name and the registered raw tool name (never derived by splitting the key). Same
+   * cached definitions, sanitizer and visibility rules as `tools()`; a key composed by two different
+   * origins appears once per origin so callers can hold on the collision. Not a tool or permission API.
+   */
+  readonly toolOrigins?: () => Effect.Effect<Array<{ key: string; serverName: string; toolName: string }>>
+  /** Resolve one already-cached model-visible composed key without acquiring or warming a server. */
+  readonly toolIdentity?: (toolKey: string) => Effect.Effect<{ serverName: string; toolName: string } | undefined>
   readonly prompts: () => Effect.Effect<Record<string, PromptInfo & { client: string }>>
   readonly resources: () => Effect.Effect<Record<string, ResourceInfo & { client: string }>>
   readonly add: (name: string, mcp: ConfigMCP.Info) => Effect.Effect<{ status: Record<string, Status> | Status }>
@@ -394,29 +623,40 @@ export const layer = Layer.effect(
      * Connect a client via the given transport with resource safety:
      * on failure the transport is closed; on success the caller owns it.
      */
-    const connectTransport = (transport: Transport, timeout: number) =>
-      Effect.acquireUseRelease(
+    const connectTransport = (
+      transport: Transport,
+      timeout: number,
+      retainFailure?: (error: unknown) => boolean,
+    ) => {
+      let retained = false
+      return Effect.acquireUseRelease(
         Effect.succeed(transport),
         (t) =>
           Effect.tryPromise({
-            try: () => {
-              const client = new Client(
-                { name: "opencode", version: InstallationVersion },
-                mcpAppsClientOptions() as ConstructorParameters<typeof Client>[1],
-              )
-              return withTimeout(client.connect(t), timeout).then(() => client)
+            try: async () => {
+              try {
+                const client = createAppAwareClient()
+                return await withTimeout(client.connect(t), timeout).then(() => client)
+              } catch (error) {
+                retained = retainFailure?.(error) ?? false
+                throw error
+              }
             },
             catch: (e) => (e instanceof Error ? e : new Error(String(e))),
           }),
-        (t, exit) => (Exit.isFailure(exit) ? Effect.tryPromise(() => t.close()).pipe(Effect.ignore) : Effect.void),
+        (t, exit) =>
+          Exit.isFailure(exit) && !retained ? Effect.tryPromise(() => t.close()).pipe(Effect.ignore) : Effect.void,
       )
+    }
 
     const DISABLED_RESULT: CreateResult = { status: { status: "disabled" } }
 
     const connectRemote = Effect.fn("MCP.connectRemote")(function* (
       key: string,
       mcp: ConfigMCP.Info & { type: "remote" },
+      owner?: object,
     ) {
+      const directory = yield* InstanceState.directory
       const oauthDisabled = mcp.oauth === false
       const oauthConfig = typeof mcp.oauth === "object" ? mcp.oauth : undefined
       const url = remoteURL(key, mcp.url)
@@ -426,54 +666,96 @@ export const layer = Layer.effect(
           status: { status: "failed" as const, error: `Invalid MCP URL for "${key}"` },
         }
       }
-      let authProvider: McpOAuthProvider | undefined
-
-      if (!oauthDisabled) {
-        authProvider = new McpOAuthProvider(
-          key,
-          mcp.url,
-          {
-            clientId: oauthConfig?.clientId,
-            clientSecret: oauthConfig?.clientSecret,
-            scope: oauthConfig?.scope,
-            redirectUri: oauthConfig?.redirectUri,
-          },
-          {
-            onRedirect: async (url) => {
-              log.info("oauth redirect requested", { key, url: url.toString() })
-            },
-          },
-          auth,
-        )
-      }
-
-      const transports: Array<{ name: string; transport: TransportWithAuth }> = [
-        {
-          name: "StreamableHTTP",
-          transport: new StreamableHTTPClientTransport(url, {
-            authProvider,
-            requestInit: mcp.headers ? { headers: mcp.headers } : undefined,
-          }),
-        },
-        {
-          name: "SSE",
-          transport: new SSEClientTransport(url, {
-            authProvider,
-            requestInit: mcp.headers ? { headers: mcp.headers } : undefined,
-          }),
-        },
-      ]
-
       const connectTimeout = mcp.timeout ?? DEFAULT_TIMEOUT
+      const fingerprint = oauthConfigFingerprint(mcp)
       let lastStatus: Status | undefined
 
-      for (const { name, transport } of transports) {
-        const result = yield* connectTransport(transport, connectTimeout).pipe(
+      for (const name of ["StreamableHTTP", "SSE"] as const) {
+        let capturedPending: PendingOAuthTransport | undefined
+        let capturedTransport: TransportWithAuth | undefined
+        const isCapturedPending = () => {
+          const pending = capturedPending
+          return (
+            !!pending &&
+            pendingOAuthTransports.get(key) === pending &&
+            pending.owner === owner &&
+            pending.directory === directory &&
+            pending.configFingerprint === fingerprint &&
+            pending.transport === capturedTransport &&
+            pending.deadline > Date.now() &&
+            (pending.phase === "waiting" || pending.phase === "finishing")
+          )
+        }
+        const authProvider = oauthDisabled
+          ? undefined
+          : new McpOAuthProvider(
+              key,
+              mcp.url,
+              {
+                clientId: oauthConfig?.clientId,
+                clientSecret: oauthConfig?.clientSecret,
+                scope: oauthConfig?.scope,
+                redirectUri: oauthConfig?.redirectUri,
+              },
+              {
+                onRedirect: async (redirect) => {
+                  if (!isCapturedPending()) return
+                  log.info("oauth redirect requested", { key, url: redirect.toString() })
+                  const pending = capturedPending
+                  if (pending) pending.authorizationUrl = redirect.toString()
+                },
+                canPersist: isCapturedPending,
+                onState: (oauthState) => {
+                  const pending = capturedPending
+                  if (pending && isCapturedPending()) pending.state = oauthState
+                },
+                onCodeVerifier: (codeVerifier) => {
+                  const pending = capturedPending
+                  if (pending && isCapturedPending()) pending.codeVerifier = codeVerifier
+                },
+              },
+              auth,
+            )
+        const transport: TransportWithAuth =
+          name === "StreamableHTTP"
+            ? new StreamableHTTPClientTransport(url, {
+                authProvider,
+                requestInit: mcp.headers ? { headers: mcp.headers } : undefined,
+              })
+            : new SSEClientTransport(url, {
+                authProvider,
+                requestInit: mcp.headers ? { headers: mcp.headers } : undefined,
+              })
+        capturedTransport = transport
+
+        if (!oauthDisabled) {
+          capturedPending = registerPendingOAuth(key, transport, directory, { owner, configFingerprint: fingerprint })
+        }
+        if (!oauthDisabled && !capturedPending) {
+          yield* Effect.tryPromise(() => transport.close()).pipe(Effect.ignore)
+          return {
+            client: undefined as MCPClient | undefined,
+            status: { status: "failed" as const, error: "Authorization already pending" },
+          }
+        }
+        const pending = capturedPending
+        const result = yield* connectTransport(
+          transport,
+          connectTimeout,
+          (error) => {
+            const lastError = error instanceof Error ? error : new Error(String(error))
+            return (
+              (error instanceof UnauthorizedError || (!!authProvider && lastError.message.includes("OAuth"))) &&
+              isCapturedPending() &&
+              pending?.transport === transport
+            )
+          },
+        ).pipe(
           Effect.map((client) => ({ client, transportName: name })),
           Effect.catch((error) => {
             const lastError = error instanceof Error ? error : new Error(String(error))
             const isAuthError =
-              error instanceof UnauthorizedError || (authProvider && lastError.message.includes("OAuth"))
+              error instanceof UnauthorizedError || (!!authProvider && lastError.message.includes("OAuth"))
 
             if (isAuthError) {
               log.info("mcp server requires authentication", { key, transport: name })
@@ -492,7 +774,6 @@ export const layer = Layer.effect(
                   })
                   .pipe(Effect.ignore, Effect.as(undefined))
               } else {
-                pendingOAuthTransports.set(key, transport)
                 lastStatus = { status: "needs_auth" as const }
                 return bus
                   .publish(TuiEvent.ToastShow, {
@@ -505,6 +786,24 @@ export const layer = Layer.effect(
               }
             }
 
+            const cleanupEphemera = pending
+              ? Effect.sync(() => {
+                  if (pendingOAuthTransports.get(key) !== pending) return false
+                  pendingOAuthTransports.delete(key)
+                  if (pending.timer) clearTimeout(pending.timer)
+                  if (pending.state) McpOAuthCallback.cancelState(pending.state)
+                  return true
+                }).pipe(
+                  Effect.flatMap((isCurrent) =>
+                    isCurrent
+                      ? auth.clearOAuthEphemeraIfMatches(key, {
+                          oauthState: pending.state,
+                          codeVerifier: pending.codeVerifier,
+                        })
+                      : Effect.void,
+                  ),
+                )
+              : Effect.void
             log.debug("transport connection failed", {
               key,
               transport: name,
@@ -512,10 +811,14 @@ export const layer = Layer.effect(
               error: lastError.message,
             })
             lastStatus = { status: "failed" as const, error: lastError.message }
-            return Effect.succeed(undefined)
+            return cleanupEphemera.pipe(Effect.as(undefined))
           }),
         )
         if (result) {
+          if (pending && pendingOAuthTransports.get(key) === pending) {
+            pendingOAuthTransports.delete(key)
+            if (pending.timer) clearTimeout(pending.timer)
+          }
           log.info("connected", { key, transport: result.transportName })
           return { client: result.client as MCPClient | undefined, status: { status: "connected" } as Status }
         }
@@ -564,7 +867,7 @@ export const layer = Layer.effect(
       )
     })
 
-    const create = Effect.fn("MCP.create")(function* (key: string, mcp: ConfigMCP.Info) {
+    const create = Effect.fn("MCP.create")(function* (key: string, mcp: ConfigMCP.Info, owner?: object) {
       if (mcp.enabled === false) {
         log.info("mcp server disabled", { key })
         return DISABLED_RESULT
@@ -574,7 +877,7 @@ export const layer = Layer.effect(
 
       const { client: mcpClient, status } =
         mcp.type === "remote"
-          ? yield* connectRemote(key, mcp as ConfigMCP.Info & { type: "remote" })
+          ? yield* connectRemote(key, mcp as ConfigMCP.Info & { type: "remote" }, owner)
           : yield* connectLocal(key, mcp as ConfigMCP.Info & { type: "local" })
 
       if (!mcpClient) {
@@ -645,38 +948,115 @@ export const layer = Layer.effect(
           clients: {},
           defs: {},
           mcpAppsSupported: {},
+          acquiring: {},
+          leases: {},
+          leaseWaiters: {},
+          generations: {},
+          idleTimers: {},
+          appOrigins: {},
+          provisionalAppOrigins: {},
+          bridge,
+          oauthOwner: {},
         }
 
-        yield* Effect.forEach(
-          Object.entries(config),
-          ([key, mcp]) =>
-            Effect.gen(function* () {
-              if (!isMcpConfigured(mcp)) {
-                log.error("Ignoring MCP config entry without type", { key })
+        for (const [key, mcp] of Object.entries(config)) {
+          if (!isMcpConfigured(mcp)) {
+            log.error("Ignoring MCP config entry without type", { key })
+            continue
+          }
+          // Merely constructing directory state must not spawn every configured
+          // transport. Discovery and explicit connect acquire clients below.
+          s.status[key] = mcp.enabled === false ? { status: "disabled" } : { status: "configured" }
+        }
+
+        const unsubscribe = yield* bus.subscribeAllCallback((event) => {
+          if (event.type === "message.part.updated") {
+            const part = (event.properties as {
+              part?: {
+                id?: string
+                callID?: string
+                messageID?: string
+                sessionID?: string
+                type?: string
+                state?: { status?: string; mcpAppResource?: AppOriginOwner }
+              }
+            }).part
+            const sessionID = (event.properties as { sessionID?: string }).sessionID
+            if (sessionID && part?.id && part.callID && part.type === "tool") {
+              const owner = s.appOrigins[appOriginKey(sessionID, part.callID)]
+              if (!owner) return
+              if (owner.partID !== part.id || owner.messageID !== part.messageID || part.sessionID !== sessionID) {
+                releaseAppOriginOwner(s, appOriginKey(sessionID, part.callID))
                 return
               }
-
-              if (mcp.enabled === false) {
-                s.status[key] = { status: "disabled" }
+              if (part.state?.status === "error") {
+                releaseAppOriginOwner(s, appOriginKey(sessionID, part.callID))
                 return
               }
-
-              const result = yield* create(key, mcp).pipe(Effect.catch(() => Effect.void))
-              if (!result) return
-
-              s.status[key] = result.status
-              if (result.mcpClient) {
-                s.clients[key] = result.mcpClient
-                s.defs[key] = result.defs!
-                s.mcpAppsSupported[key] = result.mcpAppsSupported ?? false
-                watch(s, key, result.mcpClient, bridge, mcp.timeout)
+              if (part.state?.status !== "completed") return
+              if (
+                !sameAppOrigin(part.state.mcpAppResource, {
+                  sessionID,
+                  callID: part.callID,
+                  serverName: owner.server,
+                  expiresAt: new Date(owner.expiresAt).toISOString(),
+                })
+              ) {
+                releaseAppOriginOwner(s, appOriginKey(sessionID, part.callID))
+                return
               }
-            }),
-          { concurrency: "unbounded" },
-        )
+              owner.persisted = true
+            }
+            return
+          }
+          if (event.type === "message.part.removed") {
+            const properties = event.properties as { sessionID?: string; messageID?: string; partID?: string }
+            for (const [key, owner] of Object.entries(s.appOrigins)) {
+              if (
+                owner.partID !== properties.partID ||
+                owner.messageID !== properties.messageID ||
+                owner.sessionID !== properties.sessionID
+              )
+                continue
+              releaseAppOriginOwner(s, key)
+            }
+            return
+          }
+          if (event.type === "message.removed") {
+            const properties = event.properties as { sessionID?: string; messageID?: string }
+            for (const [key, owner] of Object.entries(s.appOrigins)) {
+              if (owner.messageID !== properties.messageID || owner.sessionID !== properties.sessionID) continue
+              releaseAppOriginOwner(s, key)
+            }
+            return
+          }
+          if (event.type !== "session.deleted") return
+          const sessionID = (event.properties as { sessionID?: string }).sessionID
+          if (!sessionID) return
+          for (const [key, owner] of Object.entries(s.appOrigins)) {
+            if (owner.sessionID !== sessionID) continue
+            releaseAppOriginOwner(s, key)
+          }
+          for (const [key, owner] of Object.entries(s.provisionalAppOrigins)) {
+            if (owner.sessionID !== sessionID) continue
+            delete s.provisionalAppOrigins[key]
+            if ((s.leases[owner.server] ?? 0) === 0) scheduleIdleClose(s, owner.server, owner.client, owner.generation)
+          }
+        })
 
         yield* Effect.addFinalizer(() =>
           Effect.gen(function* () {
+            unsubscribe()
+            for (const [name, pending] of pendingOAuthTransports) {
+              if (pending.owner !== s.oauthOwner) continue
+              pendingOAuthTransports.delete(name)
+              if (pending.timer) clearTimeout(pending.timer)
+              if (pending.state) McpOAuthCallback.cancelState(pending.state)
+              yield* Effect.tryPromise(() => pending.transport.close()).pipe(Effect.ignore)
+            }
+            for (const owner of Object.values(s.appOrigins)) clearTimeout(owner.timer)
+            s.appOrigins = {}
+            s.provisionalAppOrigins = {}
             yield* Effect.forEach(
               Object.values(s.clients),
               (client) =>
@@ -694,7 +1074,6 @@ export const layer = Layer.effect(
                 }),
               { concurrency: "unbounded" },
             )
-            pendingOAuthTransports.clear()
           }),
         )
 
@@ -702,12 +1081,185 @@ export const layer = Layer.effect(
       }),
     )
 
-    function closeClient(s: State, name: string) {
-      const client = s.clients[name]
-      delete s.defs[name]
-      if (!client) return Effect.void
-      return Effect.tryPromise(() => client.close()).pipe(Effect.ignore)
+    function appOriginKey(sessionID: string, callID: string) {
+      return JSON.stringify([sessionID, callID])
     }
+
+    function sameAppOrigin(
+      origin: AppOriginOwner | undefined,
+      expected: Pick<AppOriginOwner, "sessionID" | "callID" | "serverName" | "expiresAt">,
+    ) {
+      return !!origin && Object.entries(expected).every(([key, value]) => origin[key as keyof AppOriginOwner] === value)
+    }
+
+    function releaseAppOriginOwner(s: State, key: string) {
+      const owner = s.appOrigins[key]
+      if (!owner) return
+      clearTimeout(owner.timer)
+      delete s.appOrigins[key]
+      if ((s.leases[owner.server] ?? 0) === 0) scheduleIdleClose(s, owner.server, owner.client, owner.generation)
+    }
+
+    function closeClient(s: State, name: string) {
+      const timer = s.idleTimers[name]
+      if (timer) clearTimeout(timer)
+      delete s.idleTimers[name]
+      const client = s.clients[name]
+      if (!client) return Effect.void
+      // Replacing/disconnecting a server must not cut off a tool request which
+      // already leased the old transport. `add()` waits here; ordinary idle
+      // retirement is handled separately below and keeps the cached schema.
+      const waitForLeases =
+        (s.leases[name] ?? 0) === 0
+          ? Effect.void
+          : Effect.promise(
+              () => new Promise<void>((resolve) => (s.leaseWaiters[name] ??= []).push(resolve)),
+            )
+      return waitForLeases.pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            // A concurrent replacement already took ownership of this name.
+            if (s.clients[name] !== client) return false
+            const generation = s.generations[name] ?? 0
+            for (const [key, owner] of Object.entries(s.appOrigins)) {
+              if (owner.server !== name || owner.client !== client || owner.generation !== generation) continue
+              clearTimeout(owner.timer)
+              delete s.appOrigins[key]
+            }
+            for (const [key, owner] of Object.entries(s.provisionalAppOrigins)) {
+              if (owner.server !== name || owner.client !== client || owner.generation !== generation) continue
+              delete s.provisionalAppOrigins[key]
+            }
+            s.generations[name] = (s.generations[name] ?? 0) + 1
+            delete s.clients[name]
+            delete s.defs[name]
+            delete s.mcpAppsSupported[name]
+            return true
+          }),
+        ),
+        Effect.flatMap((shouldClose) =>
+          shouldClose ? Effect.tryPromise(() => client.close()).pipe(Effect.ignore) : Effect.void,
+        ),
+      )
+    }
+
+    const idleGraceMs = () => {
+      const configured = Number(process.env.RHYTHM_MCP_IDLE_GRACE_MS)
+      return Number.isFinite(configured) && configured >= 0 ? configured : 30_000
+    }
+
+    function scheduleIdleClose(s: State, name: string, client: MCPClient, generation: number) {
+      if (s.leases[name] === undefined) s.leases[name] = 0
+      if (s.generations[name] === undefined) s.generations[name] = generation
+      const existing = s.idleTimers[name]
+      if (existing) clearTimeout(existing)
+      s.idleTimers[name] = setTimeout(() => {
+        const hasOrigin = Object.values(s.appOrigins).some(
+          (owner) =>
+            owner.server === name &&
+            owner.client === client &&
+            owner.generation === generation &&
+            owner.expiresAt > Date.now(),
+        )
+        const hasProvisionalOrigin = Object.values(s.provisionalAppOrigins).some(
+          (owner) => owner.server === name && owner.client === client && owner.generation === generation,
+        )
+        if (
+          s.generations[name] !== generation ||
+          s.leases[name] !== 0 ||
+          hasOrigin ||
+          hasProvisionalOrigin ||
+          s.clients[name] !== client
+        )
+          return
+        delete s.idleTimers[name]
+        delete s.clients[name]
+        // Keep advertised definitions and MCP App capability metadata. Existing
+        // tool/app catalog entries can then re-acquire this one server on use.
+        s.status[name] = { status: "configured" }
+        void client.close()
+      }, idleGraceMs())
+    }
+
+    function leaseClient<A>(s: State, name: string, fn: (client: MCPClient) => Promise<A>): Promise<A> {
+      const client = s.clients[name]
+      if (!client || s.status[name]?.status !== "connected") return Promise.reject(new Error(`MCP client unavailable: ${name}`))
+
+      const timer = s.idleTimers[name]
+      if (timer) clearTimeout(timer)
+      delete s.idleTimers[name]
+      const generation = s.generations[name] ?? 0
+      s.leases[name] = (s.leases[name] ?? 0) + 1
+
+      const release = () => {
+        const remaining = Math.max(0, (s.leases[name] ?? 1) - 1)
+        s.leases[name] = remaining
+        if (remaining > 0) return
+        const waiters = s.leaseWaiters[name]
+        delete s.leaseWaiters[name]
+        waiters?.splice(0).forEach((resolve) => resolve())
+        scheduleIdleClose(s, name, client, generation)
+      }
+      try {
+        return Promise.resolve(fn(client)).finally(release)
+      } catch (error) {
+        release()
+        return Promise.reject(error)
+      }
+    }
+
+    const withAppOriginLease = Effect.fnUntraced(function* <A>(
+      origin: AppOriginProvenance,
+      part: PersistedAppOriginPart,
+      fn: (client: MCPClient) => Promise<A>,
+    ) {
+      // Persisted App output is not sufficient authority to reconnect by name:
+      // require the exact in-memory producer and synchronously lease it before
+      // any resource/action request can run.
+      if (!(yield* InstanceState.has(state))) return yield* Effect.fail(new Error("app origin unavailable"))
+      const directory = yield* InstanceState.directory
+      const cfg = yield* cfgSvc.get()
+      const configured = cfg.mcp?.[origin.serverName]
+      const expiresAt = Date.parse(origin.expiresAt)
+      const s = yield* InstanceState.get(state)
+      const owner = s.appOrigins[appOriginKey(origin.sessionID, origin.callID)]
+      if (
+        !owner ||
+        !owner.persisted ||
+        !configured ||
+        !isMcpConfigured(configured) ||
+        configured.enabled === false ||
+        !Number.isFinite(expiresAt) ||
+        expiresAt <= Date.now() ||
+        owner.expiresAt !== expiresAt ||
+        owner.server !== origin.serverName ||
+        owner.sessionID !== origin.sessionID ||
+        owner.messageID !== part.messageID ||
+        owner.partID !== part.partID ||
+        part.sessionID !== origin.sessionID ||
+        owner.cwd !== origin.cwd ||
+        owner.resourceUri !== origin.resourceUri ||
+        directory !== origin.cwd ||
+        s.clients[owner.server] !== owner.client ||
+        s.status[owner.server]?.status !== "connected" ||
+        s.generations[owner.server] !== owner.generation
+      )
+        return yield* Effect.fail(new Error("app origin unavailable"))
+
+      return yield* Effect.tryPromise({
+        try: () =>
+          leaseClient(s, owner.server, (client) => {
+            if (
+              client !== owner.client ||
+              s.clients[owner.server] !== owner.client ||
+              s.generations[owner.server] !== owner.generation
+            )
+              return Promise.reject(new Error("app origin unavailable"))
+            return fn(client)
+          }),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      })
+    })
 
     const storeClient = Effect.fnUntraced(function* (
       s: State,
@@ -716,52 +1268,107 @@ export const layer = Layer.effect(
       listed: MCPToolDef[],
       timeout?: number,
     ) {
-      const bridge = yield* EffectBridge.make()
       yield* closeClient(s, name)
       s.status[name] = { status: "connected" }
       s.clients[name] = client
       s.defs[name] = listed
       s.mcpAppsSupported[name] = mcpAppsMode() !== "off" && supportsMcpApps(client)
-      watch(s, name, client, bridge, timeout)
+      watch(s, name, client, s.bridge, timeout)
+      yield* bus.publish(MetadataChanged, { server: name }).pipe(Effect.ignore)
       return s.status[name]
     })
 
     const status = Effect.fn("MCP.status")(function* () {
-      const s = yield* InstanceState.get(state)
-
       const cfg = yield* cfgSvc.get()
       const config = cfg.mcp ?? {}
+      const s = (yield* InstanceState.has(state)) ? yield* InstanceState.get(state) : undefined
       const result: Record<string, Status> = {}
 
       for (const [key, mcp] of Object.entries(config)) {
         if (!isMcpConfigured(mcp)) continue
-        result[key] = s.status[key] ?? { status: "disabled" }
+        result[key] = s?.status[key] ?? (mcp.enabled === false ? { status: "disabled" } : { status: "configured" })
       }
 
       return result
     })
 
     const clients = Effect.fn("MCP.clients")(function* () {
-      const s = yield* InstanceState.get(state)
-      return s.clients
+      if (!(yield* InstanceState.has(state))) return {}
+      return (yield* InstanceState.get(state)).clients
     })
 
-    const createAndStore = Effect.fn("MCP.createAndStore")(function* (name: string, mcp: ConfigMCP.Info) {
-      const s = yield* InstanceState.get(state)
-      const result = yield* create(name, mcp)
+    const createAndStoreInState = Effect.fn("MCP.createAndStoreInState")(function* (
+      s: State,
+      name: string,
+      mcp: ConfigMCP.Info,
+      replace = false,
+    ) {
+      const failed = (error: unknown) =>
+        Effect.sync(() => {
+          const message = error instanceof Error ? error.message : String(error)
+          return (s.status[name] = { status: "failed", error: message } satisfies Status)
+        })
+      if (!replace && s.clients[name] && s.status[name]?.status === "connected") return s.status[name]
 
-      s.status[name] = result.status
-      if (!result.mcpClient) {
-        yield* closeClient(s, name)
-        delete s.clients[name]
-        return result.status
+      // Creating an MCP client performs multiple asynchronous operations. Put a
+      // promise in state before starting them so simultaneous session/tool
+      // owners share one transport instead of replacing and closing each other.
+      const existing = !replace ? s.acquiring[name] : undefined
+      if (existing) {
+        return yield* Effect.tryPromise({
+          try: () => existing,
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        }).pipe(Effect.catch(failed))
       }
 
-      return yield* storeClient(s, name, result.mcpClient, result.defs!, mcp.timeout)
+      const pending = s.bridge.promise(
+        Effect.gen(function* () {
+          const result = yield* create(name, mcp, s.oauthOwner)
+          s.status[name] = result.status
+          if (!result.mcpClient) {
+            yield* closeClient(s, name)
+            return result.status
+          }
+          return yield* storeClient(s, name, result.mcpClient, result.defs!, mcp.timeout)
+        }),
+      )
+      s.acquiring[name] = pending
+
+      return yield* Effect.tryPromise({
+        try: () => pending,
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (s.acquiring[name] === pending) delete s.acquiring[name]
+          }),
+        ),
+        Effect.catch(failed),
+      )
+    })
+
+    const createAndStore = Effect.fn("MCP.createAndStore")(function* (
+      name: string,
+      mcp: ConfigMCP.Info,
+      replace = false,
+    ) {
+      const s = yield* InstanceState.get(state)
+      return yield* createAndStoreInState(s, name, mcp, replace)
+    })
+
+    const ensureClient = Effect.fnUntraced(function* (s: State, name: string) {
+      const cfg = yield* cfgSvc.get()
+      const mcp = cfg.mcp?.[name]
+      if (!mcp || !isMcpConfigured(mcp) || mcp.enabled === false) {
+        return undefined
+      }
+      yield* createAndStoreInState(s, name, mcp)
+      const client = s.clients[name]
+      return client && s.status[name]?.status === "connected" ? client : undefined
     })
 
     const add = Effect.fn("MCP.add")(function* (name: string, mcp: ConfigMCP.Info) {
-      yield* createAndStore(name, mcp)
+      yield* createAndStore(name, mcp, true)
       const s = yield* InstanceState.get(state)
       return { status: s.status }
     })
@@ -782,7 +1389,7 @@ export const layer = Layer.effect(
       s.status[name] = { status: "disabled" }
     })
 
-    const tools = Effect.fn("MCP.tools")(function* () {
+    const tools = Effect.fn("MCP.tools")(function* (selection?: ToolSelection) {
       const result: Record<string, Tool> = {}
       const s = yield* InstanceState.get(state)
 
@@ -790,8 +1397,58 @@ export const layer = Layer.effect(
       const config = cfg.mcp ?? {}
       const defaultTimeout = cfg.experimental?.mcp_timeout
 
+      const selected =
+        selection === undefined
+          ? Object.entries(config)
+              .filter(([, entry]) => entry && isMcpConfigured(entry) && entry.enabled !== false)
+              .map(([name]) => name)
+          : [
+              ...selection.servers,
+              ...selection.tools.flatMap((key) => {
+                const matches = Object.entries(config)
+                  .filter(([name, entry]) => entry && isMcpConfigured(entry) && key.startsWith(sanitize(name) + "_"))
+                  .map(([name]) => name)
+                // A composed key uses the sanitized server name as a prefix.
+                // Do not guess when two configured names would be ambiguous.
+                return matches.length === 1 ? matches : []
+              }),
+            ]
+
+      // Individual tool names are only trusted after a server's own schema has
+      // named them. A cold explicit tool-only selection must not start every
+      // configured server in an attempt to reverse-engineer its owner.
+      for (const [name, defs] of Object.entries(s.defs)) {
+        if (selection?.tools.some((key) => defs.some((tool) => sanitize(name) + "_" + sanitize(tool.name) === key))) {
+          selected.push(name)
+        }
+      }
+
+      yield* Effect.forEach(
+        [...new Set(selected)],
+        (name) =>
+          Effect.gen(function* () {
+            if (s.status[name]?.status === "connected") return
+            if (s.status[name]?.status === "disabled") return
+            const entry = config[name]
+            if (!entry || !isMcpConfigured(entry) || entry.enabled === false) return
+            yield* createAndStore(name, entry)
+          }),
+        { concurrency: 2 },
+      )
+
+      for (const name of new Set(selected)) {
+        const client = s.clients[name]
+        if (client && s.status[name]?.status === "connected" && (s.leases[name] ?? 0) === 0) {
+          scheduleIdleClose(s, name, client, s.generations[name] ?? 0)
+        }
+      }
+
       const connectedClients = Object.entries(s.clients).filter(
-        ([clientName]) => s.status[clientName]?.status === "connected",
+        ([clientName]) =>
+          s.status[clientName]?.status === "connected" &&
+          (selection === undefined ||
+            selection.servers.includes(clientName) ||
+            s.defs[clientName]?.some((tool) => selection.tools.includes(sanitize(clientName) + "_" + sanitize(tool.name)))),
       )
 
       yield* Effect.forEach(
@@ -800,7 +1457,6 @@ export const layer = Layer.effect(
           Effect.gen(function* () {
             const mcpConfig = config[clientName]
             const entry = mcpConfig && isMcpConfigured(mcpConfig) ? mcpConfig : undefined
-
             const listed = s.defs[clientName]
             if (!listed) {
               log.warn("missing cached tools for connected server", { clientName })
@@ -812,7 +1468,61 @@ export const layer = Layer.effect(
               const descriptor = s.mcpAppsSupported[clientName] ? uiDescriptor(mcpTool) : { kind: "none" as const }
               if (descriptor.kind === "invalid") continue
               if (descriptor.kind === "valid" && !descriptor.visibility.includes("model")) continue
-              result[sanitize(clientName) + "_" + sanitize(mcpTool.name)] = convertMcpTool(mcpTool, client, timeout)
+              result[sanitize(clientName) + "_" + sanitize(mcpTool.name)] = convertMcpTool(
+                mcpTool,
+                client,
+                timeout,
+                (args, options) =>
+                  s.bridge.promise(
+                    Effect.gen(function* () {
+                      yield* ensureClient(s, clientName)
+                      return yield* Effect.tryPromise({
+                        try: () =>
+                          leaseClient(s, clientName, (current) => {
+                            const securityMeta = rhythmSecurityRequestMeta(options, mcpTool.name, args)
+                            const context = rhythmSecurityContext(options)
+                            const provisional =
+                              context &&
+                              descriptor.kind === "valid" &&
+                              descriptor.visibility.includes("app") &&
+                              context.toolCallId === options.toolCallId
+                                ? {
+                                    server: clientName,
+                                    client: current,
+                                    generation: s.generations[clientName] ?? 0,
+                                    sessionID: context.sdkSessionId,
+                                    callID: context.toolCallId,
+                                  }
+                                : undefined
+                            const provisionalKey = provisional && appOriginKey(provisional.sessionID, provisional.callID)
+                            if (provisional && provisionalKey) s.provisionalAppOrigins[provisionalKey] = provisional
+                            const releaseOnAbort = () => {
+                              if (!provisional || !provisionalKey || s.provisionalAppOrigins[provisionalKey] !== provisional) return
+                              delete s.provisionalAppOrigins[provisionalKey]
+                            }
+                            options.abortSignal?.addEventListener("abort", releaseOnAbort, { once: true })
+                            return current
+                              .callTool(
+                              {
+                                name: mcpTool.name,
+                                arguments: (args || {}) as Record<string, unknown>,
+                                ...(securityMeta && { _meta: securityMeta }),
+                              },
+                              CallToolResultSchema,
+                              { resetTimeoutOnProgress: true, timeout },
+                            )
+                              .then((result) => result)
+                              .catch((error) => {
+                                releaseOnAbort()
+                                throw error
+                              })
+                              .finally(() => options.abortSignal?.removeEventListener("abort", releaseOnAbort))
+                          }),
+                        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+                      })
+                    }),
+                  ),
+              )
             }
           }),
         { concurrency: "unbounded" },
@@ -820,13 +1530,19 @@ export const layer = Layer.effect(
       return result
     })
 
+    const catalog = Effect.fn("MCP.catalog")(function* () {
+      if (!(yield* InstanceState.has(state))) return []
+      const s = yield* InstanceState.get(state)
+      return Object.entries(s.defs).flatMap(([clientName, defs]) =>
+        defs.map((tool) => sanitize(clientName) + "_" + sanitize(tool.name)),
+      )
+    })
+
     const appTools = Effect.fn("MCP.appTools")(function* () {
       const result: Record<string, McpAppTool> = {}
       if (mcpAppsMode() === "off") return result
       const s = yield* InstanceState.get(state)
-      for (const [clientName] of Object.entries(s.clients).filter(
-        ([name]) => s.status[name]?.status === "connected" && s.mcpAppsSupported[name],
-      )) {
+      for (const [clientName] of Object.entries(s.defs).filter(([name]) => s.mcpAppsSupported[name])) {
         const listed = s.defs[clientName]
         if (!listed) continue
         for (const mcpTool of listed) {
@@ -855,22 +1571,129 @@ export const layer = Layer.effect(
       const tool = registry[key]
       if (!tool) return yield* Effect.fail(new Error("app execution unavailable"))
       const s = yield* InstanceState.get(state)
-      const client = s.clients[tool.client]
-      if (!client || s.status[tool.client]?.status !== "connected") {
-        return yield* Effect.fail(new Error("app execution unavailable"))
-      }
+      if (!(yield* ensureClient(s, tool.client))) return yield* Effect.fail(new Error("app execution unavailable"))
       const cfg = yield* cfgSvc.get()
       const configured = cfg.mcp?.[tool.client]
       const timeout =
         configured && isMcpConfigured(configured)
           ? (configured.timeout ?? cfg.experimental?.mcp_timeout)
           : cfg.experimental?.mcp_timeout
-      const executable = convertMcpTool(tool, client, timeout).execute
-      if (!executable) return yield* Effect.fail(new Error("app execution unavailable"))
       return yield* Effect.tryPromise({
-        try: () => executable(args, options),
+        try: () =>
+          leaseClient(s, tool.client, (current) => {
+            const active = convertMcpTool(tool, current, timeout).execute
+            if (!active) return Promise.reject(new Error("app execution unavailable"))
+            return active(args, options)
+          }),
         catch: (error) => (error instanceof Error ? error : new Error(String(error))),
       })
+    })
+
+    const readAppResource = Effect.fn("MCP.readAppResource")(function* (
+      origin: AppOriginProvenance,
+      part: PersistedAppOriginPart,
+    ) {
+      return yield* withAppOriginLease(origin, part, (client) => client.readResource({ uri: origin.resourceUri }))
+    })
+
+    const executeAppToolForOrigin = Effect.fn("MCP.executeAppToolForOrigin")(function* (
+      origin: AppOriginProvenance,
+      part: PersistedAppOriginPart,
+      key: string,
+      args: Record<string, unknown>,
+      options: ToolExecutionOptions,
+    ) {
+      if (mcpAppsMode() !== "interactive") return yield* Effect.fail(new Error("app execution unavailable"))
+      const s = yield* InstanceState.get(state)
+      const tool = s.defs[origin.serverName]?.find(
+        (candidate) => sanitize(origin.serverName) + "_" + sanitize(candidate.name) === key,
+      )
+      const descriptor = tool ? uiDescriptor(tool) : undefined
+      if (
+        !tool ||
+        !descriptor ||
+        descriptor.kind !== "valid" ||
+        !descriptor.visibility.includes("app") ||
+        descriptor.resourceUri !== origin.resourceUri
+      )
+        return yield* Effect.fail(new Error("app execution unavailable"))
+
+      const cfg = yield* cfgSvc.get()
+      const configured = cfg.mcp?.[origin.serverName]
+      const timeout =
+        configured && isMcpConfigured(configured)
+          ? (configured.timeout ?? cfg.experimental?.mcp_timeout)
+          : cfg.experimental?.mcp_timeout
+      return yield* withAppOriginLease(origin, part, (client) => {
+        const execute = convertMcpTool(tool, client, timeout).execute
+        return execute ? execute(args, options) : Promise.reject(new Error("app execution unavailable"))
+      })
+    })
+
+    const releaseAppOrigin = Effect.fn("MCP.releaseAppOrigin")(function* (sessionID: string, callID: string) {
+      const s = yield* InstanceState.get(state)
+      releaseAppOriginOwner(s, appOriginKey(sessionID, callID))
+    })
+
+    const releaseProvisionalAppOrigin = Effect.fn("MCP.releaseProvisionalAppOrigin")(function* (
+      sessionID: string,
+      callID: string,
+    ) {
+      const s = yield* InstanceState.get(state)
+      const key = appOriginKey(sessionID, callID)
+      const owner = s.provisionalAppOrigins[key]
+      if (!owner) return
+      delete s.provisionalAppOrigins[key]
+      if ((s.leases[owner.server] ?? 0) === 0) scheduleIdleClose(s, owner.server, owner.client, owner.generation)
+    })
+
+    const retainAppOrigin = Effect.fn("MCP.retainAppOrigin")(function* (origin: AppOriginOwner) {
+      const s = yield* InstanceState.get(state)
+      const expiresAt = Date.parse(origin.expiresAt)
+      const key = appOriginKey(origin.sessionID, origin.callID)
+      const provisional = s.provisionalAppOrigins[key]
+      if (
+        !provisional ||
+        provisional.server !== origin.serverName ||
+        origin.part.sessionID !== origin.sessionID ||
+        !Number.isFinite(expiresAt) ||
+        expiresAt <= Date.now()
+      )
+        return false
+      delete s.provisionalAppOrigins[key]
+      if (
+        s.clients[origin.serverName] !== provisional.client ||
+        s.status[origin.serverName]?.status !== "connected" ||
+        s.generations[origin.serverName] !== provisional.generation
+      )
+        return false
+      const prior = s.appOrigins[key]
+      if (prior) clearTimeout(prior.timer)
+      const timer = setTimeout(() => {
+        const current = s.appOrigins[key]
+        if (
+          !current ||
+          current.client !== provisional.client ||
+          current.generation !== provisional.generation ||
+          current.expiresAt !== expiresAt
+        )
+          return
+        releaseAppOriginOwner(s, key)
+      }, Math.max(0, expiresAt - Date.now()))
+      s.appOrigins[key] = {
+        server: origin.serverName,
+        expiresAt,
+        client: provisional.client,
+        generation: provisional.generation,
+        timer,
+        sessionID: origin.sessionID,
+        messageID: origin.part.messageID,
+        partID: origin.part.partID,
+        cwd: origin.cwd,
+        resourceUri: origin.resourceUri,
+        persisted: false,
+      }
+      return true
     })
 
     // Rhythm carried patch (mcp-scope): builds composedKey → raw clientName without
@@ -878,7 +1701,7 @@ export const layer = Layer.effect(
     const toolClientNames = Effect.fn("MCP.toolClientNames")(function* () {
       const result: Record<string, string> = {}
       const s = yield* InstanceState.get(state)
-      for (const [clientName] of Object.entries(s.clients).filter(([name]) => s.status[name]?.status === "connected")) {
+      for (const [clientName] of Object.entries(s.defs)) {
         const listed = s.defs[clientName]
         if (!listed) continue
         for (const mcpTool of listed) {
@@ -889,6 +1712,26 @@ export const layer = Layer.effect(
         }
       }
       return result
+    })
+
+    const toolOrigins = Effect.fn("MCP.toolOrigins")(function* () {
+      const result: Array<{ key: string; serverName: string; toolName: string }> = []
+      const s = yield* InstanceState.get(state)
+      for (const [clientName, listed] of Object.entries(s.defs)) {
+        if (!listed) continue
+        for (const mcpTool of listed) {
+          const descriptor = s.mcpAppsSupported[clientName] ? uiDescriptor(mcpTool) : { kind: "none" as const }
+          if (descriptor.kind === "invalid") continue
+          if (descriptor.kind === "valid" && !descriptor.visibility.includes("model")) continue
+          result.push({ key: sanitize(clientName) + "_" + sanitize(mcpTool.name), serverName: clientName, toolName: mcpTool.name })
+        }
+      }
+      return result
+    })
+
+    const toolIdentity = Effect.fn("MCP.toolIdentity")(function* (toolKey: string) {
+      const s = yield* InstanceState.get(state)
+      return resolvePassiveMcpToolIdentity(s, toolKey)
     })
 
     const collectFromConnected = Effect.fnUntraced(function* <T extends { name: string }>(
@@ -905,20 +1748,35 @@ export const layer = Layer.effect(
           ([name, client]) =>
             s.status[name]?.status === "connected" && client.getServerCapabilities()?.[capability] !== undefined,
         ),
-        ([clientName, client]) => {
+        ([clientName]) => {
           const entry = cfg.mcp?.[clientName]
           const configured = entry && isMcpConfigured(entry) ? entry.timeout : undefined
           const timeout = Math.min(configured ?? cfg.experimental?.mcp_timeout ?? LIST_TIMEOUT, LIST_TIMEOUT)
-          return fetchFromClient(
-            clientName,
-            client,
-            (c) => withTimeout(listFn(c, timeout), timeout, `${capability} list timed out after ${timeout}ms`),
-            capability,
-          ).pipe(Effect.map((items) => Object.entries(items ?? {})))
+          return Effect.tryPromise({
+            try: () =>
+              leaseClient(s, clientName, (client) =>
+                withTimeout(listFn(client, timeout), timeout, `${capability} list timed out after ${timeout}ms`),
+              ),
+            catch: (error) => error,
+          }).pipe(
+            Effect.map((items) => {
+              const out: Record<string, T & { client: string }> = {}
+              const prefix = sanitize(clientName)
+              for (const item of items ?? []) out[prefix + ":" + sanitize(item.name)] = { ...item, client: clientName }
+              return out
+            }),
+            Effect.catch((error) => {
+              log.error(`failed to list ${capability}`, {
+                clientName,
+                error: error instanceof Error ? error.message : String(error),
+              })
+              return Effect.succeed([])
+            }),
+          )
         },
         { concurrency: "unbounded" },
       )
-      return Object.fromEntries<T & { client: string }>(results.flat())
+      return Object.fromEntries<T & { client: string }>(results.flatMap((record) => Object.entries(record)))
     })
 
     const prompts = Effect.fn("MCP.prompts")(function* () {
@@ -942,13 +1800,17 @@ export const layer = Layer.effect(
       meta?: Record<string, unknown>,
     ) {
       const s = yield* InstanceState.get(state)
-      const client = s.clients[clientName]
-      if (!client) {
-        log.warn(`client not found for ${label}`, { clientName })
-        return undefined
-      }
       return yield* Effect.tryPromise({
-        try: () => fn(client),
+        try: () =>
+          s.bridge.promise(
+            Effect.gen(function* () {
+              yield* ensureClient(s, clientName)
+              return yield* Effect.tryPromise({
+                try: () => leaseClient(s, clientName, fn),
+                catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+              })
+            }),
+          ),
         catch: (e: any) => {
           log.error(`failed to ${label}`, { clientName, ...meta, error: e?.message })
           return e
@@ -980,12 +1842,28 @@ export const layer = Layer.effect(
     })
 
     const startAuth = Effect.fn("MCP.startAuth")(function* (mcpName: string) {
+      const directory = yield* InstanceState.directory
+      const s = yield* InstanceState.get(state)
       const mcpConfig = yield* getMcpConfig(mcpName)
       if (!mcpConfig) throw new Error(`MCP server ${mcpName} not found or disabled`)
       if (mcpConfig.type !== "remote") throw new Error(`MCP server ${mcpName} is not a remote server`)
       if (mcpConfig.oauth === false) throw new Error(`MCP server ${mcpName} has OAuth explicitly disabled`)
       const url = remoteURL(mcpName, mcpConfig.url)
       if (!url) throw new Error(`Invalid MCP URL for "${mcpName}"`)
+
+      const existing = pendingOAuthTransports.get(mcpName)
+      const fingerprint = oauthConfigFingerprint(mcpConfig)
+      if (existing && existing.deadline > Date.now()) {
+        if (
+          existing.owner === s.oauthOwner &&
+          existing.phase === "waiting" &&
+          existing.configFingerprint === fingerprint &&
+          existing.state &&
+          existing.authorizationUrl
+        )
+          return { authorizationUrl: existing.authorizationUrl, oauthState: existing.state }
+        throw new Error(`Authorization already pending for MCP server: ${mcpName}`)
+      }
 
       // OAuth config is optional - if not provided, we'll use auto-discovery
       const oauthConfig = typeof mcpConfig.oauth === "object" ? mcpConfig.oauth : undefined
@@ -996,8 +1874,8 @@ export const layer = Layer.effect(
       const oauthState = Array.from(crypto.getRandomValues(new Uint8Array(32)))
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("")
-      yield* auth.updateOAuthState(mcpName, oauthState)
       let capturedUrl: URL | undefined
+      let capturedPending: PendingOAuthTransport | undefined
       const authProvider = new McpOAuthProvider(
         mcpName,
         mcpConfig.url,
@@ -1011,18 +1889,54 @@ export const layer = Layer.effect(
           onRedirect: async (url) => {
             capturedUrl = url
           },
+          canPersist: () => {
+            const pending = capturedPending
+            return (
+              !!pending &&
+              pendingOAuthTransports.get(mcpName) === pending &&
+              pending.owner === s.oauthOwner &&
+              pending.configFingerprint === fingerprint &&
+              (pending.phase === "waiting" || pending.phase === "finishing")
+            )
+          },
+          onState: (state) => {
+            const pending = capturedPending
+            if (
+              pending &&
+              pendingOAuthTransports.get(mcpName) === pending &&
+              pending.owner === s.oauthOwner &&
+              pending.configFingerprint === fingerprint
+            )
+              pending.state = state
+          },
+          onCodeVerifier: (codeVerifier) => {
+            const pending = capturedPending
+            if (
+              pending &&
+              pendingOAuthTransports.get(mcpName) === pending &&
+              pending.owner === s.oauthOwner &&
+              pending.configFingerprint === fingerprint
+            )
+              pending.codeVerifier = codeVerifier
+          },
         },
         auth,
       )
 
       const transport = new StreamableHTTPClientTransport(url, { authProvider })
+      capturedPending = registerPendingOAuth(mcpName, transport, directory, {
+        owner: s.oauthOwner,
+        configFingerprint: fingerprint,
+        state: oauthState,
+      })
+      if (!capturedPending) {
+        throw new Error(`Authorization already pending for MCP server: ${mcpName}`)
+      }
+      yield* auth.updateOAuthState(mcpName, oauthState)
 
       return yield* Effect.tryPromise({
         try: () => {
-          const client = new Client(
-            { name: "opencode", version: InstallationVersion },
-            mcpAppsClientOptions() as ConstructorParameters<typeof Client>[1],
-          )
+          const client = createAppAwareClient()
           return client
             .connect(transport)
             .then(() => ({ authorizationUrl: "", oauthState, client }) satisfies AuthResult)
@@ -1031,8 +1945,17 @@ export const layer = Layer.effect(
       }).pipe(
         Effect.catch((error) => {
           if (error instanceof UnauthorizedError && capturedUrl) {
-            pendingOAuthTransports.set(mcpName, transport)
+            const pending = pendingOAuthTransports.get(mcpName)
+            if (pending?.owner !== s.oauthOwner || pending.transport !== transport) {
+              return Effect.die(new Error(`Authorization already pending for MCP server: ${mcpName}`))
+            }
+            pending.authorizationUrl = capturedUrl.toString()
             return Effect.succeed({ authorizationUrl: capturedUrl.toString(), oauthState } satisfies AuthResult)
+          }
+          const pending = pendingOAuthTransports.get(mcpName)
+          if (pending?.owner === s.oauthOwner && pending.transport === transport) {
+            pendingOAuthTransports.delete(mcpName)
+            if (pending.timer) clearTimeout(pending.timer)
           }
           return Effect.die(error)
         }),
@@ -1056,6 +1979,11 @@ export const layer = Layer.effect(
         }
 
         const s = yield* InstanceState.get(state)
+        const pending = pendingOAuthTransports.get(mcpName)
+        if (pending?.owner === s.oauthOwner && pending.phase === "waiting") {
+          pendingOAuthTransports.delete(mcpName)
+          if (pending.timer) clearTimeout(pending.timer)
+        }
         yield* auth.clearOAuthState(mcpName)
         return yield* storeClient(s, mcpName, client, listed, mcpConfig.timeout)
       }
@@ -1098,8 +2026,35 @@ export const layer = Layer.effect(
     })
 
     const finishAuth = Effect.fn("MCP.finishAuth")(function* (mcpName: string, authorizationCode: string) {
-      const transport = pendingOAuthTransports.get(mcpName)
-      if (!transport) throw new Error(`No pending OAuth flow for MCP server: ${mcpName}`)
+      const pending = pendingOAuthTransports.get(mcpName)
+      const directory = yield* InstanceState.directory
+      const s = yield* InstanceState.get(state)
+      const mcpConfig = yield* getMcpConfig(mcpName)
+      if (
+        !pending ||
+        pending.owner !== s.oauthOwner ||
+        pending.directory !== directory ||
+        pending.deadline <= Date.now() ||
+        pending.phase !== "waiting" ||
+        !mcpConfig ||
+        mcpConfig.type !== "remote" ||
+        pending.configFingerprint !== oauthConfigFingerprint(mcpConfig)
+      )
+        throw new Error(`No pending OAuth flow for MCP server: ${mcpName}`)
+      pending.phase = "finishing"
+      const transport = pending.transport
+      const discardCapturedPending = Effect.gen(function* () {
+        const isCurrent = pendingOAuthTransports.get(mcpName) === pending
+        if (isCurrent) pendingOAuthTransports.delete(mcpName)
+        if (pending.timer) clearTimeout(pending.timer)
+        if (pending.state) McpOAuthCallback.cancelState(pending.state)
+        yield* auth.clearOAuthEphemeraIfMatches(mcpName, {
+          oauthState: pending.state,
+          codeVerifier: pending.codeVerifier,
+        })
+        yield* Effect.tryPromise(() => transport.close()).pipe(Effect.ignore)
+        return isCurrent
+      })
 
       const result = yield* Effect.tryPromise({
         try: () => transport.finishAuth(authorizationCode).then(() => true as const),
@@ -1110,22 +2065,57 @@ export const layer = Layer.effect(
       }).pipe(Effect.option)
 
       if (Option.isNone(result)) {
+        yield* discardCapturedPending
         return { status: "failed", error: "OAuth completion failed" } as Status
       }
 
-      yield* auth.clearCodeVerifier(mcpName)
+      if (pendingOAuthTransports.get(mcpName) !== pending) {
+        yield* discardCapturedPending
+        return { status: "failed", error: "OAuth flow was replaced" } as Status
+      }
+      // Keep the map record until the conditional store cleanup finishes. A
+      // replacement may register while this awaits, but the auth write is
+      // serialized and value-matched so it cannot erase the new verifier.
+      yield* auth.clearOAuthEphemeraIfMatches(mcpName, {
+        oauthState: pending.state,
+        codeVerifier: pending.codeVerifier,
+      })
+      if (pendingOAuthTransports.get(mcpName) !== pending) {
+        yield* discardCapturedPending
+        return { status: "failed", error: "OAuth flow was replaced" } as Status
+      }
+      const currentConfig = yield* getMcpConfig(mcpName)
+      if (
+        !currentConfig ||
+        currentConfig.type !== "remote" ||
+        currentConfig.oauth === false ||
+        pending.configFingerprint !== oauthConfigFingerprint(currentConfig)
+      ) {
+        yield* discardCapturedPending
+        return { status: "failed", error: "MCP configuration changed during OAuth completion" } as Status
+      }
       pendingOAuthTransports.delete(mcpName)
+      if (pending.timer) clearTimeout(pending.timer)
+      if (pending.state) McpOAuthCallback.cancelState(pending.state)
+      yield* Effect.tryPromise(() => transport.close()).pipe(Effect.ignore)
 
-      const mcpConfig = yield* getMcpConfig(mcpName)
-      if (!mcpConfig) return { status: "failed", error: "MCP config not found after auth" } as Status
-
-      return yield* createAndStore(mcpName, mcpConfig)
+      return yield* createAndStore(mcpName, currentConfig)
     })
 
     const removeAuth = Effect.fn("MCP.removeAuth")(function* (mcpName: string) {
+      const directory = yield* InstanceState.directory
+      const pending = pendingOAuthTransports.get(mcpName)
+      const s = yield* InstanceState.get(state)
+      if (pending && pending.owner !== s.oauthOwner && pending.deadline > Date.now()) {
+        throw new Error(`Authorization is pending in another MCP instance: ${mcpName}`)
+      }
       yield* auth.remove(mcpName)
-      McpOAuthCallback.cancelPending(mcpName)
-      pendingOAuthTransports.delete(mcpName)
+      if (pending?.owner === s.oauthOwner && pending.directory === directory) {
+        pendingOAuthTransports.delete(mcpName)
+        if (pending.timer) clearTimeout(pending.timer)
+        if (pending.state) McpOAuthCallback.cancelState(pending.state)
+        yield* Effect.tryPromise(() => pending.transport.close()).pipe(Effect.ignore)
+      }
       log.info("removed oauth credentials", { mcpName })
     })
 
@@ -1151,9 +2141,17 @@ export const layer = Layer.effect(
       status,
       clients,
       tools,
+      catalog,
       appTools,
       executeAppTool,
+      readAppResource,
+      executeAppToolForOrigin,
+      retainAppOrigin,
+      releaseAppOrigin,
+      releaseProvisionalAppOrigin,
       toolClientNames,
+      toolOrigins,
+      toolIdentity,
       prompts,
       resources,
       add,

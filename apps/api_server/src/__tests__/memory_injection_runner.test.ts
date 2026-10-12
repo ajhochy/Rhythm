@@ -4,7 +4,7 @@
  * Mocks opencode_engine so no real model is hit, seeds the in-memory DB with
  * owner-scoped memories, and asserts:
  *   • enabled (default) → the prompt forwarded to opencodeClient.prompt CONTAINS
- *     the owner's "Known context" preface (original prompt still appended);
+ *     the owner's "Retrieved memory references" preface (original prompt still appended);
  *   • THE CRITICAL cross-user-leak test — a run owned by user A injects user A's
  *     memory but NOT user B's;
  *   • disabled (AGENT_MEMORY_INJECTION_ENABLED='false') → forwarded prompt
@@ -74,7 +74,7 @@ function teardownDb(): void {
 // NB: contains the exact FTS token "standups" so it matches the seeded memory
 // content ("... prefers morning standups"). FTS5 tokenizes on exact words, so a
 // singular "standup" would NOT match the plural "standups".
-const PROMPT = 'remind me about the standups preferences';
+const PROMPT = 'remind me about the standups preferences schedule';
 
 describe('memory injection — AgentRunner injects owner-scoped memory preface', () => {
   beforeEach(() => {
@@ -116,7 +116,8 @@ describe('memory injection — AgentRunner injects owner-scoped memory preface',
     const forwarded = mockPrompt.mock.calls[0][1] as string;
     const opts = mockPrompt.mock.calls[0][4] as { system?: string };
     expect(forwarded).toBe(PROMPT);
-    expect(opts.system).toContain('## Known context (facts & preferences)');
+    expect(opts.system).toContain('## Retrieved memory references');
+    expect(opts.system).toContain('<<<UNTRUSTED_EXTERNAL_CONTENT>>>');
     expect(opts.system).toContain('Alice standups preference is morning');
   }, 30_000);
 
@@ -174,6 +175,21 @@ describe('memory injection — AgentRunner injects owner-scoped memory preface',
     expect(opts.system).not.toContain('Alice private standup note');
   });
 
+  it.each([
+    { source: 'dayflow' },
+    { source: 'imported-dayflow-activity' },
+    { tagsJson: '["dayflow"]' },
+  ])('excludes Dayflow memory %j but retains relevant ordinary memory', async fields => {
+    const repo = new AgentMemoryRepository();
+    await repo.createAsync({ content: 'Ordinary standups preference is morning', ownerUserId: 1 });
+    await repo.createAsync({ content: 'Captured standups preference is afternoon', ownerUserId: 1, ...fields });
+    const run = await freshRun();
+    expect((await run({ prompt: PROMPT, ownerUserId: 1 })).status).toBe('done');
+    const opts = mockPrompt.mock.calls[0][4] as { system?: string };
+    expect(opts.system).toContain('Ordinary standups preference is morning');
+    expect(opts.system).not.toContain('Captured standups preference is afternoon');
+  });
+
   it('disabled (AGENT_MEMORY_INJECTION_ENABLED="false") → forwarded prompt is unchanged', async () => {
     process.env.AGENT_MEMORY_INJECTION_ENABLED = 'false';
     const repo = new AgentMemoryRepository();
@@ -185,7 +201,7 @@ describe('memory injection — AgentRunner injects owner-scoped memory preface',
     expect(result.status).toBe('done');
     const forwarded = mockPrompt.mock.calls[0][1] as string;
     expect(forwarded).toBe(PROMPT);
-    expect(forwarded).not.toContain('Known context');
+    expect(forwarded).not.toContain('Retrieved memory references');
   });
 
   it('empty store → no preface, no error, run still succeeds', async () => {
@@ -195,7 +211,7 @@ describe('memory injection — AgentRunner injects owner-scoped memory preface',
     expect(result.status).toBe('done');
     const forwarded = mockPrompt.mock.calls[0][1] as string;
     expect(forwarded).toBe(PROMPT);
-    expect(forwarded).not.toContain('Known context');
+    expect(forwarded).not.toContain('Retrieved memory references');
   });
 
   it('coexists with skills injection — BOTH prefaces present, original prompt preserved', async () => {
@@ -222,7 +238,8 @@ describe('memory injection — AgentRunner injects owner-scoped memory preface',
     const forwarded = mockPrompt.mock.calls[0][1] as string;
     const opts = mockPrompt.mock.calls[0][4] as { system?: string };
     expect(forwarded).toBe(PROMPT);
-    expect(opts.system).toContain('## Known context (facts & preferences)');
+    expect(opts.system).toContain('## Retrieved memory references');
+    expect(opts.system).toContain('<<<UNTRUSTED_EXTERNAL_CONTENT>>>');
     expect(opts.system).toContain('Alice standups preference is morning');
     expect(opts.system).toContain('## Available skills (retrieved)');
     expect(opts.system).toContain('Standup organizer');

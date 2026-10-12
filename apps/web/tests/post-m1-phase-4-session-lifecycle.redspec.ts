@@ -22,7 +22,8 @@ test('post-m1-p4-c1a: fixture lifecycle controls are deterministic and remain bo
   await page.getByTestId('session-menu-session-created-1').click();
   await page.getByTestId('unarchive-session-created-1').click();
   await page.getByTestId('session-actions').click();
-  await page.getByRole('menuitem', { name: 'Close session view' }).click();
+  await page.getByTestId('session-actions-secondary').click();
+  await page.getByTestId('session-actions-close').click();
   await page.getByTestId('session-menu-session-created-1').click();
   await page.getByTestId('delete-session-created-1').click();
   await page.getByTestId('confirm-session-delete').click();

@@ -24,6 +24,7 @@ import {
   SESSION_SCOPES,
 } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
+import { isInteractiveChatSession } from '../services/opencode_client_service';
 import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
 import {
   isReservedAgentConfigId,
@@ -192,6 +193,8 @@ const messagesRepo = new AgentSessionMessagesRepository();
 const mcpAppCapabilityBroker = new McpAppCapabilityBroker();
 
 import { getPrimaryWorktreePath, gitCheckout, probeVcs } from '../services/vcs_probe';
+import { autoPickAccountId, markAutoAccountSession, unmarkAutoAccountSession } from '../services/decision/capacity_router';
+import { RouterGridAttemptsRepository } from '../services/decision/router_grid_attempts_repository';
 
 function resolveWorktreeEngineDirectory(session: {
   projectId: string | null;
@@ -705,6 +708,13 @@ export class AgentSessionsController {
         throw AppError.badRequest(`permissionMode must be one of: ${PERMISSION_MODES.join(', ')}`);
       }
 
+      // Auto (router) model mode: interactive sessions default to 'auto';
+      // 'fixed' must be requested explicitly. Anything else is a client error.
+      if (body.modelMode !== undefined && body.modelMode !== 'auto' && body.modelMode !== 'fixed') {
+        throw AppError.badRequest("modelMode must be 'auto' or 'fixed'");
+      }
+      const requestedModelMode: 'auto' | 'fixed' = body.modelMode === 'fixed' ? 'fixed' : 'auto';
+
       // profileId is the Rhythm profile key. agentId/agentKind remain
       // compatibility aliases for older desktop clients.
       if (
@@ -798,9 +808,20 @@ export class AgentSessionsController {
       if (requestedAccountId && !anthropicAccountsService.getAccount(requestedAccountId)) {
         throw AppError.badRequest(`unknown anthropic account: '${requestedAccountId}'`);
       }
+      // Capacity routing (AGENT_DECISION_CAPACITY_ROUTING=on): with no requested
+      // and no profile-default account, prefer the account with the most usage
+      // headroom over the store default. Falls back to the default on any miss.
+      let autoAnthropicAccountId: string | null = null;
+      if (!requestedAccountId && !profileDefaultAnthropicAccountId) {
+        const picked = await autoPickAccountId('anthropic', { sessionAuto: requestedModelMode === 'auto' });
+        if (picked && anthropicAccountsService.getAccount(picked)) {
+          autoAnthropicAccountId = picked;
+        }
+      }
       const resolvedAccountId =
         requestedAccountId ??
         profileDefaultAnthropicAccountId ??
+        autoAnthropicAccountId ??
         anthropicAccountsService.defaultAccount()?.id ??
         null;
 
@@ -819,9 +840,17 @@ export class AgentSessionsController {
       if (requestedOpenaiAccountId && !openaiAccountsService.getAccount(requestedOpenaiAccountId)) {
         throw AppError.badRequest(`unknown openai account: '${requestedOpenaiAccountId}'`);
       }
+      let autoOpenaiAccountId: string | null = null;
+      if (!requestedOpenaiAccountId && !profileDefaultOpenaiAccountId) {
+        const picked = await autoPickAccountId('openai', { sessionAuto: requestedModelMode === 'auto' });
+        if (picked && openaiAccountsService.getAccount(picked)) {
+          autoOpenaiAccountId = picked;
+        }
+      }
       const resolvedOpenaiAccountId =
         requestedOpenaiAccountId ??
         profileDefaultOpenaiAccountId ??
+        autoOpenaiAccountId ??
         openaiAccountsService.defaultAccount()?.id ??
         null;
 
@@ -898,13 +927,14 @@ export class AgentSessionsController {
       // "unassigned"). When the client omits the field entirely, fall back to
       // cwd-prefix lookup against the projects table (longest match wins,
       // archived projects skipped).
-      const expandedCwd = expandHome(cwd.trim());
+      const expandedCwd = expandHome(cwd);
 
       // Optional branch checkout before starting the session.
       const branchParam = body.branch;
       const stashParam = body.stash;
       const createBranchParam = body.createBranch;
-      if (typeof branchParam === 'string' && branchParam.trim() !== '') {
+      const isolateWorktree = body.isolateWorktree === true;
+      if (!isolateWorktree && typeof branchParam === 'string' && branchParam.trim() !== '') {
         // Only checkout when requested branch differs from current HEAD.
         const currentBranch = (() => {
           try {
@@ -939,7 +969,6 @@ export class AgentSessionsController {
       // a non-git dir surfaces a clean 4xx/5xx before any session row exists.
       let sessionCwd = expandedCwd;
       let worktreeMeta: { name: string; path: string; branch: string | null } | null = null;
-      const isolateWorktree = body.isolateWorktree === true;
       if (isolateWorktree) {
         const worktreeNameRaw = body.worktreeName;
         if (
@@ -956,6 +985,7 @@ export class AgentSessionsController {
         }
         const created = await opencodeClient.createWorktree(expandedCwd, {
           name: typeof worktreeNameRaw === 'string' ? worktreeNameRaw : undefined,
+          ...(typeof branchParam === 'string' && branchParam.trim() !== '' ? { base: branchParam.trim() } : {}),
         });
         sessionCwd = created.directory;
         worktreeMeta = {
@@ -1009,6 +1039,7 @@ export class AgentSessionsController {
         // OPC-#710: name defaults to '' for instant-create sessions.
         name: typeof name === 'string' ? name.trim() : '',
         projectId,
+        modelMode: requestedModelMode,
         permissionMode,
         // This controller is the interactive, user-selected session surface.
         // Internal runners that stamp operational bypassPermissions create
@@ -1019,11 +1050,19 @@ export class AgentSessionsController {
         mcpAllowedToolsJson,
         // Task D — resolved Anthropic account (null = engine default).
         anthropicAccountId: resolvedAccountId,
+        anthropicAccountSource: resolvedAccountId ? (!requestedAccountId && !profileDefaultAnthropicAccountId ? 'router' : 'pinned') : null,
         openaiAccountId: resolvedOpenaiAccountId,
+        openaiAccountSource: resolvedOpenaiAccountId ? (!requestedOpenaiAccountId && !profileDefaultOpenaiAccountId ? 'router' : 'pinned') : null,
         ownerUserId,
       };
 
       const session = repo.insert(dto);
+      if (!requestedAccountId && !profileDefaultAnthropicAccountId) {
+        markAutoAccountSession(session.id, 'anthropic');
+      }
+      if (!requestedOpenaiAccountId && !profileDefaultOpenaiAccountId) {
+        markAutoAccountSession(session.id, 'openai');
+      }
 
       // OCU-17 (#1058) — record the isolated worktree on the row so the payload
       // carries it and hard-delete can optionally clean it up later.
@@ -1097,6 +1136,7 @@ export class AgentSessionsController {
         undefined,
         undefined,
         permissionMode,
+        isInteractiveChatSession(session),
       );
       logger.info(`[Opencode][timing] opencodeClient.createSession took ${Date.now() - tSdkCreate}ms for session ${session.id}`);
       // #1222 — check `.id` explicitly: createSession no longer returns a bare
@@ -1117,10 +1157,14 @@ export class AgentSessionsController {
       // the engine plugin resolves the right bearer token per request. Only
       // when an account resolved; null means "engine default", no routing entry.
       if (resolvedAccountId) {
-        anthropicAccountsService.setRouting(opencodeSession.id, resolvedAccountId);
+        anthropicAccountsService.setRouting(opencodeSession.id, resolvedAccountId, {
+          pinned: !!(requestedAccountId || profileDefaultAnthropicAccountId),
+        });
       }
       if (resolvedOpenaiAccountId) {
-        openaiAccountsService.setRouting(opencodeSession.id, resolvedOpenaiAccountId);
+        openaiAccountsService.setRouting(opencodeSession.id, resolvedOpenaiAccountId, {
+          pinned: !!(requestedOpenaiAccountId || profileDefaultOpenaiAccountId),
+        });
       }
 
       // Start streaming Opencode events through the WebSocket gateway.
@@ -1165,12 +1209,23 @@ export class AgentSessionsController {
         opencodeAgentId?: ReturnType<typeof asOpenCodeAgentId> | null;
         providerId?: string | null;
         modelId?: string | null;
+        modelMode?: 'auto' | 'fixed';
         agentMode?: string | null;
         permissionMode?: PermissionMode;
         approvalBypassExplicit?: boolean;
         thinkingBudget?: number | null;
         fastMode?: boolean;
       } = {};
+
+      // Auto (router) model mode. {modelMode:'auto'} keeps the stored
+      // providerId/modelId as the fallback baseline; {modelMode:'fixed',
+      // providerId, modelId} pins. providerId/modelId are validated below.
+      if (body.modelMode !== undefined) {
+        if (body.modelMode !== 'auto' && body.modelMode !== 'fixed') {
+          throw AppError.badRequest("modelMode must be 'auto' or 'fixed'");
+        }
+        fields.modelMode = body.modelMode;
+      }
 
       if (body.name !== undefined) {
         if (typeof body.name !== 'string' || body.name.trim() === '') {
@@ -1289,9 +1344,13 @@ export class AgentSessionsController {
         if (!anthropicAccountsService.getAccount(accountId)) {
           throw AppError.badRequest(`unknown anthropic account: '${accountId}'`);
         }
+        // Explicit intent is durable even if the audit append fails; PATCH still returns the append error truthfully.
         repo.setAnthropicAccountId(session.id, accountId);
+        repo.setAnthropicAccountSource(session.id, 'pinned');
+        unmarkAutoAccountSession(session.id, 'anthropic');
+        await new RouterGridAttemptsRepository().markPinned(session.id, 'anthropic', accountId);
         if (session.sdkSessionId) {
-          anthropicAccountsService.setRouting(session.sdkSessionId, accountId);
+          anthropicAccountsService.setRouting(session.sdkSessionId, accountId, { pinned: true });
         }
       }
 
@@ -1306,8 +1365,11 @@ export class AgentSessionsController {
           throw AppError.badRequest(`unknown openai account: '${accountId}'`);
         }
         repo.setOpenaiAccountId(session.id, accountId);
+        repo.setOpenaiAccountSource(session.id, 'pinned');
+        unmarkAutoAccountSession(session.id, 'openai');
+        await new RouterGridAttemptsRepository().markPinned(session.id, 'openai', accountId);
         if (session.sdkSessionId) {
-          openaiAccountsService.setRouting(session.sdkSessionId, accountId);
+          openaiAccountsService.setRouting(session.sdkSessionId, accountId, { pinned: true });
         }
       }
 
@@ -1357,6 +1419,7 @@ export class AgentSessionsController {
         !(await opencodeClient.updateSessionPermissionMode(
           session.sdkSessionId,
           fields.permissionMode,
+          isInteractiveChatSession(session),
         ))
       ) {
         throw new AppError(
@@ -2005,6 +2068,7 @@ export class AgentSessionsController {
           undefined,
           undefined,
           session.permissionMode,
+          isInteractiveChatSession(session),
         );
         // #1222 — check `.id` explicitly (see comment on the sibling create() path above).
         if (!opencodeSession.id) {
@@ -2227,6 +2291,8 @@ export class AgentSessionsController {
         memoryIds: record.memoryIds,
         notePaths: record.notePaths,
         items: record.items,
+        semanticStatus: record.semanticStatus,
+        semanticHitCount: record.semanticHitCount,
       });
     } catch (err) {
       next(err);
@@ -2549,6 +2615,7 @@ export class AgentSessionsController {
         cwd: parent.cwd,
         name: `${parent.name} (fork)`,
         projectId: parent.projectId ?? null,
+        modelMode: parent.modelMode,
       };
       const forkSession = repo.insert(forkDto);
       forkLocalId = forkSession.id;
