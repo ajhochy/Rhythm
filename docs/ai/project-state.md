@@ -22,12 +22,15 @@ sandbox (API `:4098`, engine `:4097`); see
 4. The four workflow skills existed nowhere in Rhythm's skill store. Seeded via
    `config_seeds`, marker bumped to `config_seeds_v4` for backfill.
 
+## Demonstrated
+
+- **Coordinator happy path (D1)** — run 12 delivered a 7/7 independently
+  verified result to the original chat; see
+  `docs/ai/runs/2026-10-11-d1-coordinator-delivery-demonstrated.md`. Approval
+  was agent-clicked under AJ's go-ahead, not a demonstrated human approval.
+
 ## Blocked (precise missing action)
 
-- **Coordinator happy path** — needs a live model turn plus a real human
-  approval inside Rhythm. The proposal envelope is bound to the engine's
-  pinned key and a live tool call, so it cannot be driven from outside, and
-  approval must not be fabricated.
 - **Desktop UI checks** — the isolated shell profile stops at "Sign in to
   Rhythm — Continue with Google". An interactive-smoke instance is attached to
   the sandbox (pid may be stale) awaiting that sign-in.
@@ -55,5 +58,6 @@ middleware.
 
 ## Next step
 
-Have a human sign in to the isolated profile, then drive one Coordinator
-request to a real approval card and approve it.
+D1 recovery/cancellation cases and managed-work UI; expired-card decide fix;
+D3 remainder; D4 router UI; package a qualified candidate (installed 0.18.69
+still runs old code and freezes the chat on coding worker rows).
