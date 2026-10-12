@@ -394,7 +394,7 @@ function deterministicStatusRequest(message: string): boolean {
 export function ordinaryForegroundGoalCandidate(message: string): string | null {
   const exact = message.trim();
   // "update me" asks for status, not work; capture is never admission.
-  const verbs = '(?:draft|create|prepare|organize|plan|review|write|build|research|schedule|follow\\s+up(?:\\s+on)?|make|fix|implement|update(?!\\s+me\\b)|test)\\b';
+  const verbs = '(?:draft|create|prepare|organize|plan|review|write|build|research|schedule|follow\\s+up(?:\\s+on)?|make|fix|implement|update(?!\\s+me\\b)|test|add|give|change|refactor|rename|remove|modify|extend|edit)\\b';
   const directAction = new RegExp(`^(?:please\\s+)?${verbs}`, 'i');
   const explicitDelegation = new RegExp(`^(?:i|we)\\s+(?:need|want)\\s+you\\s+to\\s+${verbs}`, 'i');
   const politeActionQuestion = new RegExp(`^(?:can|could|would)\\s+you\\s+${verbs}`, 'i');
