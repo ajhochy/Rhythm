@@ -27,6 +27,10 @@ import { ProjectsRepository } from '../repositories/projects_repository';
 import { DayflowConfigStore } from '../integrations/dayflow/config_store';
 import { MemoryLedger } from '../integrations/dayflow/ledger';
 import { DayflowPersistedQualificationAuthority } from '../integrations/dayflow/persisted_qualification_authority';
+import { DayflowQualifiedEvidenceService } from '../services/dayflow_qualified_evidence_service';
+import { DayflowGuardEnrollmentService, DayflowReceivingContextAuthorityService } from '../services/dayflow_receiving_context_authority';
+import { DayflowReceivingContextRepository } from '../repositories/dayflow_receiving_context_repository';
+import { opencodeClient } from '../services/opencode_engine';
 
 let db: Database.Database, previous: Database.Database | null, root: string;
 let savedVitest: string | undefined, savedNodeEnv: string | undefined;
@@ -54,7 +58,18 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 function projectBoot() { (bootstrapQualificationFixture as (...args: any[]) => void)('project'); }
-function service() { return Object.assign(Object.create(QualificationFixtureService.prototype), { m: state.authority }); }
+// The server's shared Dayflow seam, as composed in server.ts: one enrollment for every producer.
+function dayflowSeam() {
+  const records = new DayflowReceivingContextRepository(db);
+  const engine = opencodeClient as never;
+  const guardEnrollment = new DayflowGuardEnrollmentService({ engine, records });
+  const receiver = new DayflowReceivingContextAuthorityService({ engine, records });
+  return { guardEnrollment, evidenceFor: (reader: never, canonical: never) =>
+    new DayflowQualifiedEvidenceService({ reader, receiver, enrollment: guardEnrollment, canonical }) };
+}
+function service() {
+  return Object.assign(Object.create(QualificationFixtureService.prototype), { m: state.authority, dayflowSeam: dayflowSeam() });
+}
 
 it('projects every declared latest profile after backfills and reconciles files on restart', () => {
   const repo = new AgentConfigsRepository();

@@ -1128,6 +1128,7 @@ async function main() {
   let dayflowManagementService: import('./integrations/dayflow/public_contract').DayflowManagementService | undefined;
   let dayflowQualifiedEvidence: import('./services/dayflow_qualified_evidence_service').DayflowQualifiedEvidenceService | undefined;
   let dayflowProviderAdmission: import('./services/dayflow_receiving_history_guard').DayflowProviderAdmissionService | undefined;
+  let dayflowShared: import('./services/qualification_fixture_service').QualificationDayflowSeam | undefined;
   if (env.agentExecutionEnabled && env.agentLocal && env.agentOriginGuardEnabled) {
     const { resolveDayflowIntegrationStateDir } = await import('./config/env');
     const resolvedStateRoot = resolveDayflowIntegrationStateDir();
@@ -1165,11 +1166,19 @@ async function main() {
     // One shared enrollment seam: native must durably record the SDK as guarded
     // BEFORE any V1 signed-tool body or V2 automatic overlay is released.
     const dayflowEnrollment = new DayflowGuardEnrollmentService({ engine: opencodeClient, records: dayflowRecords });
-    dayflowQualifiedEvidence = new DayflowQualifiedEvidenceService({
-      reader: dayflowService,
+    // The only evidence construction: the qualification fixture's isolated
+    // reader goes through this same factory, so it shares the enrollment too.
+    const dayflowEvidenceFor = (
+      reader: ConstructorParameters<typeof DayflowQualifiedEvidenceService>[0]['reader'],
+      canonical?: ConstructorParameters<typeof DayflowQualifiedEvidenceService>[0]['canonical'],
+    ) => new DayflowQualifiedEvidenceService({
+      reader,
       receiver: dayflowReceiver,
       enrollment: dayflowEnrollment,
+      ...(canonical ? { canonical } : {}),
     });
+    dayflowQualifiedEvidence = dayflowEvidenceFor(dayflowService);
+    dayflowShared = { guardEnrollment: dayflowEnrollment, evidenceFor: dayflowEvidenceFor };
     const ordinaryHistoryGuard=new DayflowReceivingHistoryGuard({
       records: dayflowRecords,
       reader: dayflowService,
@@ -1211,7 +1220,7 @@ async function main() {
     });
   }
   const qualificationFixtures=(await import('./services/qualification_fixture_authority')).loadQualificationFixtureAuthority() && coordinatorConversationService
-    ? new (await import('./services/qualification_fixture_service')).QualificationFixtureService(coordinatorConversationService):undefined;
+    ? new (await import('./services/qualification_fixture_service')).QualificationFixtureService(coordinatorConversationService,dayflowShared):undefined;
   const app = createApp({
     qualificationFixtures,
     mobileGatewayRouter,

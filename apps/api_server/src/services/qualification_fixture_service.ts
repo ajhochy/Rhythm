@@ -20,8 +20,8 @@ import { DayflowSqliteSource, verifyDayflowJournal } from '../integrations/dayfl
 import { AuthenticatedDayflowMemoryClient } from '../integrations/dayflow/authenticated_memory_client';
 import { DayflowPersistedQualificationAuthority } from '../integrations/dayflow/persisted_qualification_authority';
 import { createDayflowManagementAdapter } from '../integrations/dayflow/management_adapter';
-import { DayflowCanonicalEvidenceResolver, DayflowQualifiedEvidenceService } from './dayflow_qualified_evidence_service';
-import { DayflowReceivingContextAuthorityService, DayflowGuardEnrollmentService } from './dayflow_receiving_context_authority';
+import { DayflowCanonicalEvidenceResolver, type DayflowQualifiedEvidenceService } from './dayflow_qualified_evidence_service';
+import type { DayflowGuardEnrollmentService } from './dayflow_receiving_context_authority';
 import { DayflowReceivingHistoryGuard, DayflowProviderAdmissionService } from './dayflow_receiving_history_guard';
 import { createObservationIfAbsentInVault } from './memoryVaultWriteService';
 import { MemoryIndexService } from './memory_index_service';
@@ -54,10 +54,15 @@ export function qualificationDeliveryRoot(sessionId:string):boolean {
   return !!m && !!row && row.ownerUserId===m.ownerUserId && row.cwd.startsWith(m.fixtureRoot+'/') && ![...fixtures.values()].some(f=>f.sessionId===sessionId && f.mode!=='coordinator-delivery');
 }
 
+/** The server's one Dayflow enrollment and the evidence factory bound to it (one guard registration). */
+export interface QualificationDayflowSeam {
+  guardEnrollment: DayflowGuardEnrollmentService;
+  evidenceFor(reader: DayflowIntegrationService, canonical: DayflowCanonicalEvidenceResolver): DayflowQualifiedEvidenceService;
+}
 export class QualificationFixtureService {
   private readonly m=loadQualificationFixtureAuthority()!;
   private protectedProbe:Promise<boolean>|null=null;
-  constructor(private readonly coordinator:CoordinatorConversationService){
+  constructor(private readonly coordinator:CoordinatorConversationService,private readonly dayflowSeam?:QualificationDayflowSeam){
     if(!this.m || env.dbClient!=='sqlite' || env.dbPath!==this.m.dbPath)throw new Error('qualification fixture startup absent');
     configureRouterGridFixtureResolver(sessionId=>{
       const f=[...fixtures.values()].find(x=>x.sessionId===sessionId),row=new AgentSessionsRepository().findById(sessionId);
@@ -149,8 +154,10 @@ export class QualificationFixtureService {
     // Consent binds this final configuration generation. A subsequent config
     // update would revoke it; the real automatic scheduler starts after 15m.
     const preview=await adapter.preview({date});await adapter.commit({token:preview.token,candidateIds:preview.candidates.map(x=>x.candidateId)});
-    const records=new DayflowReceivingContextRepository(getDb()),enrollment=new DayflowGuardEnrollmentService({engine:opencodeClient,records}),receiver=new DayflowReceivingContextAuthorityService({engine:opencodeClient,records});
-    const evidence=new DayflowQualifiedEvidenceService({reader:service,receiver,enrollment,canonical:new DayflowCanonicalEvidenceResolver({memoryRoot:()=>memoryRoot})});
+    // A second enrollment would be a second native guard registration; reuse the server's.
+    if(!this.dayflowSeam)throw new Error('server Dayflow enrollment unavailable');
+    const records=new DayflowReceivingContextRepository(getDb()),enrollment=this.dayflowSeam.guardEnrollment;
+    const evidence=this.dayflowSeam.evidenceFor(service,new DayflowCanonicalEvidenceResolver({memoryRoot:()=>memoryRoot}));
     return {service,authority,memoryRoot,canary,guard:new DayflowReceivingHistoryGuard({reader:service,records,authority,enrollment,evidence}),admission:new DayflowProviderAdmissionService({records,engine:opencodeClient,reader:service,evidence,authority,enrollment})};
   }
   private bindings(f:Fixture){return {fixtureId:f.id,sessionId:f.sessionId,sdkSessionId:f.sdkSessionId,sourceRevision:this.m.sourceRevision,apiPid:process.pid,enginePid:f.enginePid,enginePort:Number(process.env.RHYTHM_OPENCODE_ENGINE_PORT),bootId:qualificationApiBootId};}
