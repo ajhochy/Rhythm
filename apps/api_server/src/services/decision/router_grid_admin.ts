@@ -54,9 +54,11 @@ export async function routerGridView(path = routerGridConfigPath()) {
     const r = rawRouting[c];
     if (typeof r === 'string' && r.startsWith('SAME_AS:')) aliases[c] = r.slice(8) as GridCategory;
   }
+  // The loader reports a missing file as unavailable too; only an existing file can be invalid.
+  const present = existsSync(path);
   return {
-    source: reason ? 'defaults_after_invalid_file' as const : existsSync(path) ? 'file' as const : 'defaults' as const,
-    invalidReason: reason,
+    source: !present ? 'defaults' as const : reason ? 'defaults_after_invalid_file' as const : 'file' as const,
+    invalidReason: present ? reason : null,
     version: config.version,
     reserve_pct: config.reserve_pct,
     coding_t1_prefer_astra: config.coding_t1_prefer_astra,

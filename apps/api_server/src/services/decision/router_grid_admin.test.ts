@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import express from 'express';
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, rmSync, writeFileSync } from 'fs';
 import type { AddressInfo } from 'net';
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 
@@ -63,4 +63,14 @@ it('GET /grid/last-decision returns the latest grid decision without the prompt,
   const body = await (await fetch(`${base}/grid/last-decision`)).json() as { decision: unknown };
   expect(body.decision).toMatchObject({ model: 'openai/gpt-6-sol', effortApplied: 'medium', accountSource: 'router', served: { servedModelId: 'gpt-6-sol-2026' } });
   expect(JSON.stringify(body)).not.toContain('secret prompt');
+});
+
+it('a fresh install with no router-grid.json reports defaults, and the first save creates the file', async () => {
+  // Live 0.18.70: a fresh fixture showed "defaults_after_invalid_file" though no file existed.
+  rmSync(routerGridConfigPath(), { force: true });
+  const view = await (await fetch(`${base}/grid`)).json() as { source: string; invalidReason: string | null };
+  expect(view).toMatchObject({ source: 'defaults', invalidReason: null });
+  const res = await put({ reserve_pct: 25 });
+  expect(res.status).toBe(200);
+  expect(JSON.parse(readFileSync(routerGridConfigPath(), 'utf8')).reserve_pct).toBe(25);
 });
