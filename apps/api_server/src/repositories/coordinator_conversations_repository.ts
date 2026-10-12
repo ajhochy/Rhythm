@@ -350,13 +350,21 @@ export class CoordinatorConversationsRepository {
 
   private journalCommand(scope: CoordinatorConversationScope, key: string): CoordinatorConversationCommand | null {
     const row = this.db.prepare(`SELECT replay_json, owner_user_id, project_id, kind, intent_hash,
-      goal_id,child_session_id,delegation_id,target_agent_config_id
+      goal_id,child_session_id,delegation_id,target_agent_config_id,role
       FROM coordinator_conversation_commands WHERE root_session_id=? AND command_key=?`)
       .get(scope.sessionId, key) as {
         replay_json: string; owner_user_id: number; project_id: string; kind: string; intent_hash: string;
         goal_id: string | null; child_session_id: string | null; delegation_id: string | null; target_agent_config_id: string | null;
+        role: string | null;
       } | undefined;
     if (!row) return null;
+    // A coding worker row is grant bookkeeping, not a conversation command:
+    // reserveWorker inserts it with replay_json '{}' and nothing ever fills
+    // that in. It shares kind='delegate_goal' with real goal commands, so the
+    // journal reads picked it up and threw - which persistently held the
+    // user's one coordinator root after ANY run reached worker allocation.
+    // Its integrity is owned by the grant journal (CAS + exact bindChild).
+    if (row.role === 'worker') return null;
     const command = JSON.parse(row.replay_json) as CoordinatorConversationCommand;
     if (row.owner_user_id !== scope.ownerUserId || row.project_id !== scope.projectId ||
         command.key !== key || command.kind !== row.kind || command.intentHash !== row.intent_hash ||

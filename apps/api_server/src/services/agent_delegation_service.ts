@@ -492,6 +492,7 @@ export async function delegateToAgentAsync(
     ? await opencodeClient.createSession(...childArguments,false,undefined,{ proposal: coding.proposal,role:coding.role,isCurrent: coding.current })
     : await opencodeClient.createSession(...childArguments);
   if (!childSession?.id) {
+    console.warn(`[agent-delegation] async child session not created: ${childSession?.error ?? 'no id returned'}`);
     throw AppError.internal('failed to create async delegated child session');
   }
 

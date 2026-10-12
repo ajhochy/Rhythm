@@ -2612,12 +2612,24 @@ function validFiniteExecutionPermissionRules(
       if (codingWorkerScope) {
         const p = parseCodingExecutionProposal(codingWorkerScope.proposal);
         const manager = codingWorkerScope.role === 'manager';
-        if (!p || directory !== p.workspace.canonicalRoot || permissionMode !== (manager?'plan':'default') || !parentSdkSessionId ||
-            managedReadOnly || finiteExecutionPermissions !== undefined || !codingWorkerScope.isCurrent())
+        // Each refusal names its gate in the local log: the delegation turns this
+        // error into a generic 500, and a consumed approval is never retried.
+        const held = (gate: string) => {
+          logger.warn(`[coding-session] ${codingWorkerScope.role} session held: ${gate}`);
           return { error: 'coding worker scope held' };
+        };
+        if (!p) return held('proposal_unparseable');
+        if (directory !== p.workspace.canonicalRoot) return held(`directory ${directory} != ${p.workspace.canonicalRoot}`);
+        if (permissionMode !== (manager?'plan':'default')) return held(`permission_mode ${permissionMode}`);
+        if (!parentSdkSessionId) return held('no_parent_sdk_session');
+        if (managedReadOnly || finiteExecutionPermissions !== undefined) return held('conflicting_session_scope');
+        if (!codingWorkerScope.isCurrent()) return held('not_current_before_engine_path');
         const paths=await this.client.path.get({query:{directory}});
         const engineWorktree=paths.data?.worktree;
-        if(paths.error || typeof engineWorktree!=='string' || !isAbsolute(engineWorktree) || !codingWorkerScope.isCurrent())return {error:'coding engine worktree unavailable'};
+        if(paths.error || typeof engineWorktree!=='string' || !isAbsolute(engineWorktree) || !codingWorkerScope.isCurrent()){
+          logger.warn(`[coding-session] ${codingWorkerScope.role} session held: engine_worktree worktree=${String(engineWorktree)} pathError=${!!paths.error}`);
+          return {error:'coding engine worktree unavailable'};
+        }
         const patterns=(file:string)=>[relative(engineWorktree,resolve(directory,file)),resolve(directory,file)];
         // Ask candidates only. Expiry/revocation cannot survive in an engine allow cache.
         body.permission = manager ? [
@@ -2646,7 +2658,10 @@ function validFiniteExecutionPermissionRules(
           effectiveSkillAllowlist.join(',') || '(none)',
         );
       }
-      if (codingWorkerScope && !codingWorkerScope.isCurrent()) return { error: 'coding worker scope held' };
+      if (codingWorkerScope && !codingWorkerScope.isCurrent()) {
+        logger.warn(`[coding-session] ${codingWorkerScope.role} session held: not_current_before_create`);
+        return { error: 'coding worker scope held' };
+      }
       const raw = await (this.client.session.create as (opts: {
         body: Record<string, unknown>;
         query?: { directory?: string };
