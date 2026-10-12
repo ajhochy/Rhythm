@@ -440,7 +440,8 @@ cleanup_failed_up() {
   trap - EXIT
   if ((status != 0)); then
     preserve_diagnostics || true
-    stop >/dev/null 2>&1 || true
+    # Subshell: a refused cleanup (`fail` exits) must not replace the original status.
+    (stop) >/dev/null 2>&1 || true
   fi
   exit "$status"
 }
@@ -691,7 +692,8 @@ stop() {
     local holder_pid
     holder_pid="$(<"$FOREGROUND_PID_FILE")"
     for _ in {1..50}; do
-      [[ -e "$SHUTDOWN_ACK_FILE" ]] && break
+      # This launcher may be the holder, cleaning up its own failed run: nobody to wait for.
+      [[ -e "$SHUTDOWN_ACK_FILE" || "$holder_pid" == "$$" ]] && break
       kill -0 "$holder_pid" 2>/dev/null || break
       sleep 0.1
     done
