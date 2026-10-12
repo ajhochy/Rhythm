@@ -144,7 +144,9 @@ append_enabled_runtime_flag OPENCODE_PURE
 append_enabled_runtime_flag RHYTHM_NUMBAT_MONITORING_DISABLED
 case "${RHYTHM_WORKSTREAMS_ENABLED:-}" in
   '') ;;
-  true) runtime_env+=('RHYTHM_WORKSTREAMS_ENABLED=true') ;;
+  # Same pair Electron launches (agent-server.mjs): coordinator turns need the
+  # engine's managed prompt anchor, which is exported only with this flag.
+  true) runtime_env+=('RHYTHM_WORKSTREAMS_ENABLED=true' 'RHYTHM_MANAGED_CONTEXT_EXPORTS=1') ;;
   *) fail 'RHYTHM_WORKSTREAMS_ENABLED must be true when set' ;;
 esac
 

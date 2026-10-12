@@ -1662,9 +1662,10 @@ export class CoordinatorConversationsRepository {
         : 'goal_delegation_conflict',
       conversation: current.conversation,
     };
+    // A model-started run is not a user control change: keep the revision so
+    // the user's next message (or another run start) is not refused as stale.
     const next: CoordinatorConversation = {
       ...current.conversation,
-      controlRevision: current.conversation.controlRevision + 1,
       commandDedupe: [...current.conversation.commandDedupe, {
         key: input.commandKey,
         intentHash: hash,
@@ -1767,9 +1768,9 @@ export class CoordinatorConversationsRepository {
     if (command.state === 'uncertain') {
       return { kind: 'uncertain', conversation: current.conversation, goal };
     }
-    if (current.conversation.controlRevision !== input.expectedControlRevision) {
-      return { kind: 'revision_conflict', conversation: current.conversation };
-    }
+    // No conversation-wide revision fence here: other goals' starts and chat
+    // turns bump it while this run is dispatching, and several runs may start
+    // at once. This exact reserved command plus the CAS save below is the fence.
     if (
       input.outcome === 'dispatched' &&
       (!input.delegationId || !input.childSessionId || !MCP_IDENTIFIER.test(input.delegationId) || !MCP_IDENTIFIER.test(input.childSessionId))

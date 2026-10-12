@@ -348,6 +348,13 @@ export async function delegateToAgentAsync(
       branch: created.branch ?? null,
     };
   }
+  // A coordinator run (new worktree) and every specialist it delegates to
+  // (same worktree, inherited) are confined to that worktree directory.
+  const confineToDirectory = childPermissionMode === 'bypassPermissions' &&
+    (worktree !== null || (callerSession.worktreePath !== null && effectiveCwd === callerSession.worktreePath &&
+      callerSession.permissionMode === 'bypassPermissions'));
+  // The run must not be pointed back at the original checkout by its own goal text.
+  const runPrompt = worktree && input.cwd ? delegatedPrompt.split(input.cwd).join(worktree.path) : delegatedPrompt;
   assertPermissionScopeCurrent();
   const childArguments = [
     childTitle,
@@ -363,7 +370,9 @@ export async function delegateToAgentAsync(
     // delegate named profiles via rhythm_delegate_async.
     isInteractiveChatSession(callerSession),
   ] as const;
-  const childSession = await opencodeClient.createSession(...childArguments);
+  const childSession = confineToDirectory
+    ? await opencodeClient.createSession(...childArguments, false, undefined, true)
+    : await opencodeClient.createSession(...childArguments);
   if (!childSession?.id) {
     console.warn(`[agent-delegation] async child session not created: ${childSession?.error ?? 'no id returned'}`);
     throw AppError.internal('failed to create async delegated child session');
@@ -422,7 +431,7 @@ export async function delegateToAgentAsync(
     };
     const promptHead = [
       childSession.id,
-      delegatedPrompt,
+      runPrompt,
       runModel,
       effectiveCwd,
       promptOpts,
