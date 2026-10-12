@@ -83,6 +83,13 @@ export class CoordinatorConversationsController {
     } catch (error) { next(error); }
   }
 
+  async runs(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const result = await this.service.runs(actor(req), parseCoordinatorConversationOpen(req.body));
+      res.status(coordinatorConversationResponseStatus(result.kind)).json(result);
+    } catch (error) { next(error); }
+  }
+
   history(req: Request, res: Response, next: NextFunction): void {
     try {
       const result = this.service.history(actor(req), parseCoordinatorConversationHistory(req.body));

@@ -81,6 +81,20 @@ relevant. A symptom that looks like something already fixed is almost never a
 revert; check first whether the fix is bypassed on an unchecked path, is
 write-path only with no backfill, or is guarded by a check that never runs.
 
+## 7. Branch and final report
+
+When you were started for a coordinator goal you are already in your own git
+worktree on its own branch. Commit your work on that branch. Push and open a
+draft pull request only when the repository has a remote; never merge.
+
+Your last message is the run report the coordinator relays to the user. End
+with exactly these four headings, filled from facts, not intentions:
+
+- **Changed** — files changed, one line each (or "nothing").
+- **Branch / PR** — the branch name and commit, and the PR URL or "no PR".
+- **Verification** — each check command you actually ran and its real result.
+- **Needs your decision** — anything the user must decide, or "nothing".
+
 ## Scope and limits
 
 Stop and report instead of widening scope when the work exceeds the agreed

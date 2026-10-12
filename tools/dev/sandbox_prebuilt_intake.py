@@ -147,7 +147,6 @@ def intake(root, sb, manifest, expected):
     api_bindings = document.get('api_source_bindings', {})
     api_sources = {'apps/api_server/src/services/opencode_client_service.ts',
                    'apps/api_server/src/services/agent_delegation_service.ts',
-                   'apps/api_server/src/services/coordinator_coding_grant_journal.ts',
                    'apps/api_server/src/database/postgres_bootstrap.ts'}
     require(isinstance(api_bindings, dict) and set(api_bindings).issubset(api_sources), 'API source binding scope expanded')
     if api_bindings:

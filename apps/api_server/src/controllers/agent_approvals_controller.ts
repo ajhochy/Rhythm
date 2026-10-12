@@ -25,7 +25,6 @@ import {
   parseTrustedSecurityContext,
 } from '../services/external_content_security_service';
 import { verifyHumanApprovalSignature } from '../security/human_approval_security';
-import { WORKFLOW_APPROVAL_ACTION, readWorkflowProposal } from '../services/chat_bounded_workflow';
 import { agentApprovalContinuationService } from '../services/agent_approval_continuation_service';
 
 const repo = new AgentApprovalsRepository();
@@ -157,9 +156,7 @@ export class AgentApprovalsController {
         throw AppError.badRequest('status must be one of pending, approved, rejected, all');
       }
 
-      const ownerUserId = req.auth?.user.id;
-      res.json(repo.list(status).filter(approval => approval.securityAction !== WORKFLOW_APPROVAL_ACTION ||
-        (ownerUserId !== undefined && readWorkflowProposal(approval)?.ownerUserId === ownerUserId)).map(withApprovalLane));
+      res.json(repo.list(status).map(withApprovalLane));
     } catch (err) {
       next(err);
     }
@@ -184,9 +181,6 @@ export class AgentApprovalsController {
         throw AppError.notFound(
           'agent approval (or it is no longer pending)',
         );
-      }
-      if (existing.securityAction === WORKFLOW_APPROVAL_ACTION && readWorkflowProposal(existing)?.ownerUserId !== actorUser.id) {
-        throw AppError.forbidden('The exact workflow proposal belongs to another chat owner or is invalid');
       }
       // Live: a card was approved 51 minutes after it expired and the run started.
       if (body.status === 'approved' && existing.expiresAt && Date.parse(existing.expiresAt) <= Date.now()) {

@@ -17,6 +17,7 @@ import {
   type CoordinatorPlannedWorkstream,
   type CoordinatorConversationResult,
   type CoordinatorConversationScope,
+  type CoordinatorGoalRun,
 } from '../gateway/coordinator-conversations';
 import { managedRunView } from './managed-run-view';
 
@@ -55,6 +56,8 @@ export type CoordinatorConversationViewState = {
   pendingPlan?: { goalId: string; kind: 'prepare' | 'continue' };
   /** Latest typed server plan/status view; it never proves a criterion. */
   plannedWorkstream?: CoordinatorPlannedWorkstream;
+  /** Coding runs started from this conversation's goals (server read model). */
+  runs?: CoordinatorGoalRun[];
   /** Existing persisted root rows only; acknowledgements never populate this. */
   canonicalHistory?: CoordinatorHistoryResult;
   canonicalHistoryLoading?: boolean;
@@ -181,13 +184,8 @@ function validPlanConsent(consent: CoordinatorPlanConsent): boolean {
     Number.isSafeInteger(consent.maxWallTimeSeconds) && consent.maxWallTimeSeconds >= 30 && consent.maxWallTimeSeconds <= 300 &&
     Number.isSafeInteger(consent.expiresInSeconds) && consent.expiresInSeconds >= 30 && consent.expiresInSeconds <= 3_600 &&
     consent.acknowledgesSoftTotalTokenAuthorization === true &&
-    (consent.purpose === 'decompose' || consent.purpose === 'continue' || executesScopedWorkspace || consent.purpose === 'workflow') &&
-    (!executesScopedWorkspace || consent.acknowledgesScopedWorkspaceExecution === true) &&
-    (consent.purpose !== 'workflow' || (
-      consent.acknowledgesCodingWorkflowCoverage === true &&
-      consent.workflowCheck?.kind === 'selected_reference_summary_v1' &&
-      Boolean(consent.workflowCheck.sourceId.trim()) && Boolean(consent.workflowCheck.expectedVersion.trim())
-    ));
+    (consent.purpose === 'decompose' || consent.purpose === 'continue' || executesScopedWorkspace) &&
+    (!executesScopedWorkspace || consent.acknowledgesScopedWorkspaceExecution === true);
 }
 
 function errorNotice(error: unknown): CoordinatorNotice {
@@ -316,6 +314,23 @@ export class CoordinatorConversationController {
       return true;
     } catch {
       // Keep the last server view; the card labels it as the latest response.
+      return false;
+    }
+  }
+
+  /** Re-read the coding runs started from this conversation's goals. */
+  async reconcileRuns(scope: CoordinatorConversationScope): Promise<boolean> {
+    const key = coordinatorScopeKey(scope);
+    const gateway = this.gatewayFor();
+    if (!gateway?.runs || key !== this.activeKey || !this.records.get(key)?.enabled) return false;
+    const epoch = this.activeEpoch;
+    try {
+      const runs = await gateway.runs({ sessionId: scope.sessionId, projectId: scope.projectId });
+      if (this.activeKey !== key || this.activeEpoch !== epoch || !this.records.get(key)?.enabled) return false;
+      this.update(key, (next) => { next.runs = runs; });
+      return true;
+    } catch {
+      // Keep the last server view.
       return false;
     }
   }
@@ -560,6 +575,7 @@ export class CoordinatorConversationController {
       reviewedConflictRevision: record.reviewedConflictRevision,
       pendingPlan: record.planAttempt ? { goalId: record.planAttempt.goalId, kind: record.planAttempt.kind } : undefined,
       plannedWorkstream: record.plannedWorkstream,
+      runs: record.runs,
       canonicalHistory: record.canonicalHistory,
       canonicalHistoryLoading: record.canonicalHistoryLoading,
       openingReconciliation: Boolean(record.openReconciliation),
@@ -830,6 +846,7 @@ export class CoordinatorConversationController {
     );
     if (refreshed && readCanonicalHistory) void this.loadCanonicalHistory(scope);
     if (refreshed) void this.reconcileManagedRun(scope);
+    if (refreshed) void this.reconcileRuns(scope);
     return refreshed;
   }
 
@@ -1348,6 +1365,18 @@ export function useCoordinatorConversation(
     }, 10_000);
     return () => clearInterval(timer);
   }, [controller, key, runActive]);
+  // ponytail: runs are polled every 10s while the card is open; a push event would replace this.
+  const enabled = state.enabled;
+  useEffect(() => {
+    if (!enabled) return;
+    const poll = () => {
+      const requestedScope = scopeRef.current;
+      if (requestedScope) void controller.reconcileRuns(requestedScope);
+    };
+    poll();
+    const timer = setInterval(poll, 10_000);
+    return () => clearInterval(timer);
+  }, [controller, key, enabled]);
   return useMemo(() => ({
     state,
     open,

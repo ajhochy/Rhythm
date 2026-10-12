@@ -103,7 +103,7 @@ function harness({ attached = true, unhealthy = false, postAwaitChange = false, 
       execFile[require('node:util').promisify.custom] = async () => ({ stdout: '', stderr: '' });
       return { execFile };
     }
-    if (name === '../contracts/dayflow_provider_admission_contract' || name === '../contracts/coordinator_coding_execution_contract') {
+    if (name === '../contracts/dayflow_provider_admission_contract') {
       return compileModule(`${root}/apps/api_server/src/${name.slice(3)}.ts`);
     }
     if (name.startsWith('node:') || ['fs', 'path', 'util'].includes(name)) return require(name);
@@ -160,21 +160,16 @@ function harness({ attached = true, unhealthy = false, postAwaitChange = false, 
 
 async function readManaged(h) {
   const s = h.service;
-  const enrollment = { schemaVersion: 2, kind: 'coordinator_workflow_enrollment',
-    binding: { schemaVersion: 1, jobId: 'UNIT-no-authority', rootSdkSessionId: 'root',
-      managerSdkSessionId: 'manager', expiresAt: '2099-01-01T00:00:00.000Z' },
-    scope: { kind: 'manager_lineage' } };
   await s.getDayflowProviderFrame('sdk', 'nonce', '/synthetic');
   await s.getWorkflowProviderFrame('sdk', 'nonce', '/synthetic');
   await s.enrollDayflowGuard('sdk', '/synthetic');
-  await s.enrollWorkflowProviderGuard('sdk', '/synthetic', enrollment);
   await s.mintManagedPromptAnchor('sdk', '/synthetic');
   await s.getManagedActiveToolCall('sdk', 'assistant', 'tool', '/synthetic');
 }
 
-test('UNIT actual attached initialization binds raw/v2 and all six managed URLs to4797', async () => {
+test('UNIT actual attached initialization binds raw/v2 and all five managed URLs to4797', async () => {
   // Regression: successful attach has server:null, so raw/v2 drift to4096 and
-  // six managed readers silently refuse while ordinary readiness says ready.
+  // five managed readers silently refuse while ordinary readiness says ready.
   const h = harness();
   await h.service.initialize();
   assert.equal(h.service.isReady, true, h.service.statusMessage);
@@ -189,7 +184,7 @@ test('UNIT actual attached initialization binds raw/v2 and all six managed URLs 
   await readManaged(h);
   assert.ok(h.requests.every(url => new URL(url).origin === endpoint), JSON.stringify(h.requests));
   assert.deepEqual(h.factories, [endpoint, endpoint]);
-  assert.equal(h.requests.length - before, 6, 'every composing managed reader must use the binding');
+  assert.equal(h.requests.length - before, 5, 'every composing managed reader must use the binding');
   assert.equal(h.service.hasOwnedEngine, true);
   assert.equal(h.service.serverUrl, endpoint);
   assert.equal(h.checks, 2, 'existing validation must surround health await');

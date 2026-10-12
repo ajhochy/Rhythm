@@ -2,15 +2,14 @@ import { logger } from '../utils/logger';
 import { Router } from 'express';
 import { loadQualificationFixtureAuthority, qualificationFixtureTokenValid, qualificationApiBootId } from '../services/qualification_fixture_authority';
 import { fixtureModes, type QualificationFixtureService } from '../services/qualification_fixture_service';
-const knownCases=new Set(['dayflow-receiver','dayflow-revoked','dayflow-foreign','dayflow-history','dayflow-unenrolled','router-exhausted-auto','router-exhausted-pinned','router-exhausted-null','router-corrupt','coordinator-delivery']);
+const knownCases=new Set(['dayflow-receiver','dayflow-revoked','dayflow-foreign','dayflow-history','dayflow-unenrolled','router-exhausted-auto','router-exhausted-pinned','router-exhausted-null','router-corrupt']);
 const stages=new Map([
   ['fixture stale or foreign','fixture_binding'],['fixture engine boot changed','engine_boot'],
   ['actual canonical context missing from provider input','provider_context'],['actual fixture provider handoff not observed','provider_handoff'],
   ['actual ordinary provider dispatch missing','ordinary_provider_handoff'],['actual retained exposure missing','retained_history'],
-  ['actual first router policy did not select fixture account A','router_first_policy'],['genuine completed coding receipt required','completed_receipt'],
-  ['genuine verified held receipt required','held_verified_receipt'],['actual completed-before-delivery runtime recovery required','receipt_recovery'],
-  ['actual canonical delivery missing','canonical_delivery'],['ordinary root cannot rotate','primary_designation'],
-  ['fixture primary rotation forbidden with real coding/approval authority','active_authority'],
+  ['actual first router policy did not select fixture account A','router_first_policy'],
+  ['ordinary root cannot rotate','primary_designation'],
+  ['fixture primary rotation forbidden with real approval authority','active_authority'],
 ]);
 function reportFailure(error:unknown,fixtureId?:string,caseName?:string):string {
   const refusal=error instanceof Error?stages.get(error.message)??'production_dependency_refused':'production_dependency_refused';

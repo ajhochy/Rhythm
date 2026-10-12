@@ -41,7 +41,6 @@ function kindLabel(purpose: string | undefined): string {
     return 'Read-only planning run. It cannot change files and is not approved coding execution.';
   }
   if (purpose === 'execute') return 'Scoped-workspace execution run.';
-  if (purpose === 'workflow') return 'Coding workflow run.';
   return 'Managed run.';
 }
 

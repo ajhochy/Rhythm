@@ -1,5 +1,3 @@
-import { asyncDelegationCompletionService } from './async_delegation_completion_service';
-import { releaseDeliveryHold, readDeliveryTestState } from './coordinator_coding_delivery_controls';
 import { randomUUID } from 'node:crypto';
 import { chmodSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -40,19 +38,14 @@ import { OpenAIDecisionsClient } from './decision/openai_decisions_client';
 import { handleInputFrame } from './ws_gateway';
 import type { CoordinatorConversationService } from './coordinator_conversation_service';
 import type { AuthContext } from '../middleware/auth_middleware';
-import { codingDockerPins, codingDockerRuntimeDigest, codingEvaluatorPins, captureCodingSnapshot, verifyCodingSnapshot } from './coordinator_coding_artifact_verifier';
 
-export const fixtureModes=['dayflow','router-exhaustion','router-corrupt','coordinator-delivery'] as const;
+export const fixtureModes=['dayflow','router-exhaustion','router-corrupt'] as const;
 type Mode=typeof fixtureModes[number];
 interface Fixture {id:string;mode:Mode;sessionId:string;sdkSessionId:string;projectId:string;cwd:string;enginePid:number;engineBootId:string;
-  apiBootId:string;monitoredSdkIds?:string[];dayflow?:{service:DayflowIntegrationService;guard:DayflowReceivingHistoryGuard;admission:DayflowProviderAdmissionService;authority:DayflowPersistedQualificationAuthority;memoryRoot:string;canary:string};router?:RouterGridFixtureDependencies}
+  apiBootId:string;dayflow?:{service:DayflowIntegrationService;guard:DayflowReceivingHistoryGuard;admission:DayflowProviderAdmissionService;authority:DayflowPersistedQualificationAuthority;memoryRoot:string;canary:string};router?:RouterGridFixtureDependencies}
 const fixtures=new Map<string,Fixture>();
 export function qualificationStopBeforeSdk(sessionId:string):boolean {return [...fixtures.values()].some(f=>f.sessionId===sessionId && !!f.router);}
 export function qualificationDayflowForSdk(sdkSessionId:string){return [...fixtures.values()].find(f=>f.sdkSessionId===sdkSessionId)?.dayflow??null;}
-export function qualificationDeliveryRoot(sessionId:string):boolean {
-  const m=loadQualificationFixtureAuthority(),row=new AgentSessionsRepository().findById(sessionId);
-  return !!m && !!row && row.ownerUserId===m.ownerUserId && row.cwd.startsWith(m.fixtureRoot+'/') && ![...fixtures.values()].some(f=>f.sessionId===sessionId && f.mode!=='coordinator-delivery');
-}
 
 /** The server's one Dayflow enrollment and the evidence factory bound to it (one guard registration). */
 export interface QualificationDayflowSeam {
@@ -61,7 +54,6 @@ export interface QualificationDayflowSeam {
 }
 export class QualificationFixtureService {
   private readonly m=loadQualificationFixtureAuthority()!;
-  private protectedProbe:Promise<boolean>|null=null;
   constructor(private readonly coordinator:CoordinatorConversationService,private readonly dayflowSeam?:QualificationDayflowSeam){
     if(!this.m || env.dbClient!=='sqlite' || env.dbPath!==this.m.dbPath)throw new Error('qualification fixture startup absent');
     configureRouterGridFixtureResolver(sessionId=>{
@@ -70,22 +62,13 @@ export class QualificationFixtureService {
     });
   }
   private actor():AuthContext {return {sessionToken:'qualification-fixture-authority',user:new UsersRepository().findById(this.m.ownerUserId)};}
-  private async probe():Promise<boolean>{
-    const root=join(this.m.fixtureRoot,'protected-evaluator-probe');mkdirSync(root,{recursive:true,mode:0o700});mkdirSync(join(root,'src'),{recursive:true,mode:0o700});
-    writeFileSync(join(root,'src/selectTasks.ts'),"export function selectTasks(tasks:any[], status?:string){if(status!==undefined && status!=='open' && status!=='done')throw Error('unsupported');return tasks.filter(t=>status===undefined || t.status===status)}",{mode:0o600});
-    const snapshots=join(this.m.fixtureRoot,'protected-evaluator-probe-captures');mkdirSync(snapshots,{recursive:true,mode:0o700});
-    const evaluate=async()=>verifyCodingSnapshot(await captureCodingSnapshot(root,['src/selectTasks.ts'],snapshots),codingEvaluatorPins(),{docker:{pins:codingDockerPins(codingDockerRuntimeDigest),context:{rootSessionId:'qualification-runtime-probe',operationKey:this.m.sourceRevision}}});
-    const good=await evaluate();writeFileSync(join(root,'src/selectTasks.ts'),'export function selectTasks(){return []}',{mode:0o600});const bad=await evaluate();
-    return good.qualified===true && good.verdict==='passed' && bad.qualified===true && bad.verdict==='failed';
-  }
   async capability(){
     const engine=await opencodeClient.getEngineIdentity();if(!engine)throw new Error('qualification engine unavailable');
-    this.protectedProbe??=this.probe();
-    return {available:true,sourceRevision:this.m.sourceRevision,runtime:{apiPid:process.pid,enginePid:engine.pid,enginePort:Number(process.env.RHYTHM_OPENCODE_ENGINE_PORT),bootId:qualificationApiBootId},fixtureModes,protectedEvaluator:{qualified:await this.protectedProbe}};
+    return {available:true,sourceRevision:this.m.sourceRevision,runtime:{apiPid:process.pid,enginePid:engine.pid,enginePort:Number(process.env.RHYTHM_OPENCODE_ENGINE_PORT),bootId:qualificationApiBootId},fixtureModes};
   }
   private rotatePrimary(nextId:string|null):void {
     const db=getDb();db.transaction(()=>{
-      if(db.prepare("SELECT 1 FROM agent_approvals WHERE status='pending' LIMIT 1").get() || db.prepare("SELECT 1 FROM agent_async_delegations WHERE coding_delivery_mode='coding_root_v1' LIMIT 1").get())throw new Error('fixture primary rotation forbidden with real coding/approval authority');
+      if(db.prepare("SELECT 1 FROM agent_approvals WHERE status='pending' LIMIT 1").get())throw new Error('fixture primary rotation forbidden with real approval authority');
       const primary=new CoordinatorConversationsRepository().findPrimaryOwnerRoot(this.m.ownerUserId);
       if(primary.kind==='found'){
         const old=[...fixtures.values()].find(f=>f.sessionId===primary.conversation.sessionId && f.mode==='dayflow');
@@ -100,18 +83,6 @@ export class QualificationFixtureService {
   clearDayflowDesignationForCoordinator():void {this.rotatePrimary(null);}
   async create(mode:Mode):Promise<Fixture>{
     if(!fixtureModes.includes(mode))throw new Error('unknown fixture mode');
-    if(mode==='coordinator-delivery'){
-      const row=getDb().prepare(`SELECT a.coding_root_session_id root FROM agent_async_delegations a JOIN agent_sessions s ON s.id=a.coding_root_session_id
-        WHERE a.coding_delivery_mode='coding_root_v1' AND a.coding_result_receipt_json IS NOT NULL AND s.owner_user_id=? ORDER BY a.created_at DESC LIMIT 1`).get(this.m.ownerUserId) as {root:string}|undefined;
-      if(!row)throw new Error('genuine completed coding receipt required');const session=new AgentSessionsRepository().findById(row.root)!;
-      const engine=await opencodeClient.getEngineIdentity();if(!engine || !session.sdkSessionId || !session.projectId)throw new Error('coding delivery binding unavailable');
-      if(!qualificationDeliveryRoot(session.id))throw new Error('foreign genuine receipt');
-      const f:Fixture={id:randomUUID(),mode,sessionId:session.id,sdkSessionId:session.sdkSessionId,projectId:session.projectId,cwd:session.cwd,enginePid:engine.pid,engineBootId:engine.bootId,apiBootId:qualificationApiBootId};
-      const children=getDb().prepare(`SELECT s.id,s.sdk_session_id,s.project_id,s.cwd FROM agent_sessions s WHERE s.id=? OR s.parent_session_id=? OR s.parent_session_id IN(SELECT id FROM agent_sessions WHERE parent_session_id=?)`).all(session.id,session.id,session.id) as Array<{id:string;sdk_session_id:string;project_id:string;cwd:string}>;
-      f.monitoredSdkIds=[];
-      for(const child of children){if(!child.sdk_session_id)throw new Error('coding SDK missing');bindQualificationDispatch({fixtureId:f.id,sessionId:child.id,sdkSessionId:child.sdk_session_id,projectId:child.project_id,cwd:child.cwd,enginePid:engine.pid,engineBootId:engine.bootId,canary:null});f.monitoredSdkIds.push(child.sdk_session_id);}
-      fixtures.set(f.id,f);return f;
-    }
     const id=randomUUID(),cwd=join(this.m.fixtureRoot,'workspaces',id);mkdirSync(cwd,{recursive:true,mode:0o700});
     const project=new ProjectsRepository().createCoordinatorOwned({ownerUserId:this.m.ownerUserId,setupKey:'qualification:'+id,cwd,profileId:'secretary',name:'Invented qualification '+mode,workspaceGeneration:1}).project;
     const sessions=new AgentSessionsRepository(),scope=await resolveProfileScope('secretary');
@@ -171,7 +142,7 @@ export class QualificationFixtureService {
   async runCase(id:string,caseName:string){
     const f=fixtures.get(id);if(!f || f.apiBootId!==qualificationApiBootId)throw new Error('fixture stale or foreign');
     const engine=await opencodeClient.getEngineIdentity();if(!engine || engine.pid!==f.enginePid || engine.bootId!==f.engineBootId)throw new Error('fixture engine boot changed');
-    const snapshot=()=>f.monitoredSdkIds?.reduce((a,sdk)=>{const b=qualificationDispatchSnapshot(sdk);return {sdk:a.sdk+b.sdk,provider:a.provider+b.provider,contextInjected:a.contextInjected||b.contextInjected};},{sdk:0,provider:0,contextInjected:false})??qualificationDispatchSnapshot(f.sdkSessionId);
+    const snapshot=()=>qualificationDispatchSnapshot(f.sdkSessionId);
     const before=snapshot(),caseDeadline=Date.now()+9000;
     const checks:Array<{id:string;pass:boolean;observed:unknown}>=[],limits:string[]=[];
     if(f.dayflow){
@@ -213,24 +184,6 @@ export class QualificationFixtureService {
         checks.push({id:unknown?'unknown':pinned?'pinned':'automatic',pass:unknown||pinned?JSON.stringify(initial)===JSON.stringify(after):after.accountId==='fixture-account-b',observed:{mode:unknown?null:pinned?'fixed':'automatic',before:initial,after,persisted:projection(),exhaustedAccountId:initial.accountId}});
         limits.push('Invented inventory/quota tested through production router; intentional pre-SDK stop prevents synthetic credentials reaching any provider. No real provider rollover quality claim.');
       }
-    }else if(f.mode==='coordinator-delivery' && caseName==='coordinator-delivery'){
-      const actor={ownerUserId:this.m.ownerUserId,projectId:f.projectId},state=readDeliveryTestState(f.sessionId,actor);
-      if(state.receipt?.kind!=='coding_result_v1' || state.receipt.execution!=='completed' || state.receipt.verification!=='passed' || !state.hold?.held || state.resultMessageId)throw new Error('genuine verified held receipt required');
-      const recovered=typeof state.receipt.producedApiBootId==='string' && state.receipt.producedApiBootId!==qualificationApiBootId;
-      if(!recovered)throw new Error('actual completed-before-delivery runtime recovery required');
-      const children=getDb().prepare(`SELECT child_session_id,coding_delivery_mode FROM agent_async_delegations WHERE coding_root_session_id=? AND coding_operation_key=?`).all(f.sessionId,state.scope.operationKey) as Array<{child_session_id:string;coding_delivery_mode:string}>;
-      const workerCount=children.filter(x=>x.coding_delivery_mode==='coding_worker_v1').length;
-      if(workerCount!==1 || children.filter(x=>x.coding_delivery_mode==='coding_root_v1').length!==1)throw new Error('sole coding chain required');
-      releaseDeliveryHold(f.sessionId,actor);await asyncDelegationCompletionService.onParentIdle(f.sessionId);
-      const first=readDeliveryTestState(f.sessionId,actor).resultMessageId;if(!first)throw new Error('actual canonical delivery missing');
-      const duplicateResultMessageIds:number[]=[];
-      for(const child of children){await asyncDelegationCompletionService.onChildIdle(child.child_session_id);await asyncDelegationCompletionService.onParentIdle(f.sessionId);duplicateResultMessageIds.push(readDeliveryTestState(f.sessionId,actor).resultMessageId as number);}
-      const messages=getDb().prepare("SELECT COUNT(*) n FROM agent_session_messages WHERE session_id=? AND json_valid(info_json) AND json_extract(info_json,'$.kind')='work_result' AND json_extract(info_json,'$.operationKey')=?").get(f.sessionId,state.scope.operationKey) as {n:number};
-      const callback=getDb().prepare(`SELECT COUNT(*) n FROM coordinator_conversation_commands c JOIN agent_async_delegations a ON a.id=c.delegation_id WHERE c.root_session_id=? AND c.command_key=? AND c.callback_acceptance='accepted' AND c.callback_dispatch_id IS NOT NULL AND json_valid(a.coding_terminal_json) AND json_extract(a.coding_terminal_json,'$.kind')='coding_terminal_v1' AND json_extract(a.coding_terminal_json,'$.sdkUserMessageId')=c.callback_sdk_user_message_id AND json_extract(a.coding_terminal_json,'$.execution')='completed'`).get(f.sessionId,state.scope.operationKey) as {n:number};
-      await new Promise(r=>setTimeout(r,300));
-      const quiet=snapshot(),noDispatch=quiet.sdk===before.sdk && quiet.provider===before.provider;
-      checks.push({id:'delivery',pass:noDispatch && messages.n===1 && workerCount===1 && callback.n===1 && duplicateResultMessageIds.every(x=>x===first),observed:{workerCount,resultCount:messages.n,modelWakeCount:callback.n,rootSessionId:f.sessionId,originalSessionId:f.sessionId,durableResultMessageId:first,duplicateResultMessageIds:[...new Set(duplicateResultMessageIds)],rawReplayResultMessageIds:duplicateResultMessageIds,recovered,noNewSdkOrProviderDispatch:noDispatch}});
-      limits.push('Completed-before-delivery proof requires a real prior API boot; supported whole-runtime restart may also change engine boot. API-only engine preservation NOTRUN.', 'Duplicate delivery dispatch observations include 300ms bounded quiescence; root independently enumerates native callback anchors/children.', 'Dispatch counters monitor these existing root/manager/worker SDKs from case baseline: '+JSON.stringify(f.monitoredSdkIds));
     }else throw new Error('unsupported fixture case');
     const after=snapshot();
     return {caseName,bindings:this.bindings(f),checks,dispatch:{sdkBefore:before.sdk,sdkAfter:after.sdk,providerBefore:before.provider,providerAfter:after.provider},limits};

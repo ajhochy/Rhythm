@@ -13,10 +13,7 @@ export default defineConfig({
     maxWorkers: 1,
     fileParallelism: false,
     include: [
-      'src/__tests__/coordinator_coding_execution_proposal.test.ts',
       'src/__tests__/coordinator_goal_approval_resume.test.ts',
-      'src/__tests__/coordinator_coding_approval_continuation.test.ts',
-      'src/contract/chat_bounded_workflow.contract.test.ts',
       'src/contract/issue_1392_approval_continuation.test.ts',
       'src/security/security_advisories.test.ts',
       'src/__tests__/coordinator_command_journal.test.ts',
