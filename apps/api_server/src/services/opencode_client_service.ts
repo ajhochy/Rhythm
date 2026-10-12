@@ -2222,6 +2222,10 @@ export class OpencodeClientService {
      * it and retain their established session behavior.
      */
     finiteExecutionPermissions?: readonly FiniteExecutionPermissionRule[],
+    // A coordinator coding run works only in its own worktree: deny every path
+    // outside the session directory (the original checkout included), even in
+    // bypass mode, so a run can never edit or commit the user's checkout.
+    confineToDirectory = false,
     // #1222 — root-cause of the discarded-error bug: every failure branch
     // below used to collapse to a bare `null`, so callers (AgentRunner in
     // particular) could only ever report the generic "failed to create
@@ -2366,6 +2370,13 @@ function validFiniteExecutionPermissionRules(
         body.permission = [
           { permission: '*', pattern: '*', action: 'allow' },
           { permission: 'bash', pattern: '*', action: 'ask' },
+        ];
+      }
+      if (confineToDirectory) {
+        // findLast: must follow the mode rules, including bypass `*: allow`.
+        body.permission = [
+          ...((body.permission as unknown[] | undefined) ?? []),
+          { permission: 'external_directory', pattern: '*', action: 'deny' },
         ];
       }
       if (interactive) {

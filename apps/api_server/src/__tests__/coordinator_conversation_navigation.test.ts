@@ -920,3 +920,51 @@ it('coordinator-workflow-runs-c1d: a goal that names no repository is held as re
     .toMatchObject({ kind: 'found', conversation: { controlRevision: before } });
   db.close();
 });
+
+it('coordinator-workflow-runs-c2: two goals started at the same time both dispatch and both record their run', async () => {
+  // Regression caught (seen live): the second start bumps the conversation
+  // revision while the first is dispatching, so the first run starts but its
+  // goal stays "reserved" and never appears in the run list.
+  const db = database();
+  const allowed = new Map([[7, new Set(['project-a'])]]);
+  const repository = new CoordinatorConversationsRepository(db, () => now);
+  expect(repository.designatePrimaryOwnerRoot({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' })).toMatchObject({ kind: 'found' });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let dispatches = 0;
+  const coordinator = service(repository, db, allowed, {
+    context: { assemble: async () => qualifiedContext() } as never,
+    foreground: { send: async () => ({ kind: 'accepted' }) },
+    codingWorkflow: {
+      dispatch: async (input) => {
+        dispatches += 1;
+        const n = dispatches;
+        await gate;
+        return { delegationId: `delegation-${n}`, childSessionId: `child-${n}`, targetAgentConfigId: 'workflow-orchestrator' as const };
+      },
+    },
+  });
+  for (const [index, message] of [`fix the parser in ${goalRepo}`, `fix the totals in ${goalRepo}`].entries()) {
+    const read = repository.get({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' });
+    if (read.kind !== 'found') throw new Error('missing conversation');
+    await expect(coordinator.receiveMessage(auth, {
+      sessionId: 'chat-a', projectId: 'project-a', expectedControlRevision: read.conversation.controlRevision,
+      commandKey: `goal-${index}`, message,
+    })).resolves.toMatchObject({ kind: 'foreground_accepted' });
+  }
+  const captured = repository.get({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' });
+  if (captured.kind !== 'found') throw new Error('missing goals');
+  const [first, second] = captured.conversation.goals.map((goal) => goal.id);
+  const start = (goalId: string, commandKey: string) => coordinator.startCodingWorkflow(auth, {
+    sessionId: 'chat-a', projectId: 'project-a', sdkSessionId: 'sdk-a', goalId, commandKey, bindingCurrent: async () => true,
+  });
+  const a = start(first!, 'start-a');
+  const b = start(second!, 'start-b');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  release();
+  await expect(a).resolves.toMatchObject({ kind: 'delegation_started', goalId: first });
+  await expect(b).resolves.toMatchObject({ kind: 'delegation_started', goalId: second });
+  expect(repository.listGoalDelegationOutcomes({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' })
+    .map((outcome) => outcome.delegationId).sort()).toEqual(['delegation-1', 'delegation-2']);
+  db.close();
+});

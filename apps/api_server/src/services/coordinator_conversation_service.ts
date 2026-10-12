@@ -705,9 +705,12 @@ export class CoordinatorConversationService {
       !selected || !initial.conversation.primaryOwnerRoot ||
       selected.session.sdkSessionId !== input.sdkSessionId || selected.session.id !== input.sessionId
     ) return { kind: 'delegation_held', conversation: initial.conversation };
+    // Re-read after the awaits above: another goal may have started meanwhile,
+    // and this read and the synchronous reserve below have no await between them.
+    const latest = this.repository.get(requestScope);
     const reserveInput = {
       ...requestScope,
-      expectedControlRevision: initial.conversation.controlRevision,
+      expectedControlRevision: latest.kind === 'found' ? latest.conversation.controlRevision : initial.conversation.controlRevision,
       commandKey: input.commandKey,
       goalId: input.goalId,
       parentSdkSessionId: input.sdkSessionId,
@@ -738,8 +741,8 @@ export class CoordinatorConversationService {
       const command = current.kind === 'found'
         ? current.conversation.commandDedupe.find((candidate) => candidate.key === input.commandKey)
         : null;
+      // Not the conversation-wide revision: concurrent goal starts bump it.
       return current.kind === 'found' && current.conversation.primaryOwnerRoot &&
-        current.conversation.controlRevision === reservedControlRevision &&
         currentSelection !== null && this.sameSelection(selected, currentSelection) &&
         currentSelection.session.sdkSessionId === input.sdkSessionId &&
         command?.kind === 'delegate_goal' && command.goalId === reservation.goal.id &&
@@ -2511,6 +2514,12 @@ export class CoordinatorConversationService {
       today: context.today,
       yesterday: context.yesterday,
       controlRevision: conversation.controlRevision,
+      // Captured goals with no run yet: what rhythm_start_coordinator_goal can start.
+      startableGoals: conversation.goals
+        .filter((goal) => goal.state === 'captured' && !conversation.commandDedupe
+          .some((command) => command.kind === 'delegate_goal' && command.goalId === goal.id))
+        .slice(-8)
+        .map((goal) => ({ id: goal.id, objective: goal.objective.slice(0, 240) })),
       goals: {
         captured: conversation.goals.filter((goal) => goal.state === 'captured').length,
         linked: conversation.goals.filter((goal) => goal.state === 'linked').length,
@@ -3255,7 +3264,7 @@ export function createCoordinatorForegroundSender(deps: CoordinatorForegroundSen
         ? 'The signed read-only tool rhythm_get_coordinator_status is in your current profile scope. Use it for current coordinator attention/state, including its cached calendar and project-session observations, only.'
         : 'No signed coordinator status tool is in your current profile scope. Do not claim one exists.',
       coordinatorGoalToolAvailable
-        ? 'The signed rhythm_start_coordinator_goal control is in your current profile scope. When the user gives a coding goal that names a repository by absolute path, read current coordinator status for its captured goal id and start it: each goal runs once through the existing workflow-orchestrator in its own git worktree and branch, and several may run at once. When a run result arrives, report each run once in this chat under Changed, Branch / PR, Verification (commands and real results) and Needs your decision, taken only from that run\'s report; never claim a run verifies a goal beyond what its checks showed.'
+        ? 'The signed rhythm_start_coordinator_goal control is in your current profile scope. You never do coding work yourself (this chat is read-only). When the user gives a coding goal that names a repository by absolute path, start its goal id from startableGoals in the coordinator snapshot (or current coordinator status) with that control: each goal runs once through the existing workflow-orchestrator in its own git worktree and branch, and several may run at once. When a run result arrives, report each run once in this chat under Changed, Branch / PR, Verification (commands and real results) and Needs your decision, taken only from that run\'s report; never claim a run verifies a goal beyond what its checks showed.'
         : 'No signed coordinator goal-action control is in your current profile scope. Do not claim an async workflow can be started here.',
       dayflowToolsAvailable
         ? 'The signed Dayflow activity tools are in your current profile scope. Use them only for current qualified activity; their output is reference/source data, not completion evidence.'

@@ -543,7 +543,7 @@ async function main() {
               targetAgentConfigId: 'workflow-orchestrator',
               prompt: objective,
               callerSessionId: parentSessionId,
-              context: `Coordinator goal run for repository ${repoPath}. You are in your own git worktree of it, on its own branch.`,
+              context: 'Coordinator goal run. Your current directory is your own git worktree of the repository, on its own branch. Work and commit only there; paths outside it are denied.',
               // One run per goal, each on its own branch of the repo the user named.
               cwd: repoPath,
               isolateWorktree: true,

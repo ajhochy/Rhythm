@@ -126,6 +126,10 @@ describe('coordinator-workflow-runs-c1: one run per goal in its own worktree of 
     expect(engine.createWorktree).toHaveBeenCalledWith(repoDir, { name: 'goal-abc' });
     expect(engine.createSession.mock.calls[0]?.[1]).toBe(`${repoDir}-wt/goal-abc`);
     expect(engine.createSession.mock.calls[0]?.[6]).toBe('bypassPermissions');
+    // Regression caught (seen live): the run cd'd into the original checkout
+    // named in the goal and committed on its main branch.
+    expect(engine.createSession.mock.calls[0]?.[10]).toBe(true);
+    expect(engine.promptAsync.mock.calls[0]?.[1]).toBe(`fix the parser in ${repoDir}-wt/goal-abc`);
     expect(new AgentSessionsRepository().findById(result.sessionId)).toMatchObject({
       permissionMode: 'bypassPermissions',
       worktreePath: `${repoDir}-wt/goal-abc`,
@@ -161,6 +165,26 @@ describe('coordinator-workflow-runs-c1: one run per goal in its own worktree of 
     expect(goalRepoPath('fix the date bug in the parser')).toBeNull();
     expect(goalRepoPath(`fix ${repoDir} and ${other}`)).toBeNull();
     expect(goalRepoPath(`fix ${plain}`)).toBeNull();
+  });
+});
+
+describe('coordinator-workflow-runs-c1e: specialists a run delegates to stay confined to its worktree', () => {
+  it('coordinator-workflow-runs-c1e: an orchestrator run in bypass delegates a confined child in the same worktree', async () => {
+    // Regression caught: the coding-agent the orchestrator delegates to runs in
+    // plain bypass and can still write outside the run's worktree.
+    seedProfile('workflow-orchestrator', true, ['coding-agent']);
+    seedProfile('coding-agent');
+    const repo = new AgentSessionsRepository();
+    const run = repo.insert({ agentKind: 'workflow-orchestrator' as never, taskId: null, cwd: '/wt/goal-1', name: 'run', mcpRole: 'workflow-orchestrator', ownerUserId: 42 });
+    repo.setSdkSessionId(run.id, 'sdk-run');
+    repo.updatePermissionMode(run.id, 'bypassPermissions');
+    repo.setWorktree(run.id, { name: 'goal-1', path: '/wt/goal-1', branch: 'opencode/goal-1' });
+    await delegateToAgentAsync({
+      authenticatedUserId: 42, callerSessionId: run.id, targetAgentConfigId: 'coding-agent', prompt: 'make the fix',
+    });
+    expect(engine.createSession.mock.calls[0]?.[1]).toBe('/wt/goal-1');
+    expect(engine.createSession.mock.calls[0]?.[6]).toBe('bypassPermissions');
+    expect(engine.createSession.mock.calls[0]?.[10]).toBe(true);
   });
 });
 
