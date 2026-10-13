@@ -31,6 +31,7 @@ import { agentConfigsRouter } from './routes/agent_configs_routes';
 import { agentDelegationRouter } from './routes/agent_delegation_routes';
 import { agentSkillsRouter } from './routes/agentSkillsRoutes';
 import { agentSessionsRouter } from './routes/agent_sessions_routes';
+import { createHermesNotifyRouter } from './routes/hermes_notify_routes';
 import { agentsCapabilitiesRouter } from './routes/agents_capabilities_routes';
 import { usageBudgetRouter } from './routes/usage_budget_routes';
 import { runQualityRouter } from './routes/run_quality_routes';
@@ -279,6 +280,9 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     app.use('/optimizer', autoPromotionSettingsRouter);
     app.use('/agent-designs', agentDesignsRouter);
     app.use('/agent-sessions', agentSessionsRouter);
+    if (env.dbClient === 'sqlite' && !env.isRelayRole) {
+      app.use('/hermes-notify', createHermesNotifyRouter());
+    }
     app.use(ptyRouter);
     app.use('/sync', syncRouter);
 
