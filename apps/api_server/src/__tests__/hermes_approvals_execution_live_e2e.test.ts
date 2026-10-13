@@ -8,9 +8,6 @@ import { describe, expect, it } from 'vitest';
 import { assertLiveE2EIsolation } from './_live_e2e_guard';
 import { securityPayloadDigest } from '../services/external_content_security_service';
 
-const requireMcp = createRequire(resolve('../mcp_server/package.json'));
-const { Client } = requireMcp('@modelcontextprotocol/sdk/client/index.js');
-const { StdioClientTransport } = requireMcp('@modelcontextprotocol/sdk/client/stdio.js');
 const live = process.env.RHYTHM_LIVE_E2E === '1';
 
 // Only the upstream model response is synthetic. API, stdio MCP, engine,
@@ -31,6 +28,9 @@ function stream(model: string, calls: Record<string, unknown>[]) {
 describe.skipIf(!live)('Hermes approvals — real engine signed execution gate', () => {
   it('AC5 external stdio approval authorizes only unchanged payload once; reject/expiry/replay/changed cards never execute', async () => {
     assertLiveE2EIsolation();
+    const requireMcp = createRequire(resolve('../mcp_server/package.json'));
+    const { Client } = requireMcp('@modelcontextprotocol/sdk/client/index.js');
+    const { StdioClientTransport } = requireMcp('@modelcontextprotocol/sdk/client/stdio.js');
     const base = process.env.RHYTHM_LIVE_URL!;
     const engine = process.env.RHYTHM_LIVE_ENGINE_URL!;
     const sb = realpathSync(process.env.RHYTHM_SANDBOX_DIR!);

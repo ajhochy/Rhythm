@@ -7,10 +7,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertLiveE2EIsolation } from './_live_e2e_guard';
 import { securityPayloadDigest } from '../services/external_content_security_service';
 
-// Resolve the actual SDK used by the built MCP package, not an in-process mock.
-const requireMcp = createRequire(resolve('../mcp_server/package.json'));
-const { Client } = requireMcp('@modelcontextprotocol/sdk/client/index.js');
-const { StdioClientTransport } = requireMcp('@modelcontextprotocol/sdk/client/stdio.js');
 const live = process.env.RHYTHM_LIVE_E2E === '1';
 const base = process.env.RHYTHM_LIVE_URL ?? 'http://127.0.0.1:4198';
 const root = resolve('../..');
@@ -18,6 +14,8 @@ type Card = { id: string; revision: string; cardHash: string; action: string; pr
 
 describe.skipIf(!live)('Hermes authenticated approvals — real stdio + sandbox contract', () => {
   let db: Database.Database;
+  let Client: any;
+  let StdioClientTransport: any;
   let owner: any;
   let other: any;
   let bad: any;
@@ -73,6 +71,10 @@ describe.skipIf(!live)('Hermes authenticated approvals — real stdio + sandbox 
 
   beforeAll(async () => {
     assertLiveE2EIsolation();
+    // Resolve the real sibling SDK only after the live gate and isolation guard.
+    const requireMcp = createRequire(resolve('../mcp_server/package.json'));
+    ({ Client } = requireMcp('@modelcontextprotocol/sdk/client/index.js'));
+    ({ StdioClientTransport } = requireMcp('@modelcontextprotocol/sdk/client/stdio.js'));
     const sb = process.env.RHYTHM_SANDBOX_DIR!;
     expect(realpathSync(sb).startsWith('/private/tmp/hermes-approvals-')).toBe(true);
     expect(realpathSync(process.env.DB_PATH!)).toBe(`${realpathSync(sb)}/rhythm.db`);

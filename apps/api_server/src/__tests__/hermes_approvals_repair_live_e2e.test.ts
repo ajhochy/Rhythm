@@ -9,9 +9,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertLiveE2EIsolation } from './_live_e2e_guard';
 import { canonicalHumanApprovalDecision } from '../security/human_approval_security';
 
-const requireMcp = createRequire(resolve('../mcp_server/package.json'));
-const { Client } = requireMcp('@modelcontextprotocol/sdk/client/index.js');
-const { StdioClientTransport } = requireMcp('@modelcontextprotocol/sdk/client/stdio.js');
 const live = process.env.RHYTHM_LIVE_E2E === '1';
 const root = resolve('../..');
 const sb = '/private/tmp/hermes-approvals-20261012-sandbox';
@@ -75,6 +72,9 @@ describe.skipIf(!live)('Hermes repair — isolated real SDK expiry and mixed des
   }
   beforeAll(async () => {
     assertLiveE2EIsolation();
+    const requireMcp = createRequire(resolve('../mcp_server/package.json'));
+    const { Client } = requireMcp('@modelcontextprotocol/sdk/client/index.js');
+    const { StdioClientTransport } = requireMcp('@modelcontextprotocol/sdk/client/stdio.js');
     expect(process.env.RHYTHM_SANDBOX_DIR).toBe(sb);
     expect(process.env.DB_PATH).toBe(`${sb}/rhythm.db`);
     expect(process.env.RHYTHM_LIVE_URL).toBe(base);
