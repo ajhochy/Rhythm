@@ -49,6 +49,7 @@ import { registerAgentDelegationTools } from '../tools/agentDelegation.js';
 import { registerAgentMemoryTools } from '../tools/agentMemory.js';
 import { registerAgentSessionTools } from '../tools/agentSessions.js';
 import { registerAgentApprovalTools } from '../tools/agentApprovals.js';
+import { registerRelayApprovalTools } from '../tools/relayApprovals.js';
 import { registerFeedbackSensorTools } from '../tools/feedbackSensors.js';
 import { registerAgentProfileTools } from '../tools/agentProfiles.js';
 import { registerCreativePlatformTools } from '../tools/creativePlatform.js';
@@ -83,6 +84,7 @@ const REGISTRARS_IN_INDEX_ORDER: Registrar[] = [
   (s) => registerAgentMemoryTools(s, AGENT_URL, API_TOKEN),
   (s) => registerAgentSessionTools(s, AGENT_URL, API_TOKEN),
   (s) => registerAgentApprovalTools(s, AGENT_URL),
+  (s) => registerRelayApprovalTools(s, AGENT_URL, API_TOKEN),
   (s) => registerFeedbackSensorTools(s, API_URL, API_TOKEN),
   (s) => registerAgentProfileTools(s, AGENT_URL),
   (s) => registerCreativePlatformTools(s, AGENT_URL),
@@ -100,8 +102,8 @@ const REGISTRARS_IN_INDEX_ORDER: Registrar[] = [
  * are pinned from registration — a stale mirror here passes vacuously and
  * guards nothing.
  */
-const EXPECTED_REGISTRAR_CALLS = 25;
-const EXPECTED_TOOL_NAMES = 103;
+const EXPECTED_REGISTRAR_CALLS = 26;
+const EXPECTED_TOOL_NAMES = 106;
 
 /** Builds a fresh McpServer, applies `registrars` in order, and returns it. */
 function buildServer(registrars: Registrar[]): McpServer {
@@ -160,6 +162,9 @@ describe('MCP server tool registration (issue #864 guard)', () => {
           'rhythm_update_live_artifact_bundle',
           'rhythm_update_live_artifact_sharing',
           'rhythm_complete_research_pass',
+          'rhythm_list_pending_approvals',
+          'rhythm_get_pending_approval',
+          'rhythm_decide_approval',
         ]),
       );
     } finally {

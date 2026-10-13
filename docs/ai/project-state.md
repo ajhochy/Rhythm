@@ -1,5 +1,19 @@
 # Rhythm — Project State
 
+## Isolated approval feature checkpoint — 2026-10-12
+
+- Focus: authenticated owner Hermes chat approvals; `feat/hermes-authenticated-approvals-20261012`, implementation commit `af47d82d`, [draft PR #1615](https://github.com/ajhochy/Rhythm/pull/1615), base `4f915540`. Pushed; no merge/deployment.
+- Implementation: +3 MCP tools (103→106), separate bearer-authenticated owner-scoped relay API, exact revision/hash decisions, explicit relay-attested audit and post-approval hash enforcement; desktop signatures and engine-only guards unchanged.
+- Status: `CI_collection_repair_READY_FOR_VERIFICATION`, independent re-gate pending at HEAD0226227f/PR1615. CI run38352830639 introduced3 eager sibling-SDK collection failures in API-only install; downstream build/advisory/API/optimizer smoke SKIPPED, not passed. Test-only deferred requires repaired; assertions/product logic/dependencies/workflows unchanged. Prior verifier PASS is historical for pre-CI-repair harness.
+- Current checks: frozen API-only resolution fixture RED3 collection failures → GREEN17 live skips; real SDK/built MCP/API/fork repair9 passed(19.36s), standard8 passed(5.51s); focused39 passed/17 skips; API/MCP builds and strict types exit0. One mixed race observed Hermes winner, opposite desktop winner; both immutable audit/one real continuation/replay refused. Full API npm test **FAIL**:4 failed/718 passed/151 skipped files;11 failed/6770 passed/302 skipped tests(72.63s), isolated default-port/URL expectations and shared native dependency version, outside changed harness. No full-green/new-head CI claim. [Exact repair commands/failures](runs/2026-10-12-hermes-approvals-ci-collection-repair.md).
+- Historical independent feature checks: verifier `b4147781-32b4-4303-87c2-2c81930a5cbc` repair9/frozen8/focused39/MCP191 passed before this harness change, including malformed exact-hash expiry and signed engine single-use proof. Prior FAIL/RED receipts preserved; not current certification or product/deployment acceptance.
+- Risks/limits: owner-token relay attestation cannot prove a human click; no new login. Unowned cards hidden; local SQLite owner-backed cards only, cloud identity cache unchanged. Actual Hermes chat UX, Keychain smoke, full notification delivery, production Postgres and deployment unclaimed; protected desktop/security/controller/repository/continuation/launcher/fork unchanged.
+- Teardown: repair-owned sandbox absent,4198/4197/4199 free; current sanitized full API receipt in `.evidence.QPbK6i`, live9 in `.evidence.RECVws`; prior verifier evidence retained. Live4001/4096/notification untouched; no installs/shared module mutation/commit/push. Prior verified fingerprint is historical, not current identity.
+- Linked notification branch: `feat/hermes-event-notify-20261012` remains a separate bounded candidate under active watchdog/schema/cursor repair; actual Hermes/Pi wakeup blocked. Not integrated; its worktree untouched.
+- Next: independent CI-harness re-gate → parent-owned commit/push/new-head CI → human synthetic smoke → separately authorized API/MCP rollout together; no merge/deploy authorized. Existing worktrees preserved; same-workflow bounded repair approval/exclusions durable in [CI repair run](runs/2026-10-12-hermes-approvals-ci-collection-repair.md). [Historical feature run](runs/2026-10-12-hermes-authenticated-approvals.md), [trust decision](decisions/2026-10-12-hermes-authenticated-chat-approvals.md), [integration guide](guides/hermes-authenticated-approvals.md).
+
+Prior campaign snapshot below is unchanged historical context, not a claim this isolated branch integrates that campaign.
+
 ## Focus
 
 Complete the unfinished Rhythm scope in draft mega PR #1544: Bot Crossing inside Rhythm, shared memory, shared canonical agents/settings, native Hermes execution, and two-way delegation. AJ chose Hermes itself to run shared agents launched there. One final combined smoke; no merge, deployment or release.

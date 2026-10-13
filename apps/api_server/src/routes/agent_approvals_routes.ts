@@ -15,11 +15,13 @@ import { env } from '../config/env';
 import { AgentApprovalsController } from '../controllers/agent_approvals_controller';
 import { ExternalContentSecurityController } from '../controllers/external_content_security_controller';
 import { requireHumanApprovalCapability } from '../security/human_approval_security';
+import { RelayApprovalsController } from '../controllers/relay_approvals_controller';
 
 export const agentApprovalsRouter = Router();
 
 const controller = new AgentApprovalsController();
 const securityController = new ExternalContentSecurityController();
+const relayController = new RelayApprovalsController();
 
 const requireInternalAuth = env.agentLocal
   ? []
@@ -31,6 +33,11 @@ const requireHumanAuth: typeof requireAuth = async (req, res, next) => {
     next,
   );
 };
+
+// Separate token-holder attestation, never desktop presence/signing or local bypass.
+agentApprovalsRouter.get('/relay/pending', requireHumanAuth, (req, res, next) => relayController.list(req, res, next));
+agentApprovalsRouter.get('/relay/pending/:id', requireHumanAuth, (req, res, next) => relayController.get(req, res, next));
+agentApprovalsRouter.post('/relay/:id/decision', requireHumanAuth, (req, res, next) => relayController.decide(req, res, next));
 
 agentApprovalsRouter.post(
   '/',
