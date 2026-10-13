@@ -28,6 +28,7 @@ export function notifyId(value: unknown): string {
 export class HermesNotifyService {
   readonly changes = new EventEmitter();
   private subscription: ReturnType<typeof opencodeEventHub.subscribe> | null = null;
+  private retry: ReturnType<typeof setTimeout> | null = null;
   private sessions = new AgentSessionsRepository();
   initialize(): void {
     getDb().exec(`
@@ -117,19 +118,33 @@ export class HermesNotifyService {
   }
   start(): void {
     if (this.subscription) return;
+    if (this.retry) clearTimeout(this.retry);
+    this.retry = null;
     const sub = opencodeEventHub.subscribe(512);
     this.subscription = sub;
     void (async () => {
       try {
         for await (const envelope of sub.stream) {
+          if (this.subscription !== sub) break;
           try { getDb().transaction(() => this.ingest(envelope))(); } catch { logger.warn('[HermesNotify] notification persistence failed'); }
         }
       } finally {
-        sub.close(); this.subscription = null;
-        // No per-token wakeups; reconnect only on bounded hub overflow/closure.
-        const retry = setTimeout(() => this.start(), 1000); retry.unref();
+        sub.close();
+        if (this.subscription === sub) {
+          this.subscription = null;
+          // No per-token wakeups; reconnect only on bounded hub overflow/closure.
+          this.retry = setTimeout(() => { this.retry = null; this.start(); }, 1000);
+          this.retry.unref();
+        }
       }
     })();
+  }
+  stop(): void {
+    if (this.retry) clearTimeout(this.retry);
+    this.retry = null;
+    const sub = this.subscription;
+    this.subscription = null;
+    sub?.close();
   }
 }
 export const hermesNotifyService = new HermesNotifyService();

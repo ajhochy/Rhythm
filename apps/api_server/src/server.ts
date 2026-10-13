@@ -118,6 +118,15 @@ async function main() {
   await verifyLiveArtifactStorageDir();
   await initDb();
 
+  // Subscribe before any startup job or engine can publish; app construction is pure.
+  let hermesNotifyServiceRef: { stop: () => void } | null = null;
+  if (env.agentExecutionEnabled && env.dbClient === 'sqlite' && !env.isRelayRole) {
+    const hermesNotifyService = (await import('./services/hermes_notify_service')).hermesNotifyService;
+    hermesNotifyService.initialize();
+    hermesNotifyService.start();
+    hermesNotifyServiceRef = hermesNotifyService;
+  }
+
   const missingArtifactContent = await diagnoseLiveArtifactContent();
   if (missingArtifactContent.length > 0) {
     const sample = missingArtifactContent
@@ -986,6 +995,7 @@ async function main() {
     let engraphCleanup: Promise<void> = Promise.resolve();
     try { engraphCleanup = engraphManagerRef?.shutdown() ?? engraphCleanup; } catch (_) { /* ignore */ }
     try { agentSchedulerJob?.stop(); } catch (_) { /* ignore */ }
+    try { hermesNotifyServiceRef?.stop(); } catch (_) { /* ignore */ }
     // #856 — stop the auth.json watcher so a credential write during
     // shutdown can't trigger a bounce of an engine we're about to dispose.
     try { authCredentialWatcher?.stop(); } catch (_) { /* ignore */ }

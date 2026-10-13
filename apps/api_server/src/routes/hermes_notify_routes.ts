@@ -4,8 +4,6 @@ import { AppError } from '../errors/app_error';
 import { hermesNotifyService as service, notifyId } from '../services/hermes_notify_service';
 
 export function createHermesNotifyRouter(): Router {
-  service.initialize();
-  service.start();
   const router = Router();
   router.use(requireAuth); // Never the agent-local optional-auth fallback.
   router.use((req, _res, next) => {
