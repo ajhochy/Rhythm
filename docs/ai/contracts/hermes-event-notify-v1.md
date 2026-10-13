@@ -2,6 +2,11 @@
 
 Parent-owned final integration. This contract does **not** amend approval contracts.
 
+> Historical V1/session-origin contract; do not use its two-table boundary as V2.
+> See [V2 durable run-origin contract](hermes-event-notify-v2.md). V2 is explicit
+> opt-in; V1 cannot read/ACK activated V2 history, and V1/V2 inbox identity
+> mismatches fail closed. The historical contract below is otherwise unchanged.
+
 ## Trust and dispatch
 
 Use an explicit owner-bound bearer; no local optional-auth or production fallback.

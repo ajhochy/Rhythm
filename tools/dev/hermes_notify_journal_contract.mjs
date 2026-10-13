@@ -5,6 +5,8 @@ const require = createRequire(import.meta.url);
 // API package is CommonJS: exercise the actual launcher-built artifact.
 const { initDb, getDb } = require('../../apps/api_server/dist/database/db.js');
 const { AgentSessionsRepository } = require('../../apps/api_server/dist/repositories/agent_sessions_repository.js');
+const { AgentCookbookRepository } = require('../../apps/api_server/dist/repositories/agent_cookbook_repository.js');
+const { RecipeWorkflowRepository } = require('../../apps/api_server/dist/repositories/recipe_workflow_repository.js');
 const { HermesNotifyService } = require('../../apps/api_server/dist/services/hermes_notify_service.js');
 assert.match(process.env.DB_PATH, /^\/private\/tmp\/hermes-event-notify-20261012-sandbox\//);
 await initDb();
@@ -27,7 +29,8 @@ test('semantic transitions, error/question/permission references are durable and
   emit('session.status',{status:{type:'idle'}});
   const events = service.list(1).filter(e=>e.sessionId===session.id);
   assert.equal(events.length,6);
-  assert.deepEqual(events.map(e=>e.kind),['progress','progress','error','question','approval-request','completion']);
+  assert.deepEqual(events.map(e=>e.kind),['progress','progress','error','question','approval-request','progress']);
+  assert.equal(events.filter(e=>e.kind==='completion').length,0,'opaque idle/error/question/permission cannot qualify success');
   assert.equal(new Set(events.map(e=>e.eventId)).size,6);
   assert.equal(events.find(e=>e.kind==='question').referenceId,'question-1');
   assert.ok(!JSON.stringify(events).includes('secret'));
@@ -62,5 +65,26 @@ test('ownership transfer refuses same-origin rebind and preserves journal',()=>{
   assert.deepEqual(service.list(2),[]);
   for(const owner of [1,2]) assert.throws(()=>service.ack(owner,before[0].event_id,'visible'),error=>error.statusCode===404);
   assert.deepEqual(getDb().prepare('SELECT * FROM hermes_notify_events WHERE session_id=?').all(session.id),before);
+});
+test('completion requires a qualified durable workflow and every child successful',async()=>{
+  const definition={schemaVersion:1,entryStageId:'work',budgets:{maxCostUsd:1,maxTokens:100,maxWallTimeMs:1000,maxStageExecutions:10},stages:['work','second-child'].map(id=>({id,kind:'agent',profileId:'fixture',inputs:{},output:{fields:{}},terminal:true}))};
+  const recipe=await new AgentCookbookRepository().createAsync({title:'Synthetic journal completion',schemaVersion:1,definitionJson:JSON.stringify(definition)});
+  const runs=new RecipeWorkflowRepository();
+  const run=runs.createRun({recipeId:recipe.id,ownerUserId:1,definition,input:{}});
+  const parent=repo.insert({agentKind:'',cwd:process.env.HOME,name:'Synthetic qualified journal',ownerUserId:1});
+  const first=runs.listStageExecutions(run.id)[0];
+  runs.bindProvisionalSession(first.id,parent.id);
+  repo.bindWorkflowSession(parent.id,run.id,first.id);
+  const second=runs.ensureStageExecution({runId:run.id,stageId:'second-child'});
+  service.bind(1,parent.id,'hermes-qualified-journal',run.id);
+  const completions=()=>service.list(1).filter(e=>e.workflowId===run.id && e.kind==='completion');
+  runs.recordCompletion(first.id,{status:'succeeded'});
+  assert.equal(completions().length,0);
+  runs.updateRunStatus(run.id,'succeeded');
+  assert.equal(completions().length,0,'durable terminal alone cannot complete with a pending child');
+  runs.recordCompletion(second.id,{status:'succeeded'});
+  assert.equal(completions().length,1);
+  assert.equal(completions()[0].sessionId,parent.id);
+  assert.equal(completions()[0].text,'Rhythm workflow succeeded: 2 settled, 0 awaiting.');
 });
 test.after(()=>getDb().close());

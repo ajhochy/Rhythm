@@ -1,4 +1,4 @@
-"""Version 1 outbound SSE consumer. No listener, cron, tool execution or Hermes config edits.
+"""Versioned outbound SSE consumer. No listener, cron, tool execution or Hermes config edits.
 
 The operator-supplied local adapter must implement deliver(event) -> receipt and
 deduplicate eventId atomically with the original-session transcript write. A busy
@@ -25,14 +25,26 @@ LABELS = {
 FIELDS = {"version", "eventId", "cursor", "sessionId", "hermesSessionId", "workflowId", "kind", "text", "referenceId", "state"}
 
 def validate(event):
-    if not isinstance(event, dict) or set(event) != FIELDS or type(event["version"]) is not int or event["version"] != 1:
+    if not isinstance(event, dict) or type(event.get("version")) is not int or event["version"] not in (1,2) or set(event) != (FIELDS if event["version"] == 1 else FIELDS | {"runId"}):
         raise ValueError("unsupported notification schema")
+    if event["version"] == 2 and event["runId"] != event["workflowId"]:
+        raise ValueError("run identity mismatch")
     for key in ("eventId", "sessionId", "hermesSessionId", "workflowId"):
         if not isinstance(event[key], str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", event[key]):
             raise ValueError("invalid identity")
     if type(event["cursor"]) is not int or not 0 < event["cursor"] < 10**15:
         raise ValueError("invalid cursor")
-    if not isinstance(event["kind"], str) or not isinstance(event["text"], str) or event["kind"] not in LABELS or event["text"] not in LABELS[event["kind"]]:
+    workflow_label = isinstance(event["text"], str) and re.fullmatch(
+        r"Rhythm workflow (pending|running|blocked_approval|blocked_reconciliation|awaiting_children|succeeded|failed|budget_exhausted|workflow_disabled|cancelled): ([0-9]{1,9}) settled, ([0-9]{1,9}) awaiting\.", event["text"])
+    workflow_kind = None
+    if workflow_label:
+        status, settled, awaiting = workflow_label.groups()
+        workflow_kind = "completion" if status == "succeeded" else "error" if status in ("failed", "budget_exhausted", "workflow_disabled", "cancelled") else "approval-request" if status == "blocked_approval" else "progress"
+        if workflow_kind in ("completion", "error") and int(awaiting) != 0:
+            raise ValueError("unqualified workflow terminal")
+        if status == "succeeded" and int(settled) == 0:
+            raise ValueError("empty workflow success")
+    if not isinstance(event["kind"], str) or not isinstance(event["text"], str) or event["kind"] not in LABELS or (event["text"] not in LABELS[event["kind"]] and event["kind"] != workflow_kind):
         raise ValueError("not a server-generated label")
     if not isinstance(event["state"], str) or event["state"] not in ("pending", "accepted", "visible"):
         raise ValueError("invalid state")
@@ -69,7 +81,10 @@ class Inbox:
                 receipt = adapter.deliver(event)
                 if receipt is None:  # Busy/unsupported session: persist and retry, never drop.
                     continue
-                if receipt != {"version": 1, "eventId": event_id, "hermesSessionId": event["hermesSessionId"], "state": "visible"}:
+                expected={"version": event["version"], "eventId": event_id, "hermesSessionId": event["hermesSessionId"], "state": "visible"}
+                if event["version"] == 2:
+                    expected["runId"]=event["runId"]
+                if receipt != expected:
                     raise ValueError("adapter did not prove original-session visible receipt")
                 with self.db:
                     self.db.execute("UPDATE inbox SET visible=1 WHERE event_id=?", (event_id,))
@@ -83,8 +98,11 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise ValueError("redirect refused")
 
 class Subscriber:
-    def __init__(self, base, token, inbox, adapter):
+    def __init__(self, base, token, inbox, adapter, run_id=None):
         self.base, self.token, self.inbox, self.adapter = base.rstrip("/"), token, inbox, adapter
+        if run_id is not None and (not isinstance(run_id,str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}",run_id)):
+            raise ValueError("invalid run identity")
+        self.run_id=run_id
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
 
     def request(self, path, body=None):
@@ -94,12 +112,14 @@ class Subscriber:
         return self.opener.open(request, timeout=20)
 
     def ack(self, event_id, state):
-        with self.request("/ack", {"eventId": event_id, "state": state}) as response:
+        with self.request(f"/runs/{self.run_id}/ack" if self.run_id else "/ack", {"eventId": event_id, "state": state}) as response:
             if response.status != 200:
                 raise ValueError("ACK rejected")
 
     def receive(self, event):
         validate(event)
+        if (self.run_id is None and event["version"] != 1) or (self.run_id is not None and (event["version"] != 2 or event["runId"] != self.run_id)):
+            raise ValueError("subscriber authority mismatch")
         # Remote identifiers never authorize adoption of an arbitrary Hermes parent.
         # The local adapter must consult its trusted dispatch/owner binding registry.
         if self.adapter.owns(event) is not True:
@@ -115,7 +135,7 @@ class Subscriber:
             nonlocal watchdog
             if time.monotonic() - watchdog < 600:
                 return
-            with self.request("/events") as response:
+            with self.request(f"/runs/{self.run_id}/events" if self.run_id else "/events") as response:
                 page = json.loads(response.read(256 * 1024))
             if not isinstance(page, dict) or not isinstance(page.get("events"), list) or len(page["events"]) > 100:
                 raise ValueError("invalid recovery page")
@@ -127,7 +147,7 @@ class Subscriber:
                 self.inbox.drain(self.adapter, self.ack)
                 recover()
                 # Replay all pending on reconnect, NOT just the largest locally enqueued cursor.
-                with self.request("/stream") as response:
+                with self.request(f"/stream?runId={self.run_id}" if self.run_id else "/stream") as response:
                     while True:
                         line = response.readline(8193)
                         if not line:
@@ -157,6 +177,7 @@ def main():
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--inbox", required=True)
     parser.add_argument("--adapter", required=True, help="operator-owned local Python module exposing adapter.deliver")
+    parser.add_argument("--run-id", help="explicit V2 run-owner inbox; adapter must authorize immutable run/conversation")
     parser.add_argument("--allow-loopback-test", action="store_true")
     args = parser.parse_args()
     url = urllib.parse.urlsplit(args.base_url)
@@ -168,7 +189,7 @@ def main():
     if not token:
         parser.error("explicit owner-bound RHYTHM_NOTIFY_TOKEN required; no auth fallback")
     adapter = importlib.import_module(args.adapter).adapter
-    Subscriber(args.base_url, token, Inbox(args.inbox), adapter).run()
+    Subscriber(args.base_url, token, Inbox(args.inbox), adapter, args.run_id).run()
 
 if __name__ == "__main__":
     main()
