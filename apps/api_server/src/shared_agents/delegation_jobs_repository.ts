@@ -1659,7 +1659,8 @@ export class AgentBridgeJobsRepository {
 
   completeFromRunner(
     jobId: string,
-    result: { status: 'done' | 'error'; result: string; error?: string; errorCode?: string },
+    // Runner results include sessionId; it never replaces the pre-dispatch durable child binding.
+    result: { sessionId?: string; status: 'done' | 'error'; result: string; error?: string; errorCode?: string },
     now = new Date().toISOString(),
   ): AgentBridgeJobRow {
     const current = this.getAny(jobId);

@@ -14,6 +14,7 @@ import { getDb } from '../database/db';
 import { logger } from '../utils/logger';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { isAutoApproveProfile } from '../repositories/agent_approvals_repository';
+import { requireUnchangedRelayApproval } from '../security/relay_approval_security';
 
 export const SECURITY_ACTIONS = [
   'email.send',
@@ -638,6 +639,7 @@ export class ExternalContentSecurityService {
         throw AppError.forbidden('approval token belongs to a stale external-content taint');
       }
 
+      requireUnchangedRelayApproval(approval.id);
       const consumedAt = new Date().toISOString();
       const updated = getDb()
         .prepare(

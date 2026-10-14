@@ -6,7 +6,11 @@
  */
 
 import { randomBytes, randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { getDb } from '../database/db';
+
+// Observation only; the durable card remains the authority and replay source.
+export const agentApprovalPublications = new EventEmitter();
 
 export type AgentApprovalStatus = 'pending' | 'approved' | 'rejected';
 
@@ -132,7 +136,9 @@ export class AgentApprovalsRepository {
         input.boundPayloadJson ?? null,
       );
 
-    return this.getById(id)!;
+    const card = this.getById(id)!;
+    if (card.status === 'pending') agentApprovalPublications.emit('pending', card.id);
+    return card;
   }
 
   getById(id: string): AgentApproval | null {

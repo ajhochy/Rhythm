@@ -83,7 +83,7 @@ runtime_env=(
   "RHYTHM_AGENT_URL=http://127.0.0.1:$API_PORT"
   # Shared-agent live tests pass only the registrar digest into the isolated
   # api_server. The registrar secret itself remains in the invoking test.
-  "RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256=${RHYTHM_SANDBOX_BRIDGE_REGISTRAR_SHA256:-}"
+  "RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256="
   "MAX_CONCURRENT_AGENT_RUNS=2"
   "AGENT_LOCAL=true"
   # Synthetic harness runs never inherit an operator's promotion opt-in.
@@ -367,6 +367,21 @@ configure_e1_public_approval_fixture() {
     'HUMAN_APPROVAL_CAPABILITY_SHA256=00789cad36f3c613d645dec33349a0b18f1926415899f3761812404f0a494cfb'
     'HUMAN_APPROVAL_PUBLIC_KEY=BGsX0fLhLEJH+Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT+NC4v4af5uO5+tKfA+eFivOM1drMV7Oy7ZAaDe/UfU='
   )
+}
+
+configure_bridge_fixture() {
+  case "${RHYTHM_SANDBOX_BRIDGE_FIXTURE:-0}" in
+    0) return 0 ;;
+    1) ;;
+    *) fail 'RHYTHM_SANDBOX_BRIDGE_FIXTURE must be 0 or 1' ;;
+  esac
+  [[ -n "${RHYTHM_SANDBOX_BRIDGE_REGISTRAR_FILE:-}" ]] ||
+    fail 'bridge fixture requires explicit protected RHYTHM_SANDBOX_BRIDGE_REGISTRAR_FILE'
+  local digest
+  digest="$(python3 -I "$ROOT/tools/dev/sandbox_bridge_fixture_digest.py" \
+    "$RHYTHM_APPROVED_FIXTURE_ROOT" "$SB" "$RHYTHM_SANDBOX_BRIDGE_REGISTRAR_FILE")" ||
+    fail 'bridge fixture requires owned synthetic database/home and protected registrar reference'
+  runtime_env+=("RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256=$digest")
 }
 
 validate_port() {
@@ -674,6 +689,7 @@ up() {
     sqlite3 "$RHYTHM_LIVE_DB_PATH" ".backup '$SB/rhythm.db'"
   fi
   configure_e1_public_approval_fixture
+  configure_bridge_fixture
   if [[ "$RELAY_ENABLED" == 1 ]]; then
     copy_relay_runtime_files
     sqlite3 "$RHYTHM_LIVE_DB_PATH" ".backup '$SB/relay/rhythm.db'"

@@ -70,6 +70,7 @@ import agentDesignsRouter from './routes/agentDesignsRoutes';
 import gmailSignalsRouter from './routes/gmail_signals_routes';
 import { agentCapabilityStatusRouter } from './routes/agent_capability_status_routes';
 import { agentApprovalsRouter } from './routes/agent_approvals_routes';
+import { createHermesNotifyRouter } from './routes/hermes_notify_routes';
 import { systemRouter } from './routes/system_routes';
 import { engraphManagerRouter } from './routes/engraph_manager_routes';
 import { createMobileGatewayRouter } from './routes/mobile_gateway_routes';
@@ -301,6 +302,9 @@ export function createApp(options: {
     app.use('/creative-platform', creativePlatformRouter);
     app.use('/setup-readiness', setupReadinessRouter);
     app.use('/agent-approvals', agentApprovalsRouter);
+    if (env.dbClient === 'sqlite' && !env.isRelayRole) {
+      app.use('/hermes-notify', createHermesNotifyRouter());
+    }
     app.use('/agents/usage-budget', usageBudgetRouter);
     app.use('/agents/run-quality', runQualityRouter);
     // W4 — the immutable run-outcome ledger + its append-only feedback API.

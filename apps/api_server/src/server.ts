@@ -185,6 +185,13 @@ async function main() {
   await verifyLiveArtifactStorageDir();
   await initDb();
   (await import('./services/qualification_fixture_bootstrap')).bootstrapQualificationFixture();
+  let hermesNotifyServiceRef: { stop: () => void } | null = null;
+  if (env.agentExecutionEnabled && env.dbClient === 'sqlite' && !env.isRelayRole) {
+    const hermesNotifyService = (await import('./services/hermes_notify_service')).hermesNotifyService;
+    hermesNotifyService.initialize();
+    hermesNotifyService.start();
+    hermesNotifyServiceRef = hermesNotifyService;
+  }
 
   // Persistent workstreams are an explicit local opt-in.  The shared MCP
   // selector is deliberately absent while off, preserving ordinary memory
@@ -1628,6 +1635,7 @@ async function main() {
       });
     } catch (_) { /* ignore */ }
     try { recurrenceJob?.stop(); } catch (_) { /* ignore */ }
+    try { hermesNotifyServiceRef?.stop(); } catch (_) { /* ignore */ }
     try { syncJob?.stop(); } catch (_) { /* ignore */ }
     try { memoryVaultSyncJob?.stop(); } catch (_) { /* ignore */ }
     try { workstreamCoordinator?.dispose(); } catch (_) { /* ignore */ }
