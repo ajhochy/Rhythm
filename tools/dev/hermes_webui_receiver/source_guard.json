@@ -1,0 +1,45 @@
+{
+  "status": "NATIVE_VISIBLE_SLICE_GREEN_PARENT_ACK_HOST_SCHEMA_GATES_PENDING",
+  "image": "sha256:4fbb112fb9f90efac654c43239cffc233122c2b7536aaad9de1e88455c20de0a",
+  "containerCwd": "/vault",
+  "mountedSourceRevision": null,
+  "sourceCopy": "source_snapshot/ now contains the reviewed native patch; original 107 pins retained in source_snapshot_manifest.json and recovered exactly by verify_native_artifact.py",
+  "nativeIntegrationPatch": {"path": "native.patch", "sha256": "1f99fbf5a68258aebcf9d760fbce129afe561734521aa9fc4bf20c6a7ec06a3c", "manifest": "native_patch_manifest.json", "qualified": false, "outputCount": 7, "additionalReplacement": "static/ui.js", "preservedReplacement": "api/models.py", "parentHostIntegrationRequired": true},
+  "nativeGate": {"focusedVisibleContract": "PASS", "nativeProfileCompletionRegressions": 10, "receiverSubscriberUnitRegressions": 15, "visibleChecks": 5, "actualRhythmAck": "NOTRUN", "independentParentGate": "PENDING", "schemaIntegration": "HOLD", "run": "docs/ai/runs/2026-10-13-hermes-native-visible-implementation.md"},
+  "hostFacility": null,
+  "containerId": "8b5fa0a02828be30446501025a4ffdfbb6a9462a32e8da9cc5b706e874395eec",
+  "mountedSourceRoot": "/home/pi-nas/stacks/hermes-webui",
+  "containerSourceMount": {"destination": "/webui", "writable": false},
+  "sourceHashes": {
+    "api/routes.py": "7500a207fbba663f25407d04f47a6e618e8e16aa07634a8cd921d5081ee8b66c",
+    "api/background_process.py": "da85c1be47cdc4fe1b39daafebd2a8c4b4cb362b2f769e16a06a78d44e47ea33",
+    "api/config.py": "e62d1aa1c8ea1f81a236a236021794a9875996bf917854c8cad98aca2999cfdb",
+    "api/auth.py": "c8c324d4d3882cf789fc697f72dbc9e21e09a4eacb50e327e884ccce93ea95aa",
+    "api/turn_journal.py": "4ab5d87b7c6371f430b5d2ba03de338d6f6dc1d80c8258ddcb60473664abbdeb",
+    "api/webui_session_db.py": "8ef2d677fdf8e7d5c39c84133c75fe5fa08eb15fd8930ff4c5312078596fe84c",
+    "api/models.py": "2631a28024f9dc6018a5ceeebd5c7e09bfdae9496f496f7e7e233c951456fa82",
+    "static/messages.js": "80522759fb39cb815f4c32846832741c96ce6ff8422db87e232cd48e9c9932e7",
+    "static/sessions.js": "c00bf0536e7ed6458d082f1f0261e3e82fb0af05821f91a630f2bad7f295dbdc"
+  },
+  "sourceCopyNeed": {
+    "transportOwner": "completed authorized strict SSH pi-nas@100.109.210.55; no bypass/hosts edits/scanning",
+    "copy": "captured ONE application snapshot: server/bootstrap and all api/static .py/.js/.css/.html plus reviewed dependency manifests; external Hermes Agent source not copied",
+    "exclude": [".env", ".git", "config files", "data", "databases", "logs", "auth values"],
+    "receipt": "relative tracked paths and SHA256, original mount path and exact image/container identity; no environment values",
+    "destination": "tools/dev/hermes_webui_receiver/source_snapshot; runtime test copies to isolated disposable HOME, no provider/network/LLM calls",
+    "localHermesIsNotSubstitute": true
+  },
+  "patchGuards": [
+    {"file": "api/routes.py", "positions": "6157-6205,6268-6297,640-679,17616,25755-26001,26474,26623", "require": "register ONLY POST /api/rhythm-notify/receive and /status in running server; scoped relay credential digest; preserve all other auth/CSRF/profile guards; native current owner/profile recheck under session lock; invoke start_session_turn; retain active409 no steer; native journal event/hash/turn fence before launch"},
+    {"file": "api/turn_journal.py", "positions": "66-109", "require": "durable event/hash/turn correlated intent/started/completed journal; idempotent start_once; ambiguous crash recovered from persisted journal/transcript, never timeout-based duplicate; native launch/write/cache ordering verified"},
+    {"file": "api/webui_session_db.py", "positions": "151", "require": "preserve atomic fullpayload JSON save; journal and SQLite not falsely treated as one transaction; persisted same event/turn/message proof verified"},
+    {"file": "api/models.py", "positions": "1650", "require": "preserve shrink and metadata guards and atomic replace/cache semantics"},
+    {"file": "api/background_process.py", "positions": "1966-2025,2262", "require": "do not adopt in-memory deferred dictionaries as durable inbox; integrate owned receiver worker with actual server startup/shutdown source"},
+    {"file": "static/messages.js", "positions": "8737", "require": "existing server_turn_started renderer correct session, native completed event-bound DOM observation; no client payload as visible proof"},
+    {"file": "static/sessions.js", "positions": "2811,3815", "require": "actual browser reopen GET saved transcript and DOM exact event/turn/message observation; closed browser is not yet visible"}
+  ],
+  "independentGateRequired": ["actual_native_entrypoint", "frontend_dom", "arrival_correct_chat_wake_visible", "busy_durable_no_steer", "duplicate_full_identity_collision", "restart_reopen", "crash_ambiguous_native_journal", "old_session_owner_profile_revocation", "zero_network_provider_test_setup_only"],
+  "installation": "NOTRUN; native visible slice passes copied HTTP/real DOM checks; parent independent gate, actual Rhythm ACK, host output integration and inbox schema migration remain required; this guard is not an installation manifest",
+  "restartBudget": 1,
+  "rollbackRestart": "requires separate approval; restore source after failure but do not assume permission to restart twice"
+}

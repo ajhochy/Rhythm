@@ -13,7 +13,7 @@ class StopProbe(BaseException):
 class Repairs(Contract):
     def subscriber(self):
         self.adapter.owns = lambda notification: True
-        consumer = Subscriber('http://127.0.0.1:4898', 'synthetic', self.inbox, self.adapter)
+        consumer = Subscriber('http://127.0.0.1:4898', 'synthetic', self.inbox, self.adapter, loopback_test=True)
         consumer.ack = self.ack
         return consumer
 

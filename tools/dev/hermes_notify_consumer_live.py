@@ -17,7 +17,7 @@ adapter = FixtureTranscriptAdapter(root / 'consumer-fixture-transcript.db')
 adapter.owns = lambda e: e['hermesSessionId'] == 'synthetic-hermes-parent' and e['workflowId'] == 'synthetic-workflow'
 adapter.busy = True
 inbox = Inbox(root / 'consumer-inbox.db')
-consumer = Subscriber('http://127.0.0.1:4898', token, inbox, adapter)
+consumer = Subscriber('http://127.0.0.1:4898', token, inbox, adapter, loopback_test=True)
 with consumer.request('/stream') as stream:
     for _ in range(10):
         line = stream.readline(8193)

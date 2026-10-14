@@ -76,7 +76,8 @@ class Inbox:
 
     def drain(self, adapter, ack):
         for event_id, payload, visible in self.db.execute("SELECT event_id,payload,visible FROM inbox WHERE visible!=2 ORDER BY cursor LIMIT 100").fetchall():
-            event = json.loads(payload)
+            # state is mutable transport data, deliberately absent from identity.
+            event = {**json.loads(payload), 'state': 'accepted'}
             if not visible:
                 receipt = adapter.deliver(event)
                 if receipt is None:  # Busy/unsupported session: persist and retry, never drop.
@@ -97,9 +98,24 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         raise ValueError("redirect refused")
 
+def validate_origin(base, *, private_relay=False, loopback_test=False):
+    """Private HTTP exceptions are exact byte-pinned origins, never URL patterns."""
+    if not isinstance(base, str) or any(c.isspace() for c in base):
+        raise ValueError("invalid origin")
+    if (private_relay and base == "http://127.0.0.1:4001") or (loopback_test and base == "http://127.0.0.1:4898"):
+        return base
+    url = urllib.parse.urlsplit(base)
+    if (url.scheme != "https" or not url.hostname or url.username is not None or
+            url.password is not None or url.query or url.fragment or
+            url.path not in ("", "/") or "?" in base or "#" in base):
+        raise ValueError("HTTPS or exact opted-in loopback origin required")
+    url.port  # Reject invalid ports before creating any request.
+    return base.rstrip("/")
+
 class Subscriber:
-    def __init__(self, base, token, inbox, adapter, run_id=None):
-        self.base, self.token, self.inbox, self.adapter = base.rstrip("/"), token, inbox, adapter
+    def __init__(self, base, token, inbox, adapter, run_id=None, *, private_relay=False, loopback_test=False):
+        self.base = validate_origin(base, private_relay=private_relay, loopback_test=loopback_test)
+        self.token, self.inbox, self.adapter = token, inbox, adapter
         if run_id is not None and (not isinstance(run_id,str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}",run_id)):
             raise ValueError("invalid run identity")
         self.run_id=run_id
@@ -179,17 +195,18 @@ def main():
     parser.add_argument("--adapter", required=True, help="operator-owned local Python module exposing adapter.deliver")
     parser.add_argument("--run-id", help="explicit V2 run-owner inbox; adapter must authorize immutable run/conversation")
     parser.add_argument("--allow-loopback-test", action="store_true")
+    parser.add_argument("--allow-private-relay", action="store_true", help="opt in only to http://127.0.0.1:4001; operator must attest upstream ownership")
     args = parser.parse_args()
-    url = urllib.parse.urlsplit(args.base_url)
-    if url.username or url.password or url.query or url.fragment or url.path not in ("", "/"):
-        parser.error("base URL must be a credential-free origin")
-    if url.scheme != "https" and not (args.allow_loopback_test and url.scheme == "http" and url.hostname == "127.0.0.1" and url.port == 4898):
-        parser.error("HTTPS required outside isolated loopback fixture")
+    try:
+        validate_origin(args.base_url, private_relay=args.allow_private_relay, loopback_test=args.allow_loopback_test)
+    except ValueError:
+        parser.error("HTTPS or exact explicitly opted-in loopback origin required")
     token = os.environ.get("RHYTHM_NOTIFY_TOKEN")
     if not token:
         parser.error("explicit owner-bound RHYTHM_NOTIFY_TOKEN required; no auth fallback")
     adapter = importlib.import_module(args.adapter).adapter
-    Subscriber(args.base_url, token, Inbox(args.inbox), adapter, args.run_id).run()
+    Subscriber(args.base_url, token, Inbox(args.inbox), adapter, args.run_id,
+               private_relay=args.allow_private_relay, loopback_test=args.allow_loopback_test).run()
 
 if __name__ == "__main__":
     main()
