@@ -1,0 +1,2 @@
+# Unified-diff context markers are significant bytes in this hash-pinned artifact.
+native.patch -whitespace

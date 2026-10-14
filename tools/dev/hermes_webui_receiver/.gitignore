@@ -1,0 +1,4 @@
+# Keep the hash-pinned deployed-source fixture local; capture_source reconstructs it.
+source_snapshot/
+__pycache__/
+*.pyc

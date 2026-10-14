@@ -1,0 +1,1004 @@
+--- a/server.py
++++ b/server.py
+@@ -389,6 +389,9 @@
+             parsed = urlparse(self.path)
+             # Body-pending-aware: a body-bearing GET failing auth would poison reuse (#7550).
+             if not check_auth_or_close(self, parsed): return
++            from api.rhythm_notify import handle_browser
++            if parsed.path == '/api/rhythm-notify/render-metadata':
++                return handle_browser(self, parsed)
+             result = handle_get(self, parsed)
+             if result is False:
+                 return j(self, {'error': 'not found'}, status=404)
+@@ -413,8 +416,14 @@
+             set_request_profile(cookie_profile)
+         try:
+             parsed = urlparse(self.path)
++            from api.rhythm_notify import handle as handle_rhythm_notify
++            if self.command == 'POST' and parsed.path in ('/api/rhythm-notify/receive', '/api/rhythm-notify/status'):
++                return handle_rhythm_notify(self, parsed)
+             _is_csp_report_post = parsed.path == "/api/csp-report" and self.command == "POST"
+             if not _is_csp_report_post and not check_auth_or_close(self, parsed): return
++            from api.rhythm_notify import handle_browser
++            if parsed.path == '/api/rhythm-notify/render-receipt':
++                return handle_browser(self, parsed)
+             result = route_func(self, parsed)
+             if result is False:
+                 return j(self, {'error': 'not found'}, status=404)
+@@ -678,6 +687,8 @@
+ 
+     _abort_if_already_serving(HOST, PORT)
+     httpd = QuietHTTPServer((HOST, PORT), Handler)
++    from api.rhythm_notify import startup as start_rhythm_notify
++    httpd.rhythm_notify = start_rhythm_notify()
+     from api.gateway_chat import resume_gateway_runs_after_restart; resume_gateway_runs_after_restart()  # bound, not yet serving
+ 
+     from api.config import TLS_ENABLED, TLS_CERT, TLS_KEY
+@@ -732,6 +743,7 @@
+     try:
+         httpd.serve_forever()
+     finally:
++        httpd.rhythm_notify.shutdown()
+         httpd.server_close()
+         _log_shutdown_audit()
+         try:
+--- a/api/routes.py
++++ b/api/routes.py
+@@ -25097,6 +25097,7 @@
+     process_id: str = "",
+     retry_attempt: int = 0,
+     rearm_deferred_wakeup: bool = False,
++    notification=None,
+ ):
+     """Persist pending state, register an SSE channel, and start an agent turn.
+ 
+@@ -25167,6 +25168,8 @@
+     journal_event = {}
+     while True:
+         with session_lock:
++            if notification is not None:
++                notification.recheck(s)
+             locked_stream_id = getattr(s, "active_stream_id", None)
+             if locked_stream_id:
+                 if _active_stream_blocks_chat_start(s, locked_stream_id):
+@@ -25257,6 +25260,10 @@
+                 diag.stage("save_pending_state") if diag else None
+                 was_hidden_empty_session = _is_hidden_empty_session(s)
+                 try:
++                    if notification is not None:
++                        notification.arm(s)
++                    else:
++                        s._rhythm_notify_operation = None
+                     _prepare_chat_start_session_for_stream(
+                         s,
+                         msg=msg,
+@@ -25274,6 +25281,7 @@
+                         journal_event = append_turn_journal_event(
+                             s.session_id,
+                             {
++                                **(notification.fields if notification is not None else {}),
+                                 "event": "submitted",
+                                 "stream_id": stream_id,
+                                 "role": "user",
+@@ -25286,7 +25294,11 @@
+                             },
+                         )
+                     except Exception:
++                        if notification is not None:
++                            raise
+                         logger.warning("Failed to append submitted turn journal event", exc_info=True)
++                    if notification is not None:
++                        notification.committed(s, journal_event)
+                     diag.stage("stream_registration") if diag else None
+                     stream = create_stream_channel()
+                     register_stream_owner(stream_id, s.session_id)
+@@ -25560,6 +25572,7 @@
+     process_id: str = "",
+     retry_attempt: int = 0,
+     rearm_deferred_wakeup: bool = False,
++    notification=None,
+ ):
+     """Shared start-run helper for /api/chat/start and start_session_turn.
+ 
+@@ -25605,6 +25618,8 @@
+     # Determine external ownership before translating the alias. The adapter
+     # gate below keeps its original shape as the seam tests pin it.
+     runner_enabled = runtime_adapter_runner_enabled()
++    if notification is not None and (runner_enabled or gateway_chat_enabled):
++        return {"error": "notification requires native journal backend", "_status": 501}
+     alias_refusal = _unresolved_model_alias_lane_response(alias_route, model_provider)
+     if alias_refusal is not None:
+         logger.warning(
+@@ -25647,6 +25662,7 @@
+                 process_id=process_id,
+                 retry_attempt=retry_attempt,
+                 rearm_deferred_wakeup=rearm_deferred_wakeup,
++        notification=notification,
+             )
+ 
+         def _legacy_adapter_factory():
+@@ -25698,6 +25714,7 @@
+         process_id=process_id,
+         retry_attempt=retry_attempt,
+         rearm_deferred_wakeup=rearm_deferred_wakeup,
++        notification=notification,
+     )
+ 
+ 
+@@ -25760,6 +25777,7 @@
+     process_id: str = "",
+     retry_attempt: int = 0,
+     rearm_deferred_wakeup: bool = False,
++    notification=None,
+ ):
+     """Start a server-side agent turn for ``session_id`` with ``message``.
+ 
+@@ -25960,6 +25978,7 @@
+         process_id=process_id,
+         retry_attempt=retry_attempt,
+         rearm_deferred_wakeup=rearm_deferred_wakeup,
++        notification=notification,
+     )
+ 
+     # ── Defect B: live-view of server-initiated turns ──────────────────────
+--- a/api/models.py
++++ b/api/models.py
+@@ -1652,6 +1652,8 @@
+         return SESSION_DIR / f'{self.session_id}.json'
+ 
+     def save(self, touch_updated_at: bool = True, skip_index: bool = False) -> None:
++        operation = getattr(self, "_rhythm_notify_operation", None)
++        notification_metadata = operation.save_metadata(self) if operation is not None else None
+         if not is_safe_session_id(self.session_id):
+             raise ValueError(f"Unsafe session_id {self.session_id!r}; refusing to write outside session store")
+         # ── #1558 P0 guard ──────────────────────────────────────────────
+@@ -1725,6 +1727,8 @@
+                 self.session_id,
+             )
+         meta = {k: getattr(self, k, None) for k in METADATA_FIELDS}
++        if notification_metadata is not None:
++            meta.update(notification_metadata)
+         # #5854: message_count and a compact anchor-scene fingerprint go in the
+         # metadata prefix (BEFORE messages) so load_metadata_only() and the
+         # sidebar-poll freshness check never have to parse the full (250-480KB)
+@@ -1920,6 +1924,8 @@
+                 # Callers that explicitly skip the sidebar projection retain
+                 # the existing same-session concurrency contract: their unique
+                 # temp files may replace the sidecar independently.
++                if operation is not None:
++                    operation.check_save(self, notification_metadata)
+                 _safe_replace(tmp, self.path)
+             else:
+                 # Publish the sidecar and its sidebar projection as one ordered
+@@ -1929,6 +1935,8 @@
+                 # can publish both files, and then the older save can regress
+                 # only the index with its frozen projection.
+                 with _INDEX_WRITE_LOCK:
++                    if operation is not None:
++                        operation.check_save(self, notification_metadata)
+                     _safe_replace(tmp, self.path)
+                     # Build the sidebar entry from the same guarded transcript
+                     # snapshot as the JSON payload. A shallow copy avoids
+--- a/static/ui.js
++++ b/static/ui.js
+@@ -18335,6 +18335,7 @@
+   seg.insertAdjacentHTML('beforeend', html);
+ }
+ function renderMessages(options){
++  _scheduleRhythmRenderReceipt();
+   _lastMessageRenderAt=performance.now();
+   // typeof guard: node harnesses extract renderMessages() without its helpers (#6717).
+   if(!(options&&options._internalMeasurement) && typeof _resetMessageVirtualMeasurementBurst==='function'){ _resetMessageVirtualMeasurementBurst(); }
+@@ -23600,3 +23601,44 @@
+   if(extracted.length)showToast(t('archive_extracted',extracted.reduce((s,n)=>s+n.extracted,0),extracted.length));
+   return names;
+ }
++
++// Metadata is a render correlation proof, never an instruction or credential.
++// Trust: authenticated UI relay attests visibility, not that a human read it.
++const _rhythmRendered = new Set();
++let _rhythmReceiptPending = false;
++function _scheduleRhythmRenderReceipt(){
++  // ponytail: bounded render opportunities, no perpetual polling or LLM wakeup.
++  for(const delay of [0,100,500,1500]) setTimeout(_rhythmRenderReceipt,delay);
++}
++async function _rhythmRenderReceipt(){
++  if(_rhythmReceiptPending || document.visibilityState!=='visible' || S.busy) return;
++  const sid=S.session?.session_id;
++  if(!sid || !_isSessionCurrentPane(sid)) return;
++  _rhythmReceiptPending=true;
++  try{
++    const data=await api('/api/rhythm-notify/render-metadata?hermesSessionId='+encodeURIComponent(sid),{retries:0});
++    for(const proof of data?.events||[]){
++      if(_rhythmRendered.has(proof.eventId) || S.busy || S.session?.session_id!==sid ||
++          proof.hermesSessionId!==sid || document.visibilityState!=='visible') continue;
++      const message=S.messages?.[proof.messageIndex];
++      if(message?.role!=='assistant' || !message.content ||
++          JSON.stringify(message.content)!==JSON.stringify(data.contents?.[proof.messageId])) continue;
++      // Bind to the existing renderer's saved-message row, never source text alone.
++      const row=document.querySelector('#messages [data-msg-idx="'+proof.messageIndex+'"]');
++      if(!row || row.getAttribute('data-role')==='user') continue;
++      const el=row.querySelector('.msg-content p,.message-content p,.markdown-body p,p')||row;
++      const r=el.getBoundingClientRect();
++      const x=r.x+r.width/2,y=r.y+r.height/2;
++      if(r.width<=0 || r.height<=0 || x<0 || y<0 || x>=innerWidth || y>=innerHeight) continue;
++      const hit=document.elementFromPoint(x,y);
++      if(!hit || !(hit===el || el.contains(hit))) continue;
++      const receipt=await api('/api/rhythm-notify/render-receipt',{
++        method:'POST',body:JSON.stringify(proof),retries:0});
++      if(receipt?.state==='visible') _rhythmRendered.add(proof.eventId);
++    }
++  }catch(_){ /* fail closed; next render/reopen is a bounded retry opportunity */ }
++  finally{_rhythmReceiptPending=false;}
++}
++document.addEventListener('visibilitychange',_scheduleRhythmRenderReceipt);
++window.addEventListener('focus',_scheduleRhythmRenderReceipt);
++document.addEventListener('scroll',_scheduleRhythmRenderReceipt,{capture:true,passive:true});
+--- a/api/rhythm_notify.py
++++ b/api/rhythm_notify.py
+@@ -0,0 +1,348 @@
++"""Owned in-process notification integration. No provider or launch on import."""
++import json
++import hashlib
++import os
++import stat
++import secrets
++import hmac
++from urllib.parse import parse_qs
++from pathlib import Path
++
++from api.config import STATE_DIR, _get_session_agent_lock
++from api.models import get_session
++from api.rhythm_inbox import Capability, Receiver, Denied, binding_json, encoded
++from api.turn_journal import read_turn_journal
++
++
++class Native:
++    def __init__(self):
++        self.path = STATE_DIR / 'rhythm-notify.sqlite'
++        self.registry = STATE_DIR / 'rhythm-notify-registry.json'
++
++    def records(self):
++        # A protected local operator registry, never an HTTP adoption operation.
++        fd = os.open(self.registry, os.O_RDONLY | os.O_NOFOLLOW)
++        with os.fdopen(fd) as file:
++            info = os.fstat(file.fileno())
++            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
++                    or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > 1024 * 1024):
++                raise Denied('registry unavailable')
++            data = json.load(file)
++        if data.get('version') != 2 or not isinstance(data.get('runs'), dict):
++            raise Denied('registry unavailable')
++        return data['runs']
++
++    def current_binding(self, run_id):
++        record = self.records().get(run_id)
++        if not isinstance(record, dict) or record.get('active') is not True:
++            raise Denied('origin unavailable')
++        binding = record.get('binding')
++        binding_json(binding)
++        if binding['runId'] != run_id:
++            raise Denied('origin unavailable')
++        try:
++            session = get_session(binding['hermesSessionId'])
++            # Read durable metadata too: a warm cache is not a revocation proof.
++            saved = json.loads(Path(session.path).read_text())
++        except (KeyError, OSError, ValueError):
++            raise Denied('origin unavailable') from None
++        if (session.session_id != binding['hermesSessionId']
++                or session.profile != binding['profile']
++                or saved.get('profile') != binding['profile']
++                or saved.get('session_id') != binding['hermesSessionId']):
++            raise Denied('origin unavailable')
++        store = Receiver(self.path)
++        try:
++            row = store.db.execute('SELECT * FROM links WHERE run_id=?', (run_id,)).fetchone()
++            if (row is None or not row['active'] or row['binding'] != binding_json(binding)
++                    or row['credential_digest'] != record.get('credentialDigest')):
++                raise Denied('origin unavailable')
++        finally:
++            store.close()
++        return binding
++
++    def start_once(self, intent, binding):
++        from api.routes import start_session_turn
++        operation = Operation(self, intent, binding)
++        # Do not take the non-reentrant session lock here: the real start chain
++        # rechecks operation authority inside its existing commit lock.
++        result = start_session_turn(binding['hermesSessionId'], intent['event']['text'],
++                                    source='rhythm_notify', notification=operation)
++        return 'busy' if result.get('_status') == 409 else None
++
++    def observe(self, turn_identity):
++        # Journal completion and saved bytes alone never qualify visibility.
++        for run_id in self.records():
++            binding = self.current_binding(run_id)
++            journal = read_turn_journal(binding['hermesSessionId'])
++            if journal['malformed']:
++                continue
++            events = journal['events']
++            submitted = [e for e in events if e.get('event') == 'submitted'
++                         and e.get('turn_id') == turn_identity and e.get('rhythm_notify')]
++            if len(submitted) != 1:
++                continue
++            event = submitted[0]
++            states = [e.get('event') for e in events if e.get('turn_id') == turn_identity]
++            if 'worker_started' not in states:
++                return None  # committed-before-launch is ambiguous, never replayed
++            proof = dict(turnIdentity=turn_identity, eventId=event['rhythm_notify']['eventId'],
++                        identityHash=event['rhythm_notify']['identityHash'],
++                        hermesSessionId=binding['hermesSessionId'],
++                        state='started')
++            completed = [e for e in events if e.get('turn_id') == turn_identity
++                         and e.get('event') == 'completed']
++            if len(completed) == 1 and not any(s in states for s in ('interrupted', 'failed')):
++                session = get_session(binding['hermesSessionId'])
++                saved = json.loads(Path(session.path).read_text())
++                index = completed[0].get('assistant_message_index')
++                messages = saved.get('messages', [])
++                if (type(index) is int and 0 <= index < len(messages)
++                        and messages[index].get('role') == 'assistant'
++                        and messages[index].get('content')):
++                    proof['state'] = 'completed'
++                    proof['saved'] = dict(messageId=hashlib.sha256(encoded(messages[index]).encode()).hexdigest(),
++                                          identityHash=proof['identityHash'], turnIdentity=turn_identity)
++                    proof['messageIndex'] = index
++            return proof
++
++    def browser_owned(self, handler, binding):
++        from api.auth import is_auth_enabled, get_session_info, parse_cookie
++        from api.profiles import get_active_profile_name
++        if get_active_profile_name() != binding['profile']:
++            raise Denied('origin unavailable')
++        # Auth-disabled LAN is the existing trusted single-operator boundary.
++        # Auth-enabled deployments must bind the existing login, never a body owner.
++        if is_auth_enabled():
++            cookie = parse_cookie(handler) or ''
++            info = getattr(handler, '_trusted_auth_session_reconciled', None) or get_session_info(cookie) or {}
++            record = self.records()[binding['runId']]
++            session_digest = hashlib.sha256(cookie.encode()).hexdigest()
++            if not (info.get('username') == binding['owner'] or
++                    (cookie and hmac.compare_digest(session_digest,
++                        record.get('browserSessionDigest', '')))):
++                raise Denied('origin unavailable')
++
++    def render_metadata(self, store, row, binding):
++        proof = self.observe(row['turn_id'])
++        if (not proof or proof.get('state') != 'completed' or
++                proof.get('eventId') != row['event_id'] or
++                proof.get('identityHash') != row['identity_hash']):
++            raise Denied('completion unavailable')
++        session = get_session(binding['hermesSessionId'])
++        if session.active_stream_id or session.pending_user_message:
++            raise Denied('chat busy')
++        metadata = dict(eventId=row['event_id'], runId=binding['runId'],
++                        hermesSessionId=binding['hermesSessionId'],
++                        turnIdentity=row['turn_id'], messageId=proof['saved']['messageId'],
++                        messageIndex=proof['messageIndex'], identityHash=row['identity_hash'])
++        prior = store.db.execute('SELECT metadata FROM render_proofs WHERE event_id=?',
++                                 (row['event_id'],)).fetchone()
++        if prior:
++            old = json.loads(prior['metadata'])
++            if any(old.get(key) != value for key, value in metadata.items()):
++                raise Denied('saved reply changed')
++            return old, proof
++        metadata['proofNonce'] = secrets.token_hex(32)
++        store.db.execute('INSERT INTO render_proofs(event_id,metadata) VALUES(?,?)',
++                         (row['event_id'], encoded(metadata)))
++        return metadata, proof
++
++
++def handle_browser(handler, parsed):
++    """Called ONLY after the existing browser auth/CSRF request gate."""
++    from api.helpers import j
++    path = parsed.path
++    if path not in ('/api/rhythm-notify/render-metadata', '/api/rhythm-notify/render-receipt'):
++        return False
++    from api.routes import _check_csrf, _check_same_origin_browser_request, _csrf_rejection_error
++    check = _check_csrf if handler.command != 'GET' else _check_same_origin_browser_request
++    if not check(handler):
++        handler.close_connection = True
++        return j(handler, {'error': _csrf_rejection_error(handler)}, status=403)
++    capability = getattr(handler.server, 'rhythm_notify', None)
++    store = None
++    try:
++        if capability is None:
++            raise Denied('unavailable')
++        native = capability.native
++        if path.endswith('render-metadata') and handler.command == 'GET':
++            query = parse_qs(parsed.query, strict_parsing=True)
++            if set(query) != {'hermesSessionId'} or len(query['hermesSessionId']) != 1:
++                raise ValueError('invalid query')
++            sid = query['hermesSessionId'][0]
++            results = []
++            contents = {}
++            store = Receiver(native.path)
++            for run_id in native.records():
++                binding = native.current_binding(run_id)
++                if binding['hermesSessionId'] != sid:
++                    continue
++                with _get_session_agent_lock(sid):
++                    binding = native.current_binding(run_id)
++                    native.browser_owned(handler, binding)
++                    for row in store.db.execute("SELECT * FROM inbox WHERE run_id=? AND state IN ('started','completed')", (run_id,)).fetchall():
++                        try:
++                            store.db.execute('BEGIN IMMEDIATE')
++                            metadata, _ = native.render_metadata(store, row, binding)
++                            store.db.commit()
++                            results.append(metadata)
++                            saved = json.loads(Path(get_session(sid).path).read_text())
++                            contents[metadata['messageId']] = saved['messages'][metadata['messageIndex']]['content']
++                        except Denied:
++                            store.db.rollback()
++            return j(handler, {'events': results, **({'contents': contents} if results else {})})
++        if not path.endswith('render-receipt') or handler.command != 'POST':
++            raise ValueError('invalid method')
++        if handler.headers.get('Transfer-Encoding'):
++            raise ValueError('unsupported framing')
++        length = int(handler.headers.get('Content-Length', '0'))
++        if not 0 < length <= 4096:
++            raise ValueError('invalid size')
++        metadata = json.loads(handler.rfile.read(length))
++        if not isinstance(metadata, dict) or set(metadata) != {
++                'eventId', 'runId', 'hermesSessionId', 'turnIdentity', 'messageId',
++                'messageIndex', 'identityHash', 'proofNonce'}:
++            raise ValueError('invalid receipt')
++        binding = native.current_binding(metadata['runId'])
++        with _get_session_agent_lock(binding['hermesSessionId']):
++            binding = native.current_binding(metadata['runId'])
++            native.browser_owned(handler, binding)
++            if metadata['hermesSessionId'] != binding['hermesSessionId']:
++                raise Denied('wrong chat')
++            store = Receiver(native.path)
++            store.db.execute('BEGIN IMMEDIATE')
++            row = store.db.execute('SELECT * FROM inbox WHERE event_id=? AND run_id=?',
++                                   (metadata['eventId'], binding['runId'])).fetchone()
++            prior = store.db.execute('SELECT metadata FROM render_proofs WHERE event_id=?',
++                                     (metadata['eventId'],)).fetchone()
++            if row is None or prior is None or row['state'] not in ('started', 'completed', 'visible'):
++                raise Denied('completion unavailable')
++            expected, proof = native.render_metadata(store, row, binding)
++            if metadata != expected or encoded(metadata) != prior['metadata']:
++                raise Denied('receipt mismatch')
++            store._owned(native.current_binding(binding['runId']))
++            proof['rendered'] = proof['saved']
++            proof['visibilityTrust'] = 'authenticated-ui-relay-attestation-not-human-reading'
++            store.db.execute('UPDATE render_proofs SET received=1 WHERE event_id=?', (row['event_id'],))
++            store.db.execute("UPDATE inbox SET state='visible',proof=? WHERE event_id=? AND state!='visible'",
++                             (encoded(proof), row['event_id']))
++            store.db.commit()
++            return j(handler,
++                dict(version=2, eventId=row['event_id'], runId=binding['runId'],
++                     hermesSessionId=binding['hermesSessionId'], state='visible'))
++    except (Denied, FileNotFoundError):
++        return j(handler, {'error': 'unavailable'}, status=404)
++    except (ValueError, TypeError, KeyError, AttributeError):
++        handler.close_connection = True
++        return j(handler, {'error': 'invalid_receipt'}, status=400)
++    finally:
++        if store is not None:
++            store.db.rollback()
++            store.close()
++
++
++class Operation:
++    def __init__(self, native, intent, binding):
++        self.native, self.intent, self.binding = native, intent, binding
++        self.fields = {'turn_id': intent['turnIdentity'], 'rhythm_notify': {
++            'eventId': intent['event']['eventId'], 'identityHash': intent['identityHash'],
++            'runId': binding['runId']}}
++
++    def recheck(self, session):
++        if self.native.current_binding(self.binding['runId']) != self.binding:
++            raise Denied('origin unavailable')
++        if session.session_id != self.binding['hermesSessionId']:
++            raise Denied('origin unavailable')
++        journal = read_turn_journal(session.session_id)
++        # Malformed journal or any prior operation is an ambiguous quarantine.
++        if journal['malformed'] or any(e.get('turn_id') == self.intent['turnIdentity']
++                                       for e in journal['events']):
++            raise Denied('native operation already committed or ambiguous')
++
++    def arm(self, session):
++        # Capture authoritative durable metadata, not the warm Session cache.
++        self.authority = self.metadata(session)
++        self.record = self.native.records()[self.binding['runId']]
++        session._rhythm_notify_operation = self
++
++    def metadata(self, session):
++        saved = json.loads(Path(session.path).read_text())
++        return {key: saved.get(key) for key in
++                ('session_id', 'profile', 'clear_generation', 'intentional_shrink_generation')}
++
++    def save_metadata(self, session):
++        # A stale notification worker must never erase a transfer/reset. Preserve
++        # the file and quarantine its queue instead of retagging the cached object.
++        current = self.metadata(session)
++        if (self.native.records().get(self.binding['runId']) != self.record
++                or any(current[key] != self.authority[key] for key in
++                       ('session_id', 'clear_generation', 'intentional_shrink_generation'))):
++            raise Denied('notification metadata generation changed')
++        # Keep the worker's original owner/profile untouched. Only serialization
++        # uses the durable transfer; current_binding then denies every old event.
++        return current
++
++    def check_save(self, session, metadata):
++        if self.save_metadata(session) != metadata:
++            raise Denied('notification metadata changed during save')
++
++    def committed(self, session, event):
++        if any(event.get(k) != v for k, v in self.fields.items()):
++            raise Denied('native commit receipt absent')
++        # The existing helper swallows directory fsync errors for ordinary chat.
++        # Notification delivery requires that durability receipt explicitly.
++        directory = Path(session.path).parent / '_turn_journal'
++        fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
++        try:
++            os.fsync(fd)
++        finally:
++            os.close(fd)
++
++
++def startup():
++    native = Native()
++    store = Receiver(native.path)
++    try:
++        try:
++            records = native.records()
++        except FileNotFoundError:
++            records = {}
++        for record in records.values():
++            if record.get('active') is True:
++                store.link(record['binding'], record['credentialDigest'], operator_authorized=True)
++    finally:
++        store.close()
++    capability = Capability(native.path, native)
++    # Empty/missing registry does not grant authority; drain fails closed.
++    capability.startup()
++    return capability
++
++
++def handle(handler, parsed):
++    capability = getattr(handler.server, 'rhythm_notify', None)
++    if parsed.path not in (Capability.RECEIVE, Capability.STATUS) or handler.command != 'POST':
++        return False
++    from api.helpers import j
++    try:
++        if handler.headers.get('Transfer-Encoding'):
++            raise ValueError('unsupported framing')
++        length = int(handler.headers.get('Content-Length', '0'))
++        if not 0 < length <= 8192:
++            raise ValueError('invalid size')
++        body = handler.rfile.read(length)
++        if len(body) != length:
++            raise ValueError('truncated body')
++        if capability is None:
++            return j(handler, {'error': 'unavailable'}, status=404)
++        # Lock the trusted native chat, not a client-selected profile cookie.
++        event = json.loads(body)
++        binding = capability.native.current_binding(event.get('runId'))
++        with _get_session_agent_lock(binding['hermesSessionId']):
++            code, result = capability.handle('POST', parsed.path, dict(handler.headers), body)
++        return j(handler, result, status=code)
++    except (Denied, FileNotFoundError):
++        return j(handler, {'error': 'unavailable'}, status=404)
++    except (ValueError, TypeError, AttributeError):
++        handler.close_connection = True
++        return j(handler, {'error': 'invalid_event'}, status=400)
+--- a/api/rhythm_inbox.py
++++ b/api/rhythm_inbox.py
+@@ -0,0 +1,356 @@
++"""Durable intent inbox. Native JSON/journal effects are NOT this SQLite transaction.
++
++The native boundary must implement correlated, fenced start_once/observe in the
++RUNNING WebUI process. Never configure it with a docker-exec/import surrogate.
++No provider, server, credentials, database or worker is opened on import.
++"""
++import hashlib
++import hmac
++import json
++import re
++import secrets
++import sqlite3
++import threading
++import time
++from api.rhythm_schema import validate
++
++
++class Denied(ValueError):
++    pass
++
++
++class Collision(ValueError):
++    pass
++
++
++def encoded(value):
++    return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True)
++
++
++def identity(event):
++    validate(event)
++    if event['version'] != 2:
++        raise ValueError('V2 required')
++    return encoded({k: v for k, v in event.items() if k != 'state'})
++
++
++def binding_json(binding):
++    if not isinstance(binding, dict) or set(binding) != {
++            'runId', 'owner', 'profile', 'hermesSessionId', 'sessionId'}:
++        raise Denied('invalid local binding')
++    if any(not isinstance(v, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', v)
++           for v in binding.values()):
++        raise Denied('invalid local binding')
++    return encoded(binding)
++
++
++class Receiver:
++    def __init__(self, path):
++        self.db = sqlite3.connect(path, isolation_level=None, timeout=10, uri=True)
++        self.db.row_factory = sqlite3.Row
++        try:
++            self.db.execute('PRAGMA synchronous=FULL')
++            if self._migrate():
++                self.db.execute('PRAGMA journal_mode=WAL')
++        except BaseException:
++            self.db.close()
++            raise
++
++    def _migrate(self):
++        # Receiver scratch DB only. Exact known schemas, never a user/chat DB.
++        schemas = {
++            'links': '''CREATE TABLE links(
++                run_id TEXT PRIMARY KEY, binding TEXT NOT NULL, credential_digest TEXT NOT NULL,
++                active INTEGER NOT NULL CHECK(active IN (0,1)))''',
++            'inbox': '''CREATE TABLE inbox(
++                event_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES links(run_id),
++                payload TEXT NOT NULL, identity_hash TEXT NOT NULL, turn_id TEXT NOT NULL UNIQUE,
++                state TEXT NOT NULL CHECK(state IN ('accepted','launching','started','completed','visible')),
++                lease TEXT, lease_until REAL, proof TEXT)''',
++            'render_proofs': '''CREATE TABLE render_proofs(
++                event_id TEXT PRIMARY KEY, metadata TEXT NOT NULL, received INTEGER NOT NULL DEFAULT 0)''',
++        }
++        def normalized(sql):
++            return re.sub(r'\s+', '', sql.replace('IF NOT EXISTS ', '').replace('"inbox"', 'inbox')).rstrip(';')
++        def inspect_schema():
++            version = self.db.execute('PRAGMA user_version').fetchone()[0]
++            if version not in (0, 2):
++                raise ValueError('unknown receiver schema version')
++            objects = self.db.execute("SELECT name,type,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").fetchall()
++            tables = {r['name']: r['sql'] for r in objects if r['type'] == 'table'}
++            legacy = False
++            if tables or version == 2:
++                if not {'links', 'inbox'} <= tables.keys():
++                    raise ValueError('not a receiver database')
++                for name, sql in schemas.items():
++                    if name not in tables:
++                        if name == 'render_proofs' and version == 0:
++                            continue
++                        raise ValueError('incomplete receiver schema')
++                    actual = normalized(tables[name])
++                    if name == 'inbox' and version == 0 and actual == normalized(sql.replace("'completed',", '')):
++                        legacy = True
++                    elif actual != normalized(sql):
++                        raise ValueError('unknown receiver schema')
++                # Unknown dependent SQL cannot safely be rebuilt. Preserve/fail closed.
++                if any(r['type'] != 'table' and r['tbl_name'] in schemas for r in objects):
++                    raise ValueError('unknown receiver dependencies')
++                for name in tables.keys() - schemas.keys():
++                    if any(r['table'] in schemas for r in self.db.execute('PRAGMA foreign_key_list("'+name.replace('"', '""')+'")')):
++                        raise ValueError('unknown receiver references')
++            return version, tables, legacy
++
++        # Current authority reads must not compete with their caller's write lock.
++        # Validate the complete schema in one read snapshot, not just its version.
++        self.db.execute('BEGIN')
++        try:
++            version, _, _ = inspect_schema()
++            self.db.commit()
++        except BaseException:
++            self.db.rollback()
++            raise
++        if version == 2:
++            return False
++        self.db.execute('BEGIN IMMEDIATE')
++        try:
++            # Another initializer may have migrated while we waited for the lock.
++            version, tables, legacy = inspect_schema()
++            if version == 2:
++                self.db.commit()
++                return False
++            if legacy:
++                self.db.execute(schemas['inbox'].replace('CREATE TABLE inbox(', 'CREATE TABLE inbox_migrating('))
++                self.db.execute('INSERT INTO inbox_migrating(rowid,event_id,run_id,payload,identity_hash,turn_id,state,lease,lease_until,proof) SELECT rowid,* FROM inbox')
++                # No state inference, identity/credential rewrite or lease expiry retry.
++                self.db.execute('DROP TABLE inbox')
++                self.db.execute('ALTER TABLE inbox_migrating RENAME TO inbox')
++            for name, sql in schemas.items():
++                if name not in tables:
++                    self.db.execute(sql)
++            self.db.execute('PRAGMA user_version=2')
++            self.db.commit()
++            return True
++        except BaseException:
++            self.db.rollback()
++            raise
++
++    def close(self):
++        self.db.close()
++
++    def link(self, binding, credential_digest, *, operator_authorized=False):
++        # Provision only from the authenticated operator's local run registry.
++        # No HTTP link endpoint exists. Caller authorization is a native integration gate.
++        if operator_authorized is not True or not re.fullmatch(r'[0-9a-f]{64}', credential_digest):
++            raise Denied('operator authorization required')
++        payload = binding_json(binding)
++        self.db.execute('BEGIN IMMEDIATE')
++        try:
++            prior = self.db.execute('SELECT * FROM links WHERE run_id=?', (binding['runId'],)).fetchone()
++            if prior and (prior['binding'] != payload or prior['credential_digest'] != credential_digest or not prior['active']):
++                raise Collision('immutable link conflict')
++            self.db.execute('INSERT OR IGNORE INTO links VALUES(?,?,?,1)',
++                            (binding['runId'], payload, credential_digest))
++            self.db.commit()
++        except BaseException:
++            self.db.rollback()
++            raise
++
++    def revoke(self, run_id, *, operator_authorized=False):
++        if operator_authorized is not True:
++            raise Denied('operator authorization required')
++        self.db.execute('UPDATE links SET active=0 WHERE run_id=?', (run_id,))
++
++    def _owned(self, binding, authorization=None):
++        payload = binding_json(binding)
++        row = self.db.execute('SELECT * FROM links WHERE run_id=?', (binding['runId'],)).fetchone()
++        if not row or not row['active'] or row['binding'] != payload:
++            raise Denied('origin unavailable')
++        if authorization is not None:
++            if not isinstance(authorization, str) or not authorization.startswith('Bearer ') or len(authorization) > 8192:
++                raise Denied('relay authorization rejected')
++            token = authorization[7:]
++            digest = hashlib.sha256(token.encode()).hexdigest()
++            if not token or not hmac.compare_digest(digest, row['credential_digest']):
++                raise Denied('relay authorization rejected')
++
++    def _event_owned(self, event, binding, authorization):
++        payload = identity(event)
++        if not isinstance(authorization, str) or not authorization.startswith('Bearer '):
++            raise Denied('relay authorization rejected')
++        self._owned(binding, authorization)
++        if any(event[k] != binding[k] for k in ('runId', 'hermesSessionId', 'sessionId')):
++            raise Denied('origin unavailable')
++        return payload
++
++    def receive(self, event, authorization, current_binding):
++        self.db.execute('BEGIN IMMEDIATE')
++        try:
++            payload = self._event_owned(event, current_binding, authorization)
++            digest = hashlib.sha256(payload.encode()).hexdigest()
++            old = self.db.execute('SELECT payload FROM inbox WHERE event_id=?', (event['eventId'],)).fetchone()
++            if old and old['payload'] != payload:
++                raise Collision('event identity conflict')
++            self.db.execute("INSERT OR IGNORE INTO inbox(event_id,run_id,payload,identity_hash,turn_id,state) VALUES(?,?,?,?,?,'accepted')",
++                            (event['eventId'], event['runId'], payload, digest, 'rhythm_' + digest))
++            self.db.commit()
++        except BaseException:
++            self.db.rollback()
++            raise
++        return self.status(event, authorization, current_binding)
++
++    def status(self, event, authorization, current_binding):
++        payload = self._event_owned(event, current_binding, authorization)
++        row = self.db.execute('SELECT * FROM inbox WHERE event_id=?', (event['eventId'],)).fetchone()
++        if not row:
++            raise Denied('event unavailable')
++        if row['payload'] != payload:
++            raise Collision('event identity conflict')
++        receipt = dict(version=2, eventId=event['eventId'], runId=event['runId'],
++                       hermesSessionId=event['hermesSessionId'], state=row['state'])
++        return receipt
++
++    def claim(self, current_binding, *, now=None):
++        now = time.time() if now is None else now
++        self.db.execute('BEGIN IMMEDIATE')
++        try:
++            self._owned(current_binding)
++            row = self.db.execute("SELECT * FROM inbox WHERE run_id=? AND state='accepted' ORDER BY rowid LIMIT 1",
++                                  (current_binding['runId'],)).fetchone()
++            if row is None:
++                self.db.commit()
++                return None
++            lease = secrets.token_hex(16)
++            self.db.execute("UPDATE inbox SET state='launching',lease=?,lease_until=? WHERE event_id=?",
++                            (lease, now + 60, row['event_id']))
++            self.db.commit()
++            return dict(event=json.loads(row['payload']), identityHash=row['identity_hash'],
++                        turnIdentity=row['turn_id'], lease=lease)
++        except BaseException:
++            self.db.rollback()
++            raise
++
++    def busy(self, event_id, lease):
++        # Only explicit native 409 BEFORE launch; exceptions/timeout remain ambiguous.
++        self.db.execute("UPDATE inbox SET state='accepted',lease=NULL,lease_until=NULL WHERE event_id=? AND state='launching' AND lease=?",
++                        (event_id, lease))
++
++    def drain(self, native):
++        """native is trusted in-process wiring, never request-supplied evidence.
++
++        observe must read persisted native correlation journal AND saved/render
++        proof. Unknown launch outcomes stay quarantined indefinitely. No expired
++        lease, HTTP200 or in-memory journal can authorize a second launch.
++        """
++        for link in self.db.execute('SELECT binding FROM links WHERE active=1').fetchall():
++            registered = json.loads(link['binding'])
++            try:
++                current = native.current_binding(registered['runId'])
++                self._owned(current)
++            except Denied:
++                # A retired/foreign link stays quarantined, not a global drain veto.
++                continue
++            # A link may change after selection; start_once must recheck under the
++            # native session/profile lock, and fence revoked/old-session work.
++            intent = self.claim(current)
++            if intent:
++                result = native.start_once(intent, current)
++                if result == 'busy':
++                    self.busy(intent['event']['eventId'], intent['lease'])
++            for row in self.db.execute("SELECT * FROM inbox WHERE run_id=? AND state IN ('launching','started','completed')",
++                                       (current['runId'],)).fetchall():
++                current = native.current_binding(current['runId'])
++                self._owned(current)
++                proof = native.observe(row['turn_id'])
++                if not isinstance(proof, dict) or any(proof.get(k) != v for k, v in {
++                        'turnIdentity': row['turn_id'], 'eventId': row['event_id'],
++                        'identityHash': row['identity_hash'],
++                        'hermesSessionId': current['hermesSessionId']}.items()):
++                    continue
++                if proof.get('state') not in ('started', 'completed'):
++                    continue
++                state = proof['state']
++                # Saved/render observations must name the SAME native message and
++                # completed turn. Production integration must verify these server-side.
++                saved, rendered = proof.get('saved'), proof.get('rendered')
++                if (proof['state'] == 'completed' and isinstance(saved, dict) and
++                        saved == rendered and set(saved) == {'messageId', 'identityHash', 'turnIdentity'} and
++                        isinstance(saved['messageId'], str) and saved['messageId'] and
++                        saved['identityHash'] == row['identity_hash'] and saved['turnIdentity'] == row['turn_id']):
++                    state = 'visible'
++                self.db.execute('BEGIN IMMEDIATE')
++                try:
++                    self._owned(native.current_binding(current['runId']))
++                    self.db.execute("UPDATE inbox SET state=?,proof=? WHERE event_id=? AND state!='visible'",
++                                    (state, encoded(proof), row['event_id']))
++                    self.db.commit()
++                except BaseException:
++                    self.db.rollback()
++                    raise
++
++
++class Capability:
++    """Registered native handler target + owned startup/shutdown worker; no listener.
++
++    The source patch must explicitly register handle in the EXISTING WebUI server.
++    It is NOT WebUI-wide bearer authentication and exposes no link/provider/action API.
++    """
++    RECEIVE = '/api/rhythm-notify/receive'
++    STATUS = '/api/rhythm-notify/status'
++
++    def __init__(self, path, native):
++        self.path, self.native = path, native
++        self.stop = threading.Event()
++        self.worker = None
++
++    def handle(self, method, path, headers, body):
++        if method != 'POST' or path not in (self.RECEIVE, self.STATUS):
++            return 404, {'error': 'not_found'}
++        # Relay is nonbrowser-only; browser paths retain existing auth+CSRF policy.
++        if any(k.lower() in ('origin', 'cookie') for k in headers):
++            return 403, {'error': 'relay_only'}
++        if not isinstance(body, bytes) or len(body) > 8192:
++            return 400, {'error': 'invalid_event'}
++        store = Receiver(self.path)
++        try:
++            event = json.loads(body)
++            identity(event)
++            auth = next((v for k, v in headers.items() if k.lower() == 'authorization'), '')
++            current = self.native.current_binding(event['runId'])
++            action = store.receive if path == self.RECEIVE else store.status
++            return 200, action(event, auth, current)
++        except Denied:
++            return 404, {'error': 'unavailable'}
++        except Collision:
++            return 409, {'error': 'identity_conflict'}
++        except (ValueError, TypeError):
++            return 400, {'error': 'invalid_event'}
++        finally:
++            store.close()
++
++    def startup(self):
++        if self.worker is not None:
++            raise RuntimeError('receiver already started')
++        self.stop.clear()
++        self.worker = threading.Thread(target=self._drain, name='rhythm-notify-drain', daemon=True)
++        self.worker.start()
++
++    def _drain(self):
++        store = Receiver(self.path)
++        try:
++            while not self.stop.is_set():
++                try:
++                    store.drain(self.native)
++                except (ValueError, OSError, sqlite3.Error):
++                    # No event, credentials, provider strings or native exceptions logged.
++                    pass
++                self.stop.wait(1)
++        finally:
++            store.close()
++
++    def shutdown(self):
++        self.stop.set()
++        if self.worker is not None:
++            self.worker.join(timeout=30)
++            if self.worker.is_alive():
++                raise RuntimeError('native drain did not stop; restart safety gate failed')
++            self.worker = None
+--- a/api/rhythm_schema.py
++++ b/api/rhythm_schema.py
+@@ -0,0 +1,55 @@
++"""Versioned outbound SSE consumer. No listener, cron, tool execution or Hermes config edits.
++
++The operator-supplied local adapter must implement deliver(event) -> receipt and
++deduplicate eventId atomically with the original-session transcript write. A busy
++adapter returns None. No runtime adapter is shipped/claimed for WebUI.
++"""
++import argparse
++import importlib
++import json
++import os
++import re
++import sqlite3
++import time
++import urllib.error
++import urllib.parse
++import urllib.request
++
++LABELS = {
++    "progress": {"Rhythm session linked.", "Rhythm session updated."},
++    "completion": {"Rhythm session completed."},
++    "error": {"Rhythm session reported an error."},
++    "approval-request": {"Rhythm session needs approval. Open the Rhythm card."},
++    "question": {"Rhythm session has a question. Open the Rhythm session."},
++}
++FIELDS = {"version", "eventId", "cursor", "sessionId", "hermesSessionId", "workflowId", "kind", "text", "referenceId", "state"}
++
++def validate(event):
++    if not isinstance(event, dict) or type(event.get("version")) is not int or event["version"] not in (1,2) or set(event) != (FIELDS if event["version"] == 1 else FIELDS | {"runId"}):
++        raise ValueError("unsupported notification schema")
++    if event["version"] == 2 and event["runId"] != event["workflowId"]:
++        raise ValueError("run identity mismatch")
++    for key in ("eventId", "sessionId", "hermesSessionId", "workflowId"):
++        if not isinstance(event[key], str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", event[key]):
++            raise ValueError("invalid identity")
++    if type(event["cursor"]) is not int or not 0 < event["cursor"] < 10**15:
++        raise ValueError("invalid cursor")
++    workflow_label = isinstance(event["text"], str) and re.fullmatch(
++        r"Rhythm workflow (pending|running|blocked_approval|blocked_reconciliation|awaiting_children|succeeded|failed|budget_exhausted|workflow_disabled|cancelled): ([0-9]{1,9}) settled, ([0-9]{1,9}) awaiting\.", event["text"])
++    workflow_kind = None
++    if workflow_label:
++        status, settled, awaiting = workflow_label.groups()
++        workflow_kind = "completion" if status == "succeeded" else "error" if status in ("failed", "budget_exhausted", "workflow_disabled", "cancelled") else "approval-request" if status == "blocked_approval" else "progress"
++        if workflow_kind in ("completion", "error") and int(awaiting) != 0:
++            raise ValueError("unqualified workflow terminal")
++        if status == "succeeded" and int(settled) == 0:
++            raise ValueError("empty workflow success")
++    if not isinstance(event["kind"], str) or not isinstance(event["text"], str) or event["kind"] not in LABELS or (event["text"] not in LABELS[event["kind"]] and event["kind"] != workflow_kind):
++        raise ValueError("not a server-generated label")
++    if not isinstance(event["state"], str) or event["state"] not in ("pending", "accepted", "visible"):
++        raise ValueError("invalid state")
++    reference = event["referenceId"]
++    if reference is not None and (not isinstance(reference, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", reference)):
++        raise ValueError("invalid reference")
++    return event
++
