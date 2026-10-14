@@ -5,7 +5,7 @@ const accounts = [{ id: "A", access: "synthetic-a", status: "ok" }, { id: "B", a
 let store: Record<string, unknown>
 mock.module("node:fs", () => ({ ...fs, statSync: () => ({ mtimeMs: 1 }), readFileSync: () => JSON.stringify(store) }))
 const { resolveCodexAccount, resetCodexAccountsCache, markCodexSpillover } = await import("./codex-accounts")
-globalThis.fetch = mock(async () => new Response(null, { status: 202 })) as typeof fetch
+globalThis.fetch = mock(async () => new Response(null, { status: 202 })) as unknown as typeof fetch
 
 beforeEach(() => {
   resetCodexAccountsCache()
