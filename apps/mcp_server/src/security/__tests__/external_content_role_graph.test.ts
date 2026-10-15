@@ -9,6 +9,11 @@ import { registerGoogleTools } from "../../tools/google.js";
 import { registerMessageTools } from "../../tools/messages.js";
 import { registerTaskTools } from "../../tools/tasks.js";
 import { registerFacilityTools } from "../../tools/facilities.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import * as apiClient from "../../api_client.js";
+import { registerUpdateSubscriptionTools } from "../../tools/updateSubscriptions.js";
 
 type ToolHandler = (
   args: Record<string, unknown>,
@@ -133,6 +138,17 @@ const authenticatedChatApprovals = new Set([
   "rhythm_list_pending_approvals",
   "rhythm_get_pending_approval",
   "rhythm_decide_approval",
+]);
+
+// Authenticated-owner delivery LINK METADATA only, not chat approval, a read,
+// or a general owned-write exemption. No prompt/domain action/cancel/grant is
+// dispatched; disabling delivery does not cancel its source. Hermes SID is an
+// opaque saved-conversation ID, not a callback URL. The independent protected
+// Native subscriber must already allow that same owner/SID. This is trusted
+// owner-client discipline, not engine-signed or cryptographic human approval.
+const ownerAuthenticatedDeliveryControls = new Set([
+  "rhythm_subscribe_updates",
+  "rhythm_unsubscribe_updates",
 ]);
 
 const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
@@ -478,6 +494,7 @@ describe("#1175 external-content role graph", () => {
         reviewerReadTools.has(tool),
         humanReviewQueueWrites.has(tool),
         authenticatedChatApprovals.has(tool),
+        ownerAuthenticatedDeliveryControls.has(tool),
         serverSignedGoalWrites.has(tool),
         tool === approvalRequestTool,
       ].filter(Boolean);
@@ -495,6 +512,7 @@ describe("#1175 external-content role graph", () => {
       ...reviewerReadTools.keys(),
       ...humanReviewQueueWrites.keys(),
       ...authenticatedChatApprovals,
+      ...ownerAuthenticatedDeliveryControls,
       approvalRequestTool,
     ]) {
       expect(
@@ -610,6 +628,7 @@ describe("#1175 external-content role graph", () => {
           reviewerReadTools.has(tool),
           humanReviewQueueWrites.has(tool),
           authenticatedChatApprovals.has(tool),
+          ownerAuthenticatedDeliveryControls.has(tool),
           serverSignedGoalWrites.has(tool),
           tool === approvalRequestTool,
           !registered.has(tool) && unavailableLegacyTools.has(tool),
@@ -712,6 +731,100 @@ describe("#1175 external-content role graph", () => {
         externallyConsequentialWrites.has(tool),
       ),
     ).toEqual([]);
+  });
+
+  it("bounds owner delivery controls to fixed authenticated metadata endpoints and schemas", async () => {
+    expect([...ownerAuthenticatedDeliveryControls]).toEqual([
+      "rhythm_subscribe_updates",
+      "rhythm_unsubscribe_updates",
+    ]);
+    const server = new McpServer({ name: "delivery-boundary", version: "1" });
+    const client = new Client({ name: "delivery-boundary-check", version: "1" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const metadata = { version: 2, sourceKind: "agent_session", sourceId: "source-1", enabled: true };
+    // Only the external HTTP seam is mocked; real registration, SDK validation,
+    // trusted-call wrapper and handler execute. API ownership is checked below
+    // structurally and by the existing real owner/auth suites, not this mock.
+    const post = vi.spyOn(apiClient, "apiPost").mockResolvedValue(metadata);
+    registerUpdateSubscriptionTools(server, "http://127.0.0.1:4898", "synthetic-owner-token");
+    try {
+      await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+      const { tools } = await client.listTools();
+      expect(tools.map((tool) => tool.name)).toEqual([...ownerAuthenticatedDeliveryControls]);
+      for (const tool of tools) {
+        const subscribe = tool.name === "rhythm_subscribe_updates";
+        expect(Object.keys(tool.inputSchema.properties!).sort()).toEqual(
+          (subscribe ? ["sourceKind", "sourceId", "hermesSessionId", "profile"] : ["sourceKind", "sourceId"]).sort(),
+        );
+        const args = { sourceKind: "agent_session", sourceId: "source-1", ...(subscribe ? { hermesSessionId: "saved-chat" } : {}) };
+        const result = await client.callTool({ name: tool.name, arguments: args });
+        expect(result.isError).not.toBe(true);
+        expect(result.content).toEqual([{ type: "text", text: JSON.stringify(metadata) }]);
+        expect(post).toHaveBeenLastCalledWith(
+          "http://127.0.0.1:4898", "synthetic-owner-token",
+          subscribe ? "/hermes-notify/subscriptions" : "/hermes-notify/subscriptions/disable",
+          subscribe ? { ...args, profile: "default" } : args,
+        );
+        // SDK strips undeclared fields; none may cross the authenticated seam.
+        await client.callTool({ name: tool.name, arguments: {
+          ...args, callbackUrl: "https://destination.invalid", ownerUserId: 99,
+          decision: "approve", prompt: "dispatch this", sourceOwner: 99,
+        } });
+        expect(post.mock.calls.at(-1)?.[3]).toEqual(subscribe ? { ...args, profile: "default" } : args);
+        for (const invalid of [
+          { sourceKind: "bridge_job" }, { sourceKind: "" },
+          { sourceId: "" }, { sourceId: "a".repeat(129) },
+          { sourceId: "https://destination.invalid" },
+          ...(subscribe ? [{ hermesSessionId: "" }, { hermesSessionId: "http://destination.invalid" }, { profile: "other" }] : []),
+        ]) {
+          const calls = post.mock.calls.length;
+          const denied = await client.callTool({ name: tool.name, arguments: { ...args, ...invalid } });
+          expect(denied.isError).toBe(true);
+          expect(post).toHaveBeenCalledTimes(calls);
+        }
+        const workflow = { ...args, sourceKind: "workflow_run", sourceId: "a".repeat(128) };
+        expect((await client.callTool({ name: tool.name, arguments: workflow })).isError).not.toBe(true);
+      }
+    } finally {
+      post.mockRestore();
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("keeps delivery control authority in bearer-authenticated owner routes, not engine or action approvals", () => {
+    const source = readFileSync(join(toolsDir, "updateSubscriptions.ts"), "utf8");
+    for (const tool of ownerAuthenticatedDeliveryControls) {
+      expect(toolBlock(source, tool)).toMatch(/apiPost\(agentUrl,\s*token,/);
+      expect(protectedWrites.has(tool)).toBe(false);
+      expect(authenticatedChatApprovals.has(tool)).toBe(false);
+      expect(trustedNonUserReads.has(tool)).toBe(false);
+    }
+    expect(source).not.toMatch(/authorizeOutboundAction|currentTrustedSecurityCall|apiGet|callbackUrl|ownerUserId|decisionNonce/);
+    const routes = readFileSync(join(repoRoot, "apps/api_server/src/routes/hermes_notify_routes.ts"), "utf8");
+    expect(routes).toContain("router.use(env.agentLocal ? requireLocalOrCloudAuth : requireAuth)");
+    expect(routes.indexOf("router.use(env.agentLocal")).toBeLessThan(routes.indexOf("router.post('/subscriptions'"));
+    expect(routes).toContain("service.subscribe(req.auth!.user.id,req.body.sourceKind,notifyId(req.body.sourceId),notifyId(req.body.hermesSessionId),req.body.profile ?? 'default')");
+    expect(routes).toContain("service.unsubscribe(req.auth!.user.id,req.body.sourceKind,notifyId(req.body.sourceId))");
+    expect(routes).toContain("!['sourceKind','sourceId','hermesSessionId','profile'].includes(k)");
+    expect(routes).toContain("!['sourceKind','sourceId'].includes(k)");
+    const auth = readFileSync(join(repoRoot, "apps/api_server/src/middleware/auth_middleware.ts"), "utf8");
+    const ownerAuth = auth.slice(auth.indexOf("export async function requireLocalOrCloudAuth("), auth.indexOf("function soleLocalSignedInSession("));
+    expect(ownerAuth).toContain("header.match(/^Bearer\\s+(.+)$/i)");
+    expect(ownerAuth).toContain("throw AppError.unauthorized('Missing bearer token')");
+    expect(ownerAuth).toContain("await resolveLocalOrCloudBearer(sessionToken)");
+    const service = readFileSync(join(repoRoot, "apps/api_server/src/services/hermes_notify_service.ts"), "utf8");
+    const control = service.slice(service.indexOf("  subscribe(owner:"), service.indexOf("  /** Called only after the broker"));
+    expect(control).toContain("session.ownerUserId !== owner");
+    expect(control).toContain("!session.sdkSessionId");
+    expect(control).toContain("Subscription is immutable");
+    expect(control).toContain("this.currentRunAuthority(owner,sourceId)");
+    expect(service).toContain("subscription.sdkId !== session.sdkSessionId");
+    expect(service).toContain("subscription.projectId !== (session.projectId ?? null)");
+    expect(control).toContain("this.sessions.findById(row.session_id)?.ownerUserId !== owner");
+    expect(control).toContain("return {version:2,sourceKind,sourceId,workflowRunId:sourceKind === 'workflow_run' ? sourceId : null,\n        runId:sourceId,sessionId,hermesSessionId,profile,enabled:true}");
+    expect(control).toContain("return {version:2,sourceKind,sourceId,enabled:false}");
+    expect(control).not.toMatch(/currentTrustedSecurityCall|authorizeOutboundAction|fetch\(|\.prompt\(|\.cancel\(|\.dispatch\(/);
   });
 
   it("routes every declared external read through scan, durable taint, and fence", () => {
