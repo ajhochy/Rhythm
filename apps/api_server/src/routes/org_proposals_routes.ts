@@ -19,6 +19,8 @@ router.get('/', (req, res, next) => controller.list(req, res, next));
 // Signed reviewer endpoints authenticate independently of the local operator
 // bypass above. They accept only the engine-signed trustedCall envelope.
 router.post('/reviewer/context', (req, res, next) => reviewerController.context(req, res, next));
+router.post('/reviewer/session', (req, res, next) => reviewerController.session(req, res, next));
+router.post('/reviewer/catalog', (req, res, next) => reviewerController.catalog(req, res, next));
 router.post('/reviewer', (req, res, next) => reviewerController.submit(req, res, next));
 router.post('/tool-install', (req, res, next) => controller.createToolInstall(req, res, next));
 router.post('/:id/approve', (req, res, next) => controller.approve(req, res, next));

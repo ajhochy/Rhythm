@@ -3,10 +3,11 @@ import { InstanceState } from "@/effect/instance-state"
 import { EffectBridge } from "@/effect/bridge"
 import type { InstanceContext } from "@/project/instance"
 import { SessionID, MessageID } from "@/session/schema"
-import { Effect, Layer, Context, Schema } from "effect"
+import { Effect, Layer, Context, Schema, ScopedCache, Stream } from "effect"
 import { Config } from "@/config/config"
 import { MCP } from "../mcp"
 import { Skill } from "../skill"
+import { Bus } from "@/bus"
 import PROMPT_INITIALIZE from "./template/initialize.txt"
 import PROMPT_REVIEW from "./template/review.txt"
 
@@ -69,6 +70,7 @@ export const layer = Layer.effect(
     const config = yield* Config.Service
     const mcp = yield* MCP.Service
     const skill = yield* Skill.Service
+    const bus = yield* Bus.Service
 
     const init = Effect.fn("Command.state")(function* (ctx: InstanceContext) {
       const cfg = yield* config.get()
@@ -159,12 +161,29 @@ export const layer = Layer.effect(
 
     const state = yield* InstanceState.make<State>((ctx) => init(ctx))
 
+    // `/command` is intentionally passive: it may initialize before a session
+    // acquires its allowlisted MCP. Refresh just this directory's cached command
+    // catalog when that acquisition completes, rather than eagerly connecting
+    // every configured MCP to populate slash commands.
+    const metadataSubscription = yield* InstanceState.make<void>(
+      Effect.fn("Command.mcpMetadataSubscription")(function* (ctx) {
+        yield* bus.subscribe(MCP.MetadataChanged).pipe(
+          Stream.runForEach(() => ScopedCache.invalidate(state.cache, ctx.directory)),
+          Effect.forkScoped,
+        )
+      }),
+    )
+
+    const ensureMetadataSubscription = () => InstanceState.get(metadataSubscription)
+
     const get = Effect.fn("Command.get")(function* (name: string) {
+      yield* ensureMetadataSubscription()
       const s = yield* InstanceState.get(state)
       return s.commands[name]
     })
 
     const list = Effect.fn("Command.list")(function* () {
+      yield* ensureMetadataSubscription()
       const s = yield* InstanceState.get(state)
       return Object.values(s.commands)
     })
@@ -182,6 +201,7 @@ export const defaultLayer = layer.pipe(
   Layer.provide(Config.defaultLayer),
   Layer.provide(MCP.defaultLayer),
   Layer.provide(Skill.defaultLayer),
+  Layer.provide(Bus.layer),
 )
 
 export * as Command from "."

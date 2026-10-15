@@ -805,7 +805,10 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
                               height: 1, color: context.rhythm.borderSubtle),
                           // #602: agent-less sessions show a centred "choose model" prompt
                           // until the first message is sent.
+                          // Auto (router) sessions satisfy the first-message
+                          // model guard, so they skip the chooser prompt.
                           if (selected.agentId == '__pending__' &&
+                              !selected.isAutoModel &&
                               controller.chatMessagesFor(selected.id).isEmpty &&
                               controller.transcript.isEmpty)
                             Expanded(

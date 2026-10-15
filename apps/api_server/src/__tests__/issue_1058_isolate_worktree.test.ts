@@ -2,7 +2,7 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import os from 'os';
 import path from 'path';
 import { execFileSync } from 'child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
@@ -97,6 +97,40 @@ describe('OCU-17 (#1058) isolateWorktree', () => {
     expect(body.worktreeName).toBe('wt-a');
     expect(body.worktreePath).toBe('/repo/.worktrees/wt-a');
     expect(body.worktreeBranch).toBe('agent/wt-a');
+  });
+
+  it('W6: selected base leaves dirty source checkout untouched before native creation', async () => {
+    const primary = mkdtempSync(path.join(os.tmpdir(), 'rhythm-w6-source-'));
+    try {
+      const git = (args: string[]) => execFileSync('git', ['-C', primary, ...args], { encoding: 'utf8' });
+      git(['init', '-b', 'main']);
+      git(['config', 'user.email', 'w6@rhythm.test']);
+      git(['config', 'user.name', 'W6']);
+      writeFileSync(path.join(primary, 'tracked file.txt'), 'committed\n');
+      git(['add', '.']);
+      git(['commit', '-m', 'initial']);
+      git(['checkout', '-b', 'selected-base']);
+      writeFileSync(path.join(primary, 'tracked file.txt'), 'selected branch\n');
+      git(['add', '.']);
+      git(['commit', '-m', 'selected']);
+      git(['checkout', 'main']);
+      writeFileSync(path.join(primary, 'tracked file.txt'), 'unstaged change\n');
+      writeFileSync(path.join(primary, 'staged file.txt'), 'staged bytes\n');
+      git(['add', 'staged file.txt']);
+      writeFileSync(path.join(primary, 'untracked file.txt'), 'untracked bytes\n');
+      const before = { branch: git(['branch', '--show-current']), status: git(['status', '--porcelain=v1']), index: git(['ls-files', '-s']) };
+      createWorktree.mockResolvedValue({ name: 'w6-space', branch: 'opencode/w6-space', directory: `${primary}-isolated` });
+      const response = await fetch(`${baseUrl}/agent-sessions`, {
+        method: 'POST', headers: authHeaders,
+        body: JSON.stringify({ agentId: 'claude-code', cwd: primary, name: 'W6', branch: 'selected-base', isolateWorktree: true, worktreeName: 'W6 Space' }),
+      });
+      expect(response.status).toBe(201);
+      expect(createWorktree).toHaveBeenCalledWith(primary, { name: 'W6 Space', base: 'selected-base' });
+      expect({ branch: git(['branch', '--show-current']), status: git(['status', '--porcelain=v1']), index: git(['ls-files', '-s']) }).toEqual(before);
+      expect(readFileSync(path.join(primary, 'tracked file.txt'), 'utf8')).toBe('unstaged change\n');
+      expect(readFileSync(path.join(primary, 'staged file.txt'), 'utf8')).toBe('staged bytes\n');
+      expect(readFileSync(path.join(primary, 'untracked file.txt'), 'utf8')).toBe('untracked bytes\n');
+    } finally { rmSync(primary, { recursive: true, force: true }); }
   });
 
   it('without the flag behaves exactly as today (no worktree call, null metadata)', async () => {

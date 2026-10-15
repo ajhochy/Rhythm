@@ -211,13 +211,15 @@ export class AgentScheduledTasksRepository {
     return (rows as Record<string, unknown>[]).map(rowToModel);
   }
 
-  /** Find tasks due to run: enabled AND next_run_at <= now. */
+  /** Explicit queues do not enable recurrence; running work is never due again. */
   async findDueAsync(): Promise<AgentScheduledTask[]> {
     const now = new Date().toISOString();
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(
         `SELECT * FROM agent_scheduled_tasks
-         WHERE enabled = TRUE AND next_run_at IS NOT NULL AND next_run_at <= $1
+         WHERE (enabled = TRUE OR last_run_status = 'queued')
+           AND COALESCE(last_run_status, '') <> 'running'
+           AND next_run_at IS NOT NULL AND next_run_at <= $1
          ORDER BY next_run_at ASC`,
         [now],
       );
@@ -225,10 +227,26 @@ export class AgentScheduledTasksRepository {
     }
     const rows = getDb().prepare(
       `SELECT * FROM agent_scheduled_tasks
-       WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
+       WHERE (enabled = 1 OR last_run_status = 'queued')
+         AND COALESCE(last_run_status, '') <> 'running'
+         AND next_run_at IS NOT NULL AND next_run_at <= ?
        ORDER BY next_run_at ASC`,
     ).all(now);
     return (rows as Record<string, unknown>[]).map(rowToModel);
+  }
+
+  /** Free Mode D4: bring a capacity-deferred, still-enabled task forward to now (a fresh full run, never a replay). */
+  async advanceDeferredRunAsync(id: string, nowIso: string): Promise<boolean> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `UPDATE agent_scheduled_tasks SET next_run_at = $1, updated_at = $1
+         WHERE id = $2 AND enabled = TRUE AND last_run_status = 'queued' AND (next_run_at IS NULL OR next_run_at > $1)`, [nowIso, id]);
+      return (result.rowCount ?? 0) === 1;
+    }
+    return getDb().prepare(
+      `UPDATE agent_scheduled_tasks SET next_run_at = ?, updated_at = ?
+       WHERE id = ? AND enabled = 1 AND last_run_status = 'queued' AND (next_run_at IS NULL OR next_run_at > ?)`,
+    ).run(nowIso, nowIso, id, nowIso).changes === 1;
   }
 
   async updateNextRunAsync(id: string, nextRunAt: string | null, lastRunAt: string, lastRunStatus: string, lastError?: string): Promise<void> {
@@ -299,21 +317,21 @@ export class AgentScheduledTasksRepository {
         `UPDATE agent_scheduled_tasks
          SET next_run_at = $1, last_run_status = 'queued',
              last_error = NULL, updated_at = $1
-         WHERE id = $2
+         WHERE id = $2 AND COALESCE(last_run_status, '') NOT IN ('queued', 'running')
          RETURNING *`,
         [now, id],
       );
-      return result.rows[0] ? rowToModel(result.rows[0]) : null;
+      return result.rows[0] ? rowToModel(result.rows[0]) : this.findByIdAsync(id);
     }
-    const result = getDb()
+    getDb()
       .prepare(
         `UPDATE agent_scheduled_tasks
          SET next_run_at = ?, last_run_status = 'queued',
-             last_error = NULL, updated_at = ?
-         WHERE id = ?`,
+              last_error = NULL, updated_at = ?
+         WHERE id = ? AND COALESCE(last_run_status, '') NOT IN ('queued', 'running')`,
       )
       .run(now, now, id);
-    return result.changes > 0 ? this.findByIdAsync(id) : null;
+    return this.findByIdAsync(id);
   }
 
   async updateAsync(id: string, patch: Partial<CreateAgentScheduledTaskInput & { enabled: boolean; nextRunAt: string | null }>): Promise<AgentScheduledTask | null> {

@@ -12,6 +12,7 @@ import { assertExternalDirectoryEffect } from "./external-directory"
 import { Instruction } from "../session/instruction"
 import { isPdfAttachment, sniffAttachmentMime } from "@/util/media"
 import { Reference } from "@/reference/reference"
+import { readXlsx } from "./read-xlsx"
 
 const DEFAULT_READ_LIMIT = 2000
 const MAX_LINE_LENGTH = 2000
@@ -246,6 +247,13 @@ export const ReadTool = Tool.define(
             },
           ],
         }
+      }
+
+      if (path.extname(filepath).toLowerCase() === ".xlsx") {
+        if (Number(stat.size) > 20 * 1024 * 1024) return yield* Effect.fail(new Error("XLSX_LIMIT: Workbook exceeds the 20 MiB archive limit. Split the workbook."))
+        const bytes = yield* fs.readFile(filepath)
+        const output = yield* Effect.promise(() => readXlsx(bytes))
+        return { title, output, metadata: { preview: output.slice(0, 2000), truncated: false, loaded: loaded.map((item) => item.filepath) } }
       }
 
       if (isBinaryFile(filepath, sample)) {

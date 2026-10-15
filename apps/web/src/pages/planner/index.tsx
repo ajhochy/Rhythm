@@ -742,10 +742,13 @@ function LivePlannerPage({ route }: { route: string }) {
         return { id: created.id, title: created.title };
       };
       await launchQuickActionSession(rendererGateway.domains.sessions!, actionId, { id: currentTask.id, title: currentTask.title }, actionId === 'follow-up-tasks' ? createFollowUpTask : undefined);
-      appendReceipt('POST /agent-sessions {profileId,mcpRole,cwd,name,taskId} → 201');
+      appendReceipt('POST /agent-sessions {profileId,mcpRole,cwd,name,taskId,taskTitle} → 201');
       notify('Secretary session created');
       navigate('/agents');
-    } catch (error) { setErrorMessage(recordError('POST', '/agent-sessions', error)); } finally { setQuickActionPending(false); }
+    } catch (error) {
+      appendReceipt('POST /agent-sessions → blocked before dispatch');
+      setErrorMessage(error instanceof Error ? error.message : 'Agent handoff unavailable');
+    } finally { setQuickActionPending(false); }
   };
 
   const saveTask = async (event: FormEvent<HTMLFormElement>) => {

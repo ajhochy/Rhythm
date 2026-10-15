@@ -22,11 +22,15 @@ import { registerAgentResearchTools } from './tools/agentResearch.js';
 import { registerOrgOptimizerTools } from './tools/orgOptimizer.js';
 import { registerOrgReviewerTools } from './tools/orgReviewer.js';
 import { registerAgentApprovalTools } from './tools/agentApprovals.js';
+import { registerRelayApprovalTools } from './tools/relayApprovals.js';
+import { registerUpdateSubscriptionTools } from './tools/updateSubscriptions.js';
 import { registerFeedbackSensorTools } from './tools/feedbackSensors.js';
 import { registerAgentProfileTools } from './tools/agentProfiles.js';
 import { registerCreativePlatformTools } from './tools/creativePlatform.js';
 import { registerSetupReadinessTool } from './tools/setupReadiness.js';
 import { registerLiveArtifactTools } from './tools/liveArtifacts.js';
+import { registerDayflowTools } from './tools/dayflow.js';
+import { registerCoordinatorConversationTools } from './tools/coordinatorConversation.js';
 
 const RHYTHM_API_URL = process.env.RHYTHM_API_URL ?? 'https://api.vcrcapps.com';
 const RHYTHM_API_TOKEN = process.env.RHYTHM_API_TOKEN ?? '';
@@ -72,7 +76,20 @@ registerAgentDelegationTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 // index on :4001), NOT prod. Route the memory tools at RHYTHM_AGENT_URL so the
 // agent and the Flutter memory UI read/write the same local store. Decoupled
 // from serverConfig.url per the dual-endpoint rule.
-registerAgentMemoryTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
+// This is one shared MCP process.  The API selector preserves the unchanged
+// ordinary search branch for unmanaged calls and captures only an exact,
+// engine-signed managed dispatch; it does not add or remove a tool schema.
+registerAgentMemoryTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN, {
+  managedMemorySelector: true,
+});
+// Dayflow evidence is emitted only by the authoritative local managed-evidence
+// pipeline. These two read tools carry the same engine-signed call envelope;
+// they do not grant scope or accept owner/project identifiers from the model.
+registerDayflowTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
+// Dedicated coordinator state is signed against the exact active foreground
+// native turn. The global registration is still narrowed per session by the
+// server-pushed profile MCP allowlist before any C2 prompt is exposed.
+registerCoordinatorConversationTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 // #806 — rhythm_list_sessions reads agent sessions/messages from the LOCAL
 // agent server (:4001), the store that owns sessions. The seeded Memory
 // Consolidation task calls it to review the past day's sessions before
@@ -82,6 +99,8 @@ registerAgentSessionTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 // #895 — approval gate state lives on the LOCAL agent server (SQLite, same
 // convention as agent_sessions/agent_configs), routed at RHYTHM_AGENT_URL.
 registerAgentApprovalTools(server, RHYTHM_AGENT_URL);
+registerRelayApprovalTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
+registerUpdateSubscriptionTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 // #897 — feedback sensors reuse the prod-facing read endpoints (PCO, Gmail,
 // tasks), same routing as the other prod-backed tools above.
 registerFeedbackSensorTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);

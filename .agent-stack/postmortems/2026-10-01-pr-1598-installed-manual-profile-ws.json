@@ -1,0 +1,133 @@
+{
+  "run_id": "2026-10-01-pr-1598-installed-manual-profile-ws",
+  "issue": null,
+  "related_pr": 1598,
+  "date": "2026-10-01",
+  "smoke_result": "fail",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "C2-c1",
+      "text": "Persist actual resolved authoritative profileId+engine agent id for ordinary configured runs; preserve explicit override, owner, parent, model, schedule attribution.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Original contract test passed in scoped C2 verification; this installed manual-input attempt did not recheck this criterion."
+    },
+    {
+      "criterion_id": "C2-c2",
+      "text": "Preserve configured default engine behavior without guessing engine IDs.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Original contract test passed in scoped C2 verification; this installed manual-input attempt did not recheck this criterion."
+    },
+    {
+      "criterion_id": "C2-c3",
+      "text": "Preserve unconfigured legacy behavior.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Original contract test passed in scoped C2 verification; this installed manual-input attempt did not recheck this criterion."
+    },
+    {
+      "criterion_id": "C2-c4",
+      "text": "Preserve OrgReviewer special case.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Original contract test passed in scoped C2 verification; this installed manual-input attempt did not recheck this criterion."
+    },
+    {
+      "criterion_id": "C2-c5",
+      "text": "Scheduled manual and ordinary execution root identity on authoritative GET against real API and engine.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Original contract test passed in scoped C2 verification; this installed manual-input attempt did not recheck this criterion."
+    },
+    {
+      "criterion_id": "C2-c6",
+      "text": "Manual WebSocket session.input without a per-turn agent uses the stored canonical profile identity for eligibility and scope when the session's engine agent id is a built-in such as build.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "Absent when the installed smoke ran; the native WebSocket session.input frame omitted a per-turn agent, so the guard checked disabled engine agent 'build' instead of the stored enabled custom profile. Added as pending extension after discovery."
+    },
+    {
+      "criterion_id": "C2-c7",
+      "text": "Manual WebSocket session.input with an explicit per-turn agent resolves the selected canonical profile and its scope without treating an engine agent id as a different disabled profile.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Post-smoke pending extension; no explicit-per-turn or disabled-canonical-profile native case was run."
+    },
+    {
+      "criterion_id": "C2-c8",
+      "text": "Manual WebSocket session.input rejects a disabled or security-locked canonical profile before model dispatch while preserving the enabled custom-profile path.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Post-smoke pending extension; no explicit-per-turn or disabled-canonical-profile native case was run."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "tool-capability",
+      "description": "TodoWrite is unavailable in this runtime; the completion checklist was expanded at entry into private POSTMORTEM-CHECKLIST.md, as the parent directed.",
+      "detected_by": "Available tool inventory and existence of the private checklist before contract/postmortem work."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [],
+    "notes": "The manual-smoke chain was followed. TodoWrite was unavailable, and the equivalent checklist was created privately at entry. Earlier C2 acceptance/verification receipts explicitly left native/manual continuation unverified."
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/ws_gateway.ts",
+    "apps/api_server/src/services/agent_runner.ts",
+    "apps/api_server/src/__tests__/c2_runner_profile_identity.test.ts",
+    "apps/api_server/src/__tests__/c2_runner_profile_identity_live.test.ts",
+    "docs/ai/contracts/c2-authoritative-profile-identity.json",
+    "apps/api_server/src/__tests__/installed_ws_profile_identity.test.ts"
+  ],
+  "failure_output": "Native DevTools WebSocket 101 opened; outgoing session.input to enabled custom profile; inbound error: agent disabled: 'build'",
+  "overall_category": "C1",
+  "suggested_follow_up": "Add a default and explicit manual WebSocket continuation contract that resolves the canonical stored or selected profile before eligibility and scope checks, then rerun the exact installed native input path.",
+  "native_observation": {
+    "result": "fail",
+    "entry": "installed Electron manual WebSocket session.input",
+    "sessionId": "a7428493-4739-445d-856c-f6db8c110d2e",
+    "storedProfileId": "installed-22df3b3a-openai-20261001",
+    "storedEngineAgentId": "build",
+    "customProfileEnabled": true,
+    "buildProfileEnabled": false,
+    "observedWsStatus": 101,
+    "source": "root native smoke report plus bounded installed REST readback"
+  },
+  "scope_notes": [
+    "The earlier schedule Run Now produced one durable completed_no_op no-tool reply and accepted OpenAI Sol dispatch; that pass does not establish subsequent native manual-input behavior.",
+    "A1 installed picker/image/XLSX and C2 native/manual continuation were explicitly UNVERIFIED; no contract PASS to manual FAIL divergence is claimed.",
+    "The failing guard at ws_gateway.ts:548-559 predates 22df; C2 persistence and scheduler path store the correct canonical profile and engine agent separately.",
+    "No operational schedule, provider configuration, grant, approval, or other user row was changed during this failed manual input."
+  ],
+  "repair_tracking": {
+    "source": "apps/api_server/src/services/ws_gateway.ts:558-585",
+    "mechanism": "canonical profile precedence and eligibility check before engine alias; engine dispatch identity remains separate",
+    "focused_tests": "installed_ws_profile_identity.test.ts plus p2_systemprompt_ocagent.test.ts 19/19 passed per repair agent",
+    "rendered_test": "installed-ws-profile-identity.spec.ts 1/1 passed in 11.0s",
+    "installed_native_retest": "still pending on rebuilt signed candidate; original failure remains historical smoke result",
+    "isolated_live_test": "installed_ws_profile_identity_live.test.ts 1/1 passed in 14.85s against real isolated API/engine and controlled synthetic provider",
+    "flutter_producer": "full Flutter suite 1356 passed; opc_m4_4_agent_selection_test.dart covers click-then-send profile PATCH race"
+  }
+}

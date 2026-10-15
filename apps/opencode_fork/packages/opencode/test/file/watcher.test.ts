@@ -260,4 +260,25 @@ describeWatcher("FileWatcher", () => {
       }),
     { git: true },
   )
+
+  it.instance("does not watch the home directory", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const fs = yield* AppFileSystem.Service
+      const file = path.join(test.directory, "home.txt")
+      const prev = process.env.OPENCODE_TEST_HOME
+      process.env.OPENCODE_TEST_HOME = test.directory
+
+      yield* Effect.gen(function* () {
+        const watcher = yield* FileWatcher.Service
+        yield* watcher.init()
+        yield* noUpdate(test.directory, (e) => e.file === file, fs.writeFileString(file, "home"), 1500)
+      }).pipe(
+        Effect.provide(watcherLayer),
+        provideInstance(test.directory),
+        Effect.scoped,
+        Effect.ensuring(Effect.sync(() => (process.env.OPENCODE_TEST_HOME = prev))),
+      )
+    }),
+  )
 })

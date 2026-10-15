@@ -1,6 +1,8 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import {
+  COORDINATOR_GOAL_ACTION,
+  COORDINATOR_GOAL_TOOL,
   ExternalContentSecurityService,
   parseSecurityAction,
   parseSecurityPayload,
@@ -148,6 +150,25 @@ export const SECURITY_ACTION_TOOLS = new Map<string, string>([
   ['live-artifact.sharing.update', 'rhythm_update_live_artifact_sharing'],
 ]);
 
+/**
+ * The coordinator goal control (`rhythm_start_coordinator_goal` under
+ * `delegation.start-async`) is NOT admitted here any more: its token must be
+ * consumed together with the goal reservation by the goal action endpoint, which
+ * also proves the native dispatch binding first. A request that names that tool
+ * is refused BEFORE verification, so no nonce or approval is ever burned by this
+ * separate route. Every other action/tool pair keeps its exact scalar mapping.
+ */
+function refuseCoordinatorGoalConsume(action: string, envelope: unknown): void {
+  if (action !== COORDINATOR_GOAL_ACTION || !envelope || typeof envelope !== 'object') return;
+  const proof = (envelope as { proof?: unknown }).proof;
+  if (
+    proof && typeof proof === 'object' &&
+    (proof as { toolName?: unknown }).toolName === COORDINATOR_GOAL_TOOL
+  ) {
+    throw AppError.forbidden('coordinator goal approvals are consumed only by the goal action endpoint');
+  }
+}
+
 async function requireTrustedCall(
   value: unknown,
   expectedToolName: string,
@@ -222,6 +243,7 @@ export class ExternalContentSecurityController {
     try {
       const body = req.body ?? {};
       const action = parseSecurityAction(body.action);
+      refuseCoordinatorGoalConsume(action, body.trustedCall);
       const expectedToolName = SECURITY_ACTION_TOOLS.get(action);
       if (!expectedToolName) {
         throw AppError.forbidden('security action has no trusted MCP tool binding');

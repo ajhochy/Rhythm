@@ -1,0 +1,92 @@
+{
+  "issue": null,
+  "date": "2026-10-01",
+  "test_command": "PLAYWRIGHT_BROWSERS_PATH=\"$PWD/apps/web/node_modules/a1-browsers\" node --test apps/web/tests/contract/attachment-picker-bytes.test.mjs && bun --cwd apps/opencode_fork/packages/opencode test test/tool/read.test.ts test/tool/attachment-xlsx.test.ts --timeout 30000 && RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4098 RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4097 RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-attachment-a1-sandbox-20261001-resume PLAYWRIGHT_BROWSERS_PATH=\"$PWD/apps/web/node_modules/a1-browsers\" npm --workspace apps/api_server exec -- vitest run src/__tests__/regressions_attachment_access_live.test.ts --maxWorkers=1 --no-file-parallelism && bun --cwd apps/opencode_fork/packages/opencode test test/session/ src/session/ --timeout 30000",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-attachment-a1-c1",
+      "text": "Reproduce browser file:${filename} unsupported binary fabrication",
+      "mode": "unit",
+      "test": "apps/web/tests/contract/attachment-picker-bytes.test.mjs",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-attachment-a1-c2",
+      "text": "Read binary XLSX refusal",
+      "mode": "integration",
+      "test": "apps/opencode_fork/packages/opencode/test/tool/read.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-attachment-a1-c3",
+      "text": "image artifact vs filepath mismatch",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/regressions_attachment_access_live.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-attachment-a1-c4",
+      "text": "Actual bytes picker->WS->SDK->owned staging->native vision/Read; scoped artifact user/project/session normalization,replay retention/cleanup.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/regressions_attachment_access_live.test.ts",
+      "status": "UNVERIFIED",
+      "reason": "The latest combined real API/engine suite passed 10/10, including native bytes, scoped replay, staging cleanup, mobile adapter and denial. Rendered picker byte/limit tests passed separately. A single installed browser picker-to-real-provider journey and native image/XLSX UI replay remain unverified; see the combined recovery receipt."
+    },
+    {
+      "criterion_id": "task-attachment-a1-c5",
+      "text": "XLSX preserve ordered sheets/cell addresses/types/values/rows/blanks/cached formulas,bounded maintained parser reject traversal/external relationships/macros/expansion/corrupt/encrypted.",
+      "mode": "integration",
+      "test": "apps/opencode_fork/packages/opencode/test/tool/attachment-xlsx.test.ts",
+      "status": "pass",
+      "reason": "Focused Read/XLSX contracts pass and the hostile-input allocation repair now budgets output before serialization and bounds ZIP entry processing. This is source/synthetic parser evidence, not a claim that an arbitrary user workbook or installed app was exercised; see the combined recovery receipt."
+    },
+    {
+      "criterion_id": "task-attachment-a1-c6",
+      "text": "No bash reads/fake root/token leak/arbitrary auth URL fetch.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/regressions_attachment_access_live.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-attachment-a1-c7",
+      "text": "Missing/unauthorized non-disclosing,accurate unsupported/corrupt errors,no repeated upload.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/regressions_attachment_access_live.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-attachment-a1-c8",
+      "text": "JPEG+PNG actual model vision/tool bytes on capable model; Astra/Luna no vision never spoof capabilities.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/regressions_attachment_access_live.test.ts",
+      "status": "pass",
+      "reason": "Synthetic external provider receives exact native JPEG/PNG first and hosted-reference replay bytes; real engine Read PNG and synthetic text-only capability gate pass. No Astra/Luna catalog flags or account assignments edited. This is transport/capability evidence, not real visual recognition/account entitlement."
+    },
+    {
+      "criterion_id": "task-attachment-a1-c9",
+      "text": "Actual real engine/API gated upload/artifact/session/tool test all cases,controlled provider synthetic labeled; return mobile part contract.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/regressions_attachment_access_live.test.ts",
+      "status": "pass",
+      "reason": "Fresh combined API/engine live suite passed 10/10 in 4.11 seconds, including mobile Device adapter and cross-owner rejection. Separate isolated Postgres 17 owner GET/PIN passed 1/1. Earlier 9/9 and session regressions remain historical; provider was controlled synthetic transport."
+    },
+    {
+      "criterion_id": "task-attachment-a1-c10",
+      "text": "browser attachment checks and installed Electron image/XLSX smoke",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Rendered browser picker bytes and limits passed. Installed Electron JPEG/PNG/XLSX selection, replay/error UI, and actual account-capable provider recognition have not been exercised on the final candidate."
+    }
+  ],
+  "not_tested": [
+    "task-attachment-a1-c4",
+    "task-attachment-a1-c10"
+  ],
+  "recovery_reverification": {
+    "date": "2026-10-01",
+    "receipt": "docs/ai/runs/2026-10-01-memory-recovery-integration.md",
+    "scope": "Real API/engine 10/10; isolated Postgres owner 1/1; rendered picker/size checks. Installed and real-provider checks pending."
+  }
+}

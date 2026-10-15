@@ -107,6 +107,7 @@ class AgentsRepository {
     bool? fastMode,
     String? anthropicAccountId,
     String? agentId,
+    String? modelMode,
   }) =>
       _dataSource.updateSession(
         id,
@@ -120,6 +121,7 @@ class AgentsRepository {
         fastMode: fastMode,
         anthropicAccountId: anthropicAccountId,
         agentId: agentId,
+        modelMode: modelMode,
       );
 
   /// Issue #604 — dedicated helper to update thinking budget (null = clear).

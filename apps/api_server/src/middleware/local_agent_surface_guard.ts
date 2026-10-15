@@ -1,7 +1,9 @@
 import type { IncomingHttpHeaders } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import type { RequestHandler } from 'express';
 
 import { env } from '../config/env';
+import { DAYFLOW_ERROR_CATALOG } from '../integrations/dayflow/public_contract';
 
 function isAllowedHost(value: string | string[] | undefined): boolean {
   if (typeof value !== 'string') return false;
@@ -44,6 +46,20 @@ export function isAllowedLocalAgentSurfaceRequest(
 export const localAgentSurfaceGuard: RequestHandler = (req, res, next) => {
   if (isAllowedLocalAgentSurfaceRequest(req.headers)) {
     next();
+    return;
+  }
+
+  if (req.path === '/dayflow-integration' || req.path.startsWith('/dayflow-integration/')) {
+    const catalog = DAYFLOW_ERROR_CATALOG.FORBIDDEN_ORIGIN;
+    res.status(403).json({
+      error: {
+        code: 'FORBIDDEN_ORIGIN',
+        message: catalog.message,
+        retryable: catalog.retryable,
+        recovery: catalog.recovery,
+        requestId: randomUUID(),
+      },
+    });
     return;
   }
 

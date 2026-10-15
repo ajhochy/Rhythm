@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 
 type Seen = { method: string; path: string; body: unknown };
 
@@ -25,14 +25,19 @@ function responseFor(path: string): unknown {
   return [];
 }
 
-async function openLive(page: Page, hash: string): Promise<Seen[]> {
+async function openLive(
+  page: Page,
+  hash: string,
+  responseOverride?: (path: string, method: string) => unknown | undefined,
+): Promise<Seen[]> {
   const seen: Seen[] = [];
   const handleApi = async (route: import('@playwright/test').Route) => {
     const request = route.request();
     const url = new URL(request.url());
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cloudCors });
     seen.push({ method: request.method(), path: `${url.pathname}${url.search}`, body: request.postDataJSON() ?? undefined });
-    await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: JSON.stringify(responseFor(url.pathname)) });
+    const override = responseOverride?.(url.pathname, request.method());
+    await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: JSON.stringify(override ?? responseFor(url.pathname)) });
   };
   await page.route('http://127.0.0.1:4098/**', handleApi);
   await page.route('https://api.vcrcapps.com/**', handleApi);
@@ -53,6 +58,19 @@ function expectMethods(value: unknown, names: string[]): void {
 
 async function expectRequest(seen: Seen[], method: string, path: RegExp): Promise<void> {
   await expect.poll(() => seen.some((request) => request.method === method && path.test(request.path))).toBe(true);
+}
+
+async function installQuickActionHost(page: Page, frames: Array<Record<string, unknown>>, cwd: string) {
+  await page.addInitScript((authorizedCwd) => {
+    Object.defineProperty(window, 'rhythmShell', {
+      value: Object.freeze({
+        selectDirectory: async () => authorizedCwd,
+      }),
+    });
+  }, cwd);
+  await page.routeWebSocket(/\/ws\/agents$/, (socket: WebSocketRoute) => {
+    socket.onMessage((message) => frames.push(JSON.parse(String(message)) as Record<string, unknown>));
+  });
 }
 
 test('post-m1-p3-c2a: live Dashboard consumes its real gateway instead of fixture state', async ({ page }) => {
@@ -333,11 +351,102 @@ test('post-m1-p3-c2i: live Integrations exposes authorization, sync, signals, pr
 });
 
 test('post-m1-p3-c2j: operational quick actions create Secretary sessions and send the preset prompt', async ({ page }) => {
-  // Regression caught: Dashboard/Planner/Tasks create fixture sessions, omit Secretary scope, or launch follow-up before persisting its task.
-  const seen = await openLive(page, 'dashboard');
+  // Regression caught: the handoff omits its remote task identity/title, trusts the fixture cwd,
+  // or sends a generic first turn that cannot make the authoritative exact-ID task read.
+  const frames: Array<Record<string, unknown>> = [];
+  await installQuickActionHost(page, frames, '/Users/AJ/Authorized Quick Action');
+  const task = {
+    id: 'hosted/task-duplicate-title', title: 'Duplicate title', status: 'open', notes: '',
+    scheduledDate: '2026-08-21', dueDate: null, sourceType: 'task',
+  };
+  const summary = { ...emptySummary, tasks: { ...emptySummary.tasks, openCount: 1, todayRemainingCount: 1, todayTotalCount: 1, recent: [task], today: [task] } };
+  const seen = await openLive(page, 'dashboard', (path, method) => {
+    if (path === '/dashboard/summary') return summary;
+    if (path === '/agent-sessions' && method === 'POST') {
+      return { id: 'quick-action-session', name: 'Duplicate title · Help me finish this', cwd: '/Users/AJ/Authorized Quick Action' };
+    }
+    return undefined;
+  });
+  await page.getByTestId('dashboard-agent-actions').getByText('Agent actions').click();
   await page.getByTestId('quick-action-help-finish').click();
   await expectRequest(seen, 'POST', /^\/agent-sessions$/);
   const create = seen.find((request) => request.method === 'POST' && request.path === '/agent-sessions');
-  expect(create?.body).toMatchObject({ profileId: 'secretary', mcpRole: 'secretary' });
+  expect(create?.body).toMatchObject({
+    profileId: 'secretary',
+    mcpRole: 'secretary',
+    cwd: '/Users/AJ/Authorized Quick Action',
+    taskId: task.id,
+    taskTitle: task.title,
+  });
+  expect(create?.body).not.toMatchObject({ cwd: '/workspace/rhythm' });
+  await expect.poll(() => frames.some((frame) => frame.type === 'session.input')).toBe(true);
+  const firstTurn = frames.find((frame) => frame.type === 'session.input');
+  expect(firstTurn).toMatchObject({ id: 'quick-action-session' });
+  expect(String(firstTurn?.data)).toContain('rhythm_list_tasks');
+  expect(String(firstTurn?.data)).toContain('{"id":"hosted/task-duplicate-title"}');
+  expect(String(firstTurn?.data)).toContain('Help me finish this task.');
   expect(await page.getByText(/Local preview · no request sent/i).count()).toBe(0);
 });
+
+test('post-m1-p3-c2j: Dashboard refuses a contextual handoff when no eligible task exists', async ({ page }) => {
+  const seen = await openLive(page, 'dashboard');
+  await page.getByTestId('dashboard-agent-actions').getByText('Agent actions').click();
+  await expect(page.getByTestId('quick-action-help-finish')).toBeDisabled();
+  await expect(page.getByText(/No eligible task selected/i)).toBeVisible();
+  expect(seen.some((request) => request.method === 'POST' && request.path === '/agent-sessions')).toBe(false);
+});
+
+for (const surface of ['tasks', 'planner'] as const) {
+  test(`post-m1-p3-c2j: ${surface} uses the shared exact-ID handoff`, async ({ page }) => {
+    const frames: Array<Record<string, unknown>> = [];
+    const cwd = `/Users/AJ/Authorized ${surface}`;
+    await installQuickActionHost(page, frames, cwd);
+    const task = {
+      id: `${surface}-hosted-task`,
+      title: 'Shared duplicate title',
+      notes: 'Task notes',
+      dueDate: null,
+      scheduledDate: null,
+      scheduledOrder: null,
+      locked: false,
+      status: 'open',
+      sourceType: null,
+      sourceId: null,
+      sourceName: null,
+      ownerId: 1,
+      priority: null,
+      tags: [],
+      energy: null,
+      isShared: false,
+      collaborators: [],
+      createdAt: '2026-08-01T00:00:00.000Z',
+      updatedAt: '2026-08-02T00:00:00.000Z',
+      preferredAgent: null,
+    };
+    const plan = { weekLabel: '2026-W40', weekStart: '2026-09-28', days: [], backlog: [task] };
+    const seen = await openLive(page, surface, (path, method) => {
+      if (path === '/tasks' && method === 'GET') return [task];
+      if (path === '/weekly-plan') return plan;
+      if (path === '/agent-sessions' && method === 'POST') {
+        return { id: `${surface}-quick-session`, name: `${task.title} · Help me finish this`, cwd };
+      }
+      return undefined;
+    });
+
+    if (surface === 'tasks') {
+      await page.getByTestId(`task-select-${task.id}`).click();
+    } else {
+      await page.getByRole('button', { name: /^Backlog 1$/ }).click();
+      await page.getByTestId(`planner-task-${task.id}`).click();
+    }
+    await page.getByTestId('quick-action-help-finish').click();
+
+    await expectRequest(seen, 'POST', /^\/agent-sessions$/);
+    const create = seen.find((request) => request.method === 'POST' && request.path === '/agent-sessions');
+    expect(create?.body).toMatchObject({ cwd, taskId: task.id, taskTitle: task.title });
+    await expect.poll(() => frames.some((frame) => frame.type === 'session.input')).toBe(true);
+    const firstTurn = frames.find((frame) => frame.type === 'session.input');
+    expect(firstTurn).toMatchObject({ id: `${surface}-quick-session` });
+    expect(String(firstTurn?.data)).toContain(JSON.stringify({ id: task.id }));
+  });
+}

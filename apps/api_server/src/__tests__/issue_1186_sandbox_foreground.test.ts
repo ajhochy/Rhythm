@@ -156,6 +156,26 @@ function fakeSandboxEnv(): {
   writeExecutable(
     "node",
     [
+      // Kernel-provenance helper (sandbox_engine_attachment.js) is stubbed like
+      // lsof/curl: these fakes cannot carry real engine provenance. Its own
+      // contract is covered by tools/dev/sandbox_attachment_test.mjs.
+      'if [[ "$1" == "-e" && "$3" == */services/sandbox_engine_attachment.js ]]; then',
+      '  sb="$5"; api="$7"; owner="$sb/opencode_engine.ownership.json"',
+      '  case "$4" in',
+      '    recordSandboxEngineOwnership)',
+      '      [[ -e "$owner" || "$(<"$sb/api_server.pid")" == "$api" ]] || exit 1',
+      '      [[ -e "$owner" ]] || (umask 077; printf "{}\\n" >"$owner") ;;',
+      '    validateSandboxEngineOwnership) [[ -f "$owner" ]] || exit 1 ;;',
+      '    validateSandboxApiOwnership) [[ "$(<"$sb/api_server.pid")" == "$api" ]] || exit 1 ;;',
+      '    requestSandboxHolderShutdown)',
+      '      holder="$(<"$sb/foreground_holder.pid")"',
+      '      kill -0 "$holder" 2>/dev/null || exit 1',
+      '      [[ "$api" == 0 || "$(ps -o ppid= -p "$api" | tr -d " ")" == "$holder" ]] || exit 1',
+      '      [[ -e "$sb/shutdown.requested" ]] || : >"$sb/shutdown.requested" ;;',
+      '    *) exit 1 ;;',
+      '  esac',
+      '  exit 0',
+      'fi',
       // Run the actual native-addon preflight, but never launch the real API.
       `if [[ "$1" == "-e" ]]; then exec ${JSON.stringify(process.execPath)} "$@"; fi`,
       '[[ "$1" == */dist/server.js && "$3" == --rhythm-sandbox=* ]] || exit 64',
@@ -274,6 +294,11 @@ afterEach(() => {
   tempRoots.clear();
 });
 
+// Stopping a live sandbox API proves ownership via macOS kernel argv
+// (KERN_PROCARGS2, tools/dev/sandbox_api_recovery.py); the script fails closed
+// elsewhere, so lifecycles that stop a live API only run on darwin.
+const itDarwin = it.skipIf(process.platform !== "darwin");
+
 describe("tools/dev/sandbox.sh foreground lifecycle (#1186)", () => {
   it("is valid Bash and rejects unsupported up options before doing work", async () => {
     const syntax = await run("bash", ["-n", sandboxScript], process.env);
@@ -288,7 +313,7 @@ describe("tools/dev/sandbox.sh foreground lifecycle (#1186)", () => {
     expect(invalid.stderr).toContain("up [--foreground]");
   });
 
-  it("preserves plain up as a returning background launch", async () => {
+  itDarwin("preserves plain up as a returning background launch", async () => {
     const { env, sandbox } = fakeSandboxEnv();
     const result = await run("bash", [sandboxScript, "up"], env);
 
@@ -311,7 +336,7 @@ describe("tools/dev/sandbox.sh foreground lifecycle (#1186)", () => {
     expect(existsSync(sandbox)).toBe(false);
   });
 
-  it("reliably keeps the launcher alive until down completes its acknowledged stop", async () => {
+  itDarwin("reliably keeps the launcher alive until down completes its acknowledged stop", async () => {
     const { env, sandbox } = fakeSandboxEnv();
     for (let iteration = 0; iteration < reliabilityIterations; iteration += 1) {
       const startedAt = performance.now();

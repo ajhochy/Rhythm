@@ -124,7 +124,8 @@ describe('ensureCuratedMcps token bridge — real refresh path (c2)', () => {
     configPath = join(dir, 'opencode.json');
 
     // Google refresh requires the desktop client to be configured.
-    vi.doMock('../config/env', () => ({
+    vi.doMock('../config/env', async () => ({
+      ...(await import('./helpers/opencode_paths_mock')).opencodePathMocks,
       env: {
         dbClient: 'sqlite',
         googleClientId: 'web-client',
@@ -257,7 +258,8 @@ describe('POST /opencode/mcp/curated/ensure token bridge (c3, c4)', () => {
     vi.resetModules();
     dir = mkdtempSync(join(tmpdir(), 'opencode-token-route-'));
 
-    vi.doMock('../config/env', () => ({
+    vi.doMock('../config/env', async () => ({
+      ...(await import('./helpers/opencode_paths_mock')).opencodePathMocks,
       env: {
         dbClient: 'sqlite',
         agentLocal: true,

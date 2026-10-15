@@ -1,6 +1,45 @@
+import { loadQualificationFixtureAuthority } from '../services/qualification_fixture_authority';
 import os from 'os';
 import path from 'path';
 import { isIP } from 'node:net';
+import {
+  activeBackendSection,
+  defaultTimeoutFor,
+  loadDecisionSettings,
+} from '../services/decision/decision_settings';
+
+const qualificationStartup=loadQualificationFixtureAuthority();
+if(qualificationStartup){
+  const root=qualificationStartup.fixtureRoot;
+  const isolated:Record<string,string>={DB_CLIENT:'sqlite',DB_PATH:qualificationStartup.dbPath,
+    XDG_CONFIG_HOME:path.join(root,'xdg-config'),XDG_DATA_HOME:path.join(root,'xdg-data'),XDG_CACHE_HOME:path.join(root,'xdg-cache'),XDG_STATE_HOME:path.join(root,'xdg-state'),RHYTHM_API_LOG_PATH:path.join(root,'logs','api_server.log'),OPENCODE_TEST_HOME:path.join(root,'engine-home'),OPENCODE_CONFIG_DIR:path.join(root,'opencode-config'),RHYTHM_OPENCODE_CONFIG_PATH:path.join(root,'opencode-config','opencode.json'),
+    RHYTHM_ORG_INSTRUCTIONS_FILE:path.join(root,'org-instructions.md'),RHYTHM_MANAGED_SKILLS_DIR:path.join(root,'opencode-config','skills'),RHYTHM_MANAGED_COMMANDS_DIR:path.join(root,'opencode-config','commands'),RHYTHM_LEGACY_MANAGED_SKILLS_DIR:path.join(root,'legacy-managed-skills'),
+    MEMORY_VAULT_PATH:path.join(root,'memory'),MEMORY_VAULT_SUBDIR:'',LIVE_ARTIFACT_STORAGE_DIR:path.join(root,'live-artifacts'),
+    RHYTHM_ACCOUNTS_FILE:path.join(root,'anthropic-accounts.json'),RHYTHM_OPENAI_ACCOUNTS_FILE:path.join(root,'openai-accounts.json'),RHYTHM_DECISION_ROUTER_FILE:path.join(root,'decision-router.json'),RHYTHM_MANAGED_TOOL_ROOT:path.join(root,'managed-tools'),RHYTHM_TOOL_ARTIFACT_ROOT:path.join(root,'tool-artifacts')};
+  for(const [key,value] of Object.entries(isolated))process.env[key]=value;
+  // The engine's data/cache/state (opencode.db, auth.json) are isolated too: sharing
+  // them let the 0.18.69 qualification engine write the user's regular opencode.db.
+  // Model turns here therefore need a fresh sign-in; credentials are never copied.
+}
+
+/**
+ * A file in the opencode engine's data dir. The engine follows XDG_DATA_HOME
+ * (else ~/.local/share); hard-coding the fallback let a qualification API read
+ * the user's real auth.json while its isolated engine used another one.
+ */
+export function opencodeDataFile(name: string): string {
+  return path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'opencode', name);
+}
+
+/**
+ * The opencode.json Rhythm manages. RHYTHM_OPENCODE_CONFIG_PATH wins (qualification
+ * points it at its fixture); several writers hard-coded ~/.config and rewrote the
+ * user's real file from a qualification build.
+ */
+export function opencodeConfigFile(): string {
+  const override = process.env.RHYTHM_OPENCODE_CONFIG_PATH?.trim();
+  return override || path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'opencode', 'opencode.json');
+}
 
 export type DbClient = 'sqlite' | 'postgres';
 
@@ -145,6 +184,11 @@ function rhythmApplicationDataDir(): string {
   return path.dirname(expandHome(process.env.DB_PATH ?? path.join(os.homedir(), 'Library', 'Application Support', 'Rhythm', 'rhythm.db')));
 }
 
+/** Private, app-managed state for the local Dayflow integration. */
+export function resolveDayflowIntegrationStateDir(): string {
+  return path.join(rhythmApplicationDataDir(), 'dayflow-integration');
+}
+
 export function resolveManagedToolRoot(): string {
   return expandHome(process.env.RHYTHM_MANAGED_TOOL_ROOT ?? path.join(rhythmApplicationDataDir(), 'managed-tools'));
 }
@@ -229,6 +273,174 @@ export function isMemoryLinkExpansionEnabled(): boolean {
     .trim()
     .toLowerCase();
   return raw === 'true' || raw === '1';
+}
+
+/**
+ * Local decision engine (docs/ai/plans/2026-09-29-local-decision-engine.md).
+ * All getters read process.env live so tests and operators can flip them
+ * without a restart. The backend must be loopback (enforced in the client).
+ */
+export function getDecisionBaseUrl(): string {
+  const raw = (process.env.AGENT_DECISION_BASE_URL ?? '').trim();
+  if (raw) return raw;
+  return activeBackendSection(loadDecisionSettings()).baseUrl;
+}
+
+export function getDecisionModel(): string {
+  const raw = (process.env.AGENT_DECISION_MODEL ?? '').trim();
+  if (raw) return raw;
+  return activeBackendSection(loadDecisionSettings()).model || 'qwen3-reranker-4b';
+}
+
+/**
+ * Per-call budget for the decision backend. Precedence: valid env > saved
+ * setting > default (400ms local, 1000ms systemone, 1500ms jev/custom).
+ */
+export function getDecisionTimeoutMs(): number {
+  const fromEnv = numberEnv('AGENT_DECISION_TIMEOUT_MS');
+  if (fromEnv !== null && Number.isInteger(fromEnv) && fromEnv > 0) return fromEnv;
+  const settings = loadDecisionSettings();
+  if (settings.timeoutMs !== null) return settings.timeoutMs;
+  return defaultTimeoutFor(settings.backend);
+}
+
+/** Per-feature rollout: off (default) -> shadow (log only) -> on (apply). */
+export type DecisionMode = 'off' | 'shadow' | 'on';
+
+const DECISION_FEATURE_ENV = {
+  model_routing: 'AGENT_DECISION_MODEL_ROUTING',
+  tool_ranking: 'AGENT_DECISION_TOOL_RANKING',
+  memory_ranking: 'AGENT_DECISION_MEMORY_RANKING',
+  capacity_routing: 'AGENT_DECISION_CAPACITY_ROUTING',
+} as const;
+
+export function getDecisionFeatureMode(
+  feature: keyof typeof DECISION_FEATURE_ENV,
+): DecisionMode {
+  const raw = (process.env[DECISION_FEATURE_ENV[feature]] ?? '').trim().toLowerCase();
+  if (raw === 'off' || raw === 'shadow' || raw === 'on') return raw;
+  const saved = loadDecisionSettings().features[feature];
+  return saved === 'shadow' || saved === 'on' ? saved : 'off';
+}
+
+/**
+ * Effective mode for one turn. An explicitly set, recognised env value always
+ * wins (explicit 'off' is a kill switch; 'shadow' stays shadow). When the env
+ * var is unset/empty, a saved (non-'default') Router setting wins; otherwise Auto
+ * (router) sessions get 'shadow' (log only, until validated and set to On) and
+ * everything else 'off'. Unrecognised values are treated as unset.
+ */
+export function getEffectiveDecisionMode(
+  feature: keyof typeof DECISION_FEATURE_ENV,
+  opts: { sessionAuto?: boolean } = {},
+): DecisionMode {
+  const raw = (process.env[DECISION_FEATURE_ENV[feature]] ?? '').trim().toLowerCase();
+  if (raw === 'off' || raw === 'shadow' || raw === 'on') return raw;
+  const saved = loadDecisionSettings().features[feature];
+  if (saved !== 'default') return saved;
+  return opts.sessionAuto ? 'shadow' : 'off';
+}
+
+/**
+ * Memory-ranking budget. Memory pools are larger than tool/route batches, so the
+ * default is max(getDecisionTimeoutMs(), 800). AGENT_DECISION_MEMORY_TIMEOUT_MS
+ * overrides it (positive integer).
+ */
+export function getDecisionMemoryTimeoutMs(): number {
+  const fromEnv = numberEnv('AGENT_DECISION_MEMORY_TIMEOUT_MS');
+  if (fromEnv !== null && Number.isInteger(fromEnv) && fromEnv > 0) return fromEnv;
+  return Math.max(getDecisionTimeoutMs(), 800);
+}
+
+/**
+ * Whether capacity routing may pick an equivalent-tier route from another agent's
+ * fallback table (e.g. Anthropic low -> OpenAI). Env only; default true.
+ */
+export function getDecisionCapacityCrossAgent(): boolean {
+  const raw = (process.env.AGENT_DECISION_CAPACITY_CROSS_AGENT ?? '').trim().toLowerCase();
+  if (['0', 'false', 'off', 'no'].includes(raw)) return false;
+  return true;
+}
+
+/** Max rows kept in agent_decision_log (default 20000). */
+export function getDecisionLogMaxRows(): number {
+  return positiveIntEnv('AGENT_DECISION_LOG_MAX_ROWS', 20_000);
+}
+
+/** Minimum classifier confidence, in (0,1], before a routing tier is applied: env > saved > 0.55. */
+export function getDecisionRoutingMinConfidence(): number {
+  const parsed = numberEnv('AGENT_DECISION_ROUTING_MIN_CONFIDENCE');
+  if (parsed !== null && parsed > 0 && parsed <= 1) return parsed;
+  return loadDecisionSettings().routing.minConfidence;
+}
+
+/** Routing scope: env > saved setting > 'first_prompt'. */
+export function getDecisionRoutingScope(): 'first_prompt' | 'escalate_only' | 'every_prompt' {
+  const raw = (process.env.AGENT_DECISION_ROUTING_SCOPE ?? '').trim().toLowerCase();
+  if (raw === 'first_prompt' || raw === 'escalate_only' || raw === 'every_prompt') return raw;
+  return loadDecisionSettings().routing.scope;
+}
+
+/** Min confidence, in (0,1], for escalate_only to move up a tier. Default 0.75. */
+export function getDecisionEscalateMinConfidence(): number {
+  const parsed = numberEnv('AGENT_DECISION_ESCALATE_MIN_CONFIDENCE');
+  if (parsed !== null && parsed > 0 && parsed <= 1) return parsed;
+  return loadDecisionSettings().routing.escalateMinConfidence;
+}
+
+/** How many top-ranked MCP servers stay eager; the rest are deferred. */
+export function getDecisionToolEagerServers(): number {
+  return positiveIntEnv('AGENT_DECISION_TOOL_EAGER_SERVERS', 4);
+}
+
+export function getDecisionToolMinScore(): number {
+  return unitIntervalEnv('AGENT_DECISION_TOOL_MIN_SCORE', 0.3);
+}
+
+/**
+ * Remaining-usage fraction (exclusive bounds 0..1) at or below which an account
+ * counts as "low" for capacity routing. Default 0.15.
+ */
+export function getDecisionCapacityLowFraction(): number {
+  const parsed = numberEnv('AGENT_DECISION_CAPACITY_LOW_FRACTION');
+  return parsed !== null && parsed > 0 && parsed < 1 ? parsed : 0.15;
+}
+
+export function getDecisionMemoryMinScore(): number {
+  return unitIntervalEnv('AGENT_DECISION_MEMORY_MIN_SCORE', 0.5);
+}
+
+/**
+ * How the decision backend's raw scores are interpreted:
+ * auto (default) keeps all-[0,1] batches else sigmoid; probability clamps to
+ * [0,1]; logit always applies a sigmoid.
+ */
+export type DecisionScoreScale = 'auto' | 'probability' | 'logit';
+
+export function getDecisionScoreScale(): DecisionScoreScale {
+  const raw = (process.env.AGENT_DECISION_SCORE_SCALE ?? '').trim().toLowerCase();
+  if (raw === 'auto' || raw === 'probability' || raw === 'logit') return raw;
+  const settings = loadDecisionSettings();
+  return settings.backend === 'local' || settings.backend === 'custom'
+    ? settings[settings.backend].scoreScale
+    : 'auto';
+}
+
+function numberEnv(name: string): number | null {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function positiveIntEnv(name: string, fallback: number): number {
+  const parsed = numberEnv(name);
+  return parsed !== null && Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function unitIntervalEnv(name: string, fallback: number): number {
+  const parsed = numberEnv(name);
+  return parsed !== null && parsed >= 0 && parsed <= 1 ? parsed : fallback;
 }
 
 /**
@@ -436,6 +648,9 @@ export const env = {
    * execution.
    */
   recipeWorkflowsEnabled: process.env.RHYTHM_RECIPE_WORKFLOWS_ENABLED === 'true',
+  workstreamsEnabled:
+    process.env.RHYTHM_WORKSTREAMS_ENABLED === 'true' &&
+    dbClientValue === 'sqlite' && deploymentRole !== 'cloud' && deploymentRole !== 'relay',
   /** True only for the Synology relay container (RHYTHM_ROLE=relay). */
   isRelayRole: deploymentRole === 'relay',
   /**
@@ -488,7 +703,7 @@ export const env = {
     path.join(os.homedir(), 'Documents'),
   researchModel: parseResearchModel(),
   dbClient: parseDbClient(dbClientValue),
-  dbPath: process.env.DB_PATH ?? path.join(process.cwd(), 'rhythm.db'),
+  dbPath: loadQualificationFixtureAuthority()?.dbPath ?? process.env.DB_PATH ?? path.join(process.cwd(), 'rhythm.db'),
   dbHost: process.env.DB_HOST ?? 'localhost',
   dbPort: Number(process.env.DB_PORT ?? 5432),
   dbName: process.env.DB_NAME ?? 'rhythm',

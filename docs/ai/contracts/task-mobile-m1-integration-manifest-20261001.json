@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-01",
+  "branch": "codex/opencode-memory-recovery",
+  "draft_pr": 1598,
+  "scope": "M1 mobile completion and viewport repair, A1 mobile gateway adapter, and W6 pairing-contract synchronization",
+  "product_files": [
+    "apps/mobile/components/chat/chat-content.tsx",
+    "apps/mobile/components/chat/chat-view.tsx",
+    "apps/mobile/providers/opencode-provider.tsx",
+    "apps/mobile/providers/opencode-provider-types.ts",
+    "apps/api_server/src/services/mobile_opencode_proxy.ts"
+  ],
+  "test_and_harness_files": [
+    "apps/mobile/tests/chat/chat-content-scroll.test.tsx",
+    "apps/mobile/tests/chat/transcript-streaming-provider.test.tsx",
+    "apps/mobile/tests/e2e/m1-newest-viewport.spec.mjs",
+    "apps/mobile/tests/e2e/issue-1174-parity.spec.mjs",
+    "apps/mobile/tests/e2e/st1-concurrent-delta-streaming.spec.mjs",
+    "apps/mobile/tests/e2e/m1-live-sandbox.spec.mjs",
+    "apps/mobile/playwright.m1-live.config.mjs",
+    "apps/mobile/lib/runtime/mobile-runtime.e2e.ts",
+    "apps/api_server/src/__tests__/mobile_attachment_adapter_contract.test.ts"
+  ],
+  "generated_contract_fingerprint": "2af70a000d8795162d351d31b0c1c7573b946be7759c66e62acca2a4dd5aef35",
+  "generated_contract_files": [
+    "apps/opencode_fork/packages/sdk/openapi.json",
+    "apps/mobile/contracts/rhythm-opencode-contract.json",
+    "apps/mobile/contracts/rhythm-opencode-classifications.json",
+    "apps/mobile/lib/pairing/paired-host-store.ts",
+    "apps/api_server/src/services/mobile_pairing_service.ts",
+    "apps/api_server/src/services/__tests__/mobile_pairing_service.test.ts"
+  ],
+  "a1_dependency_owned_outside_m1": "apps/api_server/src/services/attachment_hosting.ts",
+  "receipts": [
+    "docs/ai/runs/2026-10-01-mobile-m1-completion-and-viewport-source-repair.md",
+    "docs/ai/runs/2026-10-01-mobile-m1-overlapping-get-repair.md",
+    "docs/ai/runs/2026-10-01-mobile-a1-attachment-adapter.md",
+    "docs/ai/runs/2026-10-01-integrated-mobile-m1-checkpoint.md",
+    "docs/ai/runs/2026-10-01-mobile-m1-live-sandbox-ui.md"
+  ],
+  "checks": {
+    "mobile_static": "pass",
+    "mobile_contract": "pass",
+    "mobile_jest": "55 suites, 318 tests passed",
+    "mobile_foundation_browser": "76 passed, 1 skipped",
+    "mobile_viewport_browser": "1 passed",
+    "api_pairing_fingerprint": "12 passed",
+    "real_engine_api_device_relay_mobile_browser": "1 passed, exact synthetic fixture cleanup checked",
+    "default_live_spec_guard": "1 skipped without opt-in flags",
+    "mobile_typecheck_and_targeted_lint": "pass"
+  },
+  "remaining_acceptance": [
+    "physical iPhone and internal TestFlight native behavior",
+    "native keyboard, safe area, reconnect, long transcript, and pagination matrix",
+    "Independent storage and cache commit timestamps are not instrumented; the live gate records terminal GET followed by a visible UI assertion."
+  ]
+}

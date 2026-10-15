@@ -6,6 +6,10 @@ import { anthropicAccountsService } from '../services/anthropic_accounts_service
 import { openaiAccountsService } from '../services/openai_accounts_service';
 import { broadcast, broadcastSessionUpdated } from '../services/ws_gateway';
 import { logger } from '../utils/logger';
+import { loadDecisionSettings } from '../services/decision/decision_settings';
+import { markGridSpillover } from '../services/decision/router_grid_spillover';
+import { isAutoAccountSession, markAutoAccountSession, unmarkAutoAccountSession } from '../services/decision/capacity_router';
+import { RouterGridAttemptsRepository } from '../services/decision/router_grid_attempts_repository';
 import {
   advanceFallbackCascade,
   finalizeErrorStatus,
@@ -73,6 +77,16 @@ opencodeSpilloverRouter.post('/', async (req: Request, res: Response) => {
     return;
   }
 
+  const settings = loadDecisionSettings();
+  if (settings.routing.engine === 'grid' && settings.features.model_routing === 'on') {
+    await markGridSpillover(body, exhaustedProviderID, fromAccountId);
+  }
+  if (session.modelMode === 'auto' && session.routerDecidedAt && settings.routing.engine === 'grid' && settings.features.model_routing === 'on') {
+    // Grid reselects on the next message, never retries the failed message or accepts a plugin account pick.
+    res.status(202).json({ accepted: true, handoff: false });
+    return;
+  }
+
   if (exhausted) {
     const result = await advanceFallbackCascade(session.id, {
       providerID: exhaustedProviderID,
@@ -106,12 +120,28 @@ opencodeSpilloverRouter.post('/', async (req: Request, res: Response) => {
   // Same-provider account failover. providerID 'openai' comes from the codex
   // plugin (codex-accounts.ts); absent = the Anthropic plugin (unchanged).
   const isOpenAI = exhaustedProviderID === 'openai';
+  const provider = isOpenAI ? 'openai' : 'anthropic';
+  const currentAccountId = isOpenAI ? session.openaiAccountId : session.anthropicAccountId;
+  // Restart-safe: exact durable router provenance can reconstruct automatic intent; missing/stale/corrupt stays explicit.
+  const source = provider === 'anthropic' ? session.anthropicAccountSource : session.openaiAccountSource;
+  // NULL is authoritative unknown: legacy attempts cannot prove intent after a failed pin audit.
+  const durableAuto = source === 'router';
+  if (durableAuto) markAutoAccountSession(session.id, provider);
+  else unmarkAutoAccountSession(session.id, provider); // pinned/NULL authoritative over stale memory
+  // A stale native override/report must not overwrite explicit or unknown account intent.
+  if (currentAccountId && !durableAuto) {
+    res.status(202).json({ accepted: true, handoff: false });
+    return;
+  }
+  markAutoAccountSession(session.id, provider);
   if (isOpenAI) {
     repo.setOpenaiAccountId(session.id, toAccountId);
-    openaiAccountsService.setRouting(sdkSessionId, toAccountId);
+    repo.setOpenaiAccountSource(session.id, 'router');
+    openaiAccountsService.setRouting(sdkSessionId, toAccountId, { pinned: false });
   } else {
     repo.setAnthropicAccountId(session.id, toAccountId);
-    anthropicAccountsService.setRouting(sdkSessionId, toAccountId);
+    repo.setAnthropicAccountSource(session.id, 'router');
+    anthropicAccountsService.setRouting(sdkSessionId, toAccountId, { pinned: false });
   }
   logger.info(
     `[Spillover] session ${session.id} (${sdkSessionId}) moved ${isOpenAI ? 'openai ' : ''}${fromAccountId ?? '?'} → ${toAccountId} (${reason})`,

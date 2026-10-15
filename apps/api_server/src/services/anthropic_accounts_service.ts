@@ -93,8 +93,8 @@ export class OAuthAccountsService<A extends OAuthAccount = AnthropicAccount> {
     return this.store.rename(id, label);
   }
 
-  setRouting(sdkSessionId: string, accountId: string): void {
-    this.store.setRouting(sdkSessionId, accountId);
+  setRouting(sdkSessionId: string, accountId: string, opts?: { pinned?: boolean }): void {
+    this.store.setRouting(sdkSessionId, accountId, opts);
   }
 
   /** Hook: skip accounts some other component refreshes (see OpenAI). */

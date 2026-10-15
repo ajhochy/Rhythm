@@ -191,7 +191,7 @@ describe('agent_memory Postgres parity remains role-gated (#1219 supersedes #807
   });
 
   it('the /agent-memory route is LOCAL-ONLY (mounted only inside the agentExecutionEnabled gate)', () => {
-    const mountIdx = appTs.indexOf("app.use('/agent-memory', agentMemoryRouter)");
+    const mountIdx = appTs.indexOf("app.use('/agent-memory', createAgentMemoryRouter(");
     expect(mountIdx, '/agent-memory must be mounted').toBeGreaterThan(-1);
     // The gate must open before the mount, and the mount must sit inside it (the
     // gate block contains the other agent-execution mounts; agent-sessions is the

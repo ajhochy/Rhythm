@@ -39,13 +39,20 @@ export async function createOpencodeServer(options?: ServerOptions) {
       ...process.env,
       OPENCODE_CONFIG_CONTENT: JSON.stringify(options.config ?? {}),
     },
+    // Rhythm process-lifecycle fix: make this engine the leader of its own
+    // process group (pgid === pid) instead of inheriting the spawning
+    // process's group. Every MCP server the engine spawns (e.g. `engraph`)
+    // inherits this group, so `stop()` below can reap the whole tree with a
+    // single signal to the group — including crash/force-quit paths, where
+    // nothing else ever gets a chance to individually close those children.
+    detached: true,
   })
   let clear = () => {}
 
   const url = await new Promise<string>((resolve, reject) => {
     const id = setTimeout(() => {
       clear()
-      stop(proc)
+      stop(proc, { group: true })
       reject(new Error(`Timeout waiting for server to start after ${options.timeout}ms`))
     }, options.timeout)
     let output = ""
@@ -59,7 +66,7 @@ export async function createOpencodeServer(options?: ServerOptions) {
           const match = line.match(/on\s+(https?:\/\/[^\s]+)/)
           if (!match) {
             clear()
-            stop(proc)
+            stop(proc, { group: true })
             clearTimeout(id)
             reject(new Error(`Failed to parse server url from output: ${line}`))
             return
@@ -86,17 +93,22 @@ export async function createOpencodeServer(options?: ServerOptions) {
       clearTimeout(id)
       reject(error)
     })
-    clear = bindAbort(proc, options.signal, () => {
-      clearTimeout(id)
-      reject(options.signal?.reason)
-    })
+    clear = bindAbort(
+      proc,
+      options.signal,
+      () => {
+        clearTimeout(id)
+        reject(options.signal?.reason)
+      },
+      { group: true },
+    )
   })
 
   return {
     url,
     close() {
       clear()
-      stop(proc)
+      stop(proc, { group: true })
     },
   }
 }
@@ -130,6 +142,7 @@ export function createOpencodeTui(options?: TuiOptions) {
   return {
     close() {
       clear()
+      // Not detached (inherits stdio for the interactive TUI) — plain kill.
       stop(proc)
     },
   }

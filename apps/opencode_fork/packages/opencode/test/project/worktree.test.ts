@@ -1,5 +1,6 @@
 import { afterEach, describe, expect } from "bun:test"
 import path from "path"
+import { readFileSync, writeFileSync } from "node:fs"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect"
@@ -178,6 +179,63 @@ describe("Worktree", () => {
   })
 
   describe("create + remove lifecycle", () => {
+    it.instance(
+      "W6: missing selected base rejects without creating a worktree or changing source",
+      () => Effect.gen(function* () {
+        const test = yield* TestInstance
+        const svc = yield* Worktree.Service
+        const before = yield* git(test.directory, ["worktree", "list", "--porcelain"])
+        const sourceHead = yield* git(test.directory, ["rev-parse", "HEAD"])
+        const exit = yield* Effect.exit(svc.create({ name: "W6 Missing", base: "missing-selected-base" }))
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) {
+          const error = Cause.squash(exit.cause)
+          expect(error).toBeInstanceOf(Worktree.CreateFailedError)
+          expect(String(error)).toContain("Choose an existing local branch")
+        }
+        expect(yield* git(test.directory, ["worktree", "list", "--porcelain"])).toBe(before)
+        expect(yield* git(test.directory, ["rev-parse", "HEAD"])).toBe(sourceHead)
+      }),
+      { git: true },
+    )
+    it.instance(
+      "W6: creates from a selected branch checked out elsewhere without altering dirty source",
+      () => Effect.gen(function* () {
+        const test = yield* TestInstance
+        const svc = yield* Worktree.Service
+        const other = `${test.directory}-selected base`
+        yield* git(test.directory, ["worktree", "add", "-b", "selected-base", other])
+        try {
+          writeFileSync(path.join(other, "selected marker.txt"), "selected base\n")
+          yield* git(other, ["add", "selected marker.txt"])
+          yield* git(other, ["-c", "user.email=w6@rhythm.test", "-c", "user.name=W6", "commit", "-m", "selected base marker"])
+          writeFileSync(path.join(test.directory, "tracked file.txt"), "committed\n")
+          yield* git(test.directory, ["add", "tracked file.txt"])
+          yield* git(test.directory, ["commit", "-m", "source marker"])
+          writeFileSync(path.join(test.directory, "tracked file.txt"), "unstaged bytes\n")
+          writeFileSync(path.join(test.directory, "staged file.txt"), "staged bytes\n")
+          yield* git(test.directory, ["add", "staged file.txt"])
+          writeFileSync(path.join(test.directory, "dirty source.txt"), "untracked bytes\n")
+          const before = yield* git(test.directory, ["status", "--porcelain=v1"])
+          const indexBefore = yield* git(test.directory, ["ls-files", "-s"])
+          const branchBefore = yield* git(test.directory, ["branch", "--show-current"])
+          const baseHead = yield* git(other, ["rev-parse", "HEAD"])
+          yield* withCreatedWorktree({ name: "W6 Space", base: "selected-base" }, ({ info }) => Effect.gen(function* () {
+            expect(yield* git(info.directory, ["rev-parse", "HEAD"])).toBe(baseHead)
+            expect(readFileSync(path.join(info.directory, "selected marker.txt"), "utf8")).toBe("selected base\n")
+            expect(yield* git(test.directory, ["status", "--porcelain=v1"])).toBe(before)
+            expect(yield* git(test.directory, ["ls-files", "-s"])).toBe(indexBefore)
+            expect(yield* git(test.directory, ["branch", "--show-current"])).toBe(branchBefore)
+            expect(readFileSync(path.join(test.directory, "tracked file.txt"), "utf8")).toBe("unstaged bytes\n")
+            expect(readFileSync(path.join(test.directory, "staged file.txt"), "utf8")).toBe("staged bytes\n")
+            expect(readFileSync(path.join(test.directory, "dirty source.txt"), "utf8")).toBe("untracked bytes\n")
+          }))
+        } finally {
+          yield* git(test.directory, ["worktree", "remove", "--force", other])
+        }
+      }),
+      { git: true },
+    )
     it.instance(
       "create returns worktree info and remove cleans up",
       () =>

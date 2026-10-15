@@ -1,0 +1,4 @@
+# Private, hash-pinned bundled runtime used by isolated rollout tests.
+.hermes-shipping-runtime/
+__pycache__/
+*.pyc

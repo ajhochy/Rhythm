@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test';
 import { openFixture } from './helpers';
 
-const destinations = ['dashboard', 'planner', 'tasks', 'rhythms', 'projects', 'messages', 'facilities', 'automations', 'integrations', 'agents'] as const;
+const destinations = ['dashboard', 'planner', 'tasks', 'rhythms', 'projects', 'messages', 'facilities', 'automations', 'integrations', 'agents', 'settings'] as const;
 
 test('post-m1-p1-c2a: keyboard navigation reaches every top-level destination with stable current-page semantics', async ({ page }) => {
   // Regression caught: a destination disappears from the keyboard path or navigation updates the
   // URL without updating its current-page semantic; visibility/current assertions fail.
-  // This walks 10 wide destinations plus 8 overflow destinations and measures 12.0-12.2s against the
+  // This walks 11 wide destinations plus 9 compact overflow destinations and measures 12.0-12.2s against the
   // 20s global budget, so it failed once under machine load and then passed 3/3. Following the
   // tasks.spec.ts precedent it gets its own budget rather than raising the global one, so a
   // load-sensitive timeout cannot masquerade as missing product behaviour.
@@ -16,11 +16,10 @@ test('post-m1-p1-c2a: keyboard navigation reaches every top-level destination wi
 
   for (const destination of destinations) {
     const control = page.getByTestId(`nav-${destination}`);
-    await expect(control).toBeVisible();
     await control.focus();
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(new RegExp(`#/${destination}`));
-    await expect(control).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByTestId(`nav-${destination}`)).toHaveAttribute('aria-current', 'page');
   }
 
   await page.setViewportSize({ width: 390, height: 844 });

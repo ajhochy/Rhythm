@@ -22,6 +22,37 @@ const configuredServerUrl =
     ? Constants.expoConfig.extra.e2eServerUrl.replace(/\/$/, '')
     : null;
 
+type LiveM1Bridge = {
+  userId: number;
+  deviceToken: string;
+  gatewayBaseUrl: string;
+};
+
+// This module is selected only by the development E2E Metro alias. The live
+// bridge additionally requires an explicit build flag and a Playwright-injected
+// disposable Device fixture; production and ordinary fake-server E2E builds
+// cannot pick it up.
+const liveM1Bridge = (() => {
+  if (process.env.EXPO_PUBLIC_E2E_LIVE_M1 !== '1') return null;
+  // Expo's web export evaluates route modules in Node before Playwright can
+  // install the browser fixture. Only the browser runtime consumes the bridge.
+  if (typeof window === 'undefined') return null;
+  const candidate = (globalThis as typeof globalThis & {
+    __RHYTHM_LIVE_M1_BRIDGE__?: LiveM1Bridge;
+  }).__RHYTHM_LIVE_M1_BRIDGE__;
+  if (!candidate || !Number.isSafeInteger(candidate.userId) || candidate.userId <= 0 ||
+    !/^[A-Za-z0-9_-]{40,128}$/.test(candidate.deviceToken)) {
+    throw new Error('The live M1 E2E bridge requires a disposable Device fixture.');
+  }
+  const gateway = new URL(candidate.gatewayBaseUrl);
+  if (gateway.protocol !== 'http:' || gateway.hostname !== '127.0.0.1' ||
+    gateway.port !== '4099' || gateway.username || gateway.password ||
+    gateway.pathname !== '/' || gateway.search || gateway.hash) {
+    throw new Error('The live M1 E2E bridge requires an isolated loopback gateway.');
+  }
+  return candidate;
+})();
+
 if (!configuredServerUrl) {
   throw new Error('The E2E runtime requires EXPO_PUBLIC_E2E_SERVER_URL.');
 }
@@ -32,10 +63,11 @@ function serverUrl(): string {
 
 const credentials = new Map<string, string>([
   [RHYTHM_SESSION_SECURE_KEY, 'e2e-cloud-session'],
+  ...(liveM1Bridge ? [[PAIRED_DEVICE_SECURE_KEY, liveM1Bridge.deviceToken] as const] : []),
 ]);
 
 const accountUser: RhythmUser = {
-  id: 7,
+  id: liveM1Bridge?.userId ?? 7,
   email: 'mobile-e2e@example.com',
   name: 'Mobile E2E',
   photoUrl: null,
@@ -77,7 +109,7 @@ function createPairedHostStore(): PairedHostStore {
       }
       credentials.delete(key);
     },
-    resolveGatewayUrl: (gatewayUrl) =>
+    resolveGatewayUrl: (gatewayUrl) => liveM1Bridge?.gatewayBaseUrl ??
       `${serverUrl()}/__mobile/${new URL(gatewayUrl).hostname}`,
   });
 }
@@ -143,7 +175,7 @@ export const mobileRuntimeVariant: MobileRuntimeVariant = {
   enabled: true,
   serverUrl: configuredServerUrl!,
   accountUser,
-  cacheScope: 'e2e-user',
+  cacheScope: liveM1Bridge ? `e2e-live-user-${liveM1Bridge.userId}` : 'e2e-user',
   simulatedPairingTestId: 'pair-simulate-qr',
   createPairedHostStore,
   createActivityTransport,
@@ -155,7 +187,7 @@ export const mobileRuntimeVariant: MobileRuntimeVariant = {
       projectId: 'project-demo',
     });
   },
-  simulatedPairingPayload: (hasExistingHost) =>
+  simulatedPairingPayload: (hasExistingHost) => liveM1Bridge ? null :
     JSON.stringify({
       gatewayUrl: hasExistingHost
         ? 'https://other-mac.tail1234.ts.net'

@@ -1,0 +1,72 @@
+[
+  {
+    "name": "grdb.swift",
+    "url": "https://raw.githubusercontent.com/groue/GRDB.swift/0aaa2a4f3774c3e0541adfa07465e4220f72d1c2/LICENSE",
+    "sourceRevision": "0aaa2a4f3774c3e0541adfa07465e4220f72d1c2",
+    "file": "LICENSE-grdb.swift.txt",
+    "sha256": "9853f9dce81365fcc1d9b46004633354450164b8d17904e92e80c444545f7e87"
+  },
+  {
+    "name": "networkimage",
+    "url": "https://raw.githubusercontent.com/gonzalezreal/NetworkImage/2849f5323265386e200484b0d0f896e73c3411b9/LICENSE",
+    "sourceRevision": "2849f5323265386e200484b0d0f896e73c3411b9",
+    "file": "LICENSE-networkimage.txt",
+    "sha256": "4438d8a78e985d37ba3c4db356557423b3739b2b2a0abb2ecefcafda4009c16b"
+  },
+  {
+    "name": "posthog-ios",
+    "url": "https://raw.githubusercontent.com/PostHog/posthog-ios/f381818bc153f63fbe13d6822e65cc7233ba4647/LICENSE",
+    "sourceRevision": "f381818bc153f63fbe13d6822e65cc7233ba4647",
+    "file": "LICENSE-posthog-ios.txt",
+    "sha256": "8daa60297be35df415ddc1fb66e9cf7adb2edbcfbc71c002ab3388ec11d00885"
+  },
+  {
+    "name": "sentry-cocoa",
+    "url": "https://raw.githubusercontent.com/getsentry/sentry-cocoa/9e193ac0b71760603aa666bad7e9e303dd7031a8/LICENSE.md",
+    "sourceRevision": "9e193ac0b71760603aa666bad7e9e303dd7031a8",
+    "file": "LICENSE-sentry-cocoa.txt",
+    "sha256": "1784335a04bbe8014b9bf0f6a373f7b3804855792545702199dbdd6e2c5b6ad1"
+  },
+  {
+    "name": "sparkle",
+    "url": "https://raw.githubusercontent.com/sparkle-project/Sparkle/df074165274afaa39539c05d57b0832620775b11/LICENSE",
+    "sourceRevision": "df074165274afaa39539c05d57b0832620775b11",
+    "file": "LICENSE-sparkle.txt",
+    "sha256": "389a4e4e9a32f059775b13a06e25a591445ba229d2838d26dd3e7c0c45127cfe"
+  },
+  {
+    "name": "swift-cmark",
+    "url": "https://raw.githubusercontent.com/swiftlang/swift-cmark/924936d0427cb25a61169739a7660230bffa6ea6/COPYING",
+    "sourceRevision": "924936d0427cb25a61169739a7660230bffa6ea6",
+    "file": "LICENSE-swift-cmark.txt",
+    "sha256": "c22e885f33b821bddb24cf007145e5540655b6c0f403e49e6c76a93c28e6d9a9"
+  },
+  {
+    "name": "swift-markdown-ui",
+    "url": "https://raw.githubusercontent.com/gonzalezreal/swift-markdown-ui/5f613358148239d0292c0cef674a3c2314737f9e/LICENSE",
+    "sourceRevision": "5f613358148239d0292c0cef674a3c2314737f9e",
+    "file": "LICENSE-swift-markdown-ui.txt",
+    "sha256": "183def18953a1c14583f31c21d07954bc528147750bdd234d452fe4cf7478411"
+  },
+  {
+    "name": "figtree",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/figtree/OFL.txt",
+    "sourceRevision": "Google Fonts official family notice",
+    "file": "LICENSE-figtree.txt",
+    "sha256": "140d37233e7f3ce7313798befa9600893bcceaf41a55fa0fa5ad52f7f657a268"
+  },
+  {
+    "name": "instrumentserif",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/instrumentserif/OFL.txt",
+    "sourceRevision": "Google Fonts official family notice",
+    "file": "LICENSE-instrumentserif.txt",
+    "sha256": "129ed7618959716959f2941fdd5b49e0ad6e6c1d78726761786a00253d865521"
+  },
+  {
+    "name": "nunito",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/nunito/OFL.txt",
+    "sourceRevision": "Google Fonts official family notice",
+    "file": "LICENSE-nunito.txt",
+    "sha256": "580df76c95a1ec5ab878ceb25bb3d85c6a076804e9c970c8c6972aea775fdf65"
+  }
+]

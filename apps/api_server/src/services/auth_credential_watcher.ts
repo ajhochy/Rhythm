@@ -1,4 +1,5 @@
-import { watch as fsWatch, type FSWatcher } from 'fs';
+import { watch as fsWatch, existsSync, type FSWatcher } from 'fs';
+import { basename, dirname } from 'path';
 import { readFile as readFileCb } from 'fs';
 import { promisify } from 'util';
 import { logger } from '../utils/logger';
@@ -157,7 +158,8 @@ export interface AuthCredentialWatcherDeps {
   clearTimer: (handle: unknown) => void;
 }
 
-const defaultDeps: AuthCredentialWatcherDeps = {
+/** Exported so tests can exercise the real fs-backed watch, not a stub. */
+export const defaultAuthCredentialWatcherDeps: AuthCredentialWatcherDeps = {
   readFile: async (path) => {
     try {
       return await readFileAsync(path, 'utf8');
@@ -166,16 +168,53 @@ const defaultDeps: AuthCredentialWatcherDeps = {
     }
   },
   watch: (path, onEvent) => {
-    let watcher: FSWatcher;
-    try {
-      watcher = fsWatch(path, { persistent: false }, () => onEvent());
-    } catch (err) {
-      logger.warn(
-        `[AuthCredentialWatcher] fs.watch failed for ${path}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return { close: () => {} };
+    // A profile that has never signed in has no auth.json yet, and fs.watch on
+    // a missing file throws ENOENT. Returning a dead watcher here meant the
+    // first successful sign-in — the one moment the credentials actually
+    // change — fired nothing, so the engine kept serving a catalogue with no
+    // models for that provider until the next relaunch. Watch the containing
+    // directory until the file appears, then swap to watching the file.
+    let fileWatcher: FSWatcher | null = null;
+    let dirWatcher: FSWatcher | null = null;
+    let closed = false;
+    const name = basename(path);
+
+    const watchFile = (): boolean => {
+      try {
+        fileWatcher = fsWatch(path, { persistent: false }, () => onEvent());
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    if (!watchFile()) {
+      try {
+        dirWatcher = fsWatch(dirname(path), { persistent: false }, (_event, changed) => {
+          if (closed || fileWatcher || (changed !== null && changed !== name)) return;
+          if (!existsSync(path) || !watchFile()) return;
+          dirWatcher?.close();
+          dirWatcher = null;
+          onEvent(); // the file just appeared: treat it as a change
+        });
+        logger.info(`[AuthCredentialWatcher] ${path} is absent; watching ${dirname(path)} until it appears`);
+      } catch (err) {
+        logger.warn(
+          `[AuthCredentialWatcher] fs.watch failed for ${path} and its directory: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return { close: () => {} };
+      }
     }
-    return { close: () => watcher.close() };
+
+    return {
+      close: () => {
+        closed = true;
+        fileWatcher?.close();
+        dirWatcher?.close();
+        fileWatcher = null;
+        dirWatcher = null;
+      },
+    };
   },
   now: () => Date.now(),
   setTimer: (fn, ms) => setTimeout(fn, ms),
@@ -218,7 +257,7 @@ export class AuthCredentialWatcher {
 
   constructor(
     options: AuthCredentialWatcherOptions,
-    deps: AuthCredentialWatcherDeps = defaultDeps,
+    deps: AuthCredentialWatcherDeps = defaultAuthCredentialWatcherDeps,
   ) {
     this.path = options.path;
     this.onReload = options.onReload;
@@ -232,7 +271,9 @@ export class AuthCredentialWatcher {
     const content = await this.deps.readFile(this.path);
     this.lastSnapshot = { content, observedAtMs: this.deps.now() };
     this.watcher = this.deps.watch(this.path, () => this.scheduleRecheck());
-    logger.info(`[AuthCredentialWatcher] watching ${this.path}`);
+    // Says only that the watcher started. Whether a live OS watch is attached
+    // is reported by the watch implementation itself, which knows.
+    logger.info(`[AuthCredentialWatcher] started for ${this.path}`);
   }
 
   stop(): void {

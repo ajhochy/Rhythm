@@ -10,14 +10,17 @@ import {
 } from './mobile_opencode_ownership_runtime';
 import { OPENCODE_ENGINE_PORT } from './opencode_client_service';
 import {
+  COORDINATOR_CHANGED_EVENT,
   opencodeEventHub,
   type HubSubscription,
   type OpencodeEventHub,
 } from './opencode_event_hub';
-import type { MobileProjectScope } from './mobile_project_scope';
+import { CoordinatorConversationsRepository } from '../repositories/coordinator_conversations_repository';
+import { resolveMobileProject, type MobileProjectScope } from './mobile_project_scope';
 import {
   mobileSseEventBelongsToOwner,
   mobileSessionBelongsToProject,
+  shapeMobileCoordinatorChanged,
   shapeMobileSseEvent,
   type MobileOpenCodeOwnerScope,
   type MobileOpenCodeJsonFetcher,
@@ -55,7 +58,14 @@ export interface MobileSseProxyOptions {
    * passes its own uplink-fed instance.
    */
   hub?: OpencodeEventHub;
+  /** Test seams: current-project proof and local primary-root lookup. */
+  projectResolver?: (projectId: string) => MobileProjectScope;
+  coordinatorLookup?: CoordinatorNotificationLookup;
 }
+
+type CoordinatorNotificationLookup = Parameters<
+  typeof shapeMobileCoordinatorChanged
+>[3];
 
 export interface MobileSseStreamInput {
   request: Pick<Request, 'once' | 'off'>;
@@ -76,6 +86,12 @@ export interface MobileSseStreamInput {
   sessionId?: string;
   preauthorizedSession?: boolean;
   isDeviceActive: () => boolean;
+  /**
+   * Relay only: injected by the relay gateway route. When present it is the
+   * sole qualifier for the canonical change hint (returns the exact opaque
+   * frame or null); absent means the unchanged LAN filesystem qualifier.
+   */
+  relayHintQualifier?: (parsed: unknown) => unknown | null;
 }
 
 const DEFAULT_MAX_FRAME_BYTES = 256 * 1024;
@@ -318,6 +334,8 @@ export class MobileSseProxy {
   private readonly maxHubQueue: number;
   private readonly scopeCheckTimeoutMs: number;
   private readonly hub: OpencodeEventHub;
+  private readonly projectResolver: (projectId: string) => MobileProjectScope;
+  private readonly coordinatorLookup: CoordinatorNotificationLookup;
   private readonly configuredOwnershipRepository?:
     MobileOpenCodeOwnershipReader;
 
@@ -340,6 +358,10 @@ export class MobileSseProxy {
     this.scopeCheckTimeoutMs =
       options.scopeCheckTimeoutMs ?? DEFAULT_SCOPE_CHECK_TIMEOUT_MS;
     this.configuredOwnershipRepository = options.ownershipRepository;
+    this.projectResolver = options.projectResolver ?? resolveMobileProject;
+    this.coordinatorLookup = options.coordinatorLookup ??
+      ((sessionId) => new CoordinatorConversationsRepository()
+        .findCanonicalNotificationScope({ sessionId }));
   }
 
   async stream(input: MobileSseStreamInput): Promise<void> {
@@ -609,6 +631,7 @@ export class MobileSseProxy {
         signal,
         seen,
         seenOrder,
+        true,
       );
     }
     if (subscription.overflowed()) {
@@ -633,15 +656,51 @@ export class MobileSseProxy {
     signal: AbortSignal,
     seen: Set<string>,
     seenOrder: string[],
+    fromHub = false,
   ): Promise<boolean> {
-    const matches = mobileSseEventBelongsToOwner(
-        parsed,
-        input.project,
-        owner,
-        input.sessionId,
-      ) &&
-      (input.sessionId ? matchesSession(parsed, input.sessionId) : true);
-    if (!matches) return false;
+    // The canonical-change hint branches off BEFORE generic acceptance (which
+    // would pass any directory-wrapped, session-less event). It is accepted
+    // only from the hub on the project feed; the per-engine fallback and the
+    // per-SDK-session feed can never supply it.
+    let shaped: unknown;
+    if (streamEventType(parsed) === COORDINATOR_CHANGED_EVENT) {
+      if (!fromHub || input.sessionId !== undefined) return false;
+      // Re-prove the current device, owner and project at the write boundary.
+      if (!deviceIsActive(input.isDeviceActive)) return false;
+      if (input.relayHintQualifier) {
+        // Relay: opaque project, authenticated-uplink provenance, mirrored
+        // root. The LAN filesystem proof below is not applicable here.
+        try {
+          shaped = input.relayHintQualifier(parsed);
+        } catch {
+          return false;
+        }
+      } else {
+        try {
+          if (this.projectResolver(input.project.id).root !== input.project.root) {
+            return false;
+          }
+        } catch {
+          return false;
+        }
+        shaped = shapeMobileCoordinatorChanged(
+          parsed,
+          input.project,
+          input.userId,
+          this.coordinatorLookup,
+        );
+      }
+      if (shaped === null || shaped === undefined) return false;
+    } else {
+      const matches = mobileSseEventBelongsToOwner(
+          parsed,
+          input.project,
+          owner,
+          input.sessionId,
+        ) &&
+        (input.sessionId ? matchesSession(parsed, input.sessionId) : true);
+      if (!matches) return false;
+    }
 
     const id = frameId || streamEventId(parsed);
     if (id && seen.has(id)) return false;
@@ -652,7 +711,7 @@ export class MobileSseProxy {
         seen.delete(seenOrder.shift()!);
       }
     }
-    const mobilePayload = shapeMobileSseEvent(parsed, input.project);
+    const mobilePayload = shaped ?? shapeMobileSseEvent(parsed, input.project);
     const encoded = `${
       id ? `id: ${id}\n` : ''
     }event: message\ndata: ${JSON.stringify(mobilePayload)}\n\n`;

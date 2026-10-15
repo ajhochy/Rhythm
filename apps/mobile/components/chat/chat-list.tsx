@@ -13,6 +13,7 @@ import {
   Card,
   Dialog,
   Divider,
+  IconButton,
   Menu,
   Portal,
   Searchbar,
@@ -24,7 +25,7 @@ import {
 import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
 import type { ChatListController } from '@/components/chat/chat-list-controller';
 import { ToolScreenState } from '@/components/tools/tool-screen-state';
-import { Colors, Fonts, MinimumTouchTarget, Radii, Spacing, TypeScale } from '@/constants/theme';
+import { Colors, Fonts, MinimumTouchTarget, Spacing, TypeScale } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { formatTimestamp } from '@/lib/opencode/format';
 import { isAccountBootstrapFailure } from '@/lib/pairing/mobile-environment-contract';
@@ -369,50 +370,62 @@ export function ChatList({ controller }: ChatListProps) {
               inputStyle={styles.searchInput}
               onChangeText={setQuery}
               placeholder="Search projects and chats"
+              right={({ color, style, testID }) =>
+                query.trim() ? (
+                  <IconButton
+                    accessibilityLabel="Clear chats search"
+                    icon="close"
+                    iconColor={color}
+                    onPress={() => setQuery('')}
+                    style={style}
+                    testID={`${testID}-clear`}
+                  />
+                ) : null
+              }
               style={styles.searchField}
               value={query}
             />
           </View>
-          <Menu
-            anchor={
-              <Pressable
-                accessibilityLabel={`Sort projects, ${projectSort === 'recent' ? 'Recent activity' : 'Alphabetical'}`}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: sortMenuVisible }}
-                onPress={() => setSortMenuVisible(true)}
-                style={styles.toolbarAction}>
-                <Text style={{ color: palette.tint }} variant="labelLarge">
-                  {projectSort === 'recent' ? '↕ Recent' : '↕ A–Z'}
-                </Text>
-              </Pressable>
-            }
-            onDismiss={() => setSortMenuVisible(false)}
-            visible={sortMenuVisible}>
-            <Menu.Item
-              onPress={() => {
-                setProjectSort('recent');
-                setSortMenuVisible(false);
-              }}
-              title="Recent activity"
+          <View style={styles.toolbarActions} testID="chat-list-actions">
+            <Menu
+              anchor={
+                <IconButton
+                  accessibilityLabel={`Sort projects, ${projectSort === 'recent' ? 'Recent activity' : 'Alphabetical'}`}
+                  accessibilityState={{ expanded: sortMenuVisible }}
+                  icon={projectSort === 'recent' ? 'sort-clock-descending-outline' : 'sort-alphabetical-ascending'}
+                  mode="outlined"
+                  onPress={() => setSortMenuVisible(true)}
+                  size={20}
+                  style={styles.toolbarIconAction}
+                />
+              }
+              onDismiss={() => setSortMenuVisible(false)}
+              visible={sortMenuVisible}>
+              <Menu.Item
+                onPress={() => {
+                  setProjectSort('recent');
+                  setSortMenuVisible(false);
+                }}
+                title="Recent activity"
+              />
+              <Menu.Item
+                onPress={() => {
+                  setProjectSort('alphabetical');
+                  setSortMenuVisible(false);
+                }}
+                title="Alphabetical"
+              />
+            </Menu>
+            <IconButton
+              accessibilityLabel="New chat"
+              disabled={!chat.isOnline || controller.isCreating}
+              icon="plus"
+              mode="contained-tonal"
+              onPress={() => void controller.openCreateSheet()}
+              size={20}
+              style={styles.toolbarIconAction}
             />
-            <Menu.Item
-              onPress={() => {
-                setProjectSort('alphabetical');
-                setSortMenuVisible(false);
-              }}
-              title="Alphabetical"
-            />
-          </Menu>
-          <Button
-            accessibilityLabel="New chat"
-            compact
-            disabled={!chat.isOnline || controller.isCreating}
-            icon="plus"
-            mode="contained-tonal"
-            onPress={() => void controller.openCreateSheet()}
-            style={styles.toolbarAction}>
-            New chat
-          </Button>
+          </View>
         </View>
         {hasFilters ? (
           <View style={styles.activeFilters}>
@@ -515,42 +528,55 @@ export function ChatList({ controller }: ChatListProps) {
               ? `, ${item.group.pendingQuestionCount} needs answer`
               : '';
             return (
-              <Pressable
-                accessibilityLabel={`${item.group.label}, ${item.group.activeCount} active${pendingLabel}, ${stateLabel}`}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: item.expanded }}
-                onPress={() => setExpandedProjectIds((current) => {
-                  const next = new Set(current);
-                  if (next.has(item.group.key)) next.delete(item.group.key);
-                  else next.add(item.group.key);
-                  return next;
-                })}
-                style={({ pressed }) => [
-                  styles.projectHeader,
-                  { backgroundColor: palette.surfaceAlt, opacity: pressed ? 0.78 : 1 },
-                ]}>
-                <View
-                  style={styles.projectHeaderText}
-                  testID={`project-header-copy-${item.group.key}`}>
-                  <Text style={[styles.projectTitle, { color: palette.text }]}>{item.group.label}</Text>
+              <View style={styles.projectHeader}>
+                <Pressable
+                  accessibilityLabel={`${item.group.label}, ${item.group.activeCount} active${pendingLabel}, ${stateLabel}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: item.expanded }}
+                  onPress={() => setExpandedProjectIds((current) => {
+                    const next = new Set(current);
+                    if (next.has(item.group.key)) next.delete(item.group.key);
+                    else next.add(item.group.key);
+                    return next;
+                  })}
+                  style={({ pressed }) => [
+                    styles.projectHeaderToggle,
+                    { backgroundColor: 'transparent', opacity: pressed ? 0.72 : 1 },
+                  ]}>
+                  <Text
+                    accessible={false}
+                    style={[styles.projectChevron, { color: palette.muted }]}
+                    testID={`project-header-chevron-${item.group.key}`}>
+                    {item.expanded ? '⌄' : '›'}
+                  </Text>
                   <View
-                    style={styles.projectMetadata}
-                    testID={`project-header-metadata-${item.group.key}`}>
-                    <Text style={[styles.projectCount, { color: palette.muted }]}>{`${item.group.activeCount} active`}</Text>
-                    {item.group.pendingQuestionCount > 0 ? (
-                      <Text style={[styles.projectCount, { color: palette.danger }]}>
-                        {`${item.group.pendingQuestionCount} needs answer`}
-                      </Text>
-                    ) : null}
+                    style={styles.projectHeaderText}
+                    testID={`project-header-copy-${item.group.key}`}>
+                    <Text style={[styles.projectTitle, { color: palette.text }]}>{item.group.label}</Text>
+                    <View
+                      style={styles.projectMetadata}
+                      testID={`project-header-metadata-${item.group.key}`}>
+                      <Text style={[styles.projectCount, { color: palette.muted }]}>{`${item.group.activeCount} active`}</Text>
+                      {item.group.pendingQuestionCount > 0 ? (
+                        <Text style={[styles.projectCount, { color: palette.danger }]}>
+                          {`${item.group.pendingQuestionCount} needs answer`}
+                        </Text>
+                      ) : null}
+                    </View>
                   </View>
-                </View>
-                <Text
-                  accessible={false}
-                  style={[styles.projectChevron, { color: palette.muted }]}
-                  testID={`project-header-chevron-${item.group.key}`}>
-                  {item.expanded ? '⌄' : '›'}
-                </Text>
-              </Pressable>
+                </Pressable>
+                {item.group.key !== '__desktop__' ? (
+                  <Pressable
+                    accessibilityLabel={`New chat in ${item.group.label}`}
+                    accessibilityRole="button"
+                    disabled={!chat.isOnline || controller.isCreating}
+                    onPress={() => void controller.openCreateSheet(item.group.path)}
+                    style={styles.projectCreate}
+                    testID={`project-new-chat-${item.group.key}`}>
+                    <Text accessible={false} style={[styles.projectCreateIcon, { color: palette.tint }]}>＋</Text>
+                  </Pressable>
+                ) : null}
+              </View>
             );
           }
           if (item.kind === 'empty-project') {
@@ -608,7 +634,7 @@ export function ChatList({ controller }: ChatListProps) {
                 style={styles.rowText}
                 testID={`chat-row-open-${item.id}`}>
                 <Text
-                  numberOfLines={2}
+                  numberOfLines={1}
                   style={[
                     styles.title,
                     item.depth === 0 ? styles.parentTitle : styles.childTitle,
@@ -617,12 +643,11 @@ export function ChatList({ controller }: ChatListProps) {
                   {item.title}
                 </Text>
                 <Text
-                  numberOfLines={2}
-                  style={{ color: needsAnswer ? palette.danger : palette.text }}
-                  variant="bodySmall">
+                  numberOfLines={1}
+                  style={[styles.metadata, { color: needsAnswer ? palette.danger : palette.text }]}>
                   {needsAnswer ? 'Needs answer' : metadata}
                 </Text>
-                <Text style={{ color: palette.muted }} variant="labelSmall">
+                <Text style={[styles.timestamp, { color: palette.muted }]}>
                   {formatTimestamp(item.updatedAt)}
                 </Text>
               </Pressable>
@@ -798,6 +823,7 @@ export function ChatList({ controller }: ChatListProps) {
       <SessionConfigurationSheet
         availableModels={opencode.availableModels}
         availableProfiles={controller.creationProfiles}
+        availableProjects={controller.projects}
         availableProviders={opencode.configuredProviders}
         mode="create"
         onCreate={async (newTitle, preferences) => {
@@ -805,8 +831,10 @@ export function ChatList({ controller }: ChatListProps) {
           openChat(created as unknown as AgentChatRecord);
         }}
         onDismiss={controller.closeCreateSheet}
+        onProjectChange={(projectPath) => controller.openCreateSheet(projectPath)}
         palette={palette}
         preferences={opencode.chatPreferences}
+        selectedProjectPath={controller.creationTargetProject}
         visible={controller.createSheetVisible && controller.isFocused}
       />
       <Snackbar
@@ -823,12 +851,13 @@ export function ChatList({ controller }: ChatListProps) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  filters: { gap: 12, padding: 16 },
-  toolbar: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.x1, minHeight: MinimumTouchTarget },
-  search: { flexBasis: 140, flexGrow: 1, flexShrink: 1, minHeight: MinimumTouchTarget, minWidth: 120 },
+  filters: { gap: Spacing.x2, paddingHorizontal: Spacing.x2, paddingBottom: Spacing.x1, paddingTop: Spacing.x1 },
+  toolbar: { alignItems: 'center', flexDirection: 'row', gap: Spacing.x1, minHeight: MinimumTouchTarget },
+  search: { flex: 1, minHeight: MinimumTouchTarget, minWidth: 0 },
   searchField: { minHeight: MinimumTouchTarget },
   searchInput: { minHeight: MinimumTouchTarget },
-  toolbarAction: { alignItems: 'center', justifyContent: 'center', minHeight: MinimumTouchTarget, paddingHorizontal: Spacing.x2 },
+  toolbarActions: { alignItems: 'center', flexDirection: 'row', minHeight: MinimumTouchTarget },
+  toolbarIconAction: { height: MinimumTouchTarget, margin: 0, width: MinimumTouchTarget },
   activeFilters: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.x1 },
   activeFilterButton: { minHeight: MinimumTouchTarget },
   activeFilterButtonContent: { minHeight: MinimumTouchTarget },
@@ -837,23 +866,28 @@ const styles = StyleSheet.create({
   refreshErrorCopy: { flex: 1, gap: 2, minWidth: 180 },
   list: { padding: Spacing.x2, paddingBottom: Spacing.x8 },
   emptyList: { flexGrow: 1 },
-  projectHeader: { alignItems: 'center', borderRadius: Radii.grouped, flexDirection: 'row', gap: Spacing.x2, marginBottom: Spacing.x1, marginTop: Spacing.x2, minHeight: MinimumTouchTarget, paddingHorizontal: Spacing.x3, paddingVertical: Spacing.x2 },
-  projectHeaderText: { flex: 1, flexShrink: 1, gap: 2, minWidth: 0 },
-  projectMetadata: { columnGap: Spacing.x2, flexDirection: 'row', flexWrap: 'wrap', minWidth: 0 },
-  projectTitle: { fontFamily: Fonts.sans, fontSize: TypeScale.callout, fontWeight: '700' },
-  projectCount: { flexShrink: 1, fontFamily: Fonts.sans, fontSize: TypeScale.footnote, fontWeight: '600' },
-  projectChevron: { flexShrink: 0, fontSize: 24, lineHeight: 24 },
-  emptyProject: { paddingHorizontal: 56, paddingVertical: Spacing.x3 },
+  projectHeader: { alignItems: 'center', flexDirection: 'row', marginTop: Spacing.x1 },
+  projectHeaderToggle: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: Spacing.x1, marginTop: 0, minHeight: MinimumTouchTarget, minWidth: 0, paddingVertical: Spacing.x1 },
+  projectHeaderText: { alignItems: 'center', flex: 1, flexDirection: 'row', flexShrink: 1, gap: Spacing.x2, minWidth: 0 },
+  projectMetadata: { columnGap: Spacing.x2, flexDirection: 'row', flexShrink: 1, flexWrap: 'wrap', minWidth: 0 },
+  projectTitle: { flexShrink: 1, fontFamily: Fonts.sans, fontSize: TypeScale.footnote, fontWeight: '600' },
+  projectCount: { flexShrink: 1, fontFamily: Fonts.sans, fontSize: TypeScale.caption, fontWeight: '500' },
+  projectChevron: { flexShrink: 0, fontSize: TypeScale.footnote, lineHeight: TypeScale.subheadline, width: Spacing.x4 },
+  projectCreate: { alignItems: 'center', justifyContent: 'center', minHeight: MinimumTouchTarget, minWidth: MinimumTouchTarget },
+  projectCreateIcon: { fontSize: 18, lineHeight: 20 },
+  emptyProject: { paddingHorizontal: 48, paddingVertical: Spacing.x2 },
   accountEmptySummary: { gap: Spacing.x2, padding: Spacing.x4 },
-  row: { alignItems: 'center', flexDirection: 'row', minHeight: 72, paddingLeft: Spacing.x2 },
+  row: { alignItems: 'center', flexDirection: 'row', minHeight: MinimumTouchTarget, paddingLeft: Spacing.x1 },
   disclosureButton: { alignItems: 'center', height: 48, justifyContent: 'center', width: 48 },
   disclosureSpacer: { height: 48, width: 48 },
-  rowText: { alignSelf: 'stretch', flex: 1, gap: 2, justifyContent: 'center', minHeight: 44, minWidth: 0 },
-  title: { fontSize: 16 },
+  rowText: { alignSelf: 'stretch', flex: 1, gap: 1, justifyContent: 'center', minHeight: MinimumTouchTarget, minWidth: 0 },
+  title: { fontSize: TypeScale.footnote, lineHeight: TypeScale.subheadline },
   parentTitle: { fontWeight: '500' },
   childTitle: { fontWeight: '400' },
+  metadata: { fontSize: TypeScale.caption, lineHeight: TypeScale.footnote },
+  timestamp: { fontSize: TypeScale.caption2, lineHeight: TypeScale.caption },
   actionButton: { alignItems: 'center', height: 48, justifyContent: 'center', width: 48 },
-  controlIcon: { fontSize: 24, lineHeight: 24 },
+  controlIcon: { fontSize: 20, lineHeight: 20 },
   empty: {
     alignItems: 'center',
     flex: 1,

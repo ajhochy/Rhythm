@@ -1,3 +1,4 @@
+import { loadQualificationFixtureAuthority } from './qualification_fixture_authority';
 /**
  * Opencode Agent Writer — Agent Profile → opencode `.md` (consolidation)
  *
@@ -46,7 +47,7 @@ import { opencodeClient } from './opencode_engine';
 
 export type EffectivePermissionMap = Record<string, string | Record<string, string>>;
 
-function permissionPatternMatches(value: string, pattern: string): boolean {
+export function permissionPatternMatches(value: string, pattern: string): boolean {
   const escaped = pattern
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
     .replace(/\*/g, '.*')
@@ -95,8 +96,16 @@ export function computeEffectivePermissionMap(
       ? applyAuthoredTaskRestrictions(generatedTask, authoredTask)
       : generatedTask;
   }
-  if (config.isManager === true && config.sessionSelectable) {
-    if (permissions.rhythm_delegate_async === undefined) permissions.rhythm_delegate_async = 'allow';
+  // Deliberate binding: manager status implies async-delegation capability, and
+  // the two must never drift apart — a manager without async falls back to the
+  // `task` tool, which is the defect class this derivation prevents. Not gated
+  // on sessionSelectable, and a blanket authored 'deny'/'allow' string cannot
+  // override it. An authored per-target pattern object (e.g. denying one
+  // delegate by id) is preserved — that's scoping, not the top-level gate.
+  if (config.isManager === true) {
+    if (typeof permissions.rhythm_delegate_async !== 'object' || permissions.rhythm_delegate_async === null) {
+      permissions.rhythm_delegate_async = 'allow';
+    }
   } else {
     permissions.rhythm_delegate_async = 'deny';
   }
@@ -141,10 +150,12 @@ const HUB_PREAMBLE_MARKER = '## Routing (mandatory — hub)';
  */
 const CODING_HANDOFF_BODY =
   'For any coding, development, implementation, debugging, refactor, or PR/issue task, ' +
-  'you MUST hand off to the workflow-orchestrator by calling the `task` tool with ' +
-  '`subagent_type="workflow-orchestrator"` — name that delegate explicitly; never use ' +
-  '`"general"` and never omit `subagent_type`. Do this regardless of how the request is ' +
-  'phrased.';
+  'you MUST hand off to the workflow-orchestrator. In an interactive chat with AJ, call ' +
+  '`rhythm_delegate_async` with `targetAgentConfigId="workflow-orchestrator"`. In a ' +
+  'scheduled, headless, or system run, call the `task` tool with ' +
+  '`subagent_type="workflow-orchestrator"`. Name that delegate explicitly; never use ' +
+  '`"general"` and never omit the delegate target. Do this regardless of how the ' +
+  'request is phrased.';
 
 const WORKFLOW_ORCHESTRATOR_CODING_BODY =
   'Own the coding workflow in this session. Delegate implementation work through the ' +
@@ -404,7 +415,8 @@ function isTestEnv(): boolean {
 }
 
 function agentsDir(): string {
-  return join(homedir(), '.config', 'opencode', 'agents');
+  const fixture=loadQualificationFixtureAuthority();
+  return fixture ? join(fixture.fixtureRoot, 'opencode-config', 'agents') : join(homedir(), '.config', 'opencode', 'agents');
 }
 
 function agentFilePath(id: string): string {

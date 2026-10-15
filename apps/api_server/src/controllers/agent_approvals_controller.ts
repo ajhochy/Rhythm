@@ -31,14 +31,20 @@ const repo = new AgentApprovalsRepository();
 const security = new ExternalContentSecurityService();
 const sessions = new AgentSessionsRepository();
 
+function publicApproval(approval: AgentApproval) {
+  const { boundPayloadJson: _privateProposal, ...visible } = approval;
+  return visible;
+}
+
 function withApprovalLane(approval: AgentApproval) {
+  const visible = publicApproval(approval);
   if (approval.taintId) {
-    return { ...approval, lane: 'hardline', laneReason: 'external_data_taint' } as const;
+    return { ...visible, lane: 'hardline', laneReason: 'external_data_taint' } as const;
   }
   if (approval.securityAction) {
-    return { ...approval, lane: 'hardline', laneReason: 'consequential_action' } as const;
+    return { ...visible, lane: 'hardline', laneReason: 'consequential_action' } as const;
   }
-  return { ...approval, lane: 'approval', laneReason: 'approval_gate' } as const;
+  return { ...visible, lane: 'approval', laneReason: 'approval_gate' } as const;
 }
 
 export class AgentApprovalsController {
@@ -103,7 +109,7 @@ export class AgentApprovalsController {
           boundAgent: binding.boundAgent,
           expiresAt: binding.expiresAt,
         });
-        res.status(201).json(approval);
+        res.status(201).json(publicApproval(approval));
         return;
       }
 
@@ -128,7 +134,7 @@ export class AgentApprovalsController {
         autoApprove: isAutoApproveProfile(agentConfigId),
       });
 
-      res.status(201).json(approval);
+      res.status(201).json(publicApproval(approval));
     } catch (err) {
       next(err);
     }
@@ -176,6 +182,10 @@ export class AgentApprovalsController {
           'agent approval (or it is no longer pending)',
         );
       }
+      // Live: a card was approved 51 minutes after it expired and the run started.
+      if (body.status === 'approved' && existing.expiresAt && Date.parse(existing.expiresAt) <= Date.now()) {
+        throw AppError.forbidden('This approval expired; ask for a new proposal');
+      }
       if (!existing.decisionNonce) {
         throw AppError.forbidden(
           'Approval predates signed decisions and must be requested again',
@@ -206,7 +216,7 @@ export class AgentApprovalsController {
       // machine-authored continuation before answering an idle-session PATCH
       // so the approving user never has to type "try again" manually.
       await agentApprovalContinuationService.onDecision(updated);
-      res.json(updated);
+      res.json(publicApproval(updated));
     } catch (err) {
       next(err);
     }

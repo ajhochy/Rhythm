@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "kind": "source-freeze",
+  "status": "in_review",
+  "baseR7SourceCommit": "25fb7147b6cee8f3e7e6a70b23e75090ac0d068e",
+  "applicationAndRegressionFiles": [
+    {
+      "path": "apps/web/src/components/AgentsWorkspace.tsx",
+      "r7": {
+        "gitBlob": "29f08f22b77822073a21123f02a9ac91a15307b6",
+        "sha256": "d9e1275e47aa294898199795d3c1cfddeaddb42dae612bc54265e66b6fe5b130"
+      },
+      "current": {
+        "gitBlob": "ebf92e0e16871c7f2677fb08ae293621a6cece44",
+        "sha256": "dcedc25f22dc6ee343f91f3a665389ecd1c5d5fe3088f22be15532cec81e5130"
+      }
+    },
+    {
+      "path": "apps/web/tests/rhythm-primary-entry.test.mjs",
+      "r7": {
+        "gitBlob": "7bf7c00d707bdb96ee4a8937115c57b2f17bbffa",
+        "sha256": "df9d07e3ae7551cc816c6bd1308ac493e7692f29d3398d05a4e489ba572130b8"
+      },
+      "current": {
+        "gitBlob": "90492917b71d6ffd25d29fb10880809c51b1adbb",
+        "sha256": "d95db15530b5928071a3818676290a719658248128444e63639e07480ac67379"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "command": "node --test tests/rhythm-primary-entry.test.mjs",
+      "result": "pass: 12 tests"
+    },
+    {
+      "command": "npm run typecheck",
+      "result": "pass: tsc -b"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "constraints": {
+    "gitnexus": "UNKNOWN: exact isolated checkout is not registered; manual caller review limited to the primary-entry resolve/navigation/effect path and rendered-entry regression.",
+    "runtime": "NOT RUN: no browser, normal app, API, SDK, model, database, or runtime action was performed."
+  },
+  "remainingAcceptance": "Root must compose these frozen bytes and repeat the normal-app renderer-reload plus immediate Rhythm-entry click."
+}

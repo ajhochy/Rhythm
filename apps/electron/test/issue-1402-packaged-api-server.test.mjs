@@ -33,6 +33,10 @@ test('issue-1402-c1: package:mac includes the complete api_server runtime shape'
     `api_server/node_modules/better-sqlite3/prebuilds/darwin-${process.arch}.node`,
     'api_server/node_modules/node-pty/package.json',
     'api_server/.mcp-roles/secretary.mcp.json',
+    // Rhythm MCP server (#814): resolveRhythmMcpCommand launches it by absolute path.
+    'mcp_server/dist/index.js',
+    'mcp_server/package.json',
+    'mcp_server/node_modules/@modelcontextprotocol/sdk/package.json',
     'node/bin/node',
     'shared/production-api-base.mjs',
   ]) {

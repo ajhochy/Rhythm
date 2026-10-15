@@ -1,3 +1,4 @@
+import { opencodeDataFile } from '../config/env';
 import { randomBytes, createHash } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
@@ -68,7 +69,7 @@ export function defaultOpenAIAccountsFilePath(): string {
 }
 
 function defaultEngineAuthPath(): string {
-  return join(homedir(), '.local', 'share', 'opencode', 'auth.json');
+  return opencodeDataFile('auth.json');
 }
 
 type Claims = Record<string, unknown> & {

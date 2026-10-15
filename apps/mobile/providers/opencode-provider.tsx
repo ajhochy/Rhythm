@@ -70,6 +70,11 @@ import {
   findEditableUserTextPart,
   isTranscriptDisplayMessage,
 } from '@/lib/opencode/transcript';
+import {
+  applyTranscriptEvents,
+  createTranscriptEventBatcher,
+  type TranscriptEvent,
+} from '@/lib/opencode/transcript-events';
 import { aggregateSessionUsage, getLatestAssistantTurnUsage } from '@/lib/opencode/usage';
 import { createFullFilePatch } from '@/lib/opencode/workspace-patch';
 import {
@@ -107,6 +112,7 @@ import {
   mergePermissionConfig,
   permissionModeForAutoApprove,
   replaceSessionExecutionState,
+  sessionSettingsKey,
   sameGatewayProjectList,
   thinkingBudgetForReasoning,
 } from '@/providers/opencode-provider-utils';
@@ -142,12 +148,19 @@ import {
   type ConversationPhase,
   type CreateSessionOptions,
   type ModelOption,
+  type MobileCoordinatorSessionProvenance,
   type MobileSession,
   type OpencodeContextValue,
+  type CoordinatorChangedListener,
+  type ProjectReadListener,
+  type SessionActivityListener,
   type OpencodeProject,
   type ProviderAuthMethod,
   type ProviderOption,
   type SessionExecutionState,
+  type SessionSettingsEntry,
+  type SessionSettingsPatch,
+  type SessionSettingsTarget,
   type WorkspaceCatalog,
 } from '@/providers/opencode-provider-types';
 import { useConversationKeepAwake } from '@/providers/use-conversation-keep-awake';
@@ -157,7 +170,9 @@ import { useRhythmAccount } from '@/providers/rhythm-account-provider';
 import { useOpencodePersistence } from '@/providers/use-opencode-persistence';
 import {
   createMobileGatewaySession,
+  getMobileSessionSettings,
   listMobileGatewayProfiles,
+  patchMobileSessionSettings,
   listMobileGatewayProjects,
   updateMobileSessionProfileState,
 } from '@/providers/services/mobile-gateway-service';
@@ -261,6 +276,32 @@ const OpencodeContext = createContext<OpencodeContextValue | null>(null);
 const ANSI_CSI_PATTERN = new RegExp('\\u001b\\[[0-?]*[ -/]*[@-~]', 'gi');
 /** One replay of the idempotent chat bootstrap after a transient failure (#1506). */
 const BOOTSTRAP_RETRY_DELAY_MS = 1_500;
+const COMPLETION_SYNC_ATTEMPTS = 6;
+const COMPLETION_SYNC_DELAY_MS = 120;
+
+function hasAuthoritativeAssistantOutcome(records: SessionMessageRecord[]) {
+  const latestAssistantIndex = records.findLastIndex((record) => record.info.role === 'assistant');
+  const latestUserIndex = records.findLastIndex((record) => record.info.role === 'user');
+  const latestAssistant = records[latestAssistantIndex];
+  return Boolean(latestAssistantIndex > latestUserIndex && latestAssistant?.info.role === 'assistant' && (
+    latestAssistant.info.error || latestAssistant.info.time.completed
+  ));
+}
+
+function preserveStreamUntilAuthoritativeOutcome(
+  existing: SessionMessageRecord[], incoming: SessionMessageRecord[],
+) {
+  const byId = new Map(existing.map((record) => [record.info.id, record]));
+  return incoming.map((record) => {
+    const previous = byId.get(record.info.id);
+    if (!previous || record.info.role !== 'assistant' || previous.info.role !== 'assistant') return record;
+    if (record.info.error || record.info.time.completed) return record;
+    const textLength = (candidate: SessionMessageRecord) => candidate.parts
+      .filter((part) => part.type === 'text')
+      .reduce((length, part) => length + part.text.length, 0);
+    return textLength(previous) >= textLength(record) ? previous : record;
+  });
+}
 
 function authenticatedWebSocket(
   url: string,
@@ -288,6 +329,7 @@ type OpenProjectSessionPayload = Record<string, unknown> & {
   questions: PendingQuestionRequest[];
   session: MobileSession;
   sessionId: string;
+  source: 'cache' | 'network';
   sessions: MobileSession[];
   statuses: Record<string, SessionStatus>;
   supplemental: Promise<{
@@ -323,6 +365,55 @@ type OpenProjectSessionRuntime = {
   ): OpenProjectSessionPayload | undefined;
 };
 
+/**
+ * Exact shape of the reserved `rhythm.coordinator.changed` hint: bounded
+ * identity strings only, nothing else. The type string alone proves nothing;
+ * the caller also requires a paired stream and an envelope/project match.
+ */
+function parseCoordinatorChangedEvent(payload: unknown, directory: string) {
+  const exact = (value: unknown, keys: string[]): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value) &&
+    Object.keys(value).length === keys.length && keys.every((key) => key in value);
+  const identity = (value: unknown): value is string =>
+    typeof value === 'string' && value.length > 0 && value.length <= 200;
+  if (!exact(payload, ['type', 'id', 'properties']) || payload.type !== 'rhythm.coordinator.changed' || !identity(payload.id)) {
+    return undefined;
+  }
+  const properties = payload.properties;
+  if (!exact(properties, ['projectId', 'conversationId', 'localSessionId'])) return undefined;
+  const { projectId, conversationId, localSessionId } = properties;
+  if (!identity(projectId) || !identity(conversationId) || !identity(localSessionId) || projectId !== directory) {
+    return undefined;
+  }
+  return { projectId, conversationId, localSessionId };
+}
+
+/** Qualifies one stream envelope; a direct standalone OpenCode stream never does. */
+function coordinatorChangedFromEnvelope(
+  envelope: { directory?: string; payload?: unknown } | undefined,
+  activeProjectPath: string,
+  pairedStream: boolean,
+) {
+  if (!pairedStream || envelope?.directory !== activeProjectPath) return undefined;
+  return parseCoordinatorChangedEvent(envelope.payload, activeProjectPath);
+}
+
+/** Session identity of the events that can mean a root's work changed; never a grant. */
+function sessionActivityEventSessionId(event: GlobalEvent['payload']): string | undefined {
+  switch (event.type) {
+    case 'session.status':
+    case 'session.idle':
+    case 'session.error':
+      return event.properties.sessionID;
+    case 'message.updated':
+      return event.properties.info.sessionID;
+    case 'session.updated':
+      return event.properties.info.id;
+    default:
+      return undefined;
+  }
+}
+
 export function OpencodeProvider({ children }: PropsWithChildren) {
   const pairedHost = usePairedHost();
   const pairedHostClient = pairedHost.client;
@@ -337,6 +428,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     status: 'idle',
     message: 'Add a server URL and connect to OpenCode.',
   });
+  const [backgroundReadError, setBackgroundReadError] = useState<string | undefined>(undefined);
   const [macPresence, setMacPresence] = useState<
     'online' | 'offline' | 'unknown'
   >('unknown');
@@ -363,9 +455,22 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     },
     [pairedHostClient],
   );
+  // A failed background read used to be swallowed outright, so a gateway that
+  // was healthy while the engine was unresponsive left the last-loaded
+  // transcript on screen with no indication it was stale — measured
+  // 2026-10-06, chats showed 12-hour-old data and looked connected. Failures
+  // are now surfaced; `macPresence` deliberately still says online, because
+  // the Mac IS reachable, it is the read that failed.
   const settleBackgroundRead = useCallback(
     (operation: () => Promise<unknown>) => {
-      void trackMacOffline(operation).catch(() => undefined);
+      void trackMacOffline(operation).then(
+        () => setBackgroundReadError(undefined),
+        (error: unknown) => {
+          setBackgroundReadError(
+            summarizeError(error, 'Could not load the latest from your Mac.'),
+          );
+        },
+      );
     },
     [trackMacOffline],
   );
@@ -381,11 +486,15 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const [pendingPermissionsBySession, setPendingPermissionsBySession] = useState<Record<string, PendingPermissionRequest[]>>({});
   const [pendingQuestionsBySession, setPendingQuestionsBySession] = useState<Record<string, PendingQuestionRequest[]>>({});
   const [serverProjects, setServerProjects] = useState<Project[]>([]);
+  const [coordinatorSessionProvenanceBySession, setCoordinatorSessionProvenanceBySession] = useState<
+    Record<string, MobileCoordinatorSessionProvenance>
+  >({});
   const [currentProjectPath, setCurrentProjectPath] = useState<string>();
   const [serverRootPath, setServerRootPath] = useState<string>();
   // browsing server folders removed
   const [isRefreshingSessions, setIsRefreshingSessions] = useState(false);
   const [isRefreshingMessages, setIsRefreshingMessages] = useState(false);
+  const [completionSyncBySession, setCompletionSyncBySession] = useState<Record<string, 'syncing' | 'retry'>>({});
   const [isRefreshingDiffs, setIsRefreshingDiffs] = useState(false);
   const [isRefreshingWorkspaceCatalog, setIsRefreshingWorkspaceCatalog] = useState(false);
   // browsing removed
@@ -437,16 +546,34 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
   const settingsRef = useRef(settings);
   const activeProjectPathRef = useRef(activeProjectPath);
+  const pairedHostClientRef = useRef(pairedHostClient);
+  pairedHostClientRef.current = pairedHostClient;
+  const [sessionSettings, setSessionSettings] = useState<Record<string, SessionSettingsEntry>>({});
+  const sessionSettingsRef = useRef(sessionSettings);
+  sessionSettingsRef.current = sessionSettings;
+  // Per settings key request ordering: a save invalidates outstanding probes, so an older GET can
+  // never overwrite a newer canonical readback. Local bookkeeping only (no timer or server revision).
+  const settingsOrderRef = useRef(new Map<string, number>());
+  // Saves in flight per key (a counter, since saves may overlap): GET results are never published while
+  // any save is pending, so a probe cannot replace the verified entry in the middle of a valid save.
+  const settingsPendingRef = useRef(new Map<string, number>());
+  // Verified settings belong to one paired client and project; drop them on change.
+  useEffect(() => { setSessionSettings({}); }, [activeProjectPath, pairedHostClient]);
   // Session records for chats opened this launch, surviving project-scope
   // switches (which clear `sessions`). Backs cross-project cache-first opens.
   const openedSessionRecordCacheRef = useRef(
     new Map<string, { projectId: string; session: MobileSession }>(),
+  );
+  const createdEmptySessionIdsRef = useRef(new Set<string>());
+  const loadedProfileCatalogByProjectRef = useRef(
+    new Map<string, AgentOption[]>(),
   );
   const openProjectSessionRuntimeRef =
     useRef<OpenProjectSessionRuntime | null>(null);
   const openProjectSessionControllerRef =
     useRef<OpenProjectSessionController | null>(null);
   const sessionsRef = useRef(sessions);
+  const sessionStatusesRef = useRef(sessionStatuses);
   const currentSessionIdRef = useRef(currentSessionId);
   const scopeGenerationRef = useRef(0);
   const serverGenerationRef = useRef(0);
@@ -472,15 +599,52 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const sessionRefreshTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const sessionRefreshOptionsRef = useRef<Record<string, { messages?: boolean; diff?: boolean; todos?: boolean; sessions?: boolean }>>({});
   const messageFetchTrackerRef = useRef(createSessionFetchTracker());
+  const completionSyncRef = useRef(new Map<string, { token: number; timer?: ReturnType<typeof setTimeout> }>());
+  const completionSyncTokenRef = useRef(0);
   const olderMessageCursorBySessionRef = useRef(new Map<string, string | null>());
   const sessionsFetchSequenceRef = useRef(0);
   const archivedSessionsFetchSequenceRef = useRef(0);
   const terminalSocketRef = useRef<WebSocket | undefined>(undefined);
   const terminalCursorByIdRef = useRef<Record<string, string>>({});
   const terminalOpenGenerationRef = useRef(0);
+  // Read-only fan-out of current-project session events. It carries identity
+  // only; a subscriber must re-qualify it and never gains authority from it.
+  const sessionActivityListenersRef = useRef(new Set<SessionActivityListener>());
+  const subscribeSessionActivity = useCallback((listener: SessionActivityListener) => {
+    sessionActivityListenersRef.current.add(listener);
+    return () => { sessionActivityListenersRef.current.delete(listener); };
+  }, []);
+  const projectReadListenersRef = useRef(new Set<ProjectReadListener>());
+  const subscribeProjectReads = useCallback((listener: ProjectReadListener) => {
+    projectReadListenersRef.current.add(listener);
+    return () => { projectReadListenersRef.current.delete(listener); };
+  }, []);
+  const coordinatorChangeListenersRef = useRef(new Set<CoordinatorChangedListener>());
+  const subscribeCoordinatorChanges = useCallback((listener: CoordinatorChangedListener) => {
+    coordinatorChangeListenersRef.current.add(listener);
+    return () => { coordinatorChangeListenersRef.current.delete(listener); };
+  }, []);
+  const transcriptBatcherRef = useRef<ReturnType<typeof createTranscriptEventBatcher> | null>(null);
+  if (!transcriptBatcherRef.current) {
+    transcriptBatcherRef.current = createTranscriptEventBatcher((events) => {
+      setMessagesBySession((current) => {
+        let next = current;
+        for (const event of events) {
+          const sessionId = event.properties.sessionID;
+          const messages = next[sessionId] || [];
+          const updated = applyTranscriptEvents(messages, [event], sessionId);
+          if (updated === messages) continue;
+          if (next === current) next = { ...current };
+          next[sessionId] = updated;
+        }
+        return next;
+      });
+    });
+  }
   settingsRef.current = settings;
   activeProjectPathRef.current = activeProjectPath;
   sessionsRef.current = sessions;
+  sessionStatusesRef.current = sessionStatuses;
   currentSessionIdRef.current = currentSessionId;
 
   const stopSessionWorkingSound = useCallback((sessionId?: string) => {
@@ -580,6 +744,39 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       ),
     [serverProjects],
   );
+  const pairedCoordinatorActorKey = rhythmAccount.user && pairedHostClient && pairedHostRecord
+    ? 'user:' + rhythmAccount.user.id + ':host:' + pairedHostRecord.hostId
+    : undefined;
+  const recordCurrentPairedCatalogSessions = useCallback(
+    (projectId: string, candidates: MobileSession[]) => {
+      if (!pairedCoordinatorActorKey || !pairedHostClient || !registeredGatewayProjectIds.has(projectId)) {
+        return;
+      }
+      setCoordinatorSessionProvenanceBySession((current) => {
+        const next = { ...current };
+        for (const session of candidates) {
+          const localSessionId = session.rhythm?.localSessionId?.trim();
+          if (!localSessionId) continue;
+          next[session.id] = {
+            actorKey: pairedCoordinatorActorKey,
+            localSessionId,
+            pairedClient: pairedHostClient,
+            projectId,
+            uiSessionId: session.id,
+          };
+        }
+        return next;
+      });
+    },
+    [pairedCoordinatorActorKey, pairedHostClient, registeredGatewayProjectIds],
+  );
+
+  // `sessions` and cross-project transcript caches deliberately survive some
+  // normal navigation paths. Their cache presence is not pairing proof: a
+  // changed account, host, or client must obtain a new qualified catalog.
+  useEffect(() => {
+    setCoordinatorSessionProvenanceBySession({});
+  }, [pairedCoordinatorActorKey, pairedHostClient]);
 
   const buildScopedClient = useCallback(
     (projectId: string) => {
@@ -618,12 +815,29 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     (candidate: object) => clientGenerationRef.current.get(candidate) === scopeGenerationRef.current,
     [],
   );
+  // Fan-out only for the still-current project and client generation, so a
+  // superseded timer callback cannot trigger a coordinator read.
+  const notifyProjectReadCompleted = useCallback((projectId: string, readClient: object) => {
+    if (!isCurrentClient(readClient) || activeProjectPathRef.current !== projectId) return;
+    projectReadListenersRef.current.forEach((listener) => listener({ projectId }));
+  }, [isCurrentClient]);
+  // Same currency gate for the paired-stream coordinator hint: a superseded
+  // stream/client generation or project cannot reach a subscriber.
+  const notifyCoordinatorChanged = useCallback((
+    change: { projectId: string; conversationId: string; localSessionId: string },
+    streamClient: object,
+    pairedClient: object,
+  ) => {
+    if (!isCurrentClient(streamClient) || activeProjectPathRef.current !== change.projectId) return;
+    coordinatorChangeListenersRef.current.forEach((listener) => listener({ ...change, pairedClient }));
+  }, [isCurrentClient]);
   const isCurrentCatalogClient = useCallback(
     (candidate: object) => catalogGenerationRef.current.get(candidate) === serverGenerationRef.current,
     [],
   );
 
   const clearProjectState = useCallback(() => {
+    transcriptBatcherRef.current?.cancel();
     cancelSessionRefreshTimers(sessionRefreshTimeoutsRef.current);
     sessionRefreshTimeoutsRef.current = {};
     sessionRefreshOptionsRef.current = {};
@@ -634,6 +848,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     notificationRequestedAtRef.current.clear();
     setCurrentSessionId(undefined);
     setSessions([]);
+    setCoordinatorSessionProvenanceBySession({});
     setArchivedSessions([]);
     setHasOlderMessagesBySession({});
     olderMessageCursorBySessionRef.current.clear();
@@ -770,6 +985,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         ) {
           return result.sessions;
         }
+        if (activeProjectPathRef.current) {
+          recordCurrentPairedCatalogSessions(
+            activeProjectPathRef.current,
+            result.sessions as MobileSession[],
+          );
+        }
         // Keep the cross-scope record cache fresh so cache-first opens never
         // hydrate stale profile/model state (#1287).
         if (activeProjectPathRef.current) {
@@ -802,7 +1023,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         }
       }
     },
-    [activeProjectPath, client, isCurrentClient],
+    [activeProjectPath, client, isCurrentClient, recordCurrentPairedCatalogSessions],
   );
 
   const refreshSessions = useCallback(
@@ -825,13 +1046,17 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           !isCurrentClient(client) ||
           !messageFetchTrackerRef.current.isLatest(sessionId, fetchToken)
         ) {
-          return page.records;
+          // A superseded read did not publish; its records cannot settle a
+          // completion poll or a prompt-acceptance reconciliation.
+          return [];
         }
         setMessagesBySession((current) => ({
           ...current,
           [sessionId]: mergeSessionMessages(
             current[sessionId] || [],
-            page.records,
+            (completionSyncRef.current.has(sessionId) || sessionStatusesRef.current[sessionId]?.type === 'busy')
+              ? preserveStreamUntilAuthoritativeOutcome(current[sessionId] || [], page.records)
+              : page.records,
           ),
         }));
         if (!olderMessageCursorBySessionRef.current.has(sessionId)) {
@@ -854,6 +1079,57 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     },
     [client, isCurrentClient],
   );
+
+  const stopCompletionSync = useCallback((sessionId: string) => {
+    const pending = completionSyncRef.current.get(sessionId);
+    if (pending?.timer) clearTimeout(pending.timer);
+    completionSyncRef.current.delete(sessionId);
+    setCompletionSyncBySession((current) => {
+      if (!current[sessionId]) return current;
+      const next = { ...current };
+      delete next[sessionId];
+      return next;
+    });
+  }, []);
+
+  const startCompletionSync = useCallback((sessionId: string) => {
+    stopCompletionSync(sessionId);
+    const token = ++completionSyncTokenRef.current;
+    const pending: { token: number; timer?: ReturnType<typeof setTimeout> } = { token };
+    completionSyncRef.current.set(sessionId, pending);
+    setCompletionSyncBySession((current) => ({ ...current, [sessionId]: 'syncing' }));
+    const inScope = () => completionSyncRef.current.get(sessionId)?.token === token &&
+      isCurrentClient(client) && (currentSessionIdRef.current === sessionId ||
+        sessionsRef.current.some((session) => session.id === sessionId));
+    const attempt = async (count: number) => {
+      if (!inScope()) return;
+      try {
+        const records = await refreshMessages(sessionId, true);
+        if (!inScope()) return;
+        if (hasAuthoritativeAssistantOutcome(records)) {
+          stopCompletionSync(sessionId);
+          return;
+        }
+      } catch {
+        if (!inScope()) return;
+      }
+      if (count >= COMPLETION_SYNC_ATTEMPTS) {
+        completionSyncRef.current.delete(sessionId);
+        setCompletionSyncBySession((current) => ({ ...current, [sessionId]: 'retry' }));
+        return;
+      }
+      pending.timer = setTimeout(() => { void attempt(count + 1); }, COMPLETION_SYNC_DELAY_MS);
+    };
+    void attempt(1);
+  }, [client, isCurrentClient, refreshMessages, stopCompletionSync]);
+
+  useEffect(() => {
+    for (const pending of completionSyncRef.current.values()) {
+      if (pending.timer) clearTimeout(pending.timer);
+    }
+    completionSyncRef.current.clear();
+    setCompletionSyncBySession({});
+  }, [activeProjectPath]);
 
   const replaceSessionMessages = useCallback(
     async (sessionId: string, silent = false) => {
@@ -991,8 +1267,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       if (pairedHostRecord && pairedHostState !== 'connected') {
         return undefined;
       }
-      const messages = messagesBySession[sessionId];
-      if (!messages || messages.length === 0) {
+      const isCreatedEmptySession = createdEmptySessionIdsRef.current.has(sessionId);
+      const messages = messagesBySession[sessionId] ??
+        (isCreatedEmptySession ? [] : undefined);
+      if (!messages || (messages.length === 0 && !isCreatedEmptySession)) {
         return undefined;
       }
       let session: MobileSession | undefined;
@@ -1007,6 +1285,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         session = record?.projectId === projectId ? record.session : undefined;
       }
       if (!session) return undefined;
+      createdEmptySessionIdsRef.current.delete(sessionId);
       scheduleSessionRefresh(sessionId, {
         sessions: true,
         messages: true,
@@ -1025,6 +1304,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         questions: cachedInteractions.questions,
         session,
         sessionId,
+        source: 'cache' as const,
         sessions: projectId === activeProjectPathRef.current
           ? sessions
           : [session],
@@ -1086,6 +1366,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       ) {
         return;
       }
+      recordCurrentPairedCatalogSessions(projectId, result.sessions as MobileSession[]);
       setSessions((current) =>
         preserveReadySessionDuringRefresh({
           activeProjectId: projectId,
@@ -1136,6 +1417,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         questions: [],
         session,
         sessionId,
+        source: 'network' as const,
         sessions: loadedCatalog.sessions,
         statuses: loadedCatalog.statuses,
         supplemental,
@@ -1153,6 +1435,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       setActiveProjectPath(payload.projectId);
       setSessions(payload.sessions);
       setSessionStatuses(payload.statuses);
+      if (payload.source === 'network') {
+        recordCurrentPairedCatalogSessions(payload.projectId, payload.sessions);
+      }
       // Transcript caches are keyed by session id and hold scope-independent
       // data — preserving them across project switches is what makes
       // cross-project chat switching instant (issue #1287 cache-first).
@@ -1443,7 +1728,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       // capability refresh here: it uses the shared client and can prevent
       // the creation sheet from rendering before the scoped catalog arrives.
       if (pairedHostClient) {
-        return listMobileGatewayProfiles(pairedHostClient, projectId);
+        const profiles = await listMobileGatewayProfiles(
+          pairedHostClient,
+          projectId,
+        );
+        loadedProfileCatalogByProjectRef.current.set(projectId, profiles);
+        return profiles;
       }
       if (projectId === activeProjectPath) {
         return refreshChatCapabilities();
@@ -1511,8 +1801,16 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       projectId = activeProjectPath,
     ): Promise<SessionExecutionState | undefined> => {
       if (!pairedHostClient || !projectId) return undefined;
-      const profiles =
-        projectId === activeProjectPath && availableAgents.length > 0
+      const loadedProfiles = loadedProfileCatalogByProjectRef.current.get(projectId);
+      loadedProfileCatalogByProjectRef.current.delete(projectId);
+      const loadedCatalogContainsSelection = loadedProfiles?.some(
+        (profile) =>
+          profile.profileId === preferences.profileId ||
+          profile.opencodeAgentId === preferences.mode,
+      );
+      const profiles = loadedCatalogContainsSelection && loadedProfiles
+        ? loadedProfiles
+        : projectId === activeProjectPath && availableAgents.length > 0
           ? availableAgents
           : await listMobileGatewayProfiles(pairedHostClient, projectId);
       const selectedProfile =
@@ -1534,6 +1832,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             providerId:
               selectedModel?.providerID ?? preferences.providerId ?? null,
             modelId: selectedModel?.modelID ?? null,
+            modelMode: preferences.modelMode === 'auto' ? 'auto' : 'fixed',
             thinkingBudget: thinkingBudgetForReasoning(preferences.reasoning),
             permissionMode:
               preferences.permissionMode ??
@@ -1602,12 +1901,28 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         preferences,
         projectId,
       );
-      if (projectId === activeProjectPath) {
-        await refreshSessions(true);
-      }
-      return authoritative
+      const createdSession = authoritative
         ? { ...created, rhythm: authoritative }
         : created;
+      if (projectId) {
+        openedSessionRecordCacheRef.current.set(created.id, {
+          projectId,
+          session: createdSession as MobileSession,
+        });
+        createdEmptySessionIdsRef.current.add(created.id);
+        setMessagesBySession((current) => ({
+          ...current,
+          [created.id]: [],
+        }));
+      }
+      if (projectId === activeProjectPath) {
+        setSessions((current) => [
+          createdSession as MobileSession,
+          ...current.filter((session) => session.id !== created.id),
+        ]);
+        settleBackgroundRead(() => refreshSessions(true));
+      }
+      return createdSession;
     },
     [
       activeProjectPath,
@@ -1620,6 +1935,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       pairedHostClient,
       persistSessionPreferences,
       refreshSessions,
+      settleBackgroundRead,
       trackMacOffline,
     ],
   );
@@ -1831,6 +2147,91 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       currentSessionId,
       persistSessionPreferences,
     ],
+  );
+
+  const loadSessionSettings = useCallback(
+    async (target: SessionSettingsTarget, isCurrent: () => boolean = () => true): Promise<void> => {
+      const client = pairedHostClientRef.current;
+      const projectId = activeProjectPathRef.current;
+      if (!client || !projectId) return;
+      const stillCurrent = () =>
+        pairedHostClientRef.current === client &&
+        activeProjectPathRef.current === projectId &&
+        isCurrent();
+      const key = sessionSettingsKey(projectId, target);
+      const order = (settingsOrderRef.current.get(key) ?? 0) + 1;
+      settingsOrderRef.current.set(key, order);
+      const publishable = () =>
+        stillCurrent() &&
+        settingsOrderRef.current.get(key) === order &&
+        (settingsPendingRef.current.get(key) ?? 0) === 0;
+      try {
+        // Read-only capability probe; an old Mac or malformed echo disables editing.
+        const state = await getMobileSessionSettings(client, projectId, target);
+        if (!publishable()) return;
+        // Currency and ordering are re-proved when React applies the update, not just before queueing it.
+        setSessionSettings((current) => (publishable() ? { ...current, [key]: { status: 'ready', state } } : current));
+      } catch {
+        if (!publishable()) return;
+        setSessionSettings((current) => (publishable() ? { ...current, [key]: { status: 'unsupported' } } : current));
+      }
+    },
+    [],
+  );
+
+  const updateSessionSettings = useCallback(
+    async (
+      target: SessionSettingsTarget,
+      patch: SessionSettingsPatch,
+      isCurrent: () => boolean = () => true,
+    ): Promise<SessionExecutionState> => {
+      const client = pairedHostClientRef.current;
+      const projectId = activeProjectPathRef.current;
+      if (!client || !projectId) throw new Error('Connect to your Mac before changing chat settings.');
+      const key = sessionSettingsKey(projectId, target);
+      // No v1 proof means no v1 write, and never a retarget or legacy fallback.
+      if (sessionSettingsRef.current[key]?.status !== 'ready') {
+        throw new Error('Chat settings are not available for this chat on this Mac yet.');
+      }
+      if (Object.keys(patch).length === 0) throw new Error('Nothing to change.');
+      const stillCurrent = () =>
+        pairedHostClientRef.current === client &&
+        activeProjectPathRef.current === projectId &&
+        isCurrent();
+      const stale = () => new Error('This chat changed while saving. Reopen settings to review it.');
+      // A stale invocation issues no request at all: check before queueing and again when the
+      // deferred transport wrapper actually starts.
+      if (!stillCurrent()) throw stale();
+      // Starting a save marks this key pending (suppressing GET publication until it settles) and
+      // invalidates outstanding probes.
+      settingsPendingRef.current.set(key, (settingsPendingRef.current.get(key) ?? 0) + 1);
+      settingsOrderRef.current.set(key, (settingsOrderRef.current.get(key) ?? 0) + 1);
+      try {
+        const next = await trackMacOffline(() => {
+          if (!stillCurrent()) throw stale();
+          return patchMobileSessionSettings(client, projectId, target, patch);
+        });
+        if (!stillCurrent()) throw stale();
+        // The canonical readback also invalidates any probe that started while this save was in flight.
+        settingsOrderRef.current.set(key, (settingsOrderRef.current.get(key) ?? 0) + 1);
+        setSessionSettings((current) => (stillCurrent() ? { ...current, [key]: { status: 'ready', state: next } } : current));
+        if (target.identity === 'sdk') {
+          setSessions((current) => replaceSessionExecutionState(current, target.id, next));
+          if (target.id === currentSessionIdRef.current) {
+            setChatPreferences((current) => hydratePreferencesFromSession(next, current));
+          }
+        }
+        return next;
+      } finally {
+        // Every settle (success, rejection or stale) releases this save and invalidates older probes, so a
+        // queued probe cannot regain publication; a fresh probe after the last settle publishes normally.
+        const remaining = (settingsPendingRef.current.get(key) ?? 1) - 1;
+        if (remaining > 0) settingsPendingRef.current.set(key, remaining);
+        else settingsPendingRef.current.delete(key);
+        settingsOrderRef.current.set(key, (settingsOrderRef.current.get(key) ?? 0) + 1);
+      }
+    },
+    [trackMacOffline],
   );
 
   const initializeSession = useCallback(async (sessionId: string) => {
@@ -2194,7 +2595,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     await Promise.all([refreshMessages(sessionId, true), refreshSessions(true)]).catch(() => undefined);
   }, [authoritativePreferencesForSession, client, refreshMessages, refreshSessions]);
 
-  const ensureActiveSession = useCallback(async () => {
+  const ensureActiveSession = useCallback(async (options?: { allowCreate?: boolean }) => {
+    const allowCreate = options?.allowCreate ?? true;
     if (connection.status !== 'connected' || !activeProjectPath) {
       return undefined;
     }
@@ -2218,10 +2620,18 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       try {
         const nextSessions = sessions.length > 0 ? sessions : await fetchSessions(true);
         const rememberedSessionId = activeProjectPath ? lastSessionByProject[activeProjectPath] : undefined;
-        const targetSession =
+        const existingSession =
           nextSessions.find((session) => session.id === rememberedSessionId) ??
-          nextSessions[0] ??
-          (await createSession());
+          nextSessions[0];
+        // ponytail: the passive connect-bootstrap (allowCreate: false) must
+        // stay a read — it has no user intent to start a chat, so a project
+        // with zero sessions just has no active session yet. Only an
+        // explicit "open/send" caller (default allowCreate: true) may
+        // fabricate one on the user's behalf (dup-session regression).
+        if (!existingSession && !allowCreate) {
+          return undefined;
+        }
+        const targetSession = existingSession ?? (await createSession());
         // Slash commands, VCS status and MCP diagnostics are not needed to
         // show the chat, and on a cold engine directory they wait on every MCP
         // server (a minute when one never answers). Load them behind the open.
@@ -2618,16 +3028,19 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     // #1506 — the reconnect burst can catch a single transient edge 5xx. The
     // bootstrap is idempotent reads, so replay it once before surfacing an
     // error that, having no sessionId, would block every conversation.
+    // allowCreate: false — this passive bootstrap runs on every connect with
+    // no user intent to start a chat; it must never fabricate a session on
+    // its own (dup-session regression, docs/ai/spec-session-list-and-create-ui.md).
     let cancelled = false;
     const stillCurrent = () => !cancelled && isCurrentClient(client);
     void (async () => {
       try {
-        await ensureActiveSessionRef.current();
+        await ensureActiveSessionRef.current({ allowCreate: false });
       } catch {
         await new Promise((resolve) => setTimeout(resolve, BOOTSTRAP_RETRY_DELAY_MS));
         if (!stillCurrent()) return;
         try {
-          await ensureActiveSessionRef.current();
+          await ensureActiveSessionRef.current({ allowCreate: false });
         } catch (error) {
           if (!stillCurrent()) return;
           setPromptError({
@@ -3663,8 +4076,14 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       }
       return true;
     };
-
     const handleEvent = (event: GlobalEvent['payload']) => {
+      const activitySessionId = sessionActivityEventSessionId(event);
+      if (activitySessionId) {
+        sessionActivityListenersRef.current.forEach((listener) => listener({
+          projectId: activeProjectPath,
+          sessionId: activitySessionId,
+        }));
+      }
       switch (event.type) {
         case 'session.created':
         case 'session.updated':
@@ -3678,27 +4097,33 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           const sessionId = event.properties.sessionID;
           if (event.properties.status.type === 'idle') {
             stopSessionWorkingSound(sessionId);
+            startCompletionSync(sessionId);
+          } else {
+            stopCompletionSync(sessionId);
           }
           setSessionStatuses((current) => ({
             ...current,
             [sessionId]: event.properties.status,
           }));
-          scheduleSessionRefresh(sessionId, { sessions: true, messages: true, diff: true, todos: true });
+          scheduleSessionRefresh(sessionId, { sessions: true, diff: true, todos: true });
           return;
         }
         case 'session.idle': {
           const sessionId = event.properties.sessionID;
+          transcriptBatcherRef.current?.flush();
           stopSessionWorkingSound(sessionId);
           setSessionStatuses((current) => ({
             ...current,
             [sessionId]: { type: 'idle' },
           }));
-          scheduleSessionRefresh(sessionId, { sessions: true, messages: true, diff: true, todos: true, delayMs: 50 });
+          startCompletionSync(sessionId);
+          scheduleSessionRefresh(sessionId, { sessions: true, diff: true, todos: true, delayMs: 50 });
           coalescedIdleRefresh.trigger();
           return;
         }
         case 'session.error': {
           const sessionId = event.properties.sessionID;
+          if (sessionId) stopCompletionSync(sessionId);
           stopSessionWorkingSound(sessionId ?? currentSessionIdRef.current);
           const error = event.properties.error;
           const message = error && 'data' in error && error.data && 'message' in error.data
@@ -3720,7 +4145,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           return;
         }
         case 'message.updated': {
-          scheduleSessionRefresh(event.properties.sessionID, { messages: true });
+          transcriptBatcherRef.current?.push(event as TranscriptEvent);
           return;
         }
         case 'message.removed':
@@ -3734,6 +4159,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           scheduleSessionRefresh(event.properties.sessionID, { messages: true });
           return;
         case 'message.part.updated':
+        case 'message.part.delta': {
+          transcriptBatcherRef.current?.push(event as TranscriptEvent);
+          return;
+        }
         case 'message.part.removed': {
           scheduleSessionRefresh(event.properties.sessionID, { messages: true });
           return;
@@ -3880,7 +4309,14 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             retryAttempt = 0;
             reachabilityFailureReported = false;
             if (envelope?.directory === activeProjectPath && envelope.payload) {
-              if (rememberEvent(envelope.payload)) {
+              const coordinatorChange = coordinatorChangedFromEnvelope(envelope, activeProjectPath, Boolean(pairedHostClient));
+              if (coordinatorChange && pairedHostClient) {
+                // Identity-only hint, deduped by its own bounded id; it is not
+                // an SDK event and never reaches the session handlers.
+                if (rememberEvent(envelope.payload as GlobalEvent['payload'])) {
+                  notifyCoordinatorChanged(coordinatorChange, client, pairedHostClient);
+                }
+              } else if (rememberEvent(envelope.payload)) {
                 handleEvent(envelope.payload);
               }
             }
@@ -3914,13 +4350,18 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       mounted = false;
       activeAbortController?.abort();
     };
-  }, [activeProjectPath, catalogClient, client, coalescedIdleRefresh, coalescedRefreshArchivedSessions, coalescedRefreshSessions, connection.status, pairedHostClient, pairedHostRecord?.relayUrl, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, replaceSessionMessages, scheduleSessionRefresh, settings, settleBackgroundRead, stopSessionWorkingSound]);
+  }, [activeProjectPath, catalogClient, client, coalescedIdleRefresh, coalescedRefreshArchivedSessions, coalescedRefreshSessions, connection.status, notifyCoordinatorChanged, pairedHostClient, pairedHostRecord?.relayUrl, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorkspaceCatalog, refreshWorktrees, replaceSessionMessages, scheduleSessionRefresh, settings, settleBackgroundRead, startCompletionSync, stopCompletionSync, stopSessionWorkingSound]);
 
   useEffect(
     () => () => {
       cancelSessionRefreshTimers(sessionRefreshTimeoutsRef.current);
+      for (const pending of completionSyncRef.current.values()) {
+        if (pending.timer) clearTimeout(pending.timer);
+      }
+      completionSyncRef.current.clear();
       sessionRefreshTimeoutsRef.current = {};
       sessionRefreshOptionsRef.current = {};
+      transcriptBatcherRef.current?.cancel();
       if (conversationResumeTimeoutRef.current) {
         clearTimeout(conversationResumeTimeoutRef.current);
       }
@@ -3955,12 +4396,16 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       return;
     }
 
+    let cancelled = false;
     const interval = setInterval(() => {
       const currentHasBusySession = Object.values(sessionStatuses).some((status) => status.type !== 'idle');
       const currentHasConversationActivity = conversationPhase !== 'off';
 
       if (currentHasConversationActivity || currentHasBusySession || sendingState.active || useSafetyPolling) {
-        settleBackgroundRead(() => refreshSessions(true));
+        // A rejected read is not a completed cycle and signals nothing.
+        settleBackgroundRead(() => refreshSessions(true).then(() => {
+          if (!cancelled) notifyProjectReadCompleted(activeProjectPath, client);
+        }));
         settleBackgroundRead(refreshPendingInteractions);
       }
 
@@ -3981,8 +4426,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       }
     }, 5000);
 
-    return () => clearInterval(interval);
-  }, [activeProjectPath, connection.status, conversationPhase, conversationSessionId, currentSessionId, eventStreamStatus, refreshMessages, refreshPendingInteractions, refreshSessionDiff, refreshSessionTodos, refreshSessions, sendingState.active, sessionStatuses, settleBackgroundRead]);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [activeProjectPath, client, connection.status, conversationPhase, conversationSessionId, currentSessionId, eventStreamStatus, notifyProjectReadCompleted, refreshMessages, refreshPendingInteractions, refreshSessionDiff, refreshSessionTodos, refreshSessions, sendingState.active, sessionStatuses, settleBackgroundRead]);
 
   const workingSoundBusy = !!currentSessionId && !stoppedWorkingSoundSessions.has(currentSessionId) && (
     (sendingState.active && sendingState.sessionId === currentSessionId) ||
@@ -4017,8 +4465,28 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
       for (const sessionId of pendingIds) {
         const status = sessionStatuses[sessionId];
-        const oldEnough = Date.now() - (notificationRequestedAtRef.current.get(sessionId) || Date.now()) >= 5000;
-        if ((!busyNotificationSessionIdsRef.current.has(sessionId) && !oldEnough) || (status && status.type !== 'idle') || (sendingState.active && sendingState.sessionId === sessionId)) {
+        // A completion notification requires evidence the turn actually
+        // STARTED: the engine must have reported this session busy at least
+        // once (busyNotificationSessionIdsRef is set from session.status).
+        // Previously an elapsed timer alone was enough, so a prompt that never
+        // reached the engine — no busy status ever, sendingState cleared by the
+        // failure — satisfied every guard and fired "OpenCode finished a task".
+        // Measured 2026-10-07: that notification fired precisely BECAUSE the
+        // request failed, and it is why a dead backend looked like a working
+        // one for most of a night.
+        const observedBusy = busyNotificationSessionIdsRef.current.has(sessionId);
+        if (!observedBusy) {
+          // Never saw it start, so we cannot claim it finished. Drop the
+          // pending marker rather than leaving it to fire later.
+          const neverStarted = Date.now() - (notificationRequestedAtRef.current.get(sessionId) || Date.now()) >= 5000;
+          if (neverStarted) {
+            pendingNotificationSessionIdsRef.current.delete(sessionId);
+            notificationRequestedAtRef.current.delete(sessionId);
+            await clearTrackedPendingNotification(sessionId).catch(() => undefined);
+          }
+          continue;
+        }
+        if ((status && status.type !== 'idle') || (sendingState.active && sendingState.sessionId === sessionId)) {
           continue;
         }
 
@@ -4102,6 +4570,19 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     () => sessions.find((session) => session.id === currentSessionId),
     [currentSessionId, sessions],
   );
+  const coordinatorSessionProvenance = useMemo(() => {
+    if (!currentSessionId || !pairedCoordinatorActorKey || !pairedHostClient) return undefined;
+    const candidate = coordinatorSessionProvenanceBySession[currentSessionId];
+    return candidate?.actorKey === pairedCoordinatorActorKey &&
+      candidate.pairedClient === pairedHostClient
+      ? candidate
+      : undefined;
+  }, [
+    coordinatorSessionProvenanceBySession,
+    currentSessionId,
+    pairedCoordinatorActorKey,
+    pairedHostClient,
+  ]);
 
   const currentMessages = useMemo(
     () => (currentSessionId ? messagesBySession[currentSessionId] || [] : []),
@@ -4194,6 +4675,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       activeProject,
       selectProject,
       serverProjects,
+      registeredGatewayProjectIds,
+      coordinatorSessionProvenance,
+      subscribeSessionActivity,
+      subscribeProjectReads,
+      subscribeCoordinatorChanges,
       currentProjectPath,
       serverRootPath,
       isRefreshingWorkspaceCatalog,
@@ -4210,6 +4696,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       latestAssistantTurnUsage,
       currentDiffs,
       currentTranscript,
+      backgroundReadError,
       currentTodos,
       currentPendingPermissions,
       currentPendingQuestions,
@@ -4217,6 +4704,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       sessionPreviewById,
       isRefreshingSessions,
       isRefreshingMessages,
+      completionSyncStatus: currentSessionId ? completionSyncBySession[currentSessionId] : undefined,
+      retryCompletionSync: startCompletionSync,
       isRefreshingDiffs,
       isBootstrappingChat,
       currentConfig,
@@ -4229,6 +4718,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       chatPreferences,
       updateChatPreferences,
       updateSessionPreferences,
+      sessionSettings,
+      loadSessionSettings,
+      updateSessionSettings,
       conversation: {
         active: conversationActive,
         feedback: conversationFeedback,
@@ -4362,6 +4854,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       latestAssistantTurnUsage,
       currentSessionId,
       currentTranscript,
+      backgroundReadError,
       currentTodos,
       currentPendingPermissions,
       currentPendingQuestions,
@@ -4386,6 +4879,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       isRefreshingDiffs,
       isHydrated,
       isRefreshingMessages,
+      completionSyncBySession,
+      startCompletionSync,
       isRefreshingWorkspaceCatalog,
       isRefreshingSessions,
       openSession,
@@ -4413,6 +4908,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       sessionStatuses,
       sessions,
       serverProjects,
+      registeredGatewayProjectIds,
+      coordinatorSessionProvenance,
+      subscribeSessionActivity,
+      subscribeProjectReads,
+      subscribeCoordinatorChanges,
       settings,
       buildScopedClient,
       setProviderAuth,
@@ -4422,6 +4922,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       toggleConversationMode,
       updateChatPreferences,
       updateSessionPreferences,
+      sessionSettings,
+      loadSessionSettings,
+      updateSessionSettings,
       updateSettings,
       commands,
       executeCommand,

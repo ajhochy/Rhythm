@@ -11,6 +11,10 @@ const emptyDraft = (): ChatDraft => ({ attachments: [], draft: '' });
 
 export function createSessionDraftStore() {
   const drafts = new Map<string, ChatDraft>();
+  // A value comparison cannot distinguish A -> B -> A from an untouched A.
+  // Keep this in-memory edit token alongside the actual per-chat draft, not
+  // in persisted history or coordinator state.
+  const revisions = new Map<string, number>();
   const get = (sessionId: string): ChatDraft => {
     const value = drafts.get(sessionId) ?? emptyDraft();
     return { attachments: [...value.attachments], draft: value.draft };
@@ -20,10 +24,14 @@ export function createSessionDraftStore() {
       attachments: [...value.attachments],
       draft: value.draft,
     });
+    revisions.set(sessionId, (revisions.get(sessionId) ?? 0) + 1);
   };
 
   return {
     get,
+    getRevision(sessionId: string) {
+      return revisions.get(sessionId) ?? 0;
+    },
     updateDraft(sessionId: string, draft: string) {
       set(sessionId, { ...get(sessionId), draft });
     },
@@ -41,6 +49,7 @@ export function createSessionDraftStore() {
         draft: [to.draft, from.draft].filter(Boolean).join('\n'),
       });
       drafts.delete(fromSessionId);
+      revisions.set(fromSessionId, (revisions.get(fromSessionId) ?? 0) + 1);
     },
     beginSend(sessionId: string): ChatSendAttempt {
       const attempt = { sessionId, ...get(sessionId) };

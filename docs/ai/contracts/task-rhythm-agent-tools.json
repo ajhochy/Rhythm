@@ -1,0 +1,616 @@
+{
+  "task": "rhythm-agent-tools",
+  "status": "source-verified_combined-builder-gates-pending",
+  "statusLegend": {
+    "written-unrun": "behavioral test exists; this worker cannot execute tests under its CLI permissions, so no pass/fail evidence from this writer",
+    "pending-builder": "manual combined gate owned by the builder after shared hooks are applied",
+    "pending-reviewer": "reviewer-owned evidence (screenshots / source UI script / read-only live probe)",
+    "passed": "Independent Sol execution observed exit0 for the source check or confirmed screenshot Library write; no combined product pass is implied."
+  },
+  "modes": {
+    "node": "cd apps/electron && node --test --test-concurrency=1 test/rhythm-agent-tools.test.mjs test/open-design-runtime.test.mjs test/open-design-view.test.mjs test/open-design-preload-hook.test.mjs",
+    "node-web": "cd apps/web && node --test src/agentTools/pins.test.mjs",
+    "source-ui": "cd apps/web && npx playwright test --config tests/open-design-tools-playwright.config.ts  # targets the already-running 127.0.0.1:5495 fixture; starts no server",
+    "typecheck": "cd apps/electron && npm run typecheck; cd apps/web && npm run typecheck",
+    "manual-combined": "builder-owned native combined route smoke after shared hooks are applied",
+    "read-only-live": "Existing installed service only: read-only runtime metadata, exact OS identity/listener checks, bounded HTML GET; no launch/stop/data change."
+  },
+  "scope": {
+    "owned": [
+      "apps/electron/src/rhythm-agent-tools.mjs",
+      "apps/electron/src/rhythm-agent-tools.d.mts",
+      "apps/electron/src/open-design-runtime.mjs",
+      "apps/electron/src/open-design-view.mjs",
+      "apps/electron/test/rhythm-agent-tools.test.mjs",
+      "apps/electron/test/open-design-runtime.test.mjs",
+      "apps/electron/test/open-design-view.test.mjs",
+      "apps/electron/test/open-design-preload-hook.test.mjs",
+      "apps/web/src/agentTools (registry.ts, pins.ts, pins.test.mjs, hosts.ts)",
+      "apps/web/src/components/tools/AgentToolsCatalog.tsx",
+      "apps/web/src/components/tools/AgentToolsCatalog.css",
+      "apps/web/src/pages/open-design",
+      "apps/web/tests/open-design-tools-fixture.html",
+      "apps/web/tests/open-design-tools-fixture.tsx",
+      "apps/web/tests/open-design-tools-playwright.config.ts",
+      "apps/web/tests/open-design-tools.sourcespec.ts",
+      "docs/ai/contracts/task-rhythm-agent-tools.json",
+      "docs/ai/handoffs/2026-10-05-rhythm-agent-tools-integration-hooks.md",
+      "docs/ai/runs/2026-10-05-rhythm-agent-tools.md"
+    ],
+    "forbidden": [
+      "apps/electron/src/main.mjs",
+      "apps/electron/src/preload.cjs",
+      "apps/electron/src/security-smoke-receipt.mjs",
+      "apps/web/src/App.tsx",
+      "apps/web/src/components/Shell.tsx",
+      "apps/web/src/components/SessionRail.tsx",
+      "apps/web/src/components/ToolWorkspace.tsx",
+      "Dayflow-specific files (frozen owner packet)",
+      "package scripts/config/security receipts"
+    ]
+  },
+  "criteria": [
+    {
+      "id": "AT-REG-01",
+      "criterion": "Frozen descriptors map to /hermes, /colony, /open-design, /tools/dayflow; catalog route /tools/agent-tools.",
+      "mode": "node",
+      "test_file": "apps/electron/test/rhythm-agent-tools.test.mjs",
+      "test_id": "AT-REG-01",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-REG-02",
+      "criterion": "Default pins: Hermes, Bot Crossing, OpenDesign true; Dayflow false; coordinator never a descriptor.",
+      "mode": "node",
+      "test_file": "apps/electron/test/rhythm-agent-tools.test.mjs",
+      "test_id": "AT-REG-02",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-REG-03",
+      "criterion": "User-facing descriptions carry no service/lifecycle/packaging details.",
+      "mode": "node",
+      "test_file": "apps/electron/test/rhythm-agent-tools.test.mjs",
+      "test_id": "AT-REG-03",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-REG-04",
+      "criterion": "Adapter registration accepts only known, unregistered IDs and never executes input.",
+      "mode": "node",
+      "test_file": "apps/electron/test/rhythm-agent-tools.test.mjs",
+      "test_id": "AT-REG-04",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-01",
+      "criterion": "Production literal http://127.0.0.1:<port> (no trailing slash) accepted; slash and every normalised variant rejected; port 80 keeps explicit port.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-01",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-02",
+      "criterion": "Production-shaped metadata (equal pids, next-server listener) is ready via exact `lsof -nP -a -iTCP@127.0.0.1:<port> -sTCP:LISTEN -Fp`.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-02",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-03",
+      "criterion": "Only /Applications and current user's ~/Applications canonical executables are trusted; arbitrary/symlinked/mismatched rejected.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-03",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-04",
+      "criterion": "Port 80 discovery uses explicit port for lsof and returns normalised origin.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-04",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-05",
+      "criterion": "Paired identities share canonical pid; alternate fields and slash URLs rejected.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-05",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-06",
+      "criterion": "Identity reads are contained in the runtime directory and byte-bounded even with a misbehaving reader.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-06",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-07",
+      "criterion": "readBoundedFile reads limit+1 bytes (no stat growth race), rejects oversize and symlinks (O_NOFOLLOW).",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-07",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-08",
+      "criterion": "Ancestry and listener mismatches unavailable.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-08",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-09",
+      "criterion": "Health must be bounded 200 text/html with OpenDesign title (injected bodies bounded too).",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-09",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-10",
+      "criterion": "Hanging health cut off by absolute deadline.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-10",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-11",
+      "criterion": "Discovery stops once its absolute deadline passes.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-11",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-12",
+      "criterion": "Identity owner, executable, and listener re-verified after health.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-12",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-13",
+      "criterion": "At most 25 runtimes verified, most recently modified first.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-13",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-14",
+      "criterion": "Same-runtime identity requires origin and both pids.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-14",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-15",
+      "criterion": "Unreadable roots unavailable without leaking.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-15",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-16",
+      "criterion": "Default health reader destroys a trickling native request at its absolute deadline.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-16",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-17",
+      "criterion": "Default health reader does not follow redirects.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-17",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-18",
+      "criterion": "Default health reader destroys the request when the body exceeds its bound; well-formed response resolves.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-runtime.test.mjs",
+      "test_id": "AT-RT-18",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-RT-LIVE",
+      "criterion": "Read-only discovery against the already-running installed service returns ready.",
+      "mode": "read-only-live",
+      "test_file": "../orchestration/sol-existing-runtime-green.json",
+      "test_id": "reviewer-owned",
+      "status": "passed",
+      "evidence": "../orchestration/final-existing-runtime-receipt.json"
+    },
+    {
+      "id": "AT-VIEW-01",
+      "criterion": "Only exact host main frame attaches; non-owners get explicit failure; guest has no preload/node/webview.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-view.test.mjs",
+      "test_id": "AT-VIEW-01",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-VIEW-02",
+      "criterion": "Requests same-origin http + matching ws from owned renderer only; navigation/redirects same-origin http only; webview/popup/permission/download denied.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-view.test.mjs",
+      "test_id": "AT-VIEW-02",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-VIEW-03",
+      "criterion": "Port 80 origins compare as normalised origins for http and ws.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-view.test.mjs",
+      "test_id": "AT-VIEW-03",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-VIEW-04",
+      "criterion": "Hash tab leave suspends; return resumes same view without reload.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-view.test.mjs",
+      "test_id": "AT-VIEW-04",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-VIEW-05",
+      "criterion": "Bounds zoom-scaled and clipped.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-view.test.mjs",
+      "test_id": "AT-VIEW-05",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-VIEW-06",
+      "criterion": "Delayed discovery revoked when host leaves.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-view.test.mjs",
+      "test_id": "AT-VIEW-06",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-VIEW-07",
+      "criterion": "Delayed load revoked and view closed when host leaves.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-view.test.mjs",
+      "test_id": "AT-VIEW-07",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-VIEW-08",
+      "criterion": "A never-settling load cannot block disposal or the attach queue.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-view.test.mjs",
+      "test_id": "AT-VIEW-08",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-VIEW-09",
+      "criterion": "Cached attachment never reused across documents or changed runtime.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-view.test.mjs",
+      "test_id": "AT-VIEW-09",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-VIEW-10",
+      "criterion": "Renderer closed before guard removal; named listeners removed; disposeCurrent keeps IPC, dispose removes it.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-view.test.mjs",
+      "test_id": "AT-VIEW-10",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-VIEW-11",
+      "criterion": "A guest surviving a failed close keeps all denial guards until its destroyed event; host listeners and IPC channels are removed immediately; view concealed.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-view.test.mjs",
+      "test_id": "AT-VIEW-11",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-VIEW-16",
+      "criterion": "Guard removals are independent; one throwing does not skip the others.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-view.test.mjs",
+      "test_id": "AT-VIEW-16",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-VIEW-12",
+      "criterion": "Constructor/config/add/setBounds/load failures return safe failure, close partial guest, leak nothing.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-view.test.mjs",
+      "test_id": "AT-VIEW-12",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-VIEW-13",
+      "criterion": "Optional builder isTrustedSender (false/throw/non-true) denies attach/status/bounds in addition to frame/route.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-view.test.mjs",
+      "test_id": "AT-VIEW-13",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-VIEW-14",
+      "criterion": "Stale renderer callbacks cannot revoke a newer view; full navigation disposes.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-view.test.mjs",
+      "test_id": "AT-VIEW-14",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-VIEW-15",
+      "criterion": "Status ready/unavailable only, no leaks.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-view.test.mjs",
+      "test_id": "AT-VIEW-15",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-PRE-01",
+      "criterion": "Documented preload bridge is frozen with exactly getStatus/attach/setBounds/detach.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-preload-hook.test.mjs",
+      "test_id": "AT-PRE-01",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-PRE-02",
+      "criterion": "Success returns { ok: true } only; nonce private, used for bounds/detach, cleared on detach.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-preload-hook.test.mjs",
+      "test_id": "AT-PRE-02",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-PRE-03",
+      "criterion": "Stale completion discarded without detaching a newer attachment sharing the cached nonce.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-preload-hook.test.mjs",
+      "test_id": "AT-PRE-03",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-PRE-04",
+      "criterion": "Void/malformed/nonce-less/rejected attach fail without exposing anything.",
+      "mode": "node",
+      "test_file": "apps/electron/test/open-design-preload-hook.test.mjs",
+      "test_id": "AT-PRE-04",
+      "status": "passed",
+      "evidence": "../orchestration/final-electron-tests.tap"
+    },
+    {
+      "id": "AT-PIN-01",
+      "criterion": "Pin defaults exclude Dayflow.",
+      "mode": "node-web",
+      "test_file": "apps/web/src/agentTools/pins.test.mjs",
+      "test_id": "AT-PIN-01",
+      "status": "passed",
+      "evidence": "../orchestration/final-pins-tests.tap"
+    },
+    {
+      "id": "AT-PIN-02",
+      "criterion": "Throwing localStorage getter yields defaults + error, never throws.",
+      "mode": "node-web",
+      "test_file": "apps/web/src/agentTools/pins.test.mjs",
+      "test_id": "AT-PIN-02",
+      "status": "passed",
+      "evidence": "../orchestration/final-pins-tests.tap"
+    },
+    {
+      "id": "AT-PIN-03",
+      "criterion": "Malformed/unknown/duplicate/coordinator entries never become pins.",
+      "mode": "node-web",
+      "test_file": "apps/web/src/agentTools/pins.test.mjs",
+      "test_id": "AT-PIN-03",
+      "status": "passed",
+      "evidence": "../orchestration/final-pins-tests.tap"
+    },
+    {
+      "id": "AT-PIN-04",
+      "criterion": "Toggles read fresh state.",
+      "mode": "node-web",
+      "test_file": "apps/web/src/agentTools/pins.test.mjs",
+      "test_id": "AT-PIN-04",
+      "status": "passed",
+      "evidence": "../orchestration/final-pins-tests.tap"
+    },
+    {
+      "id": "AT-PIN-05",
+      "criterion": "Scopes isolated per owner; events only reach matching scope; rhythm.settings.* untouched.",
+      "mode": "node-web",
+      "test_file": "apps/web/src/agentTools/pins.test.mjs",
+      "test_id": "AT-PIN-05",
+      "status": "passed",
+      "evidence": "../orchestration/final-pins-tests.tap"
+    },
+    {
+      "id": "AT-PIN-06",
+      "criterion": "Reset removes only this scope's pin key.",
+      "mode": "node-web",
+      "test_file": "apps/web/src/agentTools/pins.test.mjs",
+      "test_id": "AT-PIN-06",
+      "status": "passed",
+      "evidence": "../orchestration/final-pins-tests.tap"
+    },
+    {
+      "id": "AT-UI-01",
+      "criterion": "Catalog: existing tabs pinned, Dayflow unpinned, no lifecycle copy.",
+      "mode": "source-ui",
+      "test_file": "apps/web/tests/open-design-tools.sourcespec.ts",
+      "test_id": "AT-UI-01",
+      "status": "passed",
+      "evidence": "../orchestration/final-source-playwright.log"
+    },
+    {
+      "id": "AT-UI-02",
+      "criterion": "Pins persist across reload; Reset restores defaults.",
+      "mode": "source-ui",
+      "test_file": "apps/web/tests/open-design-tools.sourcespec.ts",
+      "test_id": "AT-UI-02",
+      "status": "passed",
+      "evidence": "../orchestration/final-source-playwright.log"
+    },
+    {
+      "id": "AT-UI-03",
+      "criterion": "Blocked localStorage keeps defaults + safe copy.",
+      "mode": "source-ui",
+      "test_file": "apps/web/tests/open-design-tools.sourcespec.ts",
+      "test_id": "AT-UI-03",
+      "status": "passed",
+      "evidence": "../orchestration/final-source-playwright.log"
+    },
+    {
+      "id": "AT-UI-04",
+      "criterion": "Nonce-free { ok: true } attaches into host region; product copy (not the fixture banner) has no lifecycle words.",
+      "mode": "source-ui",
+      "test_file": "apps/web/tests/open-design-tools.sourcespec.ts",
+      "test_id": "AT-UI-04",
+      "status": "passed",
+      "evidence": "../orchestration/final-source-playwright.log"
+    },
+    {
+      "id": "AT-UI-05",
+      "criterion": "Missing/malformed attach, unavailable, absent bridge show fixed error + Retry, never blank success.",
+      "mode": "source-ui",
+      "test_file": "apps/web/tests/open-design-tools.sourcespec.ts",
+      "test_id": "AT-UI-05",
+      "status": "passed",
+      "evidence": "../orchestration/final-source-playwright.log"
+    },
+    {
+      "id": "AT-UI-06",
+      "criterion": "Catalog surfaces use existing theme tokens.",
+      "mode": "source-ui",
+      "test_file": "apps/web/tests/open-design-tools.sourcespec.ts",
+      "test_id": "AT-UI-06",
+      "status": "passed",
+      "evidence": "../orchestration/final-source-playwright.log"
+    },
+    {
+      "id": "AT-UI-REVIEW",
+      "criterion": "Sol's read-only review-source-ui.mjs (reported 5 checks passing after the public bridge fix).",
+      "mode": "source-ui",
+      "test_file": "../orchestration/review-source-ui.mjs",
+      "test_id": "reviewer-owned",
+      "status": "passed",
+      "evidence": "../ui-evidence/source-ui-receipt.json"
+    },
+    {
+      "id": "AT-TYPE-01",
+      "criterion": "Electron and web typechecks exit 0.",
+      "mode": "typecheck",
+      "test_file": null,
+      "test_id": null,
+      "status": "passed",
+      "evidence": [
+        "../orchestration/final-electron-typecheck.log",
+        "../orchestration/final-web-typecheck.log"
+      ]
+    }
+  ],
+  "manualCombinedIntegration": [
+    {
+      "id": "AT-MAN-01",
+      "criterion": "Builder applies the main (adapter registry + isTrustedSender), preload, App, Shell, SessionRail, ToolWorkspace, security-receipt, and test-registration hooks exactly as documented.",
+      "mode": "manual-combined",
+      "status": "pending-builder"
+    },
+    {
+      "id": "AT-MAN-02",
+      "criterion": "With a pre-running verified OpenDesign service, open #/open-design, leave to another hash tab, return; the same native view resumes without reload or service restart.",
+      "mode": "manual-combined",
+      "status": "pending-builder"
+    },
+    {
+      "id": "AT-MAN-03",
+      "criterion": "Unavailable service shows fixed copy + Retry without starting, stopping, or altering the installed service or its data.",
+      "mode": "manual-combined",
+      "status": "pending-builder"
+    },
+    {
+      "id": "AT-MAN-04",
+      "criterion": "Menus/toasts use existing Shell reserves; only an explicit blocking modal zeroes bounds.",
+      "mode": "manual-combined",
+      "status": "pending-builder"
+    },
+    {
+      "id": "AT-MAN-05",
+      "criterion": "Profile reset calls disposeCurrent (re-attach works); app quit calls dispose (handlers removed); signed-out/blocked refused.",
+      "mode": "manual-combined",
+      "status": "pending-builder"
+    },
+    {
+      "id": "AT-MAN-06",
+      "criterion": "Actual source UI screenshots captured by Sol before any production build.",
+      "mode": "manual-combined",
+      "status": "passed",
+      "evidence": "../ui-evidence/library-direct-create-receipt.json"
+    },
+    {
+      "id": "AT-MAN-07",
+      "criterion": "Plugin replacement deferred until AT-MAN-02..05 pass; both plugin directories and all OpenDesign data preserved for rollback.",
+      "mode": "manual-combined",
+      "status": "pending-builder"
+    }
+  ],
+  "falsificationEvidence": "../orchestration/final-falsification-receipt.json"
+}

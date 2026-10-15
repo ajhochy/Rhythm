@@ -341,6 +341,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Currently selected agent name per session. Null = SDK default (build).
   // Persists for the app run (not persisted to the DB — see spec).
   final Map<String, String?> _selectedAgentBySession = {};
+  // Keep the selected Rhythm profile identity alongside its OpenCode agent
+  // name so a turn cannot race the asynchronous session PATCH.
+  final Map<String, String> _selectedProfileIdBySession = {};
 
   // OPC-M3-6 / #861: Child-session navigation state.
   // A STACK of navigation frames, one per hop of nested delegation (parent →
@@ -1553,8 +1556,14 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }) {
     if (agentName == null) {
       _selectedAgentBySession.remove(sessionId);
+      _selectedProfileIdBySession.remove(sessionId);
     } else {
       _selectedAgentBySession[sessionId] = agentName;
+      if (profileId != null && profileId.trim().isNotEmpty) {
+        _selectedProfileIdBySession[sessionId] = profileId;
+      } else {
+        _selectedProfileIdBySession.remove(sessionId);
+      }
       // #1119 — an explicit profile pick must survive an app restart. Prior
       // to this fix, `agentName` only ever went out per-turn on the WS
       // `session.input` frame (sendInput, "never persisted" by OPC-M4-4
@@ -2256,6 +2265,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     bool clearProvider = false,
     bool clearModel = false,
     String? permissionMode,
+    String? modelMode,
   }) async {
     try {
       final updated = await _repository.updateSession(
@@ -2266,6 +2276,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         clearProvider: clearProvider,
         clearModel: clearModel,
         permissionMode: permissionMode,
+        modelMode: modelMode,
       );
       _sessions = [for (final s in _sessions) s.id == id ? updated : s];
       notifyListeners();
@@ -2658,6 +2669,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // OPC-M4-4 / #745: include the per-session selected agent.
     // selectedAgentFor resolves: explicit selection → manager default → null.
     final selectedAgent = selectedAgentFor(sessionId);
+    final selectedProfileId = _selectedProfileIdBySession[sessionId];
+    final sessionModelMode =
+        _sessions.firstWhereOrNull((s) => s.id == sessionId)?.modelMode;
     _repository.send({
       'type': 'session.input',
       'id': sessionId,
@@ -2672,6 +2686,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       else
         'data': data,
       // M2-2: per-turn override is consumed once on send, never persisted.
+      // Auto sessions never echo the stored model back: only an explicit
+      // staged override (above) is sent, so the router stays in charge.
       if (override != null)
         'modelOverride': {
           'providerId': override.providerId,
@@ -2679,6 +2695,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         },
       // OPC-M4-4: forward agent name when set; absent → SDK default (build).
       if (selectedAgent != null) 'agent': selectedAgent,
+      if (selectedProfileId != null) 'profileId': selectedProfileId,
+      if (sessionModelMode != null) 'modelMode': sessionModelMode,
     });
     if (override != null) _pendingTurnOverride = null;
     // OPC-M4-1: clear pending attachments after send.
@@ -2844,7 +2862,18 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       sessionId,
       providerId: route.providerId,
       modelId: route.modelId,
+      modelMode: 'fixed',
     );
+  }
+
+  /// Returns [sessionId] to the model router: PATCH `{modelMode: 'auto'}`.
+  /// The stored provider/model stay on the row as the router's fallback, so
+  /// no model fields are sent. Any staged turn-only override is dropped —
+  /// choosing Auto means the router decides the next turn.
+  Future<void> setSessionModelAuto(String sessionId) async {
+    _pendingTurnOverride = null;
+    notifyListeners();
+    await updateSession(sessionId, modelMode: 'auto');
   }
 
   /// Issue #604 — set the session-level thinking budget (null = off).

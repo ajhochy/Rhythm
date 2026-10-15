@@ -48,6 +48,7 @@ import path from 'path';
 import { logger } from '../utils/logger';
 import { getSemanticSearchBudgetMs, resolveMemoryDirPath } from '../config/env';
 import { EngraphHttpClient, type EngraphClient } from './engraph_client';
+import { EngraphRefreshScheduler, type EngraphRefreshStatus } from './engraph_refresh_scheduler';
 import {
   EngraphManagerConfigStore,
   type EngraphDiscoverySource,
@@ -376,6 +377,20 @@ try {
 } catch { stop(); }
 `;
 const managedByHome = new Map<string, EngraphManager>();
+type HomeLifecycleLane = { tail: Promise<void>; owner: EngraphManager | null; ownerEpoch: number };
+type FreshnessBinding = Readonly<{ root: string; home: string; executable: string }>;
+type LaneTarget = { lane: HomeLifecycleLane; owner: EngraphManager | null; epoch: number };
+type StartRequest = LaneTarget & { binding: FreshnessBinding; generation: number; rebuild?: boolean; forceRefresh?: boolean };
+const lifecycleLanesByHome = new Map<string, HomeLifecycleLane>();
+
+function lifecycleLane(home: string): HomeLifecycleLane {
+  let lane = lifecycleLanesByHome.get(home);
+  if (!lane) {
+    lane = { tail: Promise.resolve(), owner: null, ownerEpoch: 0 };
+    lifecycleLanesByHome.set(home, lane);
+  }
+  return lane;
+}
 
 export interface EngraphBinaryCandidate {
   path: string;
@@ -414,6 +429,7 @@ export interface EngraphManagerStatus {
   lastHealthyAt: string | null;
   lastFailureCategory: EngraphFailureCategory | null;
   lastFailureMessage: string | null;
+  freshness: EngraphRefreshStatus & { errorCategory: string | null };
 }
 
 type ExecFileImpl = (
@@ -575,8 +591,17 @@ export class EngraphManager {
   private version: string | null = null;
   /** True only once a real authenticated 1s search has succeeded post-spawn. */
   private ready = false;
+  /** Coalesces refreshes; the home lane serializes their process transitions. */
+  private refreshScheduler: EngraphRefreshScheduler;
+  private freshnessErrorCategory: string | null = null;
+  private freshnessBinding: FreshnessBinding | null = null;
+  /** A disabled/closed managed lane must not leak its stale endpoint. */
+  private managedRetrievalIneligible = false;
   private inFlight: Promise<{ ok: boolean; reason?: string }> | null = null;
   private reusedFrom: EngraphManager | null = null;
+  private attachmentEpoch = 0;
+  /** A manager never migrates between home lanes, even when environment config changes. */
+  private lifecycleHome: string | null = null;
   private generation = 0;
   private startAbort: AbortController | null = null;
   private reservation: OwnerMarker | null = null;
@@ -592,6 +617,7 @@ export class EngraphManager {
     this.discoverFn = deps.discover ?? discoverEngraphCandidates;
     this.processListSync = deps.processListSync ?? listProcessesSync;
     this.homeDirOverride = deps.homeDir;
+    this.refreshScheduler = this.createRefreshScheduler();
   }
 
   private engraphHomeDir(): string {
@@ -603,26 +629,20 @@ export class EngraphManager {
   }
 
   getStatus(): EngraphManagerStatus {
+    this.validateCurrentBinding();
     const cfg = this.store.read();
-    const home = this.engraphHomeDir();
+    const home = this.lifecycleHome ?? this.engraphHomeDir();
     const lock = path.join(home, '.engraph', 'serve.owner');
     const marker = markerAt(lock);
     const processes = this.processListSync();
-    const reused = this.reusedFrom;
+    const laneOwner = this.currentLaneOwner();
+    const reused = !this.closed && cfg.enabled && laneOwner !== this ? laneOwner : null;
     const reusedReservation = reused?.reservation;
     const reuseIsCurrent = !!reused && managedByHome.get(home) === reused && reused.ready && reused.child !== null &&
       (reused.spawnFn !== spawn || (!!marker && !!reusedReservation && marker.nonce === reusedReservation.nonce &&
         marker.relay?.pgid === marker.relay?.pid && marker.child?.pgid === marker.relay?.pid &&
         matchesSnapshot(marker.relay, marker.nonce, processes) &&
         matchesSnapshot(marker.child, marker.binary, processes)));
-    if (reused && !reuseIsCurrent) {
-      this.reusedFrom = null;
-      if (!this.child) {
-        this.ready = false;
-        this.port = null;
-        this.apiKey = null;
-      }
-    }
     const binary = cfg.executablePath ?? marker?.binary;
     const serveProcesses = binary
       ? processes.filter((process) => isServeProcess(process, binary))
@@ -661,6 +681,7 @@ export class EngraphManager {
     const backendOwnership: EngraphManagerStatus['backendOwnership'] = current
       ? current.classification === 'owned' ? 'owned' : 'reused'
       : backends.length > 0 || existsSync(lock) ? 'foreign' : 'none';
+    const freshnessOwner = reused && reused !== this ? reused : this;
     return {
       backendCount: backends.length,
       backendOwnership,
@@ -675,6 +696,10 @@ export class EngraphManager {
       lastHealthyAt: cfg.lastHealthyAt,
       lastFailureCategory: cfg.lastFailureCategory,
       lastFailureMessage: cfg.lastFailureMessage,
+      freshness: {
+        ...freshnessOwner.refreshScheduler.getStatus(),
+        errorCategory: freshnessOwner.freshnessErrorCategory,
+      },
     };
   }
 
@@ -714,52 +739,107 @@ export class EngraphManager {
   async enable(): Promise<{ ok: boolean; reason?: string }> {
     if (this.closed) return { ok: false, reason: 'cancelled' };
     this.store.write({ enabled: true });
-    return this.ensureStarted();
+    return this.submitStart();
   }
 
   async disable(): Promise<void> {
-    this.cancelStart();
-    await this.stopManagedProcess();
+    const target = this.cancelLifecycle();
     this.store.write({ enabled: false, state: 'disabled' });
+    await this.enqueueLifecycle(() => this.stopManagedProcess(target), target.lane);
   }
 
   async retry(): Promise<{ ok: boolean; reason?: string }> {
-    return this.ensureStarted();
+    if (this.closed || !this.store.read().enabled) return { ok: false, reason: this.closed ? 'cancelled' : 'disabled' };
+    return this.submitStart();
+  }
+
+  /** Queue a whole-approved-root reindex after a trusted canonical mutation. */
+  requestMemoryRefresh(request: { memoryDir: string; destructive: boolean }): boolean {
+    if (this.closed || !this.store.read().enabled || !this.validateCurrentBinding()) return false;
+    let requestedRoot: string;
+    let approvedRoot: string;
+    try {
+      requestedRoot = realpathSync(path.resolve(request.memoryDir));
+      approvedRoot = resolveApprovedMemoryRoot();
+    } catch {
+      this.freshnessErrorCategory = 'root_unavailable';
+      return false;
+    }
+    if (requestedRoot !== approvedRoot) {
+      this.freshnessErrorCategory = 'root_mismatch';
+      return false;
+    }
+    const owner = this.currentLaneOwner();
+    if (owner && owner !== this) {
+      return owner.requestMemoryRefresh(request);
+    }
+    const cfg = this.store.read();
+    if (!cfg.enabled) return false;
+    if (this.getStatus().backendOwnership === 'foreign') {
+      this.freshnessErrorCategory = 'foreign_owner';
+      return false;
+    }
+    // Starts establish the binding before any async work. A detached old view
+    // cannot create a second scheduler or silently join a replacement owner.
+    if (!this.freshnessBinding || !this.freshnessBinding.executable ||
+        (this.reusedFrom && !owner)) return false;
+    this.freshnessErrorCategory = null;
+    this.refreshScheduler.request(request.destructive);
+    return true;
   }
 
   async rebuild(): Promise<{ ok: boolean; reason?: string }> {
     if (this.closed) return { ok: false, reason: 'cancelled' };
-    this.cancelStart();
-    await this.stopManagedProcess();
+    const target = this.cancelLifecycle();
     this.store.write({ enabled: true });
-    return this.ensureStarted({ rebuild: true });
+    return this.submitStart(true, target);
   }
 
   /** Non-blocking startup hook — fire-and-forget, never awaited by boot. */
   ensureStartedIfEnabled(): void {
     const cfg = this.store.read();
     if (cfg.enabled && cfg.executablePath) {
-      this.ensureStarted().catch((err) => {
+      this.submitStart().catch((err) => {
         logger.warn(`[EngraphManager] startup ensureStarted failed (non-fatal): ${sanitizeErrorMessage(err)}`);
       });
     }
   }
 
-  /** Real authenticated 1-second-budget search — the ONLY thing that can mark
-   *  the managed service healthy. Process/port existence is never enough. */
+  /** Authenticated diagnostic probe. Startup additionally verifies ownership
+   *  and its captured binding before publishing managed readiness. */
   async checkHealthNow(): Promise<EngraphHealthResult> {
-    if (!this.port || !this.apiKey) {
+    if (this.closed || (this.freshnessBinding && !this.store.read().enabled)) {
+      return { ok: false, category: 'health_check_failed', message: 'managed service unavailable' };
+    }
+    const owner = this.currentLaneOwner();
+    if (owner && owner !== this) {
+      if (this.managedRetrievalIneligible) return { ok: false, category: 'health_check_failed', message: 'managed service unavailable' };
+      return owner.checkHealthNow();
+    }
+    // A diagnostic probe may report that the exact old owned process is still
+    // alive after drift. It cannot restore managed readiness or acknowledge dirt.
+    this.validateCurrentBinding();
+    const generation = this.generation;
+    const binding = this.freshnessBinding;
+    const port = this.port, apiKey = this.apiKey;
+    const lane = this.lifecycleHome ? lifecycleLane(this.lifecycleHome) : null;
+    const epoch = lane?.ownerEpoch;
+    const isCurrent = () => generation === this.generation && binding === this.freshnessBinding &&
+      port === this.port && apiKey === this.apiKey && (!lane || (lane.owner === this && lane.ownerEpoch === epoch)) &&
+      (!this.startAbort || !binding || this.matchesFreshnessBinding(binding));
+    if (!isCurrent() || !this.port || !this.apiKey) {
       this.ready = false;
       return { ok: false, category: 'health_check_failed', message: 'no managed service is running' };
     }
     const startedAt = Date.now();
     try {
-      const response = await this.fetchImpl(`http://127.0.0.1:${this.port}/api/search`, {
+      const response = await this.fetchImpl(`http://127.0.0.1:${port}/api/search`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${this.apiKey}` },
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({ query: HEALTH_PROBE_QUERY, top_n: 1 }),
         signal: this.startAbort ? AbortSignal.any([AbortSignal.timeout(HEALTH_CHECK_BUDGET_MS), this.startAbort.signal]) : AbortSignal.timeout(HEALTH_CHECK_BUDGET_MS),
       });
+      if (!isCurrent()) return { ok: false, category: 'health_check_failed', message: 'obsolete health check' };
       const latencyMs = Date.now() - startedAt;
       if (!response.ok) {
         this.ready = false;
@@ -768,6 +848,7 @@ export class EngraphManager {
         return { ok: false, category, message: `search responded ${response.status}`, latencyMs };
       }
       const body: unknown = await response.json();
+      if (!isCurrent()) return { ok: false, category: 'health_check_failed', message: 'obsolete health check' };
       const isArrayShaped =
         Array.isArray(body) ||
         (!!body && typeof body === 'object' && Array.isArray((body as { results?: unknown }).results));
@@ -775,14 +856,12 @@ export class EngraphManager {
         this.ready = false;
         return { ok: false, category: 'health_check_failed', message: 'malformed search response', latencyMs };
       }
-      if (this.startAbort?.signal.aborted) return { ok: false, category: 'health_check_failed', message: 'start cancelled' };
-      // Health alone does not authorize a backend whose process identity is
-      // still being verified by the startup path.
-      if (this.reservation?.state !== 'starting') this.ready = true;
-      this.store.write({ lastHealthyAt: new Date().toISOString() });
+      if (!isCurrent() || this.startAbort?.signal.aborted) return { ok: false, category: 'health_check_failed', message: 'start cancelled' };
+      // Only the current start publishes readiness after ownership verification.
+      if (!binding || this.matchesFreshnessBinding(binding)) this.store.write({ lastHealthyAt: new Date().toISOString() });
       return { ok: true, latencyMs };
     } catch (err) {
-      this.ready = false;
+      if (isCurrent()) this.ready = false;
       const name = (err as { name?: string } | undefined)?.name;
       const category: EngraphFailureCategory = name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'health_check_failed';
       return { ok: false, category, message: sanitizeErrorMessage(err) };
@@ -808,17 +887,185 @@ export class EngraphManager {
     // 500ms) as their search timeout. This is the steady-state budget, kept
     // separate from HEALTH_CHECK_BUDGET_MS/startup/index timeouts above.
     const budgetMs = getSemanticSearchBudgetMs();
-    if (!this.ready || !this.port || !this.apiKey) return new EngraphHttpClient(undefined, undefined, budgetMs);
+    if (this.closed || this.managedRetrievalIneligible || !this.validateCurrentBinding() ||
+        (this.freshnessBinding && !this.store.read().enabled)) return new EngraphHttpClient('', this.fetchImpl, budgetMs);
+    const owner = this.currentLaneOwner();
+    if (owner && owner !== this) return owner.getRetrievalClient();
+    if (this.freshnessBinding && !owner) return new EngraphHttpClient('', this.fetchImpl, budgetMs);
+    const freshness = this.refreshScheduler.getStatus();
+    if (this.store.read().enabled && freshness.state !== 'idle') {
+      // Do not silently route a dirty managed index back through an operator
+      // environment URL. Returning this empty-base client preserves FTS.
+      return new EngraphHttpClient('', this.fetchImpl, budgetMs);
+    }
+    if (!this.ready || !this.port || !this.apiKey) return new EngraphHttpClient(this.freshnessBinding ? '' : undefined, undefined, budgetMs);
     return new EngraphHttpClient(`http://127.0.0.1:${this.port}`, this.fetchImpl, budgetMs, this.apiKey);
   }
 
   // -- lifecycle internals ---------------------------------------------------
 
-  private async ensureStarted(opts: { rebuild?: boolean } = {}): Promise<{ ok: boolean; reason?: string }> {
-    if (this.closed) return { ok: false, reason: 'cancelled' };
-    if (this.inFlight) return this.inFlight;
-    const generation = this.generation;
-    const run = this._doStart(opts).finally(() => {
+  private enqueueLifecycle<T>(operation: () => Promise<T>, lane = lifecycleLane(this.lifecycleHome ?? this.engraphHomeDir())): Promise<T> {
+    const scheduled = lane.tail.then(operation, operation);
+    lane.tail = scheduled.then(() => undefined, () => undefined);
+    return scheduled;
+  }
+
+  private createRefreshScheduler(binding: FreshnessBinding | null = null): EngraphRefreshScheduler {
+    const scheduler = new EngraphRefreshScheduler({
+      performRefresh: async (revision, destructive) => {
+        if (!binding) throw new Error('managed binding unavailable');
+        const lane = lifecycleLane(binding.home);
+        const request: StartRequest = { binding, lane, owner: lane.owner, epoch: lane.ownerEpoch, generation: this.generation };
+        await this.enqueueLifecycle(async () => {
+          if (this.refreshScheduler !== scheduler || this.freshnessBinding !== binding ||
+              lane.owner !== this || lane.ownerEpoch !== request.epoch || request.generation !== this.generation) {
+            throw new Error('obsolete managed refresh');
+          }
+          await this.refreshManagedMemory(request, revision, destructive);
+        }, lane);
+      },
+    });
+    return scheduler;
+  }
+
+  private currentLaneOwner(): EngraphManager | null {
+    if (!this.lifecycleHome) return null;
+    const lane = lifecycleLane(this.lifecycleHome);
+    if (lane.owner === this) return this;
+    if (!this.reusedFrom || lane.owner !== this.reusedFrom || lane.ownerEpoch !== this.attachmentEpoch) return null;
+    const binding = this.freshnessBinding;
+    const ownerBinding = lane.owner.freshnessBinding;
+    return binding && ownerBinding && binding.home === ownerBinding.home && binding.root === ownerBinding.root &&
+      binding.executable === ownerBinding.executable ? lane.owner : null;
+  }
+
+  /** Resolve and cancel at submission; queued cleanup must never retarget. */
+  private cancelLifecycle(): LaneTarget {
+    const lane = lifecycleLane(this.lifecycleHome ?? this.engraphHomeDir());
+    let owner = this.currentLaneOwner();
+    // A first-time view can cancel a compatible in-flight owner before it has
+    // attached. An old attachment must never silently target a new epoch.
+    if (!owner && !this.reusedFrom && this.attachmentEpoch === 0 && lane.owner) {
+      const binding = lane.owner.freshnessBinding;
+      try {
+        if (binding && binding.home === (this.lifecycleHome ?? this.engraphHomeDir()) &&
+            binding.root === resolveApprovedMemoryRoot() && binding.executable === this.store.read().executablePath) owner = lane.owner;
+      } catch { /* No trusted compatible target. */ }
+    }
+    const target = { lane, owner, epoch: lane.ownerEpoch };
+    this.managedRetrievalIneligible = true;
+    this.refreshScheduler.pause();
+    this.cancelStart();
+    if (owner && owner !== this) {
+      owner.managedRetrievalIneligible = true;
+      owner.refreshScheduler.pause();
+      owner.cancelStart();
+    }
+    return target;
+  }
+
+  private configurationChanged(): void {
+    this.freshnessErrorCategory = 'configuration_changed';
+    this.managedRetrievalIneligible = true;
+    this.ready = false;
+    this.refreshScheduler.pause();
+  }
+
+  private validateCurrentBinding(): boolean {
+    if (!this.freshnessBinding || this.matchesFreshnessBinding(this.freshnessBinding)) return true;
+    this.configurationChanged();
+    return false;
+  }
+
+  private submitStart(rebuild = false, stopTarget?: LaneTarget): Promise<{ ok: boolean; reason?: string }> {
+    let requested: FreshnessBinding;
+    try {
+      requested = Object.freeze({ root: resolveApprovedMemoryRoot(), home: this.engraphHomeDir(), executable: this.store.read().executablePath ?? '' });
+    } catch {
+      return Promise.resolve(this._fail('permission_denied', 'could not resolve the agent-memory directory'));
+    }
+    if ((this.lifecycleHome && this.lifecycleHome !== requested.home) ||
+        (!rebuild && this.freshnessBinding && !this.matchesFreshnessBinding(this.freshnessBinding))) {
+      this.configurationChanged();
+      return Promise.resolve({ ok: false, reason: 'configuration_changed' });
+    }
+    this.lifecycleHome ??= requested.home;
+    if (!this.freshnessBinding || !this.matchesFreshnessBinding(this.freshnessBinding)) {
+      this.refreshScheduler.dispose();
+      this.freshnessBinding = requested;
+      this.refreshScheduler = this.createRefreshScheduler(requested);
+    }
+    const lane = lifecycleLane(this.lifecycleHome);
+    const request: StartRequest = { binding: this.freshnessBinding, lane, owner: lane.owner, epoch: lane.ownerEpoch, generation: this.generation, rebuild };
+    // Mutations may enqueue behind this start; their callbacks retain this
+    // binding and epoch and cannot borrow a later replacement configuration.
+    this.managedRetrievalIneligible = true;
+    this.refreshScheduler.resume();
+    return this.enqueueLifecycle(async () => {
+      if (stopTarget) await this.stopManagedProcess(stopTarget, stopTarget.owner !== this);
+      const result = await this.ensureStarted(request);
+      if (result.ok) {
+        this.managedRetrievalIneligible = false;
+        this.freshnessErrorCategory = null;
+        this.refreshScheduler.resume();
+        this.refreshScheduler.retry();
+      }
+      return result;
+    }, lane);
+  }
+
+  private matchesFreshnessBinding(binding: FreshnessBinding): boolean {
+    try {
+      const cfg = this.store.read();
+      return cfg.executablePath === binding.executable && this.engraphHomeDir() === binding.home &&
+        resolveApprovedMemoryRoot() === binding.root;
+    } catch { return false; }
+  }
+
+  private async refreshManagedMemory(request: StartRequest, _targetRevision: number, destructive: boolean): Promise<void> {
+    const ensureBinding = (): void => {
+      if (request.generation !== this.generation || request.lane.owner !== this ||
+          request.lane.ownerEpoch !== request.epoch || this.closed || !this.store.read().enabled) {
+        throw new Error('cancelled');
+      }
+      if (this.freshnessBinding !== request.binding || !this.matchesFreshnessBinding(request.binding)) {
+        this.configurationChanged();
+        throw new Error('configuration_changed');
+      }
+    };
+    ensureBinding();
+    if (this.getStatus().backendOwnership === 'foreign') {
+      this.freshnessErrorCategory = 'foreign_owner';
+      throw new Error('foreign Engraph owner blocks refresh');
+    }
+    // Keep the logical owner/epoch across stop, index, health and retry gaps.
+    await this.stopOwnedChild();
+    ensureBinding();
+    const result = await this.ensureStarted({ ...request, rebuild: destructive, forceRefresh: true });
+    if (!result.ok) {
+      if (this.freshnessBinding === request.binding) this.freshnessErrorCategory = result.reason ?? 'refresh_failed';
+      throw new Error(result.reason ?? 'managed refresh failed');
+    }
+    ensureBinding();
+    this.freshnessErrorCategory = null;
+  }
+
+  private async ensureStarted(request: StartRequest): Promise<{ ok: boolean; reason?: string }> {
+    if (this.closed || request.generation !== this.generation) return { ok: false, reason: 'cancelled' };
+    if (this.freshnessBinding !== request.binding || !this.matchesFreshnessBinding(request.binding)) {
+      this.configurationChanged();
+      return { ok: false, reason: 'configuration_changed' };
+    }
+    const { lane } = request;
+    if (lane.owner && (lane.owner !== request.owner || lane.ownerEpoch !== request.epoch) && request.owner) {
+      return { ok: false, reason: 'cancelled' };
+    }
+    if (!lane.owner) {
+      lane.owner = this;
+      lane.ownerEpoch += 1;
+      this.attachmentEpoch = lane.ownerEpoch;
+    }
+    const run = this._doStart({ ...request, owner: lane.owner, epoch: lane.ownerEpoch }).finally(() => {
       if (this.inFlight === run) this.inFlight = null;
     });
     this.inFlight = run;
@@ -842,46 +1089,49 @@ export class EngraphManager {
     this.reservation = null;
   }
 
-  private async _doStart(opts: { rebuild?: boolean }): Promise<{ ok: boolean; reason?: string }> {
-    const generation = this.generation;
+  private async _doStart(opts: StartRequest): Promise<{ ok: boolean; reason?: string }> {
+    const { generation, binding, lane, epoch, owner } = opts;
+    const { root: approvedRoot, home } = binding;
     const abort = new AbortController();
     this.startAbort = abort;
-    const cancelled = () => generation !== this.generation || abort.signal.aborted;
-    const stopped = () => ({ ok: false, reason: 'cancelled' });
+    const cancelled = () => generation !== this.generation || abort.signal.aborted ||
+      lane.owner !== owner || lane.ownerEpoch !== epoch || this.freshnessBinding !== binding ||
+      !this.matchesFreshnessBinding(binding);
+    const stopped = () => {
+      const drifted = generation === this.generation && this.freshnessBinding === binding && !this.matchesFreshnessBinding(binding);
+      if (drifted) this.configurationChanged();
+      return { ok: false, reason: drifted ? 'configuration_changed' : 'cancelled' };
+    };
     try {
-    const cfg = this.store.read();
+    const cfg = { ...this.store.read(), executablePath: binding.executable };
     if (!cfg.enabled) return { ok: false, reason: 'disabled' };
+    if (cancelled()) return stopped();
     if (!cfg.executablePath || !isExecutableFile(cfg.executablePath)) {
       return this._fail('binary_not_found', 'no valid Engraph executable is configured');
     }
-
-    let approvedRoot: string;
-    try {
-      approvedRoot = resolveApprovedMemoryRoot();
-    } catch (err) {
-      return this._fail('permission_denied', `could not resolve the agent-memory directory: ${sanitizeErrorMessage(err)}`);
-    }
-    const home = this.engraphHomeDir();
-    const existing = managedByHome.get(home);
-    if (existing && existing !== this && existing.inFlight) await existing.inFlight;
-    if (cancelled()) return stopped();
+    const existing = lane.owner;
     const existingMarker = existing?.reservation && markerAt(path.join(home, '.engraph', 'serve.owner'));
     const verifiedReuse = existing?.spawnFn !== spawn || (!!existingMarker &&
       existingMarker.state === 'serving' && existingMarker.nonce === existing?.reservation?.nonce &&
       existingMarker.root === approvedRoot && existingMarker.binary === cfg.executablePath &&
       matches(existingMarker.relay, existingMarker.nonce) && matches(existingMarker.child, existingMarker.binary));
-    if (existing && existing !== this && existing.ready && existing.store.read().approvedMemoryRoot === approvedRoot &&
+    if (!opts.forceRefresh && existing && existing !== this && !existing.closed && !existing.managedRetrievalIneligible && existing.ready && existing.store.read().approvedMemoryRoot === approvedRoot &&
         existing.store.read().executablePath === cfg.executablePath && verifiedReuse &&
         await existing.checkHealthNow().then((h) => h.ok) && !cancelled()) {
       this.reusedFrom = existing;
+      this.attachmentEpoch = epoch;
       this.port = existing.port;
       this.apiKey = existing.apiKey;
       this.version = existing.version;
       this.ready = true;
+      if (cancelled()) return stopped();
       this.store.write({ approvedMemoryRoot: approvedRoot, state: 'ready' });
       return { ok: true };
     }
-    if ((this.child || this.reusedFrom) && this.ready && await this.checkHealthNow().then((h) => h.ok) && !cancelled()) return { ok: true };
+    if (cancelled()) return stopped();
+    if (existing !== this) return this._fail('spawn_failed', 'another owner is running or ownership could not be verified');
+    if (!opts.forceRefresh && this.child && this.ready && await this.checkHealthNow().then((h) => h.ok) && !cancelled()) return { ok: true };
+    if (cancelled()) return stopped();
     if (this.reusedFrom) {
       // The previously reused owner is no longer current/healthy. This
       // manager is about to reserve and spawn its own backend, so no later
@@ -956,6 +1206,7 @@ export class EngraphManager {
     // validation. Concurrent starts are then ordered by their reservation,
     // not by how quickly independent --version probes happen to return.
     const binaryValidation = await validateEngraphBinary(cfg.executablePath, this.execFileImpl);
+    if (cancelled()) return stopped();
     if (!binaryValidation.ok) {
       return this._fail(
         'binary_invalid',
@@ -1048,6 +1299,9 @@ export class EngraphManager {
       publish(lock, this.reservation, false);
       this.ready = true;
     }
+    if (cancelled()) { await this.stopOwnedChild(); return stopped(); }
+    this.ready = true;
+    this.managedRetrievalIneligible = false;
     this.store.write({ state: 'ready', lastFailureCategory: null, lastFailureMessage: null });
     managedByHome.set(home, this);
     return { ok: true };
@@ -1055,8 +1309,9 @@ export class EngraphManager {
       if (this.startAbort === abort) this.startAbort = null;
       if (!this.ready || cancelled()) {
         this.ready = false;
+        if (cancelled() && this.child) await this.stopOwnedChild();
         this.releaseReservation();
-        if (managedByHome.get(this.engraphHomeDir()) === this && !this.child) managedByHome.delete(this.engraphHomeDir());
+        if (managedByHome.get(home) === this && !this.child) managedByHome.delete(home);
       }
     }
   }
@@ -1072,7 +1327,7 @@ export class EngraphManager {
     const deadline = Date.now() + deadlineMs;
     let last: EngraphHealthResult = { ok: false, category: 'health_check_failed', message: 'not checked yet' };
     for (;;) {
-      if (this.startAbort?.signal.aborted) return { ok: false, category: 'health_check_failed', message: 'start cancelled' };
+      if (this.startAbort?.signal.aborted || !this.validateCurrentBinding()) return { ok: false, category: 'health_check_failed', message: 'start cancelled' };
       if (this.child && (this.child.exitCode != null || this.child.signalCode != null)) return { ok: false, category: 'health_check_failed', message: 'managed service exited' };
       last = await this.checkHealthNow();
       if (last.ok) return last;
@@ -1259,21 +1514,19 @@ export class EngraphManager {
   }
 
   /** Stop the exact spawned relay; reap an orphan only with full marker/OS identity. */
-  private async stopManagedProcess(): Promise<void> {
-    this.cancelStart();
-    if (this.inFlight) await this.inFlight;
-    if (this.reusedFrom) {
-      const owner = this.reusedFrom;
-      this.reusedFrom = null;
-      await owner.stopManagedProcess();
-      this.ready = false;
-      this.port = null;
-      this.apiKey = null;
+  private async stopManagedProcess(target: LaneTarget, release = true): Promise<void> {
+    const { lane, owner, epoch } = target;
+    if (!owner || lane.owner !== owner || lane.ownerEpoch !== epoch) return;
+    // The lane has drained active work. Never await inFlight or enqueue here.
+    await owner.stopOwnedChild();
+    if (release && lane.owner === owner && lane.ownerEpoch === epoch) {
+      lane.owner = null;
+      lane.ownerEpoch += 1;
     }
-    await this.stopOwnedChild();
   }
 
   private async stopOwnedChild(): Promise<void> {
+    const home = this.reservation?.home ?? this.lifecycleHome;
     const child = this.child;
     if (!child || child.pid !== this.childPid) {
       const own = this.reservation;
@@ -1290,6 +1543,7 @@ export class EngraphManager {
       this.port = null;
       this.apiKey = null;
       this.releaseReservation();
+      if (home && managedByHome.get(home) === this) managedByHome.delete(home);
       return;
     }
     const own = this.reservation;
@@ -1339,7 +1593,7 @@ export class EngraphManager {
       }
     }
     this.child = null;
-    if (managedByHome.get(this.engraphHomeDir()) === this) managedByHome.delete(this.engraphHomeDir());
+    if (home && managedByHome.get(home) === this) managedByHome.delete(home);
     this.childPid = null;
     this.ready = false;
     this.port = null;
@@ -1349,10 +1603,11 @@ export class EngraphManager {
 
   /** Await cancellation and verified child exit; callers can await shutdown. */
   async shutdown(): Promise<void> {
+    const target = this.cancelLifecycle();
     this.closed = true;
-    this.cancelStart();
+    this.refreshScheduler.dispose();
     try {
-      await this.stopManagedProcess();
+      await this.enqueueLifecycle(() => this.stopManagedProcess(target), target.lane);
     } catch (err) {
       logger.warn(`[EngraphManager] shutdown failed (non-fatal): ${sanitizeErrorMessage(err)}`);
     }
