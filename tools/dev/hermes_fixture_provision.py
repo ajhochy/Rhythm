@@ -82,11 +82,12 @@ def endpoint(value, *, fixture=False, private=False, native=False):
         raise ValueError('HTTP requires explicit private opt-in')
     return value
 
-def source_endpoint(api, operator=False):
+def source_endpoint(api, operator=False, attach=False):
     if operator:
         if api != 'http://127.0.0.1:4001':
             raise BoundaryFailure('exact operator relay http://127.0.0.1:4001 required')
         return api
+    if attach and api == 'http://127.0.0.1:5598': return api
     return endpoint(api, fixture=True)
 
 def file_reference(path, label):
@@ -320,7 +321,9 @@ def pinned_receiver(source, hashes):
             else: sys.modules[key] = prior
 
 def api_call(args, path, body=None, *, bridge=False):
-    source_endpoint(args.api, getattr(args, 'allow_private_relay', False))
+    source_endpoint(args.api, getattr(args, 'allow_private_relay', False), getattr(args, 'attach_existing_owned_source', False))
+    if bridge and getattr(args, 'attach_existing_owned_source', False):
+        raise BoundaryFailure('owner subscription never calls runtime/Bridge APIs')
     try:
         return request_json(args.api, path, None if bridge else token_reference(args.token_file), body,
                             capability=token_reference(args.bridge_capability_file) if bridge else None)
@@ -332,11 +335,12 @@ def api_call(args, path, body=None, *, bridge=False):
 def approved_fixture(args):
     """Shared preflight: endpoints/mode/refs before credentials or any HTTP."""
     operator = getattr(args, 'allow_private_relay', False)
-    source_endpoint(args.api, operator)
+    attach = getattr(args, 'attach_existing_owned_source', False)
+    source_endpoint(args.api, operator, attach)
     if args.native_endpoint: endpoint(args.native_endpoint, fixture=True, native=True)
     if operator and args.native_endpoint and not re.fullmatch(r'http://127\.0\.0\.1:[1-9][0-9]{0,4}', args.native_endpoint):
         raise BoundaryFailure('exact pinned native IPv4 loopback endpoint required')
-    if not args.bridge_capability_file:
+    if not attach and not args.bridge_capability_file:
         raise BoundaryFailure('required existing --bridge-capability-file with catalog.read/projection.issue/delegation.dispatch scopes')
     if not args.approved_fixture_manifest or not args.native_source or not args.native_endpoint:
         raise BoundaryFailure('required --approved-fixture-manifest/--native-source/--native-endpoint')
@@ -352,15 +356,21 @@ def approved_fixture(args):
             state.stat().st_uid != os.getuid() or state.stat().st_mode & 0o022):
         raise BoundaryFailure('approved operator-owned fixture boundary required')
     refs = {'stateDir': args.state_dir, 'tokenFile': args.token_file,
-            'bridgeCapabilityFile': args.bridge_capability_file, 'nativeSource': args.native_source,
+            'nativeSource': args.native_source,
             'nativeEndpoint': args.native_endpoint, 'apiEndpoint': args.api}
+    if not attach: refs['bridgeCapabilityFile'] = args.bridge_capability_file
     if any(manifest.get(k) != v for k, v in refs.items()):
         raise BoundaryFailure('immutable approved fixture references mismatch')
-    if operator:
+    if operator or attach:
         allowed = {'version', 'fixtureOnly', 'executionMode', 'fixtureRoot', 'stateDir', 'tokenFile',
                    'bridgeCapabilityFile', 'nativeSource', 'nativeEndpoint', 'apiEndpoint', 'nativeHashes',
                    'owner', 'profile', 'managerAgentId', 'targetAgentId', 'prompt', 'context',
-                   'nativeCookieFile', 'nativeCsrfFile'}
+                    'nativeCookieFile', 'nativeCsrfFile'}
+        if attach:
+            allowed -= {'bridgeCapabilityFile','managerAgentId','targetAgentId','prompt','context'}
+            allowed |= {'sourceKind','sourceId'}
+            if args.bridge_capability_file or manifest.get('sourceKind') not in ('agent_session','workflow_run') or not isinstance(manifest.get('sourceId'), str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', manifest['sourceId']):
+                raise BoundaryFailure('owner subscription requires sourceKind/sourceId and no runtime capability')
         if set(manifest) - allowed:
             raise BoundaryFailure('operator approval contains unsupported fields; no ownerClaim/profile overrides')
         if any(manifest.get(k) != v for k, v in {
@@ -370,12 +380,44 @@ def approved_fixture(args):
             raise BoundaryFailure('STOP profile: operator-selected existing default profile required; no profile takeover')
         if not isinstance(manifest.get('owner'), str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', manifest['owner']):
             raise BoundaryFailure('STOP owner: approved authenticated source owner required')
-        for path, label in ((args.bridge_capability_file, '--bridge-capability-file'),
+        for path, label in ((None if attach else args.bridge_capability_file, '--bridge-capability-file'),
                             (args.token_file, '--token-file'),
                             (args.native_cookie_file, '--native-cookie-file'),
                             (args.native_csrf_file, '--native-csrf-file')):
             if path is not None: file_reference(path, label)
     return manifest_bytes, manifest, state
+
+def attach_owned_source(args):
+    """Owner API only. Existing ordinary source; supported NEW native birth only."""
+    raw, manifest, state = approved_fixture(args)
+    owner = str(api_call(args, '/hermes-notify/identity')['ownerUserId'])
+    if owner != manifest['owner']: raise BoundaryFailure('actual normalized source owner mismatch')
+    operator_native_policy(args)
+    receipt = json.loads(protected(state / 'rhythm-fixture-chat.json'))
+    if (receipt.get('status') != 'created' or receipt.get('durableRoute') != '/api/session/rename' or
+            receipt.get('profile') != 'default' or receipt.get('nativeEndpoint') != args.native_endpoint or
+            receipt.get('approvalDigest') != hashlib.sha256(raw).hexdigest()):
+        raise BoundaryFailure('exact approved NEW native birth required; no existing chat adoption')
+    sid = receipt['hermesSessionId']
+    saved = request_json(args.native_endpoint, '/api/session?' + urllib.parse.urlencode(
+        dict(session_id=sid,messages='0',resolve_model='0')), native=True, cookie_file=args.native_cookie_file)['session']
+    if saved.get('session_id') != sid or saved.get('profile') != 'default':
+        raise BoundaryFailure('current saved conversation mismatch')
+    receiver = pinned_receiver(args.native_source, manifest['nativeHashes'])
+    control = api_call(args, '/hermes-notify/subscriptions', dict(sourceKind=manifest['sourceKind'],
+        sourceId=manifest['sourceId'],hermesSessionId=sid,profile='default'))
+    if (control.get('sourceKind') != manifest['sourceKind'] or control.get('sourceId') != manifest['sourceId'] or
+            control.get('hermesSessionId') != sid or control.get('profile') != 'default' or
+            control.get('runId') != manifest['sourceId'] or control.get('enabled') is not True or
+            control.get('workflowRunId') != (manifest['sourceId'] if manifest['sourceKind'] == 'workflow_run' else None)):
+        raise BoundaryFailure('owner source descriptor mismatch')
+    binding = dict(runId=control['runId'],owner=owner,profile='default',hermesSessionId=sid,sessionId=control['sessionId'])
+    result = install_link(state,binding,args.token_file,receiver,receiver_endpoint=args.native_endpoint)
+    authority = request_json(args.native_endpoint, '/api/rhythm-notify/render-metadata?' +
+        urllib.parse.urlencode(dict(hermesSessionId=sid)),native=True,cookie_file=args.native_cookie_file)
+    if not isinstance(authority.get('events'),list): raise BoundaryFailure('native current binding unavailable')
+    return dict(result,sourceKind=control['sourceKind'],sourceId=control['sourceId'],sessionId=control['sessionId'],
+        hermesSessionId=sid,nativeCurrentBinding='PASS',effects=['owner subscription','supported Receiver.link','own registry entry'])
 
 def operator_native_policy(args):
     auth = request_json(args.native_endpoint, '/api/auth/status', native=True, cookie_file=args.native_cookie_file)
@@ -564,6 +606,7 @@ def main():
     parser.add_argument('--manifest-file', help='protected API-bound immutable origin reference')
     parser.add_argument('--approved-fixture-manifest', help='protected explicit fixture execution approval receipt')
     parser.add_argument('--bridge-capability-file', help='existing protected runtime capability, never an owner bearer substitute')
+    parser.add_argument('--attach-existing-owned-source', action='store_true', help='owner subscription only; sourceKind/sourceId from protected approval; never dispatch')
     parser.add_argument('--native-source', help='copied, pinned native source directory')
     parser.add_argument('--execute-owned-fixture', action='store_true')
     parser.add_argument('--create-native-owned-fixture', action='store_true')
@@ -572,9 +615,25 @@ def main():
     parser.add_argument('--native-cookie-file', help='existing protected native cookie reference, if authentication is enabled')
     parser.add_argument('--native-csrf-file', help='existing protected native CSRF reference; never synthesized')
     args = parser.parse_args()
-    source_endpoint(args.api, args.allow_private_relay)
+    source_endpoint(args.api, args.allow_private_relay, args.attach_existing_owned_source)
     if sum((args.create_native_owned_fixture, args.execute_owned_fixture, args.stop_owned_fixture)) > 1:
         raise BoundaryFailure('explicit separate native fixture creation required')
+    if args.attach_existing_owned_source:
+        raw, manifest, state = approved_fixture(args)
+        if args.stop_owned_fixture: raise BoundaryFailure('use owner MCP unsubscribe; native proofs retained')
+        if args.create_native_owned_fixture:
+            pinned_receiver(args.native_source,manifest['nativeHashes'])
+            if str(api_call(args,'/hermes-notify/identity')['ownerUserId']) != manifest['owner']:
+                raise BoundaryFailure('actual normalized source owner mismatch')
+            operator_native_policy(args)
+            result = create_native_fixture(state,args.native_endpoint,args.native_cookie_file,args.native_csrf_file,
+                approval_digest=hashlib.sha256(raw).hexdigest())
+        elif args.execute_owned_fixture: result = attach_owned_source(args)
+        else:
+            file_reference(args.token_file,'--token-file')
+            result = dict(mode='DRY_RUN',sourceKind=manifest['sourceKind'],sourceId=manifest['sourceId'],
+                effects=['owner subscription','supported Receiver.link','own registry entry'],dispatch=False,runtimeEnrollment=False)
+        print(json.dumps(result,sort_keys=True)); return
     if args.stop_owned_fixture:
         print(json.dumps(stop_owned_fixture(args), sort_keys=True))
         return

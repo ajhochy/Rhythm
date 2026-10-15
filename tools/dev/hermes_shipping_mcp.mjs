@@ -22,11 +22,11 @@ try {
   const { tools } = await client.listTools();
   const names = tools.map(tool => tool.name);
   assert.equal(new Set(names).size, names.length);
-  assert.equal(names.length, 112);
-  for (const name of ['rhythm_list_pending_approvals', 'rhythm_get_pending_approval', 'rhythm_decide_approval'])
+  assert.equal(names.length, 114);
+  for (const name of ['rhythm_list_pending_approvals', 'rhythm_get_pending_approval', 'rhythm_decide_approval', 'rhythm_subscribe_updates', 'rhythm_unsubscribe_updates'])
     assert.ok(names.includes(name), name);
   const denied = await client.callTool({ name: 'rhythm_list_pending_approvals', arguments: {} });
   assert.equal(denied.isError, true, 'invalid fixture token must not read cards');
-  console.log(JSON.stringify({ tools: names.length, shippingBaseline: 109, additive: 3,
+  console.log(JSON.stringify({ tools: names.length, shippingBaseline: 109, approvals: 3, subscriptions: 2, additive: 5, total: 114,
     unauthorizedRead: 'DENIED', decisions: 0, providerRequests: 0 }));
 } finally { await client.close(); }

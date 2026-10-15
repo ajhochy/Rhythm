@@ -23,6 +23,8 @@ export interface HermesNotification {
 }
 export type HermesRunNotification = Omit<HermesNotification, 'version'> & { version: 2; runId: string };
 interface RunOrigin { run_id: string; owner_user_id: number; session_id: string; hermes_session_id: string; stage_execution_id: string; state: string }
+export type NotifySourceKind = 'agent_session' | 'workflow_run';
+interface OwnerSubscription { sourceKind: NotifySourceKind; sourceId: string; sdkId: string; projectId: string | null; profile: 'default'; enabled: boolean }
 const labels: Record<NotifyKind, string> = {
   progress: 'Rhythm session updated.', completion: 'Rhythm session completed.',
   error: 'Rhythm session reported an error.', 'approval-request': 'Rhythm session needs approval. Open the Rhythm card.',
@@ -77,7 +79,73 @@ export class HermesNotifyService {
   }
   private currentRunAuthority(owner: number, runId: string) {
     // A revoked/unresolved bridge is never a Recipe run or opaque legacy correlation.
-    return this.isBridge(runId) ? this.bridgeOrigin(owner,runId) : this.runAuthority(owner,runId);
+    if (this.isBridge(runId)) return this.bridgeOrigin(owner,runId);
+    const origin = getDb().prepare('SELECT * FROM hermes_notify_origins WHERE session_id=? AND workflow_id=?')
+      .get(runId,runId) as { session_id: string; owner_user_id: number } | undefined;
+    const subscription = this.ownerSubscription(runId);
+    if (origin && subscription && subscription.sourceKind === 'agent_session') {
+      return origin.owner_user_id === owner && this.originAuthority(runId) ? { origin } : null;
+    }
+    return this.runAuthority(owner,runId);
+  }
+  private ownerSubscription(sessionId: string): OwnerSubscription | null | false {
+    const row = getDb().prepare('SELECT subscription_json FROM hermes_notify_origins WHERE session_id=?')
+      .get(sessionId) as { subscription_json: string | null } | undefined;
+    if (row?.subscription_json == null) return null; // Existing V1/Bridge/run behavior, not an owner subscription.
+    try {
+      const value = JSON.parse(row.subscription_json);
+      if (!value || Object.keys(value).sort().join(',') !== 'enabled,profile,projectId,sdkId,sourceId,sourceKind' ||
+        !['agent_session','workflow_run'].includes(value.sourceKind) || value.profile !== 'default' ||
+        typeof value.enabled !== 'boolean' || (value.projectId !== null && typeof value.projectId !== 'string')) return false;
+      notifyId(value.sourceId); notifyId(value.sdkId);
+      return value;
+    } catch { return false; }
+  }
+  /** Link metadata only. Never creates a source, runs a model, or acquires runtime/action authority. */
+  subscribe(owner: number, sourceKind: NotifySourceKind, sourceId: string, hermesSessionId: string, profile: string) {
+    notifyId(sourceId); notifyId(hermesSessionId);
+    if (!['agent_session','workflow_run'].includes(sourceKind) || profile !== 'default') throw AppError.badRequest('Unsupported source kind/profile');
+    return getDb().transaction(() => {
+      let sessionId = sourceId;
+      if (sourceKind === 'workflow_run') {
+        const run = this.workflows.getRun(sourceId);
+        if (!run || run.ownerUserId !== owner) throw AppError.notFound('Source');
+        const origin = this.runOrigin(sourceId);
+        sessionId = origin?.state === 'active' ? origin.session_id :
+          this.workflows.listStageExecutions(sourceId).filter(s => s.attemptId)
+            .map(s => s.committedSessionId ?? s.provisionalSessionId).find((id): id is string => !!id) ?? '';
+      }
+      const session = this.sessions.findById(sessionId);
+      if (!session || session.ownerUserId !== owner || !session.sdkSessionId || this.isBridge(sourceId) ||
+        getDb().prepare('SELECT 1 FROM agent_bridge_jobs WHERE child_session_id=?').get(sessionId) ||
+        (sourceKind === 'agent_session' && this.sessions.getWorkflowBinding(sessionId))) throw AppError.notFound('Source');
+      const metadata: OwnerSubscription = { sourceKind,sourceId,sdkId:session.sdkSessionId,projectId:session.projectId ?? null,profile:'default',enabled:true };
+      const old = this.ownerSubscription(sessionId);
+      if (old === false || old && JSON.stringify({...old,enabled:true}) !== JSON.stringify(metadata)) throw AppError.conflict('Subscription is immutable');
+      // Re-enable only the identical destination and still-authoritative source. No rebind on revocation.
+      if (old) getDb().prepare('UPDATE hermes_notify_origins SET subscription_json=? WHERE session_id=?').run(JSON.stringify(metadata),sessionId);
+      if (sourceKind === 'workflow_run') this.bindRun(owner,sourceId,sessionId,hermesSessionId);
+      else {
+        if (!this.coordinatorState({session,job:{local_user_id:owner}}).authorized) throw AppError.notFound('Source');
+        this.bind(owner,sessionId,hermesSessionId,sourceId);
+      }
+      getDb().prepare('UPDATE hermes_notify_origins SET subscription_json=? WHERE session_id=?').run(JSON.stringify(metadata),sessionId);
+      if (!this.currentRunAuthority(owner,sourceId)) throw AppError.notFound('Source');
+      this.changes.emit('change');
+      return {version:2,sourceKind,sourceId,workflowRunId:sourceKind === 'workflow_run' ? sourceId : null,
+        runId:sourceId,sessionId,hermesSessionId,profile,enabled:true};
+    })();
+  }
+  unsubscribe(owner: number, sourceKind: NotifySourceKind, sourceId: string) {
+    notifyId(sourceId);
+    const rows = getDb().prepare('SELECT session_id FROM hermes_notify_origins WHERE owner_user_id=? AND workflow_id=?')
+      .all(owner,sourceId) as { session_id: string }[];
+    const row = rows.find(r => { const s = this.ownerSubscription(r.session_id); return s && s.sourceKind === sourceKind && s.sourceId === sourceId; });
+    if (!row || this.sessions.findById(row.session_id)?.ownerUserId !== owner) throw AppError.notFound('Subscription');
+    const metadata = this.ownerSubscription(row.session_id) as OwnerSubscription;
+    getDb().prepare('UPDATE hermes_notify_origins SET subscription_json=? WHERE session_id=?').run(JSON.stringify({...metadata,enabled:false}),row.session_id);
+    this.changes.emit('change');
+    return {version:2,sourceKind,sourceId,enabled:false};
   }
   /** Called only after the broker persisted the child, before the first engine request. */
   bindBridge(runId: string): void {
@@ -90,6 +158,12 @@ export class HermesNotifyService {
     if (this.isBridge(workflowId)) return null;
     const session = this.sessions.findById(sessionId);
     if (!session || session.ownerUserId !== owner) return null;
+    const subscription = this.ownerSubscription(sessionId);
+    if (subscription === false || subscription && (!subscription.enabled || subscription.sourceId !== workflowId ||
+      subscription.sdkId !== session.sdkSessionId || subscription.projectId !== (session.projectId ?? null) ||
+      (subscription.sourceKind === 'agent_session' && (session.id !== workflowId || this.sessions.getWorkflowBinding(sessionId) ||
+        getDb().prepare('SELECT 1 FROM agent_bridge_jobs WHERE child_session_id=?').get(sessionId))) ||
+      !this.coordinatorState({session,job:{local_user_id:owner}}).authorized)) return null;
     const run = this.workflows.getRun(workflowId);
     const binding = this.sessions.getWorkflowBinding(sessionId);
     if (!run) return binding ? null : { run: null }; // Opaque legacy correlation, not terminal authority.
@@ -140,6 +214,8 @@ export class HermesNotifyService {
     const columns = getDb().prepare('PRAGMA table_info(hermes_notify_run_origins)').all() as { name: string }[];
     if (!columns.some(c => c.name === 'stage_execution_id')) getDb().exec('ALTER TABLE hermes_notify_run_origins ADD COLUMN stage_execution_id TEXT');
     getDb().exec("UPDATE hermes_notify_run_origins SET state='quarantined' WHERE state='active' AND stage_execution_id IS NULL");
+    const origins = getDb().prepare('PRAGMA table_info(hermes_notify_origins)').all() as { name: string }[];
+    if (!origins.some(c => c.name === 'subscription_json')) getDb().exec('ALTER TABLE hermes_notify_origins ADD COLUMN subscription_json TEXT');
   }
   private runOrigin(runId: string): RunOrigin | undefined {
     return getDb().prepare('SELECT * FROM hermes_notify_run_origins WHERE run_id=?').get(runId) as RunOrigin | undefined;
@@ -153,6 +229,7 @@ export class HermesNotifyService {
     const stored = getDb().prepare('SELECT * FROM hermes_notify_origins WHERE session_id=?').get(origin.session_id) as
       { owner_user_id: number; workflow_id: string; hermes_session_id: string } | undefined;
     if (!stored || stored.owner_user_id !== owner || stored.workflow_id !== runId || stored.hermes_session_id !== origin.hermes_session_id) return null;
+    if (!this.originAuthority(origin.session_id)) return null;
     const stages = this.workflows.listStageExecutions(runId);
     if (!stages.some(s => s.id === origin.stage_execution_id) || stages.some(s =>
       (s.provisionalSessionId !== null && s.committedSessionId !== null && s.provisionalSessionId !== s.committedSessionId) ||
@@ -264,7 +341,7 @@ export class HermesNotifyService {
   private store(sessionId: string, source: string, kind: NotifyKind, reference: string | null, text = labels[kind]): void {
     const origin = getDb().prepare('SELECT workflow_id FROM hermes_notify_origins WHERE session_id=?')
       .get(sessionId) as { workflow_id: string } | undefined;
-    if (!origin || (this.isBridge(origin.workflow_id) && !this.originAuthority(sessionId))) return;
+    if (!origin || !this.originAuthority(sessionId)) return;
     // Only server-generated labels and opaque references cross this trust boundary.
     const result = getDb().prepare(`INSERT OR IGNORE INTO hermes_notify_events(event_id,session_id,source_key,kind,text,reference_id)
       SELECT ?,session_id,?,?,?,? FROM hermes_notify_origins WHERE session_id=?`)
@@ -278,7 +355,8 @@ export class HermesNotifyService {
       e.reference_id AS referenceId,e.state FROM hermes_notify_events e
       JOIN hermes_notify_origins o ON o.session_id=e.session_id
        JOIN agent_sessions s ON s.id=o.session_id
-       WHERE o.owner_user_id=? AND s.owner_user_id=? AND e.state!='visible' AND e.cursor>?
+        WHERE o.owner_user_id=? AND s.owner_user_id=? AND e.state!='visible' AND e.cursor>?
+         AND o.subscription_json IS NULL
         AND NOT EXISTS (SELECT 1 FROM hermes_notify_run_origins r WHERE r.session_id=o.session_id AND r.state='active')
         AND NOT EXISTS (SELECT 1 FROM hermes_notify_bridge_origins b WHERE b.session_id=o.session_id)
       ORDER BY e.cursor LIMIT 100`).all(owner, owner, after) as HermesNotification[];
@@ -450,7 +528,7 @@ export class HermesNotifyService {
     return getDb().prepare(`SELECT b.run_id FROM hermes_notify_bridge_origins b
        JOIN hermes_notify_origins o ON o.session_id=b.session_id WHERE o.owner_user_id=?`).all(owner) as { run_id: string }[];
   }
-  private coordinatorState(source: NonNullable<ReturnType<HermesNotifyService['bridgeSource']>>) {
+  private coordinatorState(source: {session: NonNullable<ReturnType<AgentSessionsRepository['findById']>>; job: {local_user_id: number}}) {
     const root = source.session;
     const members = new Set([root.id]);
     const repository = new CoordinatorConversationsRepository();

@@ -187,13 +187,37 @@ it('CLI names the minimal identity endpoint and its real Python transport resolv
   const {resolve} = await import('node:path');
   const file = resolve(__dirname,'../../../../tools/dev/hermes_fixture_provision.py');
   const code = `
-import ast, pathlib, runpy, sys
+import ast, collections, pathlib, runpy, sys
 source = pathlib.Path(sys.argv[1]).read_text()
-tree = ast.parse(source)
-calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'api_call']
-identity = [n for n in calls if len(n.args) > 1 and isinstance(n.args[1], ast.Constant) and n.args[1].value == '/hermes-notify/identity']
-assert len(identity) == 2 and '/auth/me' not in source
-assert "['ownerUserId']" in source
+def check_identity(text):
+    tree = ast.parse(text)
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'api_call']
+    identity = [n for n in calls if len(n.args) > 1 and isinstance(n.args[1], ast.Constant) and n.args[1].value == '/hermes-notify/identity']
+    contexts = collections.Counter()
+    assert len(identity) == 4 and '/auth/me' not in text
+    for call in identity:
+        assert len(call.args) == 2 and isinstance(call.args[0], ast.Name) and call.args[0].id == 'args' and not call.keywords
+        parent = parents[call]
+        assert isinstance(parent, ast.Subscript) and parent.value is call
+        assert isinstance(parent.slice, ast.Constant) and parent.slice.value == 'ownerUserId'
+        node = call
+        while not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            node = parents[node]
+        contexts[node.name] += 1
+    assert contexts == collections.Counter({'attach_owned_source': 1, 'execute_fixture': 1, 'main': 2})
+    owner_lookups = [n for n in ast.walk(tree) if isinstance(n, ast.Subscript) and n.value in calls and isinstance(n.slice, ast.Constant) and n.slice.value == 'ownerUserId']
+    assert len(owner_lookups) == 4 and {n.value for n in owner_lookups} == set(identity)
+check_identity(source)
+# Mutate text in memory only: neither extra calls nor wrong owner fields may pass.
+for invalid in [source + chr(10).join(['', 'def fake_owner(args):', "    return api_call(args, '/hermes-notify/identity')['ownerUserId']", '']),
+                source.replace("['ownerUserId']", "['wrongOwner']", 1)]:
+    try:
+        check_identity(invalid)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError('invalid identity AST accepted')
 p = runpy.run_path(sys.argv[1])
 result = p['request_json'](sys.argv[2], '/hermes-notify/identity', sys.argv[3])
 assert result == dict(version=1, ownerUserId=2)

@@ -88,9 +88,9 @@ try {
       env:{PATH:'/usr/bin:/bin',HOME:`${sb}/home`,RHYTHM_API_URL:'http://127.0.0.1:5498',
         RHYTHM_AGENT_URL:'http://127.0.0.1:5498',RHYTHM_API_TOKEN:'e02-synthetic-session-not-a-secret'}}));
     const {tools}=await client.listTools(), names=tools.map(t=>t.name);
-    assert.equal(names.length,112); assert.equal(new Set(names).size,112);
-    for(const name of ['rhythm_list_pending_approvals','rhythm_get_pending_approval','rhythm_decide_approval']) assert.ok(names.includes(name));
-    evidence.mcpInventory={baseline:109,additive:3,total:112};
+    assert.equal(names.length,114); assert.equal(new Set(names).size,114);
+    for(const name of ['rhythm_list_pending_approvals','rhythm_get_pending_approval','rhythm_decide_approval','rhythm_subscribe_updates','rhythm_unsubscribe_updates']) assert.ok(names.includes(name));
+    evidence.mcpInventory={baseline:109,approvals:3,subscriptions:2,additive:5,total:114};
   } finally {await client.close();}
   const testEnv={...env,HOME:`${sb}/home`,XDG_CONFIG_HOME:`${sb}/home/.config`,XDG_DATA_HOME:`${sb}/home/.local/share`,
     XDG_CACHE_HOME:`${sb}/home/.cache`,TMPDIR:`${sb}/tmp`,DB_PATH:':memory:',RHYTHM_OPENCODE_ENGINE_PORT:'5497',

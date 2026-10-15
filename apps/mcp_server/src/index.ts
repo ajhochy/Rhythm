@@ -23,6 +23,7 @@ import { registerOrgOptimizerTools } from './tools/orgOptimizer.js';
 import { registerOrgReviewerTools } from './tools/orgReviewer.js';
 import { registerAgentApprovalTools } from './tools/agentApprovals.js';
 import { registerRelayApprovalTools } from './tools/relayApprovals.js';
+import { registerUpdateSubscriptionTools } from './tools/updateSubscriptions.js';
 import { registerFeedbackSensorTools } from './tools/feedbackSensors.js';
 import { registerAgentProfileTools } from './tools/agentProfiles.js';
 import { registerCreativePlatformTools } from './tools/creativePlatform.js';
@@ -99,6 +100,7 @@ registerAgentSessionTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 // convention as agent_sessions/agent_configs), routed at RHYTHM_AGENT_URL.
 registerAgentApprovalTools(server, RHYTHM_AGENT_URL);
 registerRelayApprovalTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
+registerUpdateSubscriptionTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 // #897 — feedback sensors reuse the prod-facing read endpoints (PCO, Gmail,
 // tasks), same routing as the other prod-backed tools above.
 registerFeedbackSensorTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);

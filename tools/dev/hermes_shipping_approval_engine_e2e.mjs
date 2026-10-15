@@ -16,9 +16,10 @@ describe('shipping Hermes MCP authenticated approval / real signed fork gate',
       const foreign = h.seed('foreign', 2);
       const unowned = h.seed('unowned', null);
       const tools = (await h.owner.listTools()).tools.map(t => t.name);
-      assert.equal(tools.length, 112);
-      for (const name of ['rhythm_list_pending_approvals', 'rhythm_get_pending_approval', 'rhythm_decide_approval', 'rhythm_create_task']) assert.ok(tools.includes(name));
-      h.evidence.inventory = { actual: tools.length, baseline: 109, additive: 3, names: tools };
+      assert.equal(tools.length, 114);
+      assert.equal(new Set(tools).size, 114);
+      for (const name of ['rhythm_list_pending_approvals', 'rhythm_get_pending_approval', 'rhythm_decide_approval', 'rhythm_create_task', 'rhythm_subscribe_updates', 'rhythm_unsubscribe_updates']) assert.ok(tools.includes(name));
+      h.evidence.inventory = { actual: tools.length, baseline: 109, approvals: 3, subscriptions: 2, additive: 5, total: 114, names: tools };
       const cards = await h.call(h.owner, 'rhythm_list_pending_approvals');
       assert.deepEqual(cards.map(c => c.id).sort(), [f.id]);
       assert.ok(!cards.some(c => [foreign.id, unowned.id].includes(c.id)));

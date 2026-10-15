@@ -67,6 +67,20 @@ export function createHermesNotifyRouter(): Router {
       res.status(201).json({ version: 1 });
     } catch (err) { next(err); }
   });
+  router.post('/subscriptions', (req,res,next) => {
+    try {
+      if (Object.keys(req.body).some(k => !['sourceKind','sourceId','hermesSessionId','profile'].includes(k)) ||
+        !['agent_session','workflow_run'].includes(req.body.sourceKind)) throw AppError.badRequest('Unknown subscription field/source kind');
+      res.status(201).json(service.subscribe(req.auth!.user.id,req.body.sourceKind,notifyId(req.body.sourceId),notifyId(req.body.hermesSessionId),req.body.profile ?? 'default'));
+    } catch(error){next(error);}
+  });
+  router.post('/subscriptions/disable', (req,res,next) => {
+    try {
+      if (Object.keys(req.body).some(k => !['sourceKind','sourceId'].includes(k)) ||
+        !['agent_session','workflow_run'].includes(req.body.sourceKind)) throw AppError.badRequest('Unknown subscription field/source kind');
+      res.json(service.unsubscribe(req.auth!.user.id,req.body.sourceKind,notifyId(req.body.sourceId)));
+    } catch(error){next(error);}
+  });
   const cursor = (value: unknown): number => {
     if (value === undefined) return 0;
     if (typeof value !== 'string' || !/^\d{1,15}$/.test(value)) throw AppError.badRequest('Invalid cursor');
