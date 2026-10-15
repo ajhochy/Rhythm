@@ -67,6 +67,24 @@ destructive delete. Operator live creation/execute is still NOT RUN.
 
 ## Wire, delivery and approval trust
 
+### Owner credential compatibility (source patch, not installed-app activation)
+
+| Surface | Authentication |
+| --- | --- |
+| `GET /hermes-notify/identity` | Required bearer; returns only `{version:1, ownerUserId:<normalized local ID>}` |
+| Notify origins/events/SSE/history/ACK; relay pending/get/decision | AGENT_LOCAL: strict local-or-Cloud owner resolver; otherwise strict local auth |
+| Global `/auth/me` | Unchanged, local-session-only on the local API; not the CLI's owner lookup |
+| Bridge catalog/projection/delegation/runtime | Separate existing protected machine capability file; owner bearer cannot substitute |
+| Native cookie-enabled identity | STOP until separately qualified native-user/source-owner mapping exists |
+
+The CLI uses `/hermes-notify/identity`, not Cloud numeric user IDs or local
+`/auth/me`. An existing valid Cloud owner credential needs no extra OAuth/login
+for owner reads or relay decisions. Missing machine capability references remain
+an execution prerequisite, **not** a request for a new human login. Missing bearer
+never selects an ambient local user. No HumanCAP, engine-action, MAC/nonce,
+payload-binding, runtime-role or token-cache changes accompany this patch.
+See [compatibility proof](../runs/2026-10-15-hermes-cloud-owner-auth-compatibility.md).
+
 - [Pinned V2 wire](../runs/2026-10-14-hermes-v2-wire-compatibility.md) and
   [current native ACK](../runs/2026-10-14-hermes-currentwire-nativeack.md): exact
   public keys/GET=SSE identity, all five kinds; internal verification labels and

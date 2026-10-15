@@ -447,7 +447,7 @@ def execute_fixture(args):
     endpoint(args.native_endpoint, fixture=True, native=True)
     receiver = pinned_receiver(args.native_source, manifest['nativeHashes'])
     token_reference(args.bridge_capability_file)
-    owner = str(api_call(args, '/auth/me')['user']['id'])
+    owner = str(api_call(args, '/hermes-notify/identity')['ownerUserId'])
     if owner != manifest['owner'] or manifest.get('profile') != 'default':
         raise BoundaryFailure('authenticated owner/default grant profile mismatch')
     receipt = json.loads(protected(state / 'rhythm-fixture-chat.json'))
@@ -584,7 +584,7 @@ def main():
         if args.create_native_owned_fixture:
             # Validate the offline bytes and current policy before birth intent/write.
             pinned_receiver(args.native_source, manifest['nativeHashes'])
-            owner = str(api_call(args, '/auth/me')['user']['id'])
+            owner = str(api_call(args, '/hermes-notify/identity')['ownerUserId'])
             if owner != manifest['owner']: raise BoundaryFailure('authenticated approved source owner mismatch')
             operator_native_policy(args)
             approval_digest = hashlib.sha256(manifest_bytes).hexdigest()

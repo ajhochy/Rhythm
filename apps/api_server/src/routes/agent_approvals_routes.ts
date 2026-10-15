@@ -23,9 +23,10 @@ const controller = new AgentApprovalsController();
 const securityController = new ExternalContentSecurityController();
 const relayController = new RelayApprovalsController();
 // Separate owner-attested surface; never substitutes for desktop signed decisions.
-agentApprovalsRouter.get('/relay/pending', requireAuth, (req, res, next) => relayController.list(req, res, next));
-agentApprovalsRouter.get('/relay/pending/:id', requireAuth, (req, res, next) => relayController.get(req, res, next));
-agentApprovalsRouter.post('/relay/:id/decision', requireAuth, (req, res, next) => relayController.decide(req, res, next));
+const requireRelayOwner = env.agentLocal ? requireLocalOrCloudAuth : requireAuth;
+agentApprovalsRouter.get('/relay/pending', requireRelayOwner, (req, res, next) => relayController.list(req, res, next));
+agentApprovalsRouter.get('/relay/pending/:id', requireRelayOwner, (req, res, next) => relayController.get(req, res, next));
+agentApprovalsRouter.post('/relay/:id/decision', requireRelayOwner, (req, res, next) => relayController.decide(req, res, next));
 
 const requireInternalAuth = env.agentLocal
   ? []

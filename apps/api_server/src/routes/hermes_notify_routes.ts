@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth_middleware';
+import { requireAuth, requireLocalOrCloudAuth } from '../middleware/auth_middleware';
+import { env } from '../config/env';
 import { AppError } from '../errors/app_error';
 import { hermesNotifyService as service, notifyId, type HermesNotification, type HermesRunNotification } from '../services/hermes_notify_service';
 
@@ -49,7 +50,10 @@ const wireEvents = (events: (HermesNotification | HermesRunNotification)[]) =>
 
 export function createHermesNotifyRouter(): Router {
   const router = Router();
-  router.use(requireAuth); // Never the agent-local optional-auth fallback.
+  router.use(env.agentLocal ? requireLocalOrCloudAuth : requireAuth); // Bearer required in both modes.
+  router.get('/identity', (req, res) => {
+    res.json({ version: 1, ownerUserId: req.auth!.user.id });
+  });
   router.use((req, _res, next) => {
     if (req.method === 'POST' && (!req.body || typeof req.body !== 'object' || Array.isArray(req.body))) {
       next(AppError.badRequest('Notification body must be an object')); return;
