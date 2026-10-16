@@ -238,6 +238,16 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('rhythm-anthropic-accounts plugin routing', () => {
+  it('claims a Claude Code version the API accepts for current models', async () => {
+    // 2.1.112 got 400 "does not support this model; version 2.1.280 or newer
+    // is required" for claude-opus-5-5 (2026-10-16).
+    const { config } = (await import(join(PLUGIN_DIR, 'dist', 'model-config.js'))) as {
+      config: { ccVersion: string };
+    };
+    const [major, minor, patch] = config.ccVersion.split('.').map(Number);
+    expect(major * 1e6 + minor * 1e3 + patch).toBeGreaterThanOrEqual(2_001_280);
+  });
+
   it('routes an unrouted session to the default account (team)', async () => {
     const opts = await loadPluginFetch();
     const res = await opts.fetch(messagesUrl(), requestInit('ses_a'));

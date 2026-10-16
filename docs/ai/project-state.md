@@ -4,6 +4,10 @@
 
 Complete the unfinished Rhythm scope in draft mega PR #1544: Bot Crossing inside Rhythm, shared memory, shared canonical agents/settings, native Hermes execution, and two-way delegation. AJ chose Hermes itself to run shared agents launched there. One final combined smoke; no merge, deployment or release.
 
+## 2026-10-16 Anthropic model-gate fix
+
+Draft [PR #1618](https://github.com/ajhochy/Rhythm/pull/1618) (`fix/anthropic-plugin-cc-version`): the vendored plugin's `ccVersion` 2.1.112 → 2.1.296 fixes "Claude Code 2.1.112 does not support this model" in every Rhythm build. Installed builds stay broken until rebuilt (or run `launchctl setenv ANTHROPIC_CLI_VERSION 2.1.296` and relaunch). Local `better-sqlite3` install is a stale 12.8.0; run `npm install`. See [run](runs/2026-10-16-anthropic-plugin-cc-version.md).
+
 ## Pause checkpoint
 
 AJ requested a pause after active agent turns finish. No new slices or combined smoke should begin until resumed. Accepted source remains at the heads below; helper-probe and Colony receiver candidates are preserved separately, awaiting parent review. The read-only #1540 plan is saved in the repair4 evidence folder. #1553 has a clean prepared worktree only; implementation has not started. See [pause handoff](runs/2026-09-24-orchestration-pause.md).
