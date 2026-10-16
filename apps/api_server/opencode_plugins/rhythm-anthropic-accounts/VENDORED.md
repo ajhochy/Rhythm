@@ -51,8 +51,12 @@ so we vendor + surgically modify rather than reimplement.
      calls `markAccountsExhausted()` instead, so api_server can hand the turn
      to the next tier in the cross-provider fallback chain. This plugin never
      invokes another provider itself; only same-provider retry (6) does that.
+- `dist/model-config.js` — `ccVersion` bumped `2.1.112` → `2.1.296`
+  (2026-10-16). The API rejects new models from older claimed versions with
+  400 "Claude Code X does not support this model; version Y or newer is
+  required" — bump again when that recurs.
 
 Everything else (`dist/transforms.js`, `dist/betas.js`, `dist/credentials.js`,
-`dist/keychain.js`, `dist/logger.js`, `dist/signing.js`, `dist/model-config.js`,
+`dist/keychain.js`, `dist/logger.js`, `dist/signing.js`,
 `dist/plugin-config.js`, entry `opencode-claude-auth.js`) is untouched upstream
 code.
