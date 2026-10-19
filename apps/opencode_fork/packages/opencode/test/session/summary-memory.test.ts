@@ -226,13 +226,16 @@ it.instance(
     const first = yield* summary.summarize({ sessionID, messageID: userID }).pipe(Effect.forkIn(scope))
     yield* Deferred.await(entered)
     const latestUserID = yield* appendLatestTurn(sessionID)
-    const followers = yield* Effect.forEach(
+    // Run followers inline: while the owner is held, summarize() only records the
+    // pending request and returns. Forked followers could start after release and
+    // become a new owner under CI load, which is not an overlapping request.
+    yield* Effect.forEach(
       Array.from({ length: 12 }),
-      () => summary.summarize({ sessionID, messageID: latestUserID }).pipe(Effect.forkIn(scope)),
+      () => summary.summarize({ sessionID, messageID: latestUserID }),
+      { discard: true },
     )
     yield* Deferred.succeed(release, undefined)
     yield* Fiber.join(first)
-    yield* Effect.forEach(followers, Fiber.join, { discard: true })
     expect(reads.diffCalls).toBeLessThanOrEqual(4)
     const latest = yield* MessageV2.get({ sessionID, messageID: latestUserID })
     if (!latest || latest.info.role !== "user" || !latest.info.summary || typeof latest.info.summary !== "object")
