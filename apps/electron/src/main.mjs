@@ -42,7 +42,7 @@ const runDayflowDesktopCommand = promisify(execFile);
 // touch — slice-7-c6 caught exactly that leak when this ran in the other order.
 // A closed stdout/stderr pipe (launching terminal or test runner gone) must not crash the app.
 for (const stream of [process.stdout, process.stderr]) {
-  stream.on('error', (error) => { if (error?.code !== 'EPIPE') throw error; });
+  stream?.on?.('error', (error) => { if (error?.code !== 'EPIPE') throw error; });
 }
 const isSmoke = process.argv.includes('--smoke');
 const isInteractiveSmoke = process.argv.includes('--interactive-smoke');
