@@ -923,3 +923,55 @@ RHYTHM_PACKAGED_APP=/Applications/Rhythm.app npm run test:packaged
 - Separate profile: `RHYTHM_SMOKE_USER_DATA=/abs/path npm run test:packaged:login` once, then pass
   the same variable to `test:packaged`.
 - App output goes to `$TMPDIR/rhythm-packaged-smoke.log`; HTML report in `playwright-report/packaged/`.
+
+### Mega feature tests (local source build)
+
+Inventory and priority checkpoint: [2026-10-19 feature inventory](plans/2026-10-19-feature-test-inventory.md).
+Feature specs are `tests/packaged/packaged-<feature>.spec.ts`; they reuse the packaged CDP fixture.
+They require the API build identity **and** engine version to match the mega revision. The harness
+checks both before launching; the per-test audit also checks the actual running engine.
+Do not substitute an older installed app for this source-build gate.
+
+```sh
+cd apps/web
+npx tsc --noEmit --strict --module esnext --moduleResolution bundler --target es2022 --skipLibCheck --types node tests/packaged/*.ts
+RHYTHM_PACKAGED_APP=/private/tmp/rhythm-feature-playwright-2026-10-19/apps/electron/dist/Rhythm.app \
+  RHYTHM_FEATURE_MODEL=1 npm run test:packaged -- --grep '\[P0\]'
+# Each feature can also run alone:
+RHYTHM_PACKAGED_APP=/private/tmp/rhythm-feature-playwright-2026-10-19/apps/electron/dist/Rhythm.app \
+  npx playwright test -c tests/packaged/packaged-playwright.config.ts packaged-tasks.spec.ts
+```
+
+`RHYTHM_FEATURE_MODEL=1` is explicit real-model/quota opt-in (authorized for the 2026-10-19 run).
+Without it, model cases fail `UNVERIFIED` before sending. Tests never silently skip gaps.
+`RHYTHM_FEATURE_EXPECTED_REVISION` can pin an operator-provided full SHA; otherwise the feature
+suite resolves local `mega/2026-09-29-consolidation`. Keep the app quit and ports 4001/4096/4002 free.
+Owned session creation explicitly selects the enabled `coding-agent` profile; set
+`RHYTHM_FEATURE_PROFILE_ID` to another existing eligible profile when required. It does not edit
+the profile. Advanced can open before its catalog arrives, so selecting a profile is a fixture
+precondition. Action waits are bounded to 15 seconds; provider-response assertions have their
+own longer limits. The temporary cwd is explicitly changed to clear any prior branch choice.
+
+The October 19 app was built locally with `apps/electron/scripts/package-mac.mjs`, then signed
+locally with `RHYTHM_SIGN_ONLY=1` (no GitHub build, upload, installation or notarization). The
+packager and signing commands ran under the shared 10 GiB build guard. See the run log for
+exact inputs, source pin, generated-payload preparation and build limitations.
+
+Task UI requests use the actual hosted production API; readback reuses the captured request's
+authentication in memory and targets that same origin. This qualifies the mega renderer against
+the hosted Tasks contract, not a new hosted backend deployment. Agent sessions and engine reads
+use the newly built local backend. Local SQLite is opened with `{readonly:true,fileMustExist:true}`
+only. No test writes directly to the real database.
+
+Every created task/session uses a unique `[smoke] <feature> <8-char nonce>` prefix. A per-test ledger
+recovers successful-but-unacknowledged creates by exact nonce, verifies ownership before deletion,
+hard-deletes sessions, and verifies both 404/readback and zero remaining nonce-owned list entries.
+Unexpected renderer errors and new `[ERROR]` log lines fail. The only log exception is the exact
+known NOT_FOUND session/deleted-session permission reads for IDs this test just deleted.
+
+Primary entry is prequalified against the authenticated owner's existing root using read-only
+SQLite. `/setup` is blocked in read-only primary tests. First-use setup, real Coordinator goals,
+run-tree Stop/restart, and controlled signed expiry remain explicit failing `UNVERIFIED` cases:
+those flows need a wholly disposable signed-in profile/database/native signer. Their permanent
+root/journal/approval records lack safe real-profile cleanup. Real-model authorization alone does
+not remove that data boundary. P1/P2 implementation remains paused at the inventory checkpoint.

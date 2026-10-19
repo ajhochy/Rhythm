@@ -1,9 +1,9 @@
 // Whole-app smoke of a packaged Rhythm.app: runtime, every page, core flows, clean quit.
 // Runs as the smoke profile's real Google account against production; every write is
 // a "[smoke]" record deleted by the same test.
-import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
 import { test, expect, waitForSignedIn, listeningPid, bundleVersion, RUNTIME_PORTS } from './packaged-app';
+import { OwnedRecords } from './feature-test';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -93,9 +93,10 @@ test('navigation: every page renders without errors', async ({ page }) => {
 });
 
 test('tasks: create, edit, complete and delete a [smoke] task', async ({ page }) => {
-  const title = `[smoke] packaged ${randomUUID().slice(0, 8)}`;
+  const records = new OwnedRecords(page, 'tasks', 'packaged');
+  const title = records.prefix;
   let taskId = '';
-  await openNav(page, 'tasks');
+  await records.open();
   await expect(page.locator('#tasks-title')).toBeVisible();
   try {
     const empty = page.getByTestId('tasks-empty-create');
@@ -121,32 +122,23 @@ test('tasks: create, edit, complete and delete a [smoke] task', async ({ page })
     await page.getByTestId('tasks-completion-filter').selectOption('all');
     await expect(page.getByTestId(`task-row-${taskId}`), 'edit did not persist across reload').toContainText(`${title} edited`);
   } finally {
-    if (taskId && await page.getByTestId(`task-row-${taskId}`).count()) {
-      await page.getByTestId(`task-menu-${taskId}`).click();
-      await page.getByTestId(`task-delete-${taskId}`).click();
-      await page.getByTestId('task-delete-confirm').click();
-      await expect(page.getByTestId(`task-row-${taskId}`)).toHaveCount(0);
-    }
+    await records.cleanup();
   }
 });
 
 test('agents: a new session gets a real model reply, then is deleted', async ({ page }) => {
   test.setTimeout(240_000);
-  await openNav(page, 'agents');
-  await page.getByTestId('new-chat-instant').click();
-  const selected = page.locator('[data-testid^="session-"][aria-current="true"]');
-  await expect(selected).toHaveCount(1, { timeout: 20_000 });
-  const sessionId = (await selected.getAttribute('data-testid'))!.replace('session-', '');
+  expect(process.env.RHYTHM_FEATURE_MODEL, 'UNVERIFIED: real-model tests require RHYTHM_FEATURE_MODEL=1').toBe('1');
+  const records = new OwnedRecords(page, 'sessions', 'packaged');
   try {
+    await records.open();
+    await records.create(' model');
     // The answer (42) is not in the prompt, so it can only come from the model.
     await page.getByTestId('composer-input').fill('Reply with only the result of 17 + 25 written as digits.');
     await page.getByTestId('composer-send').click();
     await expect(page.getByTestId('transcript')).toContainText('42', { timeout: 180_000 });
   } finally {
-    await page.getByTestId(`session-menu-${sessionId}`).click();
-    await page.getByTestId(`delete-${sessionId}`).click();
-    await page.getByTestId('confirm-session-delete').click();
-    await expect(page.getByTestId(`session-${sessionId}`)).toHaveCount(0);
+    await records.cleanup();
   }
 });
 

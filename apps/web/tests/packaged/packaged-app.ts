@@ -42,6 +42,16 @@ async function launch(): Promise<{ app: PackagedApp; browser: Browser }> {
   if (!appPath || !existsSync(path.join(appPath, 'Contents/MacOS/Rhythm'))) {
     throw new Error(`Set RHYTHM_PACKAGED_APP to a Rhythm.app bundle (got "${appPath}")`);
   }
+  const expectedRevision = process.env.RHYTHM_FEATURE_EXPECTED_REVISION;
+  if (expectedRevision) {
+    const identityPath = path.join(appPath, 'Contents/Resources/api_server/build-identity.json');
+    const identity = existsSync(identityPath) ? JSON.parse(readFileSync(identityPath, 'utf8')) : null;
+    if (identity?.schemaVersion !== 1 || identity.sourceRevision !== expectedRevision) {
+      throw new Error(`UNVERIFIED: bundle must be built from mega ${expectedRevision}; refusing to launch it against the real profile`);
+    }
+    const engineVersion = execFileSync(path.join(appPath, 'Contents/Resources/opencode_bin/opencode'), ['--version'], { encoding: 'utf8', timeout: 30_000 }).trim();
+    if (engineVersion !== `0.0.0-rhythm-${expectedRevision}`) throw new Error('UNVERIFIED: bundled engine does not match the mega revision');
+  }
   // A second instance would adopt a running Rhythm's runtime and its real data.
   const busy = RUNTIME_PORTS.filter((port) => listeningPid(port));
   if (busy.length) throw new Error(`Ports ${busy.join(', ')} are in use. Quit Rhythm (and any dev api_server/engine) before the packaged smoke.`);
