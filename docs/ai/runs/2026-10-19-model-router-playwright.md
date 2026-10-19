@@ -54,3 +54,13 @@ The live classifier sample also produced tier 4 for extraction/formatting and ti
 - Nonce-owned sessions/projects are removed in `finally`, checked by API/read-only DB, and owned temporary directories removed. Existing router/account settings and original dirty files remain unchanged. Normal diagnostic attempts/decision logs survive hard-delete; they are not user-domain leaks and are not erased by direct SQL.
 - Settings reads alone are not behavior proof. Model availability/quotas vary over time; current eligibility evidence is a snapshot. Renderer reload is not an API process restart. Failure-application, controlled exhaustion recovery across process restart, explicit account pins/children and a broad quality benchmark remain unqualified; existing source-unit matrices do not replace live coverage.
 - No product repairs, push, PR, merge or overall verification PASS. The red semantic/qualification tests are evidence to carry into separately authorized repair work.
+
+### Reauthentication rerun — 2026-10-19
+
+The user reauthorized Personal and requested the same Playwright suite again. Read-only preflight showed both Claude accounts `status:ok`, with unexpired credentials; Personal remained the default. The test fixture launched the same local mega bundle and checked its source identity. No test assertions or product/settings files were edited for this rerun.
+
+- Same command above, with `PLAYWRIGHT_JSON_OUTPUT_NAME=/private/tmp/rhythm-model-router-reauth.json` → **exit 1, seven passed / one failed, zero skipped or flaky**. Matching log `/private/tmp/rhythm-model-router-reauth.log`.
+- **Previously failing arithmetic qualification now passes.** Decision ledger ID 1382: successful Decisions classification tier 3, applied tier 3, `anthropic/claude-haiku-5-5`, account `personal`, account source `router`. Trace skips Team as exhausted, picks Personal, routes Haiku. Real UI answer and engine model checks succeeded; no Sol step-up.
+- Trivial formatting also passes: ledger ID 1379, tier 4 → tier 4, Haiku through Personal. Follow-up reuse after reload, explicit fixed Luna, settings and the other classifier expectations pass.
+- **Literal-edit calibration remains red:** successful Luna result score `0.85`, thresholds `[0.1,0.35,2.25]`, mapped tier 2 versus the test's allowed tier 3/4. Reauthorization resolved the observed account-availability problem, not this separate calibration concern.
+- Independent read-only DB check found zero `[smoke] model-router%` sessions and projects. Normal body-free router receipts remain. Test logs report no cleanup or unexpected per-test app errors.
