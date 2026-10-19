@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 export async function ensureBuildGuard({ repoRoot, watch = [] }) {
+  // The storage budget protects local dev disks only; CI runners build without it.
+  if (process.env.GITHUB_ACTIONS === 'true') return;
   const python = process.env.RHYTHM_BUILD_PYTHON || 'python3';
   const guard = fileURLToPath(new URL('./guard.py', import.meta.url));
   const args = [guard, '--repo', repoRoot, ...watch.flatMap(path => ['--watch', path])];
