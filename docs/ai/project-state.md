@@ -1,32 +1,33 @@
 # Rhythm — project state
 
 ## Current focus
-Hermes shipping integration: all writers finished; independent gate329 **FINAL_SHIPPING_INTEGRATION PASS** on frozen source. Source-qualified, **not deployment-ready**; staged candidate is STALE after corrections.
-Coordinator workflow runs (#1612) and approval queue hygiene remain preserved on the current shipping base (expired pending cards hidden; external-content approval window 1 hour).
+One integration branch. The 2026-10-19 audit folded every open PR's unmerged work into
+`mega/2026-09-29-consolidation`; it is the single candidate for `main`
+([run log](runs/2026-10-19-branch-worktree-consolidation.md)).
 
 ## Active branch / PR
-`feat/hermes-shipping-rollout-20261014`, source commit `31906d37d2f61cd964d66372c79a8ba59c14c60d`, [draft PR #1617](https://github.com/ajhochy/Rhythm/pull/1617). Old #1615/#1616 evidence is superseded, not a merged/deployed claim.
-Installed Electron app: `/Applications/Rhythm.app` **0.18.76**, recorded revision c74, team56Q69NYP9H; live API4001/engine4096 unchanged. No merge/tag/release publication authorized.
+`mega/2026-09-29-consolidation` @ `59a1b24c` (local; push pending AJ OK) → `main` via
+[draft PR #1598](https://github.com/ajhochy/Rhythm/pull/1598). Contains #1617 (Hermes shipping rollout),
+#1618 (Claude Code ccVersion), #1601 (relay uplink heartbeat). Only `main` and mega exist locally; one worktree.
+Installed app: `/Applications/Rhythm.app` 0.18.76.
 
 ## In progress
-Qualification-only `electron_release.yml` [run38639296935](https://github.com/ajhochy/Rhythm/actions/runs/38639296935) is running for numeric version **0.18.77**, pinned to source commit `31906d37`; release job skipped. Parent must verify signing/notarization, Gatekeeper, packaged smoke and downloaded artifact before ASK for restart.
-Checkpoint: [final integration](runs/2026-10-14-hermes-final-shipping-integration.md); [rollout/trust/operator guide](guides/hermes-shipping-rollout.md).
+- Push mega, then close superseded PRs #1601 #1604 #1610 #1615 #1616 #1617 #1618 pointing at #1598.
+- #1598 CI last failed `fork-checks` (pre-push head); re-check after push.
+- Decide whether to commit `tools/dev/hermes_*` operator scripts (saved in tag `archive/wt-hermes-shipping-rollout-20261014`).
+- Hermes 0.18.77 qualification build/restart still needs AJ's artifact-specific restart permission.
 
 ## Risks / known issues
-- Mac full-app quit/install/relaunch permission **not yet asked or approved**; active agents and app-owned Hermes/Dayflow/Colony may shut down. Preserve old signed app and data/config for rollback. AJ's deploy/build/test authorization does not waive restart ASK.
-- Live4001 V2 currently404 from the old bundle; live operator execution and cookie-enabled native/source owner mapping remain unqualified (STOP). Pi receiver already installed/healthy; prior one-restart permission spent, relay operator rejoin restart done; no new Pi restart needed.
-- No successful source LLM, physical Keychain/card click, live Pi/browser ACK, or current signed/notarized UI artifact qualification claimed. UI source unchanged; a CI rebuild may differ in bytes.
-- Coordinator runs use bypassPermissions confined to their worktree (`external_directory: deny`); a goal must name
-  the repo by absolute path.
-- The approval list hides expired cards only from `status=pending`; agents that asked must ask again after 1 hour.
-- Fork still carries the schema-2 provider-guard protocol of the retired typed adapter.
+- Old worktree/branch work exists only as local tags `archive/*` (33). Not pushed — don't `git tag -d` them.
+- #1610 (Coordinator conversation repairs) was not merged: conflicts with 11 files mega rewrote when retiring the bounded coding layer; treat as superseded unless a specific fix is missing.
+- Check script and two tests hard-code `apps/api_server/node_modules/{typescript,tsx}`; a root workspace `npm ci` hoists them away. Reinstall api_server with `npm ci --workspaces=false`.
+- Mac full-app quit/install/relaunch permission not yet asked; preserve old signed app for rollback.
+- Coordinator runs use bypassPermissions confined to their worktree; approval list hides expired cards (1 h window).
 - 3,795 historical NULL-owner sessions not backfilled; 8 pre-existing FK orphans in agent_session_messages.
 
 ## Test status
-Frozen gate329: 48 selected API, 2 live (5 revocation groups), 1 pinned wire, 4 real MCP→API→fork, 33 auth +10 Cloud control, 8 operator +23 provisioning, 9 MCP and strict API/MCP emit PASS. Shared delegation84 PASS; counts overlap, no aggregate total. MCP inventory **109+3=112** (report in PR).
-Historical hide-expired-approvals full suite (not rerun here): 8701 passed, 4 failed — all pre-existing or env (turn_routing D2 fails on
-mega base; mcp_tool_grant_drift ×2 + skill_usage_tracker need tsx in apps/api_server/node_modules).
-Historical web gateway spec: "post-login local boundary" fails on mega base too. Apple signing/notarization, Gatekeeper and signed smoke of final source remain pending.
+2026-10-19 on `59a1b24c`: `ai-workflow checks --level pr` — all 22 gates PASS (EXIT=0) after dependency reinstall.
+Built api_server on temp DB: `/health` ok, `/agents/capabilities` 200.
 
 ## Next step
-Parent records actual commit/PR after creation, dispatches qualification-only CI, verifies artifact hash/signatures/notarization/Gatekeeper/signed smoke, then asks AJ artifact-specific restart permission before any Mac replacement/relaunch or live Pi fixture state change. No merge/tag/publish.
+AJ OK → push mega, close superseded PRs, confirm #1598 CI green, manual smoke of a build from mega, then AJ merges #1598.
