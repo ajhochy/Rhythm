@@ -2,6 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# A valid active group avoids nesting; a caller-provided boolean cannot bypass it.
+if ! "${RHYTHM_BUILD_PYTHON:-python3}" "${ROOT_DIR}/tools/build/guard.py" --repo "${ROOT_DIR}" --check-active; then
+  exec "${RHYTHM_BUILD_PYTHON:-python3}" "${ROOT_DIR}/tools/build/guard.py" --repo "${ROOT_DIR}" -- bash "$0" "$@"
+fi
 APP_DIR="${ROOT_DIR}/apps/desktop_flutter/build/macos/Build/Products/Release"
 DIST_DIR="${ROOT_DIR}/apps/desktop_flutter/dist"
 DISPLAY_NAME="Rhythm"

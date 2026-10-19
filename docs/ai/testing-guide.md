@@ -835,3 +835,69 @@ both checked criteria, two ordinals, reviewer membership and 65 seconds of
 quiescence, plus source/fixture/listener cleanup. New unqualified recon receipts
 must remain distinct from these exact committed-source results. Browser card
 tests and native installed-app acceptance are separate evidence.
+
+### Shared build-storage guard
+
+```sh
+npm run test:build-storage
+npm run build:guard -- npm --prefix apps/api_server run build
+npm run build:guard -- bash -c 'cd apps/opencode_fork/packages/opencode && bun run build --single'
+npm run build:guard -- bash -c 'cd apps/desktop_flutter && flutter build macos'
+```
+
+The default 10 GiB ceiling is shared by every cooperating worker/check-out through
+a private root, fcntl lock, and retained output registry. `RHYTHM_BUILD_ROOT` may
+select an explicit private root (all workers must use the same root).
+`RHYTHM_BUILD_LIMIT_BYTES` or `--limit-bytes` can lower the ceiling for fixtures;
+values above 10 GiB are rejected and an existing root's ceiling cannot be raised.
+A root must be owned by the account, mode 0700, marked, and free of symlinked
+boundary/control paths. The real account home comes from uid lookup, not HOME.
+
+The supervisor scans owned scratch and registered generated outputs (Electron
+`dist`, fork `dist`, Flutter `build`/`dist`, web/API/MCP `dist`, mobile
+`dist`/`dist-e2e`/`build`/`.expo` and native iOS/Android build caches) before launch and
+at roughly 50 ms intervals plus scan time. Native-wrapper `--out` is registered
+explicitly; other output paths require `--watch /absolute/path`. npm/XDG cache,
+Cargo home/target and temporary files are routed into marked run scratch. Existing
+source and installed dependency stores are not disposable scratch. Tools writing
+other caches/output paths must be configured to write into `RHYTHM_BUILD_SCRATCH`
+or registered with `--watch`; this is cooperative tooling, not an OS filesystem
+quota. A fast writer can overshoot between samples. Missing outputs remain
+registered so later growth counts, including retained output from prior runs.
+Nested/hardlinked files count once; symlinks within watched roots are permitted.
+Owned per-run temporary directories may contain external source/input aliases:
+only the link bytes count, targets are never followed or deleted. Writes through
+such aliases require an explicit target `--watch`, like any custom external
+output. Temporary IPC sockets/FIFOs are counted as inode bytes and unlinked with
+owned scratch after processes exit. External symlinks or IPC nodes in registered
+non-temporary output trees still refuse the build.
+A validated supervisor/group identity permits
+nested entrypoints; setting a boolean/token alone does not bypass preflight.
+
+On breach/signals the owned process group receives termination and escalation,
+even if the leader exits. Children intentionally escaping into a new session are
+outside this cooperative group contract. Only this run's positively marked
+scratch is removed; source, generated outputs, unknown dist, and unproven stale runs are
+preserved. On startup, stale scratch is removed only when its registry and marker
+agree, its recorded supervisor identity is gone/changed, and its recorded group
+has no live members. Unregistered/mismatched scratch or a live/reused group is
+preserved and remains counted. The guard never guesses ownership from age alone. `latest.json` and
+`previous.json` are the bounded receipts; registry data retains output locations.
+Keep current/previous reviewed artifacts by operator action, with explicit
+ownership review before removing others. Never copy whole built checkouts or run
+npm install/ci through symlinked dependencies; reuse stores only when lockfile and
+toolchain match. No automatic cap increase or unknown-output deletion is allowed.
+
+On macOS, exclude only the disposable managed scratch root from future Time
+Machine backups: `tmutil addexclusion "$HOME/Documents/Codex/.rhythm-build-scratch"`.
+Verify with `tmutil isexcluded` after the root exists. The local 2026-10-19 setup
+is excluded. Do not exclude source checkouts or remove existing backup snapshots
+as part of routine build cleanup.
+
+The #1186 fake sandbox lifecycle unit fixture derives its runtime from TMPDIR;
+its runtime must still resolve under the sandbox's allowed OS temp paths.
+Wrapping the entire canonical PR suite in the default Documents scratch pool
+therefore causes three deliberate path-policy refusals. Qualify that unchanged
+fixture separately in a small marker-owned guard root under `/private/tmp`,
+as recorded in the build-storage run. Normal build workers retain the shared
+default pool; real sandbox launches use the explicit approved paths above.

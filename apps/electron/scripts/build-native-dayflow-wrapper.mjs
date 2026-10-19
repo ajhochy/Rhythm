@@ -2,6 +2,7 @@
 // Compile only the tracked Objective-C++ wrapper against immutable accepted inputs.
 // No Swift build, staging, signing, installation, or application launch occurs here.
 import { createHash } from 'node:crypto';
+import { ensureBuildGuard } from '../../../tools/build/ensure-guard.mjs';
 import { spawnSync } from 'node:child_process';
 import {
   existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync,
@@ -181,6 +182,9 @@ function main() {
   writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx' });
   console.log(`Wrapper-only build receipt: ${receiptPath}`);
 }
+const outputIndex = process.argv.indexOf('--out');
+await ensureBuildGuard({ repoRoot, watch: outputIndex >= 0 && process.argv[outputIndex + 1]
+  ? [process.argv[outputIndex + 1]] : [] });
 try { main(); }
 catch (error) {
   console.error(error.message);

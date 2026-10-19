@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { ensureBuildGuard } from '../../../tools/build/ensure-guard.mjs';
 import { createHash } from 'node:crypto';
 import { access, chmod, cp, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
@@ -179,6 +180,7 @@ export async function stageColonyArtifact({ resources, artifactRoot = process.en
 // Importing the assembly boundary for controlled-input tests must not build the app.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+await ensureBuildGuard({ repoRoot: resolve(electronRoot, '../..') });
 const packageNodeMajor = Number.parseInt(process.versions.node.split('.')[0], 10);
 if (packageNodeMajor !== 22) throw new Error(`Electron release packaging requires Node 22; received ${process.versions.node}`);
 // Resolve all required package inputs before creating or deleting an existing artifact.

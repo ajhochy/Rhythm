@@ -47,3 +47,7 @@ tags: [run, rhythm]
   every clone branch tip → `refs/clonescan/*`. The other 25 clones were clean with no commits outside mega/main/archive.
 - Deleted all 88 (AJ approved; 31 GB freed). Kept: `Codex/2026-10-19`, hermes repos, `~/Documents/hermes-rhythm-plugin`.
 - ~27 GB remains in Codex Oct 1–10: build outputs/evidence (candidate `.app` builds, iOS QA evidence, Dayflow release), not source.
+- Second pass (AJ: "clean up all that"): archived 5 more partial local repos with unpushed commits/edits
+  (`archive/clone-*`, `refs/clonescan/extra-*`), then deleted everything else in Codex Oct 1–10 (build outputs,
+  iOS QA evidence + pod caches, read-only recon fixtures). Kept only `hermes-source` and `hermes-theme-fix`.
+  `~/Documents/Codex` 58 GB → 1.4 GB.

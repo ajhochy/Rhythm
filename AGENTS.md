@@ -219,3 +219,19 @@ This project is indexed by GitNexus as **Rhythm** (77189 symbols, 153425 relatio
 
 ## Worktree hygiene
 Once a branch's work is committed and pushed to a PR, remove its worktree immediately (`git worktree remove <path> && git worktree prune`) and squash-delete the local branch. Never leave worktrees checked out after PR creation; idle worktrees keep compiling, watching, and eating disk. One active worktree per task, gone when the PR opens.
+
+## Build storage budget
+
+Every build worker/check-out must use `npm run build:guard -- <command> [args]`
+(or `python3 tools/build/guard.py --repo . -- <command> [args]`). The direct
+Electron packager, native-wrapper builder and macOS archive script self-supervise.
+The shared default is **10 GiB total**, across workers/checkouts, under the real
+account's `~/Documents/Codex/.rhythm-build-scratch`, independent of sanitized
+HOME/TMPDIR. Do not raise the cap silently. See the testing guide for limits.
+
+Do not copy entire built checkouts into temporary directories. Reuse existing
+dependency stores only when lockfile and toolchain match; never run `npm install`
+or `npm ci` inside a checkout with symlinked node_modules. Newly copied dependency
+trees and build outputs count against the budget. Keep only the current and
+previous reviewed artifacts; never automatically delete unknown dist directories
+or unfinished work. Guard cleanup deletes only its own marked per-run scratch.
