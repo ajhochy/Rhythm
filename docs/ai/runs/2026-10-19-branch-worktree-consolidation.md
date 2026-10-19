@@ -39,3 +39,11 @@ tags: [run, rhythm]
   Oct 1–8 Codex experiment worktrees (features later rebuilt in mega; leftovers archived only).
 - Initial worktree removal and stash were refused by the auto-mode classifier; AJ then added a permission rule.
 - Nothing pushed; no GitHub state changed.
+
+## Follow-up: standalone clones and copies under ~/Documents/Codex
+- `git worktree list` missed 88 Rhythm checkouts under `~/Documents/Codex/2026-10-01..10` (60 local clones chained
+  off each other, 28 plain copies without `.git`), all dated Oct 1–5.
+- Archived before deletion: 35 dirty clones → `archive/clone-*`, 28 plain copies → `archive/copy-*` (no parent),
+  every clone branch tip → `refs/clonescan/*`. The other 25 clones were clean with no commits outside mega/main/archive.
+- Deleted all 88 (AJ approved; 31 GB freed). Kept: `Codex/2026-10-19`, hermes repos, `~/Documents/hermes-rhythm-plugin`.
+- ~27 GB remains in Codex Oct 1–10: build outputs/evidence (candidate `.app` builds, iOS QA evidence, Dayflow release), not source.
