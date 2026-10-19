@@ -81,6 +81,7 @@ import { createDayflowReferencesRouter } from './routes/dayflow_references_route
 import type { DayflowManagementService } from './integrations/dayflow/public_contract';
 import type { DayflowQualifiedEvidenceService } from './services/dayflow_qualified_evidence_service';
 import type { DayflowProviderAdmissionService } from './services/dayflow_receiving_history_guard';
+import { mobileGatewayAccessLog } from './services/mobile_gateway_access_log';
 import { agentActivityRouter } from './routes/agent_activity_routes';
 import { creativePlatformRouter } from './routes/creative_platform_routes';
 import { setupReadinessRouter } from './routes/setup_readiness_routes';
@@ -263,7 +264,7 @@ export function createApp(options: {
   // /relay/*. Deliberately OUTSIDE the agentExecutionEnabled block — the
   // relay role has agentExecutionEnabled=false but still serves phones.
   if (env.isRelayRole) {
-    app.use('/relay', createRelayGatewayRouter());
+    app.use('/relay', mobileGatewayAccessLog('Relay'), createRelayGatewayRouter());
   }
 
   // ── Agent-execution surfaces (#755) ───────────────────────────────────────
@@ -294,6 +295,7 @@ export function createApp(options: {
     app.use('/dev', devLogsRouter);
     app.use(
       '/mobile-gateway',
+      mobileGatewayAccessLog('MobileGateway'),
       options.mobileGatewayRouter ?? createMobileGatewayRouter(),
     );
     // NOTE: /agents/capabilities is unauthenticated for now; Phase 3.1 will add the AGENT_LOCAL bypass.
