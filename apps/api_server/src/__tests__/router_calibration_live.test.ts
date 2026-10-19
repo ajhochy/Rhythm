@@ -16,7 +16,10 @@ describe.skipIf(process.env.RHYTHM_LIVE_E2E !== '1')('Grid calibration defaults 
     expect(await get(`${api}/health`)).toMatchObject({ status: 'ok' });
     expect(await get(`${api}/opencode/health`)).toMatchObject({ status: 'ready' });
     expect(await get(`${engine}/global/health`)).toMatchObject({ healthy: true });
-    const grid = await get(`${api}/agent-decisions/grid`);
+    const grid = await get(`${api}/agent-decisions/grid`) as {
+      source: string; classifier: { tier_thresholds: [number, number, number] };
+      routing: { coding: Record<number, Array<{ model: string }>> };
+    };
     expect(grid.source).toBe('defaults');
     expect(grid.classifier.tier_thresholds).toEqual([0.1, 1.5, 2.25]);
     expect(gridTierFromScore(0.85, grid.classifier.tier_thresholds)).toBe(3);
