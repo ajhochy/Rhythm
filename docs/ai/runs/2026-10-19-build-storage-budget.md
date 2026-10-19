@@ -138,3 +138,21 @@ tags: [run, rhythm, build-storage]
   cap 10 GiB, no active runs or per-run scratch. The original five local Time
   Machine snapshots remain, with one newer automatic snapshot; none were
   thinned. Disk free space is not inferred from folder accounting.
+- Final concurrent cleanup: d6888ed0 subsequently recorded removal of the
+  remaining Oct 1–10 build/evidence/recon folders, retaining the two Hermes
+  trees, and included this task's already-tested guard implementation in its
+  local commit. No product code beyond this task's changes was introduced.
+  Old rollback ZIP/input paths from earlier checkpoints are consequently retired;
+  the installed app remains unchanged and original local backups remain.
+- The calling historical fixtures and compatibility aliases were also removed
+  by that final cleanup. After proving there were no live incoming symlinks or
+  open files, retired our now-unused generated API dependency store. Its exact
+  manifests, vendored SDK source and provenance are preserved in a round-trip
+  checked ZIP in the audit. No dated source folder was recreated afterward.
+- Final reconciliation supersedes earlier folder counts: Codex is 1.22 GiB
+  by du accounting. All 28 dirty tracked states remain reconstructable from
+  reachable original HEADs plus 30 checksum-verified recovery patch files.
+  Local archive tag count is 101. Source backups were not thinned; accounting
+  reductions do not imply physical free-space recovery while snapshots retain
+  old blocks. The final review patch is against 3c24078b and excludes the other
+  cleanup's consolidation log.
