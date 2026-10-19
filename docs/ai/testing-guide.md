@@ -901,3 +901,25 @@ therefore causes three deliberate path-policy refusals. Qualify that unchanged
 fixture separately in a small marker-owned guard root under `/private/tmp`,
 as recorded in the build-storage run. Normal build workers retain the shared
 default pool; real sandbox launches use the explicit approved paths above.
+
+## Packaged-app smoke (Playwright against a real Rhythm.app)
+
+Launches a packaged `Rhythm.app`, attaches Playwright over CDP (hardened fuses block
+`_electron.launch`), and checks: own runtime healthy on 4001/4096, every nav page renders
+without renderer errors, a `[smoke]` task create → edit → complete → reload → delete, a new agent
+session gets a real model reply and is deleted, and a clean quit that leaves no listener behind.
+
+```bash
+cd apps/web
+RHYTHM_PACKAGED_APP=/Applications/Rhythm.app npm run test:packaged
+# optional: RHYTHM_EXPECTED_VERSION=0.18.82 asserts the bundle version
+```
+
+- Quit Rhythm first: it refuses to start while 4001/4096/4002 are listening, because a second
+  instance would adopt the running app's runtime.
+- Uses the real HOME and the app's own profile (`~/Library/Application Support/rhythm-electron-shell`),
+  so it reuses the saved sign-in and model providers and writes real data (only `[smoke]` records,
+  deleted by the test). The Keychain-backed session cannot persist under a substitute HOME.
+- Separate profile: `RHYTHM_SMOKE_USER_DATA=/abs/path npm run test:packaged:login` once, then pass
+  the same variable to `test:packaged`.
+- App output goes to `$TMPDIR/rhythm-packaged-smoke.log`; HTML report in `playwright-report/packaged/`.

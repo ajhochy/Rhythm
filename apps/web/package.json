@@ -20,7 +20,9 @@
     "test:contract": "playwright test tests/contract --workers=1",
     "test:fixture": "playwright test tests/gateway/gateway.spec.ts tests/gateway/receipt.spec.ts tests/gateway/tasks-gateway.spec.ts tests/gateway/sessions-gateway.spec.ts --workers=1 && playwright test --config tests/gateway/invalid-live-playwright.config.ts",
     "test:live": "playwright test --config tests/gateway/live-playwright.config.ts",
-    "test:ui": "playwright test --ui"
+    "test:ui": "playwright test --ui",
+    "test:packaged": "playwright test -c tests/packaged/packaged-playwright.config.ts",
+    "test:packaged:login": "RHYTHM_SMOKE_LOGIN=1 playwright test -c tests/packaged/packaged-playwright.config.ts -g runtime"
   },
   "dependencies": {
     "@xterm/xterm": "^6.0.0",
