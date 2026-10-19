@@ -64,3 +64,7 @@ The user reauthorized Personal and requested the same Playwright suite again. Re
 - Trivial formatting also passes: ledger ID 1379, tier 4 → tier 4, Haiku through Personal. Follow-up reuse after reload, explicit fixed Luna, settings and the other classifier expectations pass.
 - **Literal-edit calibration remains red:** successful Luna result score `0.85`, thresholds `[0.1,0.35,2.25]`, mapped tier 2 versus the test's allowed tier 3/4. Reauthorization resolved the observed account-availability problem, not this separate calibration concern.
 - Independent read-only DB check found zero `[smoke] model-router%` sessions and projects. Normal body-free router receipts remain. Test logs report no cleanup or unexpected per-test app errors.
+
+### Calibration fix follow-up
+
+The user then authorized fixing the default calibration and rebuilding locally. Source `d7fb554735f93c0d0a76785cbadd583d0f866610` changes the edit/feature boundary to 1.5; the expanded final router suite passes 17/17 against that newly rebuilt signed app. The original raw literal-edit classifier expectation remains in the suite. See `2026-10-19-router-calibration-fix.md` for the source/build pin, intermediate failures, fixture clarification, sandbox proof and remaining broader qualification limits.

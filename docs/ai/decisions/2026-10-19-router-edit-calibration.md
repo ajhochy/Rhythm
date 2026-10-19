@@ -1,6 +1,7 @@
 ---
 date: 2026-10-19
 tags: [decision, rhythm]
+index: "[[Rhythm]]"
 ---
 
 ## Context

@@ -27,3 +27,9 @@ Separate six-request live classifier audit used the **bundled mega client/questi
 This shows a separate calibration concern: wording defines single-file edits as tier 3, but the current 0.35 cut-off promotes the routine edit to tier 2. The sample is a diagnostic, not a quality benchmark or proof every real task is over-routed. Persist explicit expectation tests for trivial work and report any failures.
 
 Normal diagnostic attempts/decision audit logs survive session hard deletion by design. Do not delete them with direct SQL or claim every diagnostic row was removed. User-domain sessions/projects and temporary directories are cleaned in `finally`. Raw recon/private transcript payloads remain under `/private/tmp`, excluded from Git.
+
+## Calibration follow-up recon
+
+Updated local product source `d7fb554735f93c0d0a76785cbadd583d0f866610` embeds `[0.1,1.5,2.25]`. Twelve preselected synthetic classifier examples preserve trivial/routine vs multi-file/hard expectations; final packaged run passes all 17 router cases. Real literal-edit receipt 1390 applies tier 3 / Haiku through Personal, rather than tier 2 / Sol.
+
+The original repository-oriented coding profile sometimes interpreted the inline snippet as a file-edit request and blocked because the owned cwd was empty. The UI fixture now explicitly requests only the edited inline function, with no tools/files; its live Luna score is 0.92 (old mapping tier 2, new mapping tier 3). The raw original regression prompt and score-0.85 expectation remain unchanged. This qualifies inline response/routing, not an actual repository-edit/tool workflow. An earlier complete run hit unsuppressed background Google/PCO OAuth configuration errors; those settings remain untouched. See `docs/ai/runs/2026-10-19-router-calibration-fix.md` for all failed/repaired/final checks.

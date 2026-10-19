@@ -189,7 +189,9 @@ test('[P0] model router: a one-literal edit is served by a routine-tier model', 
   expect(process.env.RHYTHM_FEATURE_MODEL, 'UNVERIFIED: real router turns require RHYTHM_FEATURE_MODEL=1').toBe('1');
   const row = await router.create(' literal edit');
   const sample = routerCalibrationCases.find(value => value.name === 'one literal edit does not become tier 2')!;
-  const assistant = await sendRouterPrompt(page, router, row, sample.prompt, /function\s+greet\s*\(\s*\)\s*\{\s*return\s+["']Hello["'];?\s*\}/);
+  // The coding profile normally edits repositories. This fixture supplies code inline and owns an empty cwd.
+  const inlinePrompt = `${sample.prompt}\nThis is an inline code-edit question. Return only the updated function. Do not inspect or change files, and do not use tools.`;
+  const assistant = await sendRouterPrompt(page, router, row, inlinePrompt, /function\s+greet\s*\(\s*\)\s*\{\s*return\s+["']Hello["'];?\s*\}/);
   const attempts = routerAttempts(row.id);
   expect(attempts).toHaveLength(2);
   const { classification, result } = attempts[1];
