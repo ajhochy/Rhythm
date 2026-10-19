@@ -8,7 +8,7 @@ function api() { expect(mod, 'config exports must exist').not.toBeNull(); return
 describe('grid config rejects unsafe overrides and resolves aliases', () => {
   it('defaults retain calibrated thresholds, reserve, all category/tier routes', () => {
     const c = api().defaultRouterGridConfig();
-    expect(c.classifier.tier_thresholds).toEqual([0.1, 0.35, 2.25]); expect(c.reserve_pct).toBe(15);
+    expect(c.classifier.tier_thresholds).toEqual([0.1, 1.5, 2.25]); expect(c.reserve_pct).toBe(15);
     expect(c.routing.knowledge).toEqual(c.routing.coding);
     expect(c.routing.design[3][0].effort).toBe('high');
   });

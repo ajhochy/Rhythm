@@ -1,0 +1,12 @@
+{
+  "request": "Fix calibration so simple edits do not get bumped to tier 2; rebuild the mega candidate locally and rerun Playwright",
+  "megaBase": "894c16f44d30c77dc25d41e7d9a57a644b6ffcfa",
+  "criteria": [
+    { "id": "calibration-c1", "mode": "unit", "expectation": "Observed literal-edit score 0.85 and single-file level 1 map to tier 3; boundary 1.5 maps to tier 2", "test": "router_grid_calibration.test.ts" },
+    { "id": "calibration-c2", "mode": "ui", "expectation": "A real one-literal-edit Auto turn classifies and serves a tier 3/4 route with canonical engine output and reload persistence", "test": "packaged-model-router.spec.ts: a one-literal edit is served by a routine-tier model" },
+    { "id": "calibration-c3", "mode": "integration", "expectation": "Twelve synthetic real Decisions cases keep trivial/routine work cheap and multi-file/hard work capable", "test": "packaged-model-router.spec.ts: model router classifier" },
+    { "id": "calibration-c4", "mode": "integration", "expectation": "The locally rebuilt signed bundle and engine identify the committed mega-base-plus-fix source revision", "test": "feature-test.ts: audit" }
+  ],
+  "redEvidence": "router_grid_calibration.test.ts: three failed, four passed before the default changed; existing Playwright literal-edit expectation repeatedly failed with score 0.85 mapped to tier 2",
+  "not_tested": []
+}

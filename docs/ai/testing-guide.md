@@ -946,6 +946,27 @@ RHYTHM_PACKAGED_APP=/private/tmp/rhythm-feature-playwright-2026-10-19/apps/elect
 Without it, model cases fail `UNVERIFIED` before sending. Tests never silently skip gaps.
 `RHYTHM_FEATURE_EXPECTED_REVISION` can pin an operator-provided full SHA; otherwise the feature
 suite resolves local `mega/2026-09-29-consolidation`. Keep the app quit and ports 4001/4096/4002 free.
+For a locally committed fix on top of mega, explicitly set `RHYTHM_FEATURE_EXPECTED_REVISION` to
+the full revision used to package the candidate. API identity and bundled/live engine must all
+match it; do not point the tests at the earlier mega artifact or weaken the source assertion.
+
+Router calibration coverage is `packaged-model-router.spec.ts`: real Auto turns (including a
+one-literal edit), actual engine/model readback, reload reuse/pin bypass, and 12 synthetic live
+Decisions expectations. It uses the same packaged command/opt-in above. Complement it with the
+isolated default-policy check after generating synthetic read-only inputs with
+`node tools/dev/sandbox_fixture.mjs /private/tmp/<new-fixture>` and starting `tools/dev/sandbox.sh`
+under the build guard with the four required fixture/path variables:
+
+```bash
+cd apps/api_server
+RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_API_URL=http://127.0.0.1:4098 \
+  RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4097 \
+  ./node_modules/.bin/vitest run src/__tests__/router_calibration_live.test.ts --no-file-parallelism
+```
+
+Run sandbox `down` in `finally`/a shell trap. The sandbox default-policy check is not real-model
+proof; the packaged suite supplies that evidence using the operator's explicitly authorized profile.
+
 Owned session creation explicitly selects the enabled `coding-agent` profile; set
 `RHYTHM_FEATURE_PROFILE_ID` to another existing eligible profile when required. It does not edit
 the profile. Advanced can open before its catalog arrives, so selecting a profile is a fixture

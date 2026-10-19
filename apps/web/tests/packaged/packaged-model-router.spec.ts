@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { test as base, expect, ENGINE, OwnedRecords, localRows, responseFor, assertResponse, type Row } from './feature-test';
+import { routerCalibrationCases } from './router-calibration-cases';
 
 // Observed response projections; keep the packaged runner independent of renderer-only workspace aliases.
 type RouterConfig = { routing: { engine: string; scope: string }; features: { model_routing: string }; remoteDataConsent: boolean; openaiDecisions?: { hasApiKey: boolean } };
@@ -17,22 +18,24 @@ function routerAttempts(id: string): Attempt[] {
     .map(row => ({ classification: JSON.parse(String(row.classification_json)), result: JSON.parse(String(row.result_json)) }));
 }
 
-async function sendRouterPrompt(page: Page, records: OwnedRecords, row: Row, prompt: string, answer: string) {
+async function sendRouterPrompt(page: Page, records: OwnedRecords, row: Row, prompt: string, answer: string | RegExp) {
   await page.getByTestId('composer-input').fill(prompt);
   await page.getByTestId('composer-send').click();
-  await expect(page.getByTestId('transcript').getByText(answer, { exact: true })).toBeVisible({ timeout: 120_000 });
+  if (typeof answer === 'string') await expect(page.getByTestId('transcript').getByText(answer, { exact: true })).toBeVisible({ timeout: 120_000 });
+  else await expect(page.getByTestId('transcript')).toContainText(answer, { timeout: 120_000 });
   await expect(page.getByTestId('composer-send')).toBeVisible({ timeout: 30_000 });
   const messages = async () => {
     const response = await fetch(`${ENGINE}/session/${row.sdkSessionId}/message?directory=${encodeURIComponent(records.directory!)}&limit=50`, { signal: AbortSignal.timeout(20_000) });
     expect(response.status).toBe(200);
     return await response.json() as Array<{ info: { role: string; providerID?: string; modelID?: string }; parts: Array<{ type: string; text?: string }> }>;
   };
-  await expect.poll(async () => (await messages()).some(message => message.info.role === 'assistant' && message.parts.some(part => part.type === 'text' && part.text?.trim() === answer)), { timeout: 30_000 }).toBe(true);
+  const matchesAnswer = (text: string) => typeof answer === 'string' ? text.trim() === answer : answer.test(text);
+  await expect.poll(async () => (await messages()).some(message => message.info.role === 'assistant' && message.parts.some(part => part.type === 'text' && matchesAnswer(part.text ?? ''))), { timeout: 30_000 }).toBe(true);
   const result = await messages();
   expect(result.filter(message => message.info.role === 'user' && message.parts.some(part => part.text === prompt))).toHaveLength(1);
   const detail = await records.api!.json<{ messages: Array<{ rawText: string }> }>(`/agent-sessions/${row.id}`);
   expect(detail.messages.filter(message => message.rawText === prompt)).toHaveLength(1);
-  return result.filter(message => message.info.role === 'assistant' && message.parts.some(part => part.text?.trim() === answer)).at(-1)!;
+  return result.filter(message => message.info.role === 'assistant' && message.parts.some(part => matchesAnswer(part.text ?? ''))).at(-1)!;
 }
 
 // Only these nonce-owned projects/sessions are mutated. The existing saved router/accounts stay untouched.
@@ -181,6 +184,28 @@ test('[P0] model router qualification: routine arithmetic retains an eligible ti
   expect([3, 4], `cheap-route qualification failed (availability step-up is not a classifier failure): ${explanation}`).toContain(result.tierUsed);
 });
 
+test('[P0] model router: a one-literal edit is served by a routine-tier model', async ({ page, router }) => {
+  test.setTimeout(240_000);
+  expect(process.env.RHYTHM_FEATURE_MODEL, 'UNVERIFIED: real router turns require RHYTHM_FEATURE_MODEL=1').toBe('1');
+  const row = await router.create(' literal edit');
+  const sample = routerCalibrationCases.find(value => value.name === 'one literal edit does not become tier 2')!;
+  const assistant = await sendRouterPrompt(page, router, row, sample.prompt, /function\s+greet\s*\(\s*\)\s*\{\s*return\s+["']Hello["'];?\s*\}/);
+  const attempts = routerAttempts(row.id);
+  expect(attempts).toHaveLength(2);
+  const { classification, result } = attempts[1];
+  expect(classification).toMatchObject({ source: 'decisions', reason: 'ok', category: 'coding' });
+  expect([3, 4], `literal edit over-classified: ${JSON.stringify(classification)}`).toContain(classification.tier);
+  expect([3, 4], `literal edit escalated: ${JSON.stringify(result.trace)}`).toContain(result.tierUsed);
+  expect(result.applied).toBe(true);
+  const [provider, model] = result.model.split('/');
+  expect(assistant.info).toMatchObject({ providerID: provider, modelID: model });
+  expect(localRows('SELECT provider_id,model_id,model_mode FROM agent_sessions WHERE id=?', row.id)).toMatchObject([{ provider_id: provider, model_id: model, model_mode: 'auto' }]);
+  await page.reload();
+  await page.getByTestId(`session-${row.id}`).click();
+  await expect(page.getByTestId('transcript')).toContainText(/Hello/);
+  expect(routerAttempts(row.id)).toEqual(attempts);
+});
+
 test('[P0] model router: explicit session model pin serves Luna without a Grid attempt', async ({ page, router }) => {
   test.setTimeout(240_000);
   expect(process.env.RHYTHM_FEATURE_MODEL, 'UNVERIFIED: real router turns require RHYTHM_FEATURE_MODEL=1').toBe('1');
@@ -204,12 +229,7 @@ test('[P0] model router: explicit session model pin serves Luna without a Grid a
 
 // Deliberately semantic expectations derived from the router's published tier descriptions.
 // These calls use the built mega transport/questions, not a mock or a second interpretation of the classifier.
-for (const sample of [
-  { name: 'formatting is tier 4', prompt: 'Convert this text to lowercase and return only the result: HELLO WORLD', tiers: [4] },
-  { name: 'extraction is tier 4', prompt: 'Extract only the email address from this text: Please contact sam@example.test tomorrow.', tiers: [4] },
-  { name: 'one literal edit does not become tier 2', prompt: 'In the supplied JavaScript function, change the greeting to Hello: function greet() { return "Hi"; }', tiers: [3, 4] },
-  { name: 'hard architecture reaches tier 1', prompt: 'Design and implement a fault-tolerant multi-region database replication protocol. Prove safety under network partitions, formalize conflict resolution and recovery invariants, and develop a comprehensive adversarial test plan.', tiers: [1] },
-]) {
+for (const sample of routerCalibrationCases) {
   test(`[P0] model router classifier: ${sample.name}`, async ({ packaged }) => {
     expect(process.env.RHYTHM_FEATURE_MODEL, 'UNVERIFIED: live Decisions classifier requires RHYTHM_FEATURE_MODEL=1').toBe('1');
     const root = path.join(packaged.appPath, 'Contents/Resources/api_server/dist');

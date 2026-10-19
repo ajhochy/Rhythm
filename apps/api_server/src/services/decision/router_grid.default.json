@@ -6,7 +6,7 @@
     "model": "gpt-6-luna",
     "tier_thresholds": [
       0.1,
-      0.35,
+      1.5,
       2.25
     ],
     "can_queue_min_p": 0.5,

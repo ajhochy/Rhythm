@@ -46,11 +46,11 @@ describe('grid classifier — network boundary only, exact calibrated contract',
       const r = await run(fetchImpl, {}, prompt);
       expect(fetchImpl).toHaveBeenCalledTimes(1);
       expect(JSON.parse(fetchImpl.mock.calls[0][1]!.body as string)).toEqual({ model: 'gpt-6-luna', input: prompt.slice(0, 8000), questions });
-      expect(r).toMatchObject({ source: 'decisions', tier: 2, category: 'coding', canQueue: true, securitySensitive: true, estInputTokens: Math.ceil(prompt.length / 3) });
+      expect(r).toMatchObject({ source: 'decisions', tier: 3, category: 'coding', canQueue: true, securitySensitive: true, estInputTokens: Math.ceil(prompt.length / 3) });
       expect(JSON.stringify([r, ...logs.map(l => l.mock.calls)])).not.toContain(KEY);
     } finally { logs.forEach(l => l.mockRestore()); }
   });
-  it.each([[0, 4], [0.0999, 4], [0.1, 3], [0.3499, 3], [0.35, 2], [2.2499, 2], [2.25, 1], [3, 1]])('score %s -> tier %s (boundary catches off-by-one)', async (score, tier) => expect(await run(async () => Response.json(answer(score)))).toMatchObject({ tier }));
+  it.each([[0, 4], [0.0999, 4], [0.1, 3], [0.35, 3], [0.85, 3], [1, 3], [1.4999, 3], [1.5, 2], [2.01, 2], [2.2499, 2], [2.25, 1], [3, 1]])('score %s -> tier %s (boundary catches off-by-one)', async (score, tier) => expect(await run(async () => Response.json(answer(score)))).toMatchObject({ tier }));
   it.each([[0.4999, false], [0.5, true], [1, true], [0, false]])('predicate probability %s -> %s', async (p, expected) => expect(await run(async () => Response.json(answer(1, p, p)))).toMatchObject({ canQueue: expected, securitySensitive: expected }));
   it.each(['no_key', 'no_consent', 'empty', 'unsafe_http', '429', 'refusal', 'malformed_json', 'malformed_answer', 'missing_answer', 'duplicate_answer', 'timeout', 'network', 'large'])('failure %s -> body/key-free rules default with reason', async scenario => {
     const fetchImpl = vi.fn(async (_url: string, init?: RequestInit): Promise<Response> => {

@@ -121,6 +121,8 @@ An OpenRouter model counts only if `openrouterUsable` and the model is available
 | 12 | Escalation | Deferred (no verifier in v1) |
 
 ## Classifier wording (calibrated 2026-10-08 on 50 real first prompts; use exactly)
+2026-10-19 correction: the question wording below is unchanged, but the approved default thresholds are now `[0.1, 1.5, 2.25]` so routine single-file edits near level 1 stay tier 3. The original thresholds below are historical. See `docs/ai/decisions/2026-10-19-router-edit-calibration.md` and the corresponding local-build/Playwright run.
+
 tier score question instructions: "The input is a request a person sent to their AI assistant, which
 can use tools (files, email, calendar, web, code, other agents). Pick the LOWEST tier whose model will
 reliably do this request well. Judge the work it requires, not the length of the message or its
