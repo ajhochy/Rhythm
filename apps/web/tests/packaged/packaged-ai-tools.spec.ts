@@ -1,34 +1,60 @@
 import { randomUUID } from 'node:crypto';
-import { test, expect, ObservedApi, responseFor } from './feature-test';
+import { mkdtempSync, lstatSync, rmdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { test, expect, ObservedApi, OwnedRecords, responseFor, localRows, expectedRevision, API, ENGINE } from './feature-test';
 import { aiSurfaces, openAiSurface, readAiCollection, type AiRow } from './ai-surfaces';
+import { readQualificationFixture } from '../../../../tools/testing/qualification_fixture.mjs';
+import { OwnedMemoryFixture } from './private-memory-fixture';
 
 test('[AI memory] selected inspector contains authoritative content and kind filtering and reload stay truthful', async ({ page }) => {
   // Catches the former title-only memory inspector and a filter that displays another kind's rows.
   const surface = aiSurfaces.find(s => s.slug === 'brain')!;
-  const response = await openAiSurface(page, surface);
-  const rows = await readAiCollection(response, surface);
-  expect(rows.length, 'UNVERIFIED: memory inspector needs a populated read-only fixture').toBeGreaterThan(0);
-  const row = rows[0];
-  await page.getByTestId(`memory-${row.id}`).click();
-  await expect(page.getByTestId('brain-inspector-detail').getByRole('heading', { name: String(row.title || row.content), exact: true })).toBeVisible();
-  const content = page.getByTestId('brain-memory-content');
-  // Markdown formatting may differ from source bytes; compare actual words in their order.
-  const words = String(row.content).replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean);
-  const visible = (await content.innerText()).replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean).join(' ');
-  expect(visible).toContain(words.slice(0, 20).join(' '));
-  const pending = responseFor(page, 'GET', '/agent-memory');
-  await page.getByTestId(`brain-kind-${row.kind}`).click();
-  const filtered = await pending;
-  expect(new URL(filtered.url()).searchParams.get('kind')).toBe(row.kind);
-  const filteredRows = await readAiCollection(filtered, surface);
-  expect(filteredRows.length).toBeGreaterThan(0);
-  expect(filteredRows.every(item => item.kind === row.kind)).toBe(true);
-  // Kind is intentionally view-local; reload must restore a truthful unfiltered collection.
-  const reload = responseFor(page, 'GET', '/agent-memory');
-  await page.reload();
-  const reopened = await reload;
-  expect(new URL(reopened.url()).searchParams.has('kind')).toBe(false);
-  expect((await readAiCollection(reopened, surface)).some(item => item.id === row.id)).toBe(true);
+  let response = await openAiSurface(page, surface);
+  let rows = await readAiCollection(response, surface);
+  let owned: OwnedMemoryFixture | null = null;
+  try {
+    const fixturePath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
+    if (fixturePath) {
+      const manifest = readQualificationFixture(fixturePath, expectedRevision).manifest;
+      expect(manifest.syntheticActor).toBeDefined();
+      expect(new URL(response.url()).origin).toBe(API);
+      expect(response.request().headers().authorization).toBe(`Bearer ${readFileSync(manifest.syntheticActor.tokenPath, 'utf8')}`);
+      const api = ObservedApi.from(response);
+      expect(await api.json<{ user: { id: number; email: string } }>('/auth/me')).toMatchObject({
+        user: { id: manifest.ownerUserId, email: manifest.publicUserSeed.email },
+      });
+      owned = new OwnedMemoryFixture(api);
+      await owned.create();
+      const seededPending = responseFor(page, 'GET', '/agent-memory');
+      await page.reload();
+      response = await seededPending;
+      rows = await readAiCollection(response, surface);
+    }
+    expect(rows.length, 'UNVERIFIED: memory inspector needs a populated read-only fixture').toBeGreaterThan(0);
+    const row = owned ? rows.find(item => item.id === owned!.indexId) : rows[0];
+    expect(row, 'exact private memory must appear in the normal catalog').toBeDefined();
+    await page.getByTestId(`memory-${row!.id}`).click();
+    await expect(page.getByTestId('brain-inspector-detail').getByRole('heading', { name: String(row!.title || row!.content), exact: true })).toBeVisible();
+    const content = page.getByTestId('brain-memory-content');
+    // Markdown formatting may differ from source bytes; compare actual words in their order.
+    const words = String(row!.content).replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean);
+    const visible = (await content.innerText()).replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean).join(' ');
+    expect(visible).toContain(words.slice(0, 20).join(' '));
+    const pending = responseFor(page, 'GET', '/agent-memory');
+    await page.getByTestId(`brain-kind-${row!.kind}`).click();
+    const filtered = await pending;
+    expect(new URL(filtered.url()).searchParams.get('kind')).toBe(row!.kind);
+    const filteredRows = await readAiCollection(filtered, surface);
+    expect(filteredRows.length).toBeGreaterThan(0);
+    expect(filteredRows.every(item => item.kind === row!.kind)).toBe(true);
+    if (owned) expect(filteredRows.some(item => item.id === owned!.indexId)).toBe(true);
+    // Kind is intentionally view-local; reload must restore a truthful unfiltered collection.
+    const reload = responseFor(page, 'GET', '/agent-memory');
+    await page.reload();
+    const reopened = await reload;
+    expect(new URL(reopened.url()).searchParams.has('kind')).toBe(false);
+    expect((await readAiCollection(reopened, surface)).some(item => item.id === row!.id)).toBe(true);
+  } finally { if (owned) await owned.cleanup(); }
 });
 
 test('[AI memory] no-match search is empty and clearing it restores real rows', async ({ page }) => {
@@ -108,27 +134,94 @@ test('[AI quality] changing time window changes the API rollup and displayed evi
 test('[AI quality] empty agent kind keeps its authoritative Unknown agent identity and exact counts', async ({ page }) => {
   // Catches blank report-card identities when the real rollup contains an empty kind.
   const surface = aiSurfaces.find(s => s.slug === 'report-card')!;
-  const response = await openAiSurface(page, surface);
-  const body = await response.json();
-  const rows = body.agents as AiRow[];
-  const row = rows.find(item => typeof item.agentKind === 'string' && item.agentKind.trim() === '');
-  expect(row, 'UNVERIFIED: the live rollup has no real empty-kind agent row').toBeDefined();
-  expect(row!.agentLabel).toBe('Unknown agent');
+  let response = await openAiSurface(page, surface);
+  let body = await response.json();
+  let records: OwnedRecords | null = null;
+  let cwd: string | null = null;
+  let cwdIdentity: { dev: number; ino: number } | null = null;
+  let sdkId: string | null = null;
+  try {
+    const fixturePath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
+    if (fixturePath) {
+      const manifest = readQualificationFixture(fixturePath, expectedRevision).manifest;
+      expect(manifest.syntheticActor).toBeDefined();
+      expect(new URL(response.url()).origin).toBe(API);
+      expect(response.request().headers().authorization).toBe(`Bearer ${readFileSync(manifest.syntheticActor.tokenPath, 'utf8')}`);
+      const api = ObservedApi.from(response);
+      expect(await api.json<{ user: { id: number; email: string } }>('/auth/me')).toMatchObject({
+        user: { id: manifest.ownerUserId, email: manifest.publicUserSeed.email },
+      });
+      records = new OwnedRecords(page, 'sessions', 'report-card-agentless');
+      records.api = api;
+      cwd = mkdtempSync(join(manifest.fixtureRoot, 'agentless-cwd-'));
+      const stat = lstatSync(cwd);
+      expect(stat?.isDirectory() && !stat.isSymbolicLink() && stat.uid === process.getuid?.()
+        && (stat.mode & 0o077) === 0).toBe(true);
+      cwdIdentity = { dev: stat!.dev, ino: stat!.ino };
+      records.directory = cwd;
+      const name = `${records.prefix} agentless`;
+      const created = await api.fetch('/agent-sessions', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name, profileId: null, cwd, isolateWorktree: false, permissionMode: 'default' }) });
+      expect(created.status).toBe(201);
+      const session = await created.json() as { id: string; name: string; profileId: null; agentKind: string;
+        ownerUserId: number; cwd: string; sdkSessionId: string };
+      expect(session).toMatchObject({ id: expect.any(String), name, profileId: null, agentKind: '',
+        ownerUserId: manifest.ownerUserId, cwd, sdkSessionId: expect.any(String) });
+      records.remember(session);
+      sdkId = session.sdkSessionId;
+      expect(localRows('SELECT id,name,agent_kind,profile_id,owner_user_id,cwd,sdk_session_id FROM agent_sessions WHERE id=?', session.id))
+        .toMatchObject([{ id: session.id, name, agent_kind: '', profile_id: null, owner_user_id: manifest.ownerUserId,
+          cwd, sdk_session_id: sdkId }]);
+      const engine = await fetch(`${ENGINE}/session/${encodeURIComponent(sdkId)}?directory=${encodeURIComponent(cwd)}`,
+        { signal: AbortSignal.timeout(20_000) });
+      expect(engine.status).toBe(200);
+      expect(await engine.json()).toMatchObject({ id: sdkId, directory: cwd, title: name });
+      const pending = responseFor(page, 'GET', '/agents/run-quality');
+      await page.reload();
+      response = await pending;
+      expect(response.status()).toBe(200);
+      body = await response.json();
+      expect(body.windowDays).toBe(30);
+    }
+    const rows = body.agents as AiRow[];
+    const row = rows.find(item => typeof item.agentKind === 'string' && item.agentKind.trim() === '');
+    expect(row, 'UNVERIFIED: the live rollup has no real empty-kind agent row').toBeDefined();
+    expect(row!.agentLabel).toBe('Unknown agent');
+    if (records) expect(Number(row!.totalRuns)).toBeGreaterThanOrEqual(1);
 
-  const rowView = page.getByTestId(`report-agent-${row!.agentKind}`);
-  await expect(rowView).toBeVisible();
-  await expect(rowView).toContainText('Unknown agent');
-  await expect(rowView).toContainText(`${row!.totalRuns} runs`);
-  await expect(rowView).toContainText(`${row!.completedRuns} completed`);
-  await rowView.click();
-  const inspector = page.getByTestId('list-inspector-detail');
-  await expect(inspector).toContainText(`${row!.totalRuns} runs`);
-  await expect(inspector).toContainText(`${row!.completedRuns} completed`);
-  if (row!.notEnoughData) await expect(inspector).toContainText('Not enough data to score this agent yet.');
+    const rowView = page.getByTestId(`report-agent-${row!.agentKind}`);
+    await expect(rowView).toBeVisible();
+    await expect(rowView).toContainText('Unknown agent');
+    await expect(rowView).toContainText(`${row!.totalRuns} runs`);
+    await expect(rowView).toContainText(`${row!.completedRuns} completed`);
+    await rowView.click();
+    const inspector = page.getByTestId('list-inspector-detail');
+    await expect(inspector).toContainText(`${row!.totalRuns} runs`);
+    await expect(inspector).toContainText(`${row!.completedRuns} completed`);
+    if (row!.notEnoughData) await expect(inspector).toContainText('Not enough data to score this agent yet.');
 
-  // Re-read the exact API surface after selection; selection is view-local and must not mutate rollup data.
-  const canonical = await ObservedApi.from(response).json<{ agents: AiRow[] }>('/agents/run-quality?windowDays=30');
-  expect(canonical.agents).toEqual(rows);
+    // Re-read the exact API surface after selection; selection is view-local and must not mutate rollup data.
+    const canonical = await ObservedApi.from(response).json<{ agents: AiRow[] }>('/agents/run-quality?windowDays=30');
+    expect(canonical.agents).toEqual(rows);
+  } finally {
+    try {
+      if (records) await records.cleanup({ keepDirectory: true });
+      if (sdkId && cwd) {
+        const list = await fetch(`${ENGINE}/session?directory=${encodeURIComponent(cwd)}`,
+          { signal: AbortSignal.timeout(20_000) });
+        expect(list.status).toBe(200);
+        const sessions = await list.json() as Array<{ id: string }>;
+        expect(sessions.some(session => session.id === sdkId)).toBe(false);
+      }
+    } finally {
+      if (cwd && cwdIdentity) {
+        const stat = lstatSync(cwd, { throwIfNoEntry: false });
+        if (stat && stat.isDirectory() && !stat.isSymbolicLink()
+          && stat.dev === cwdIdentity.dev && stat.ino === cwdIdentity.ino
+          && localRows('SELECT id FROM agent_sessions WHERE cwd=?', cwd).length === 0) rmdirSync(cwd);
+      }
+    }
+  }
 });
 
 test('[AI shared agents] canonical revision and runtime readiness match the real catalog', async ({ page }) => {

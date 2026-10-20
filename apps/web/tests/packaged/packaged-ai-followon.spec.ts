@@ -1,5 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { test, expect, ObservedApi, responseFor, assertResponse } from './feature-test';
+import { readFileSync } from 'node:fs';
+import { test, expect, ObservedApi, responseFor, assertResponse, expectedRevision, API } from './feature-test';
+import { readQualificationFixture } from '../../../../tools/testing/qualification_fixture.mjs';
+import { OwnedMissingGalleryFixture } from './private-gallery-fixture';
 
 type ProfileRow = { id: string; label: string; updatedAt?: string };
 type DesignRow = { id: string; artifactUrl: string | null; thumbnailUrl: string | null; artifactType: string | null; createdAt?: string };
@@ -84,22 +87,45 @@ test('[AI profiles] discarding a new smoke draft leaves the saved profile catalo
 // a visible disabled “Deliverable unavailable” button. No open action was taken.
 test('[AI Gallery] missing media row remains inspectable and unavailable without changing its record', async ({ page }) => {
   const writes: string[] = [];
+  let owned: OwnedMissingGalleryFixture | null = null;
   const onRequest = (request: import('@playwright/test').Request) => {
     const path = new URL(request.url()).pathname;
     if (path.startsWith('/agent-designs') && request.method() !== 'GET') writes.push(request.method());
   };
-  page.on('request', onRequest);
+  const fixturePath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
+  if (!fixturePath) page.on('request', onRequest);
   try {
     await page.goto('rhythm://app/index.html#/tools/agent-tools');
     const catalogPending = responseFor(page, 'GET', '/agent-designs');
     await page.goto('rhythm://app/index.html#/tools/gallery');
-    const response = await catalogPending;
+    let response = await catalogPending;
     await assertResponse(response, 'GET', '/agent-designs', 200);
+    if (fixturePath) {
+      const manifest = readQualificationFixture(fixturePath, expectedRevision).manifest;
+      expect(manifest.syntheticActor).toBeDefined();
+      expect(new URL(response.url()).origin).toBe(API);
+      expect(response.request().headers().authorization).toBe(`Bearer ${readFileSync(manifest.syntheticActor.tokenPath, 'utf8')}`);
+      await response.json();
+      const seedApi = ObservedApi.from(response);
+      expect(await seedApi.json<{ user: { id: number; email: string } }>('/auth/me')).toMatchObject({
+        user: { id: manifest.ownerUserId, email: manifest.publicUserSeed.email },
+      });
+      owned = new OwnedMissingGalleryFixture(seedApi);
+      await owned.create();
+      const seededPending = responseFor(page, 'GET', '/agent-designs');
+      await page.reload();
+      response = await seededPending;
+      await assertResponse(response, 'GET', '/agent-designs', 200);
+    }
+    // Only the user-facing read path is under observation; private setup and cleanup are exact nonce-owned.
+    if (fixturePath) page.on('request', onRequest);
     const rows = await response.json() as DesignRow[];
     const mediaTypes = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'mp4', 'webm', 'mov']);
-    const candidates = rows.filter(row => row.artifactUrl === null && row.thumbnailUrl === null &&
+    const candidates = rows.filter(row => (!owned || row.id === owned.id) &&
+      row.artifactUrl === null && row.thumbnailUrl === null &&
       mediaTypes.has(String(row.artifactType ?? '').toLowerCase()));
-    expect(candidates.length, 'UNVERIFIED: requires a persisted image/video catalog row with both asset URLs missing').toBeGreaterThan(0);
+    if (owned) expect(candidates).toHaveLength(1);
+    else expect(candidates.length, 'UNVERIFIED: requires a persisted image/video catalog row with both asset URLs missing').toBeGreaterThan(0);
     const candidate = candidates[0];
     const api = ObservedApi.from(response);
     const savedBefore = await api.json<DesignRow[]>('/agent-designs');
@@ -122,5 +148,6 @@ test('[AI Gallery] missing media row remains inspectable and unavailable without
     expect(writes).toEqual([]);
   } finally {
     page.off('request', onRequest);
+    if (owned) await owned.cleanup();
   }
 });
