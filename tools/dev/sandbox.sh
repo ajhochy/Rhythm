@@ -627,6 +627,10 @@ build_engine() {
   # before ever invoking the builder. Expand only when the array exists.
   (cd "$ENGINE_DIR" && env -i "${runtime_env[@]}" ${build_env[@]+"${build_env[@]}"} "MODELS_DEV_API_JSON=$ROOT/apps/opencode_fork/packages/opencode/test/tool/fixtures/models-api.json" \
     bun --no-env-file run ./script/build.ts --single --skip-install --skip-embed-web-ui) >"$SB/engine-build.log" 2>&1
+  # A successful builder exit is insufficient: startup must never fall back to
+  # a stock PATH binary when the exact fork output was not produced.
+  [[ -f "$ENGINE_BIN" && -x "$ENGINE_BIN" && -O "$ENGINE_BIN" && ! -L "$ENGINE_BIN" ]] ||
+    fail "fork build did not produce expected executable: $ENGINE_BIN"
 }
 
 # Only qualification changes generated payload location; original source and dist
