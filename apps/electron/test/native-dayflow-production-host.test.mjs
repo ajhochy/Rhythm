@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { join } from 'node:path';
 import test from 'node:test';
 import { DAYFLOW_ROUTE, RHYTHM_BUNDLE_IDENTIFIER, WRAPPER_FILE_NAME, registerNativeDayflowProductionHost } from '../src/native-dayflow-production-host.mjs';
 
 // Mocks only: no Electron, no addon, no OS access.
-function fixture({ dataRoot = '/ud/df', bundleIdentifier = RHYTHM_BUNDLE_IDENTIFIER, installError, startResult = true, supported = true, candidate = 0, downloadGate, stopThrows, loadModuleError } = {}) {
+function fixture({ dataRoot = '/ud/df', qualificationActor, configFactory = (c) => Object.freeze({ ...c }), bundleIdentifier = RHYTHM_BUNDLE_IDENTIFIER, installError, startResult = true, supported = true, candidate = 0, downloadGate, stopThrows, loadModuleError } = {}) {
   let candidateState = candidate;
   const calls = [];
   const handlers = new Map();
@@ -44,18 +45,19 @@ function fixture({ dataRoot = '/ud/df', bundleIdentifier = RHYTHM_BUNDLE_IDENTIF
   const mod = {
     resolveHelperPath: (app) => `${app}/Contents/Helpers/rhythm-dayflow`,
     resolvePackagedLayout: (root) => ({ addonPath: `${root}/addon.node` }),
-    createInstallConfiguration: (c) => Object.freeze({ ...c }),
+    createInstallConfiguration: configFactory,
     createEmbeddedDayflowHost: () => wrapper,
   };
   let tick;
   let login = false;
+  const osLoginCalls = [];
   const host = registerNativeDayflowProductionHost({
     ipcMain, getWindow: () => window, loadModule: (path) => { moduleLoads.push(path); if (loadModuleError) throw new Error('missing'); return mod; }, loadAddon: () => { loads += 1; return {}; },
-    nativeRoot: '/App/Contents/Resources/native-dayflow', appBundlePath: '/App', dataRoot,
+    nativeRoot: '/App/Contents/Resources/native-dayflow', appBundlePath: '/App', dataRoot, qualificationActor,
     identity: { bundleIdentifier, displayName: 'Rhythm', shortVersion: '1', build: '1' },
     isSupported: () => supported,
     openDownloadPage: () => { calls.push('download'); return downloadGate?.(); },
-    loginItem: { get: () => login, set: (v) => { login = v; calls.push(['loginSet', v]); } },
+    loginItem: { get: () => { osLoginCalls.push('get'); return login; }, set: (v) => { osLoginCalls.push(['set', v]); login = v; calls.push(['loginSet', v]); } },
     showQuitReopenInstruction: () => calls.push('quitInstruction'),
     scheduler: { set: (fn) => { tick = fn; return 1; }, clear: () => { tick = undefined; } },
     newLease: (() => { let n = 0; return () => `lease${++n}`; })(),
@@ -63,7 +65,7 @@ function fixture({ dataRoot = '/ud/df', bundleIdentifier = RHYTHM_BUNDLE_IDENTIF
   host.bindWindow(window);
   const event = (over = {}) => ({ sender: webContents, senderFrame: mainFrame, ...over });
   const call = (channel, ...args) => handlers.get(channel)(event(), ...args);
-  return { host, calls, handlers, moduleLoads, setCandidate: (v) => { candidateState = v; }, window, webContents, mainFrame, event, call, wrapper, mod, push: (...c) => { queue.push(...c); }, tick: () => tick?.(), loads: () => loads, isLogin: () => login };
+  return { host, calls, osLoginCalls, handlers, moduleLoads, setCandidate: (v) => { candidateState = v; }, window, webContents, mainFrame, event, call, wrapper, mod, push: (...c) => { queue.push(...c); }, tick: () => tick?.(), loads: () => loads, isLogin: () => login };
 }
 
 const lifecycles = (calls) => calls.filter((c) => Array.isArray(c) && c[0] === 'lifecycle').map((c) => c[1]);
@@ -99,6 +101,68 @@ test('attach runs install -> helper -> start once, returns a lease, starts hidde
   await f.call('dayflow:view:attach');
   assert.equal(f.calls.filter((c) => Array.isArray(c) && c[0] === 'install').length, 1);
   assert.equal(f.calls.filter((c) => c === 'start').length, 1);
+});
+
+test('qualified actor installs with its private Dayflow root and fresh namespaces; regular installs retain defaults', async () => {
+  const actor = { fixtureRoot: '/private/tmp/rhythm-dayflow-actor-test', ownerUserId: 501, token: 'a'.repeat(64) };
+  const actorRoot = join(actor.fixtureRoot, 'native-dayflow');
+  const a = fixture({ dataRoot: actorRoot, qualificationActor: actor });
+  assert.deepEqual(await a.call('dayflow:view:attach'), { ok: true, lease: 'lease1' });
+  const actorInstall = a.calls.find((c) => c[0] === 'install')[1];
+  assert.equal(actorInstall.dataRoot, actorRoot);
+  assert.match(actorInstall.preferencesSuite, /^com\.rhythm\.native-dayflow\.fixture\.[a-f0-9]+\.preferences$/);
+  assert.match(actorInstall.keychainNamespace, /^com\.rhythm\.native-dayflow\.fixture\.[a-f0-9]+\.keychain$/);
+  assert.notEqual(actorInstall.preferencesSuite, actorInstall.keychainNamespace);
+  const again = fixture({ dataRoot: actorRoot, qualificationActor: actor });
+  await again.call('dayflow:view:attach');
+  assert.equal(again.calls.find((c) => c[0] === 'install')[1].preferencesSuite, actorInstall.preferencesSuite);
+  const other = fixture({ dataRoot: actorRoot, qualificationActor: { ...actor, token: 'b'.repeat(64) } });
+  await other.call('dayflow:view:attach');
+  assert.notEqual(other.calls.find((c) => c[0] === 'install')[1].preferencesSuite, actorInstall.preferencesSuite);
+  const regular = fixture();
+  await regular.call('dayflow:view:attach');
+  const normalInstall = regular.calls.find((c) => c[0] === 'install')[1];
+  assert.equal(normalInstall.preferencesSuite, undefined);
+  assert.equal(normalInstall.keychainNamespace, undefined);
+  assert.throws(() => fixture({ dataRoot: '/ud/df', qualificationActor: actor }), /qualification actor scope invalid/);
+  assert.throws(() => fixture({ dataRoot: actorRoot, qualificationActor: { ...actor, token: { toString: () => 'a'.repeat(64) } } }), /qualification actor scope invalid/);
+});
+
+test('qualified actor options survive the real builder sidecar configuration handoff', { skip: !process.env.RHYTHM_DAYFLOW_SIDECAR_PATH }, async () => {
+  const sidecar = createRequire(import.meta.url)(process.env.RHYTHM_DAYFLOW_SIDECAR_PATH);
+  const actor = { fixtureRoot: '/private/tmp/rhythm-dayflow-actor-sidecar', ownerUserId: 501, token: 'c'.repeat(64) };
+  const a = fixture({ dataRoot: join(actor.fixtureRoot, 'native-dayflow'), qualificationActor: actor, configFactory: sidecar.createInstallConfiguration });
+  assert.deepEqual(await a.call('dayflow:view:attach'), { ok: true, lease: 'lease1' });
+  const actorInstall = a.calls.find((c) => c[0] === 'install')[1];
+  assert.equal(actorInstall.dataRoot, join(actor.fixtureRoot, 'native-dayflow'));
+  assert.match(actorInstall.preferencesSuite, /^com\.rhythm\.native-dayflow\.fixture\.[a-f0-9]{32}\.preferences$/);
+  assert.match(actorInstall.keychainNamespace, /^com\.rhythm\.native-dayflow\.fixture\.[a-f0-9]{32}\.keychain$/);
+  assert.notEqual(actorInstall.preferencesSuite, sidecar.DEFAULT_NAMESPACES.preferencesSuite);
+  assert.notEqual(actorInstall.keychainNamespace, sidecar.DEFAULT_NAMESPACES.keychainNamespace);
+  const regular = fixture({ configFactory: sidecar.createInstallConfiguration });
+  assert.deepEqual(await regular.call('dayflow:view:attach'), { ok: true, lease: 'lease1' });
+  const regularInstall = regular.calls.find((c) => c[0] === 'install')[1];
+  assert.equal(regularInstall.preferencesSuite, sidecar.DEFAULT_NAMESPACES.preferencesSuite);
+  assert.equal(regularInstall.keychainNamespace, sidecar.DEFAULT_NAMESPACES.keychainNamespace);
+});
+
+test('qualified actor native login-item events never inspect or mutate the OS setting', async () => {
+  const actor = { fixtureRoot: '/private/tmp/rhythm-dayflow-actor-login', ownerUserId: 501, token: 'd'.repeat(64) };
+  const qualified = fixture({ dataRoot: join(actor.fixtureRoot, 'native-dayflow'), qualificationActor: actor });
+  await qualified.call('dayflow:view:attach');
+  qualified.push('launchAtLoginEnable', 'launchAtLoginDisable');
+  await qualified.tick();
+  assert.deepEqual(qualified.osLoginCalls, []);
+  assert.equal(qualified.isLogin(), false);
+  assert.equal(qualified.calls.some((c) => Array.isArray(c) && c[0] === 'loginSet'), false);
+  assert.deepEqual(qualified.calls.filter((c) => Array.isArray(c) && c[0] === 'loginState').map((c) => c[1]), [false, false, false]);
+
+  const regular = fixture();
+  await regular.call('dayflow:view:attach');
+  regular.push('launchAtLoginEnable');
+  await regular.tick();
+  assert.deepEqual(regular.osLoginCalls, ['get', ['set', true], 'get']);
+  assert.equal(regular.isLogin(), true);
 });
 
 test('a second attach on the same live document reuses the active lease without re-attaching', async () => {

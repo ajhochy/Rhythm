@@ -1,5 +1,5 @@
-import { randomBytes } from 'node:crypto';
-import { isAbsolute, join } from 'node:path';
+import { createHash, randomBytes } from 'node:crypto';
+import { isAbsolute, join, resolve } from 'node:path';
 
 // Main-process owner of the ORIGINAL native Dayflow view embedded in Rhythm's own window.
 // Everything native (addon, wrapper, install, services) is injected and lazy: construction,
@@ -41,6 +41,7 @@ function parseBounds(value) {
  *   loadModule: (wrapperPath: string) => any,
  *   loadAddon: (addonPath: string) => any,
  *   nativeRoot: string, appBundlePath: string, dataRoot: string,
+ *   qualificationActor?: { fixtureRoot: string, ownerUserId: number, token: string },
  *   identity: { bundleIdentifier: string, displayName: string, shortVersion: string, build: string | number },
  *   isSupported?: () => boolean,
  *   exists?: (path: string) => boolean,
@@ -62,6 +63,24 @@ export function registerNativeDayflowProductionHost(options) {
   const scheduler = options.scheduler ?? { set: (fn, ms) => { const handle = setInterval(fn, ms); handle.unref?.(); return handle; }, clear: (handle) => clearInterval(/** @type {ReturnType<typeof setInterval>} */ (handle)) };
   const newLease = options.newLease ?? (() => randomBytes(16).toString('hex'));
   const log = options.log ?? (() => {});
+  // A synthetic actor has already passed the fixture owner/build/expiry checks in main.
+  // Bind its Dayflow preferences and keychain to that exact fixture as well as its data root.
+  // Without these overrides, service startup could read a regular account's onboarding state.
+  let actorNamespaces = {};
+  if (options.qualificationActor) {
+    const { fixtureRoot, ownerUserId, token } = options.qualificationActor;
+    if (typeof fixtureRoot !== 'string' || !fixtureRoot.startsWith('/private/tmp/') || resolve(fixtureRoot) !== fixtureRoot
+      || !Number.isSafeInteger(ownerUserId) || ownerUserId <= 0 || typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)
+      || dataRoot !== join(fixtureRoot, 'native-dayflow')) throw new Error('native Dayflow qualification actor scope invalid');
+    const scope = createHash('sha256').update(JSON.stringify([fixtureRoot, ownerUserId, token])).digest('hex').slice(0, 32);
+    actorNamespaces = {
+      preferencesSuite: `com.rhythm.native-dayflow.fixture.${scope}.preferences`,
+      keychainNamespace: `com.rhythm.native-dayflow.fixture.${scope}.keychain`,
+    };
+  }
+  // Qualification native events must never read or change the operator's login item.
+  // Report a disabled synthetic state to the embedded view; only regular launches use the OS API.
+  const loginItemState = options.qualificationActor ? { get: () => false, set: () => {} } : loginItem;
 
   /** @type {any} */ let wrapper;
   /** idle -> context (installed + helper configured, NO original service) -> started | failed (sticky: no retry/restart) */
@@ -119,7 +138,7 @@ export function registerNativeDayflowProductionHost(options) {
     try {
       const mod = nativeModule();
       const host = getWrapper();
-      host.install(mod.createInstallConfiguration({ nativeRoot, dataRoot, ...identity }));
+      host.install(mod.createInstallConfiguration({ nativeRoot, dataRoot, ...identity, ...actorNamespaces }));
       services = 'context';
       try { host.configureHelper(mod.resolveHelperPath(appBundlePath)); } catch (error) { log(`native Dayflow helper not configured: ${/** @type {{ code?: unknown } | null | undefined} */ (error)?.code ?? 'error'}`); }
       return true;
@@ -136,7 +155,7 @@ export function registerNativeDayflowProductionHost(options) {
     try {
       if (wrapper.startServices() !== true) throw new Error('services did not start');
       services = 'started';
-      try { wrapper.setLaunchAtLoginState(loginItem.get() === true); } catch { /* mirror only, never an OS write */ }
+      try { wrapper.setLaunchAtLoginState(loginItemState.get() === true); } catch { /* mirror only, never an OS write */ }
       ensurePump();
       return true;
     } catch (error) {
@@ -167,8 +186,8 @@ export function registerNativeDayflowProductionHost(options) {
   };
   /** @param {boolean} enabled */
   const setLoginItem = (enabled) => {
-    loginItem.set(enabled);
-    wrapper.setLaunchAtLoginState(loginItem.get() === true); // report what the OS actually says
+    loginItemState.set(enabled);
+    wrapper.setLaunchAtLoginState(loginItemState.get() === true); // regular: report OS state; actor: disabled synthetic state
   };
   // One bounded in-flight batch: fixed effects run in order, each guarded by disposal/generation.
   /** @param {number} generation */

@@ -8,21 +8,27 @@ import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from './hermes-desktop-config.mjs
 const SHA256 = /^[a-f0-9]{64}$/;
 const REVISION = /^[a-f0-9]{40}$/;
 const failure = () => new Error('Qualification Hermes runtime unavailable');
+/** @param {string | Buffer} bytes */
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
+/** @param {string} name */
 const canonicalName = (name) => name.toLowerCase().replace(/[-_.]+/g, '-');
 
+/** @param {string} path @param {number} mode @param {boolean} [directory] */
 function privateOwned(path, mode, directory = false) {
   const stat = lstatSync(path);
   if (realpathSync(path) !== path || stat.isSymbolicLink() || stat.uid !== process.getuid?.()
     || (stat.mode & 0o777) !== mode || (directory ? !stat.isDirectory() : !stat.isFile() || stat.nlink !== 1)) throw failure();
 }
 
+/** @param {string} root @param {string} path */
 function inside(root, path) {
   return path.startsWith(`${root}${sep}`);
 }
 
+/** @param {string} root @param {string} expectedRevision */
 function cleanPinnedSource(root, expectedRevision) {
   if (!REVISION.test(expectedRevision)) throw failure();
+  /** @param {...string} args */
   const git = (...args) => execFileSync('/usr/bin/git', ['--no-optional-locks', '-C', root, ...args], {
     encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'ignore'],
     env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
@@ -31,8 +37,10 @@ function cleanPinnedSource(root, expectedRevision) {
     || git('status', '--porcelain=v1', '--untracked-files=all')) throw failure();
 }
 
+/** @param {string} root */
 function lockedInstalledPackages(root) {
   const lock = readFileSync(join(root, 'uv.lock'), 'utf8');
+  /** @type {Map<string, Set<string>>} */
   const locked = new Map();
   for (const block of lock.split(/(?:^|\n)\[\[package\]\]\n/).slice(1)) {
     const name = /^name = "([^"]+)"/m.exec(block)?.[1];
@@ -40,7 +48,7 @@ function lockedInstalledPackages(root) {
     if (name && version) {
       const key = canonicalName(name);
       if (!locked.has(key)) locked.set(key, new Set());
-      locked.get(key).add(version);
+      locked.get(key)?.add(version);
     }
   }
   if (!locked.size) throw failure();
@@ -60,8 +68,11 @@ function lockedInstalledPackages(root) {
   return installed.length;
 }
 
+/** @param {string} root */
 function runtimeFiles(root) {
+  /** @type {Record<string, {link?: string, sha256?: string}>} */
   const files = {};
+  /** @param {string} path */
   const visit = (path) => {
     const stat = lstatSync(path);
     if (stat.uid !== process.getuid?.()) throw failure();
@@ -85,6 +96,7 @@ function runtimeFiles(root) {
 }
 
 /** Build the immutable 0600 manifest after a guarded `uv sync --frozen` into this private root. */
+/** @param {string} runtimeRoot @param {string} [expectedRevision] */
 export function snapshotQualificationHermesRuntime(runtimeRoot, expectedRevision = PINNED_HERMES_DESKTOP_SOURCE_COMMIT) {
   try {
     if (typeof runtimeRoot !== 'string' || !runtimeRoot.startsWith('/private/tmp/') || resolve(runtimeRoot) !== runtimeRoot) throw failure();
@@ -108,6 +120,7 @@ export function snapshotQualificationHermesRuntime(runtimeRoot, expectedRevision
 }
 
 /** Called on every synthetic Hermes attach; never reads a normal user profile or PATH. */
+/** @param {string} fixtureRoot @param {string} [expectedRevision] */
 export function qualificationHermesHostOptions(fixtureRoot, expectedRevision = PINNED_HERMES_DESKTOP_SOURCE_COMMIT) {
   try {
     if (typeof fixtureRoot !== 'string' || !fixtureRoot.startsWith('/private/tmp/') || resolve(fixtureRoot) !== fixtureRoot) throw failure();

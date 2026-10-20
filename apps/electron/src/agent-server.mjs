@@ -19,6 +19,7 @@ import { promisify } from 'node:util';
 import { normalizeRemoteProductionApiBase } from '../../shared/production-api-base.mjs';
 import { capabilityMaterial } from './human-approval-main-signer.mjs';
 import { createQualificationApprovalSigner } from './qualification-approval-signer.mjs';
+import { assertQualificationModelLoan } from './qualification-model-loan.mjs';
 
 const run = promisify(execFile);
 const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -108,6 +109,7 @@ function readQualificationFixtureManifest({ manifestPath = process.env.RHYTHM_QU
       const token=readFileSync(actor.tokenPath,'utf8');
       if(!/^[a-f0-9]{64}$/.test(token) || createHash('sha256').update(token).digest('hex')!==m.tokenSha256)
         throw new Error('qualification synthetic actor token invalid');
+      assertQualificationModelLoan(m);
       return {manifest:m,token};
     }
     return {manifest:m,token:null};
@@ -128,7 +130,7 @@ export function loadQualificationSyntheticActor(options = {}) {
     throw new Error('qualification synthetic actor userData contains regular account state');
   const approvalSigner=fixture.manifest.syntheticActor.approvalSigner
     ? createQualificationApprovalSigner({
-      manifestPath:options.manifestPath ?? process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST,
+      manifestPath:options.manifestPath ?? process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST ?? '',
       readAuthority:()=>readQualificationFixtureManifest(options),
     }) : undefined;
   return Object.freeze({token:fixture.token,ownerUserId:fixture.manifest.ownerUserId,fixtureRoot:fixture.manifest.fixtureRoot,

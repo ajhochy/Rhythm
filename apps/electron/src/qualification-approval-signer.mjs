@@ -4,8 +4,10 @@ import { createHash, createPrivateKey, createPublicKey, sign, verify } from 'nod
 import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
+/** @param {string | Buffer} value */
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 
+/** @param {string} path @param {number} mode @param {boolean} [directory] */
 function privateOwned(path, mode, directory = false) {
   const stat = lstatSync(path);
   if (realpathSync(path) !== path || stat.isSymbolicLink() || stat.uid !== process.getuid?.()
@@ -14,6 +16,7 @@ function privateOwned(path, mode, directory = false) {
   }
 }
 
+/** @param {string} path */
 function readPrivateFile(path) {
   privateOwned(path, 0o600);
   const before = lstatSync(path);
@@ -30,11 +33,13 @@ function readPrivateFile(path) {
   }
 }
 
+/** @param {any} value @param {string[]} keys */
 function exactKeys(value, keys) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 }
 
+/** @param {any} decision */
 function boundedDecision(decision) {
   return exactKeys(decision, ['approvalId', 'status', 'decisionNonce', 'payloadDigest'])
     && typeof decision.approvalId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(decision.approvalId)
@@ -115,6 +120,7 @@ export function createQualificationApprovalSigner({ manifestPath, readAuthority 
       return { humanApprovalPublicKey: publicPoint, humanApprovalCapabilitySha256: sha256(capability) };
     },
     async capability() { return read().capability; },
+    /** @param {any} decision */
     async signDecision(decision) {
       if (!boundedDecision(decision)) throw new Error('Invalid approval decision');
       const { privateKey, publicKey, capability } = read();

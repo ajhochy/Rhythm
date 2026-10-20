@@ -6,6 +6,7 @@ import { join } from 'path';
 import { OAuthAccount, OAuthAccountsStore } from './anthropic_accounts_store';
 import { OAuthAccountsService, RefreshedTokens } from './anthropic_accounts_service';
 import { logger } from '../utils/logger';
+import { loadQualificationFixtureAuthority } from './qualification_fixture_authority';
 
 /**
  * Multi-account OpenAI (ChatGPT / Codex OAuth) — the OpenAI sibling of the
@@ -146,6 +147,7 @@ export class OpenAIAccountsService extends OAuthAccountsService<OpenAIAccount> {
 
   /** Import the existing single engine OpenAI login as account #1 (empty store only). */
   migrateFromEngine(): boolean {
+    if (loadQualificationFixtureAuthority()) return false;
     if (this.hasAccounts()) return false;
     const cred = this.readEngineCredential();
     if (!cred) return false;
@@ -172,6 +174,7 @@ export class OpenAIAccountsService extends OAuthAccountsService<OpenAIAccount> {
    * different account's stale seed; that is never adopted.
    */
   syncFromEngine(): void {
+    if (loadQualificationFixtureAuthority()) return;
     const def = this.defaultAccount();
     const cred = this.readEngineCredential();
     if (!def || !cred || cred.refresh === def.refresh) return;
@@ -192,8 +195,21 @@ export class OpenAIAccountsService extends OAuthAccountsService<OpenAIAccount> {
   }
 
   override async refreshAll(): Promise<void> {
+    // A qualification loan contains access only. Never adopt or rotate an engine
+    // credential: OAuth refresh tokens are single-use and belong to the operator.
+    if (loadQualificationFixtureAuthority()) return;
     this.syncFromEngine();
     await super.refreshAll();
+  }
+
+  override startRefreshLoop(): void {
+    if (loadQualificationFixtureAuthority()) return;
+    super.startRefreshLoop();
+  }
+
+  protected override async refreshAccount(account: OpenAIAccount): Promise<OpenAIAccount | null> {
+    if (loadQualificationFixtureAuthority()) return null;
+    return super.refreshAccount(account);
   }
 
   /**

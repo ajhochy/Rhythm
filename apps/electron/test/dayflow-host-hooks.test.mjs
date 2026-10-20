@@ -194,6 +194,7 @@ async function hostRuntime({
     else if (name === './human-approval-main-signer.mjs') values = { capability: async () => '', signDecision: async () => ({}) };
     else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled' }), onStatus() {}, async start() {}, async stop() {} }) };
     else if (name === './qualification-hermes-runtime.mjs') values = { qualificationHermesHostOptions: () => { throw new Error('not exercised'); } };
+    else if (name === './qualification-model-loan.mjs') values = { armQualificationModelLoanDeadline: () => { throw new Error('not exercised'); } };
     else if (name === './policy.mjs') values = {
       createExternalOpenLimiter: () => () => true, deepLinkFromArgv: () => undefined, externalHttpUrl: (value) => typeof value === 'string' ? value : null,
       resolveAsset: () => undefined, validateRequest: () => false, webDist: '/fixture/web',

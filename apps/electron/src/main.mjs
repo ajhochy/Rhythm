@@ -25,6 +25,7 @@ import { createHermesAccountsMain } from './hermes-accounts-main.mjs';
 import { createAgentBridgeHost } from './hermes-agent-bridge.mjs';
 import { bindHermesViewSupervisor, registerHermesView } from './hermes-view.mjs';
 import { qualificationHermesHostOptions } from './qualification-hermes-runtime.mjs';
+import { armQualificationModelLoanDeadline } from './qualification-model-loan.mjs';
 import { installHermesDesktopUpdate } from './hermes-desktop-updates.mjs';
 import { registerColonyHost } from './colony-host.mjs';
 import { runColonySmoke } from './colony-smoke.mjs';
@@ -48,10 +49,14 @@ for (const stream of [process.stdout, process.stderr]) {
 }
 const isSmoke = process.argv.includes('--smoke');
 const isInteractiveSmoke = process.argv.includes('--interactive-smoke');
-const qualificationSyntheticActor = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST ? agentServerFixture.loadQualificationSyntheticActor() : null;
+const qualificationFixtureManifestPath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
+const qualificationSyntheticActor = qualificationFixtureManifestPath ? agentServerFixture.loadQualificationSyntheticActor() : null;
 const qualificationActorManifestSha256 = qualificationSyntheticActor
-  ? createHash('sha256').update(readFileSync(process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST)).digest('hex') : null;
+  ? createHash('sha256').update(readFileSync(qualificationFixtureManifestPath ?? '')).digest('hex') : null;
 if (qualificationSyntheticActor && (isSmoke || isInteractiveSmoke)) throw new Error('qualification synthetic actor requires an ordinary packaged launch');
+if (qualificationSyntheticActor) armQualificationModelLoanDeadline({
+  manifest: JSON.parse(readFileSync(qualificationFixtureManifestPath ?? '', 'utf8')), app,
+});
 const allowTestRuntimePorts = (isSmoke || isInteractiveSmoke) && process.argv.includes('--allow-test-runtime-ports');
 if (isInteractiveSmoke && (!process.env.RHYTHM_SHELL_USER_DATA || !isAbsolute(process.env.RHYTHM_SHELL_USER_DATA))) {
   throw new Error('--interactive-smoke requires an explicit absolute RHYTHM_SHELL_USER_DATA path');
@@ -137,6 +142,7 @@ if (hasSingleInstanceLock) {
       : (process.env.RHYTHM_NATIVE_DAYFLOW_DATA_ROOT && isAbsolute(process.env.RHYTHM_NATIVE_DAYFLOW_DATA_ROOT))
       ? process.env.RHYTHM_NATIVE_DAYFLOW_DATA_ROOT
       : join(app.getPath('userData'), 'df'),
+    qualificationActor: qualificationSyntheticActor ?? undefined,
     identity: { bundleIdentifier: RHYTHM_BUNDLE_IDENTIFIER, displayName: 'Rhythm', shortVersion: app.getVersion(), build: app.getVersion() },
     isSupported: () => process.platform === 'darwin',
     exists: (/** @type {string} */ path) => existsSync(path),
@@ -161,7 +167,11 @@ if (hasSingleInstanceLock) {
     loadEncrypted: () => readFile(remoteAttachGrantPath),
     saveEncrypted: async (bytes) => { await mkdir(dirname(remoteAttachGrantPath), { recursive: true }); await writeFile(remoteAttachGrantPath, bytes, { mode: 0o600 }); },
     clearEncrypted: async () => { try { await rm(remoteAttachGrantPath, { force: true }); } catch {} },
-    safeStorage: qualificationSyntheticActor ? { isEncryptionAvailable: () => false } : safeStorage,
+    safeStorage: qualificationSyntheticActor ? {
+      isEncryptionAvailable: () => false,
+      encryptString: () => { throw new Error('qualification remote grant unavailable'); },
+      decryptString: () => { throw new Error('qualification remote grant unavailable'); },
+    } : safeStorage,
     env: qualificationSyntheticActor ? { ...process.env, RHYTHM_REMOTE_ATTACH: 'false' } : process.env,
   });
   /** @type {string | null} */
@@ -347,12 +357,12 @@ if (hasSingleInstanceLock) {
       if (!currentActor || currentActor.token !== qualificationSyntheticActor.token
         || currentActor.ownerUserId !== qualificationSyntheticActor.ownerUserId
         || currentActor.fixtureRoot !== qualificationSyntheticActor.fixtureRoot
-        || createHash('sha256').update(readFileSync(process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST)).digest('hex') !== qualificationActorManifestSha256)
+        || createHash('sha256').update(readFileSync(qualificationFixtureManifestPath ?? '')).digest('hex') !== qualificationActorManifestSha256)
         throw new Error('Qualification Hermes runtime unavailable');
       const staged = qualificationHermesHostOptions(qualificationSyntheticActor.fixtureRoot);
       const { hermesHome } = staged;
       try { mkdirSync(hermesHome, { mode: 0o700 }); }
-      catch (error) { if (error?.code !== 'EEXIST') throw error; }
+      catch (error) { if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'EEXIST') throw error; }
       const home = lstatSync(hermesHome);
       if (realpathSync(hermesHome) !== hermesHome || !home.isDirectory() || home.isSymbolicLink() ||
         home.uid !== process.getuid?.() || (home.mode & 0o777) !== 0o700)
@@ -1122,7 +1132,7 @@ if (hasSingleInstanceLock) {
     if (qualificationSyntheticActor) {
       const signer = qualificationSyntheticActor.approvalSigner;
       if (!signer || !productionSessionToken || productionSessionUser?.id !== qualificationSyntheticActor.ownerUserId
-        || agentServer.status?.status !== 'ready' || agentServer.status?.owned !== true) {
+        || agentServer?.status?.status !== 'ready' || agentServer?.status?.owned !== true) {
         throw new Error('qualification fixture approval signer unavailable');
       }
       const generation = authGeneration;
@@ -1146,12 +1156,12 @@ if (hasSingleInstanceLock) {
     requireOwnedApprovalRuntime();
     if (qualificationSyntheticActor && (!qualificationSyntheticActor.approvalSigner
       || !productionSessionToken || productionSessionUser?.id !== qualificationSyntheticActor.ownerUserId
-      || agentServer.status?.status !== 'ready' || agentServer.status?.owned !== true)) {
+      || agentServer?.status?.status !== 'ready' || agentServer?.status?.owned !== true)) {
       throw new Error('qualification fixture approval signer unavailable');
     }
     const generation = authGeneration;
     const signature = await (qualificationSyntheticActor
-      ? qualificationSyntheticActor.approvalSigner.signDecision(decision)
+      ? qualificationSyntheticActor.approvalSigner?.signDecision(decision)
       : humanApprovalSigner.signDecision(decision));
     if (generation !== authGeneration || !ownsDocument(event)) throw new Error('Signing context changed');
     cancelNativeNotification(decision.approvalId);

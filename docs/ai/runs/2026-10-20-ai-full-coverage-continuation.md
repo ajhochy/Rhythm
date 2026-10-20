@@ -79,3 +79,14 @@ Native Recon also exposed cookbook closing its editor on503. Rendered regression
 An additional synthetic-only usage-budget Keychain discovery path is closed in `66f846eda8`: focused REDobservedoperatorreader1call→GREEN30/30. No credential borrowing has been performed; a bounded selected-account/access-only+independentDecisions-key plan remains pending.
 
 Integrated source blast radius: live store permission hydration, cookbook save dialog lifetime, live settings admin-only snapshot/card, exact Hermes artifact pin and synthetic-only usage guard. GitNexus detect_changes LOW/11indexed symbols/0processes, stale269commits; manual source callers reviewed. All new packaged coverage still requires Confirm;77active inventory groups are not globally green.
+
+
+## Private model loan and native isolation freeze
+
+Optional model qualification now loans one explicitly selected OpenAI access token and a separate Decisions API key into an exact-build private synthetic fixture, with no OAuth refresh token. The creator compares reviewed nonsecret router settings, validates canonical owner-only source files, binds credential projections/settings hashes and a maximum ten-minute deadline, and never writes operator sources. Main quits at that deadline; API and Electron authorities revalidate on reads. Qualification account discovery, engine credential adoption and refresh entry points fail closed. No actual operator credential has been read or materialized at this freeze.
+
+Dayflow native actor preferences/keychain use nonce-bound private namespaces. Synthetic native login-item events report a disabled fixture state without OS login-item reads/writes; normal launch retains its real adapter. Real recovered sidecar handoff checks31/31 pass. Recovery produced a new honest source manifest and compiled stage; final tracked wrapper/layout/signing are still pending this freeze.
+
+Integrated checks: Electron full584 total,579pass,5skip,0fail (`/private/tmp/rhythm-electron-loan-final.log`); focused API18/18; guarded API build exit0 (`/private/tmp/rhythm-loan-api-build-final.log`); Electron typecheck0; web typecheck0 and discovery of new profile/MCP/native approval/retention cases. GitNexus detect-changes16files/32symbols/0processes/LOW, index270commits stale. Manual blast remains HIGH at main startup and qualification authority; those paths require actual private packaged confirmation after rebuild. No full API/native aggregate green claim.
+
+The legacy approval read/refresh cases now seed an inert exact nonce-owned pending card only under explicit private manifest authority. This does not close the elapsed one-hour TTL or model side-effect gap. Test-only Runs navigation now opens Details before selecting Runs. Generated Electron screenshot is excluded from this source freeze.

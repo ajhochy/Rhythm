@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { snapshotQualificationHermesRuntime } from '../../apps/electron/src/qualification-hermes-runtime.mjs';
 import { seedQualificationHermesHistory } from './qualification_hermes_history.mjs';
 import { profileKeyFor } from '../../apps/electron/src/colony-preferences.mjs';
+import { assertQualificationModelLoan, provisionQualificationModelLoan } from '../../apps/electron/src/qualification-model-loan.mjs';
 
 function owned(file, mode, directory = false) {
   const st = lstatSync(file);
@@ -63,6 +64,7 @@ export function readQualificationFixture(manifestPath, expectedRevision) {
     if (createHash('sha256').update(readFileSync(ref.manifestPath)).digest('hex') !== ref.manifestSha256)
       throw new Error('Qualification Hermes runtime manifest changed');
   }
+  assertQualificationModelLoan(m);
   return { manifest: m, userDataPath };
 }
 
@@ -119,6 +121,11 @@ export function createQualificationFixture(sourceRevision, { hermesRuntimeRoot =
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
   readQualificationFixture(manifestPath, sourceRevision);
   return manifestPath;
+}
+
+/** The only creator-side loan entry point: reuse the full fixture authority before any credential read or write. */
+export function provisionQualificationFixtureModelLoan(options) {
+  return provisionQualificationModelLoan({ ...options, readFixture: readQualificationFixture });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href)

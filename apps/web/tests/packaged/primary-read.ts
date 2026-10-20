@@ -41,6 +41,8 @@ export async function openExistingPrimary(page: Page) {
 }
 
 export async function openRuns(page: Page) {
+  const details = page.getByTestId('session-details');
+  if (await details.getAttribute('aria-expanded') === 'false') await details.click();
   const collapsed = page.getByTestId('inspector-collapsed-runs');
   if (await collapsed.isVisible()) await collapsed.click();
   else await page.getByTestId('inspector-runs').click();

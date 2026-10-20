@@ -9,6 +9,7 @@ import { exchangeDesktopAuthorizationCode } from '../src/google-oauth-core.mjs';
 import { AGENT_SERVER_KEYS, AUTH_KEYS, GATEWAY_KEYS, UPDATE_KEYS } from '../src/security-smoke-receipt.mjs';
 
 const A = 'https://a.example', B = 'https://b.example';
+const FIXTURE_TOKEN = 'f'.repeat(64);
 const decision = { approvalId: 'approval-1', status: 'approved', decisionNonce: 'nonce-1', payloadDigest: null };
 const tick = () => new Promise((r) => setImmediate(r));
 
@@ -21,10 +22,14 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
   /** Resolves only after the actual preload bridge has been installed. */
   let resolveInitialBridge;
   const initialBridgeReady = new Promise((resolve) => { resolveInitialBridge = resolve; });
-  let quits = 0, exits = 0;
+  let quits = 0, exits = 0, runtimeStops = 0;
+  let loanDeadline;
   const app = Object.assign(new EventEmitter(), {
     getPath: () => directory, requestSingleInstanceLock: () => true, isReady: () => false,
-    setPath() {}, whenReady: async () => {}, getVersion: () => 'test', quit() { quits += 1; }, exit() { exits += 1; },
+    setPath() {}, whenReady: async () => {}, getVersion: () => 'test', quit() {
+      quits += 1;
+      if (options.syntheticLoanDeadline && quits === 1) this.emit('before-quit', { preventDefault() {} });
+    }, exit() { exits += 1; },
   });
   if (initialSession) {
     await writeFile(join(directory, 'auth-session.bin'), Buffer.from(JSON.stringify({ productionApiBase: A, sessionToken: initialSession, user: { id: 1 } })));
@@ -72,6 +77,7 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
     status = { status: 'ready', owned: syntheticActor };
     onStatusChange() {}
     async start() { starts.push(this.options?.relayConfigurationProvider?.()); return this.status; }
+    async stopForQuit() { runtimeStops += 1; }
   }
   const safeStorage = options.safeStorage ?? { isEncryptionAvailable: () => true, encryptString: (value) => Buffer.from(value), decryptString: (value) => value.toString() };
   const signer = options.signer ?? { capability: async () => 'capability', signDecision: async (value) => { signed.push(value); return { signature: 'signature' }; } };
@@ -93,12 +99,15 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
   const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.url = file.href; meta.dirname = directory; } });
   await module.link(async (name) => {
     let values;
-    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification, protocol: { registerSchemesAsPrivileged() {}, handle: (key, fn) => protocols.set(key, fn) }, safeStorage, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal(url) { opened.push(url); } }, dialog: { showErrorBox() {} } };
+    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn), removeHandler: (key) => handlers.delete(key) }, net: {}, Notification, protocol: { registerSchemesAsPrivileged() {}, handle: (key, fn) => protocols.set(key, fn) }, safeStorage, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal(url) { opened.push(url); } }, dialog: { showErrorBox() {} } };
     else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096,
       electronDbPath: () => join(directory, 'electron.db'), legacyFlutterDbPath: () => join(directory, 'legacy.db'),
-      loadQualificationSyntheticActor: () => syntheticActor ? { token: 'fixture-token', ownerUserId: 1, fixtureRoot: directory,
+      loadQualificationSyntheticActor: () => syntheticActor ? { token: FIXTURE_TOKEN, ownerUserId: 1, fixtureRoot: directory,
         ...(options.syntheticSigner ? { approvalSigner: options.syntheticSigner } : {}) } : null };
-    else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled', port: 9121, url: 'http://127.0.0.1:9121' }), onStatus() {}, async start() {}, async stop() {} }) };
+    else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled', port: 9121, url: 'http://127.0.0.1:9121' }), onStatus() {}, async start() {}, async stop() { runtimeStops += 1; } }) };
+    else if (name === './qualification-model-loan.mjs' && options.syntheticLoanDeadline) values = {
+      armQualificationModelLoanDeadline: ({ app }) => { loanDeadline = () => app.quit(); },
+    };
     else if (name === './desktop-google-oauth.mjs') values = { runDesktopGoogleOAuth: (options) => new Promise((resolve) => { logins.push({ options, resolve }); if (immediateLogin) resolve({ sessionToken: 'unexpected', user: { id: 1 } }); }) };
     else if (name === './human-approval-main-signer.mjs') values = signer;
     else if (name === './qualification-hermes-runtime.mjs' && options.syntheticHermesHostOptions) values = {
@@ -116,6 +125,7 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
   return {
     windows, logins, requests, signed, opened, handlers, listeners, agentServerOptions, starts, quits: () => quits, exits: () => exits,
     fixtureRoot: directory, hermesCredentialOptions: () => hermesViewOptions.getBackendCredentialOptions(),
+    loanDeadline: () => loanDeadline?.(), runtimeStops: () => runtimeStops,
     current: () => windows.at(-1),
     event: () => ({ sender: windows.at(-1).webContents, senderFrame: windows.at(-1).webContents.mainFrame }),
     artifact: () => protocols.get('rhythm-artifact')({ url: 'rhythm-artifact://app/00000000-0000-4000-8000-000000000801', method: 'GET' }),
@@ -228,9 +238,9 @@ test('qualification actor signs in through owned local auth without safeStorage,
   grant(wrongOrigin);
   assert.equal(wrongOrigin.returnValue, null);
   ownedFrame.url = 'rhythm://app/index.html';
-  assert.equal((await h.current().bridge.auth.currentSession()).sessionToken, 'fixture-token');
+  assert.equal((await h.current().bridge.auth.currentSession()).sessionToken, FIXTURE_TOKEN);
   assert.deepEqual(h.requests.filter((request) => String(request.url).endsWith('/auth/me')),
-    [{ url: 'http://127.0.0.1:4001/auth/me', bearer: 'Bearer fixture-token' }]);
+    [{ url: 'http://127.0.0.1:4001/auth/me', bearer: `Bearer ${FIXTURE_TOKEN}` }]);
   assert.equal(h.agentServerOptions.relayConfigurationProvider(), undefined);
   await assert.rejects(async () => h.current().bridge.auth.signInWithGoogle(), /external OAuth/);
   await assert.rejects(async () => h.current().bridge.gateway.setProductionApiBase(B), /origin is fixed/);
@@ -274,6 +284,15 @@ test('qualification actor signs only an owned UI decision through its private si
 test('qualification actor refuses Hermes without an attested private backend', async (t) => {
   const h = await host(t, false, undefined, undefined, undefined, { syntheticActor: true });
   assert.throws(() => h.hermesCredentialOptions(), /Qualification Hermes runtime unavailable/);
+});
+
+test('qualification loan deadline follows the ordinary main-process owned-runtime shutdown path', async (t) => {
+  const h = await host(t, false, undefined, undefined, undefined, { syntheticActor: true, syntheticLoanDeadline: true });
+  assert.equal(h.runtimeStops(), 0);
+  h.loanDeadline();
+  await tick();
+  assert.ok(h.quits() >= 1);
+  assert.ok(h.runtimeStops() >= 2, 'API and Hermes owned runtimes both stopped after app quit');
 });
 
 test('qualification actor passes only attested private Hermes options to its host', async (t) => {
