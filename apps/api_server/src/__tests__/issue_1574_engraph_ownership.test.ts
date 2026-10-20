@@ -188,6 +188,7 @@ it('freshness refreshes only the approved root and fails semantic retrieval clos
   await expectEnabled(instance);
 
   expect(instance.requestMemoryRefresh({ memoryDir, destructive: false })).toBe(true);
+  expect(instance.getStatus().state).toBe('indexing');
   await expect(instance.getRetrievalClient().search('synthetic pending', 1)).resolves.toEqual([]);
   await waitFor(
     () => instance.getStatus().freshness,

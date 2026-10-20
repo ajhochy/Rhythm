@@ -682,12 +682,19 @@ export class EngraphManager {
       ? current.classification === 'owned' ? 'owned' : 'reused'
       : backends.length > 0 || existsSync(lock) ? 'foreign' : 'none';
     const freshnessOwner = reused && reused !== this ? reused : this;
+    const freshness = freshnessOwner.refreshScheduler.getStatus();
+    // A queued or running refresh has already made managed retrieval ineligible.
+    // Do not publish the persisted prior "ready" state while the old backend
+    // is being stopped/reindexed, even before _doStart records "indexing".
+    const state = cfg.enabled && cfg.state === 'ready' && freshness.state !== 'idle'
+      ? freshness.state === 'error' ? 'error' : 'indexing'
+      : cfg.state;
     return {
       backendCount: backends.length,
       backendOwnership,
       backends,
       enabled: cfg.enabled,
-      state: cfg.state,
+      state,
       executablePath: cfg.executablePath,
       discoverySource: cfg.discoverySource,
       version: this.version,
@@ -697,7 +704,7 @@ export class EngraphManager {
       lastFailureCategory: cfg.lastFailureCategory,
       lastFailureMessage: cfg.lastFailureMessage,
       freshness: {
-        ...freshnessOwner.refreshScheduler.getStatus(),
+        ...freshness,
         errorCategory: freshnessOwner.freshnessErrorCategory,
       },
     };
