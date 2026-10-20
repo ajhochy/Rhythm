@@ -973,6 +973,50 @@ the profile. Advanced can open before its catalog arrives, so selecting a profil
 precondition. Action waits are bounded to 15 seconds; provider-response assertions have their
 own longer limits. The temporary cwd is explicitly changed to clear any prior branch choice.
 
+### Month-wide AI behavior qualification (2026-10-20)
+
+The AI inventory is `docs/ai/plans/2026-10-20-ai-feature-test-inventory.json` and its
+Markdown companion. Public issue/PR evidence and the complete September 20–October 20
+commit ledger are beside it. Existing fixture tests are retained as focused protection;
+their names, including `.live.redspec`, do not establish real runtime coverage.
+
+Run from the task worktree root, after quitting Rhythm:
+
+```sh
+# Default is this worktree's locally built apps/electron/dist/Rhythm.app.
+# Verifies its exact embedded revision, mega ancestry, unchanged product sources,
+# bundled/live engine identity, and the normal packaged lifecycle.
+RHYTHM_FEATURE_MODEL=1 node tools/testing/run_packaged_ai.mjs
+
+# Enumerate every runtime case and explicit UNVERIFIED coverage failure without launching.
+node tools/testing/run_packaged_ai.mjs --list
+
+# Diagnose one feature; this subset is never full AI qualification.
+RHYTHM_FEATURE_MODEL=1 node tools/testing/run_packaged_ai.mjs packaged-ai-companions.spec.ts
+```
+
+The command uses `packaged-ai-playwright.config.ts`, one worker, no retries, and
+includes the existing router/session/conversation/primary/Coordinator/approval specs.
+It also includes failing inventory-driven gaps. Reports go to
+`apps/web/test-results/ai-behavior.json` and `apps/web/playwright-report/ai-behavior`.
+Keep raw traces/screenshots private: they can contain the signed-in user's data.
+Only sanitized recon and result summaries belong in commits.
+
+The new checks use real catalog/readback/reload and one-request error injection,
+read-only memory/filter/search and skill content, schedule history/cancel, canonical
+shared-agent readiness, quality windows, and nonce-owned inert cookbook recipes.
+Recipe cleanup checks exact ownership, API absence and read-only SQLite absence;
+recipes are never run. No existing schedule is triggered or edited. No accounts,
+integration connections or global settings are changed.
+
+Hermes and Bot Crossing checks inspect their actual pinned CDP child pages, plus
+their real service/IPC data. Hermes draft tests never send; Bot Crossing reads never
+archive or open a real user's task in another harness. Dayflow readiness and actual
+native attachment are independent assertions: an absent module or rejected artifact
+must fail qualification. Native OS recording/privacy permissions are not granted.
+Current unmet execution/privacy/device/owner-fixture scenarios remain explicit
+`UNVERIFIED` failures rather than inheriting catalog or mocked-bridge success.
+
 The October 19 app was built locally with `apps/electron/scripts/package-mac.mjs`, then signed
 locally with `RHYTHM_SIGN_ONLY=1` (no GitHub build, upload, installation or notarization). The
 packager and signing commands ran under the shared 10 GiB build guard. See the run log for
