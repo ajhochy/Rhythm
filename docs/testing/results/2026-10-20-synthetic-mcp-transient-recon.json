@@ -1,0 +1,378 @@
+{
+  "phase": "Recon observations only",
+  "sourceRevision": "9dff6ab3761ea3c29a729d3c77804d8f0bf34efe",
+  "privateSyntheticActor": true,
+  "modelCalls": 0,
+  "responseEvents": [
+    {
+      "seenMs": 33,
+      "decodedMs": 40.4,
+      "status": 200,
+      "url": "/opencode/mcp",
+      "requestDirectoryHeader": null,
+      "serverCount": 0,
+      "rhythmStatus": null,
+      "rhythmToolCount": null
+    },
+    {
+      "seenMs": 33386.4,
+      "decodedMs": 33388.5,
+      "status": 200,
+      "url": "/opencode/mcp",
+      "requestDirectoryHeader": null,
+      "serverCount": 1,
+      "rhythmStatus": "connected",
+      "rhythmToolCount": 114
+    },
+    {
+      "seenMs": 86221.1,
+      "decodedMs": 86222.5,
+      "status": 200,
+      "url": "/opencode/mcp",
+      "requestDirectoryHeader": null,
+      "serverCount": 1,
+      "rhythmStatus": "connected",
+      "rhythmToolCount": 114
+    },
+    {
+      "seenMs": 86242.8,
+      "decodedMs": 86243.8,
+      "status": 200,
+      "url": "/opencode/mcp",
+      "requestDirectoryHeader": null,
+      "serverCount": 1,
+      "rhythmStatus": "connected",
+      "rhythmToolCount": 114
+    },
+    {
+      "seenMs": 106650.6,
+      "decodedMs": 106661.1,
+      "status": 200,
+      "url": "/opencode/mcp",
+      "requestDirectoryHeader": null,
+      "serverCount": 1,
+      "rhythmStatus": "connected",
+      "rhythmToolCount": 114
+    },
+    {
+      "seenMs": 107250.3,
+      "decodedMs": 107251.5,
+      "status": 200,
+      "url": "/opencode/mcp",
+      "requestDirectoryHeader": null,
+      "serverCount": 1,
+      "rhythmStatus": "connected",
+      "rhythmToolCount": 114
+    },
+    {
+      "seenMs": 108023.8,
+      "decodedMs": 108027.3,
+      "status": 200,
+      "url": "/opencode/mcp",
+      "requestDirectoryHeader": null,
+      "serverCount": 1,
+      "rhythmStatus": "connected",
+      "rhythmToolCount": 0,
+      "probeIndex": 0
+    }
+  ],
+  "probes": [
+    {
+      "triggerSeenMs": 108023.8,
+      "triggerDecodedMs": 108027.3,
+      "immediateEndMs": 108200,
+      "after300msEndMs": 108556.4,
+      "immediate": {
+        "engine": [
+          {
+            "context": "default",
+            "status": 200,
+            "beganMs": 108027.7,
+            "endedMs": 108187.1,
+            "route": "/mcp",
+            "body": {
+              "kind": "object",
+              "keys": [
+                "rhythm"
+              ],
+              "rhythmStatus": "connected",
+              "error": null
+            },
+            "error": null
+          },
+          {
+            "context": "default",
+            "status": 200,
+            "beganMs": 108027.8,
+            "endedMs": 108035.9,
+            "route": "/mcp/tools",
+            "body": {
+              "kind": "array",
+              "count": 114,
+              "stringCount": 114,
+              "rhythmStatus": null,
+              "rhythmToolCount": null,
+              "rhythmPrefixCount": 114
+            },
+            "error": null
+          },
+          {
+            "context": "apiServerCwd",
+            "status": 200,
+            "beganMs": 108028,
+            "endedMs": 108187.3,
+            "route": "/mcp",
+            "body": {
+              "kind": "object",
+              "keys": [
+                "rhythm"
+              ],
+              "rhythmStatus": "connected",
+              "error": null
+            },
+            "error": null
+          },
+          {
+            "context": "apiServerCwd",
+            "status": 200,
+            "beganMs": 108028.2,
+            "endedMs": 108036.3,
+            "route": "/mcp/tools",
+            "body": {
+              "kind": "array",
+              "count": 114,
+              "stringCount": 114,
+              "rhythmStatus": null,
+              "rhythmToolCount": null,
+              "rhythmPrefixCount": 114
+            },
+            "error": null
+          },
+          {
+            "context": "privateHome",
+            "status": 200,
+            "beganMs": 108028.3,
+            "endedMs": 108186.2,
+            "route": "/mcp",
+            "body": {
+              "kind": "object",
+              "keys": [
+                "rhythm"
+              ],
+              "rhythmStatus": "configured",
+              "error": null
+            },
+            "error": null
+          },
+          {
+            "context": "privateHome",
+            "status": 200,
+            "beganMs": 108028.4,
+            "endedMs": 108036.4,
+            "route": "/mcp/tools",
+            "body": {
+              "kind": "array",
+              "count": 0,
+              "stringCount": 0,
+              "rhythmStatus": null,
+              "rhythmToolCount": null,
+              "rhythmPrefixCount": 0
+            },
+            "error": null
+          },
+          {
+            "context": "ownedCwd",
+            "status": 200,
+            "beganMs": 108028.5,
+            "endedMs": 108186.5,
+            "route": "/mcp",
+            "body": {
+              "kind": "object",
+              "keys": [
+                "rhythm"
+              ],
+              "rhythmStatus": "configured",
+              "error": null
+            },
+            "error": null
+          },
+          {
+            "context": "ownedCwd",
+            "status": 200,
+            "beganMs": 108028.6,
+            "endedMs": 108036.7,
+            "route": "/mcp/tools",
+            "body": {
+              "kind": "array",
+              "count": 0,
+              "stringCount": 0,
+              "rhythmStatus": null,
+              "rhythmToolCount": null,
+              "rhythmPrefixCount": 0
+            },
+            "error": null
+          }
+        ],
+        "api": {
+          "beganMs": 108028.6,
+          "endedMs": 108200,
+          "status": 200,
+          "body": {
+            "kind": "array",
+            "count": 1,
+            "stringCount": 0,
+            "rhythmStatus": "connected",
+            "rhythmToolCount": 114,
+            "rhythmPrefixCount": 0
+          }
+        }
+      },
+      "after300ms": {
+        "engine": [
+          {
+            "context": "default",
+            "status": 200,
+            "beganMs": 108502.3,
+            "endedMs": 108528.5,
+            "route": "/mcp",
+            "body": {
+              "kind": "object",
+              "keys": [
+                "rhythm"
+              ],
+              "rhythmStatus": "connected",
+              "error": null
+            },
+            "error": null
+          },
+          {
+            "context": "default",
+            "status": 200,
+            "beganMs": 108502.5,
+            "endedMs": 108530.5,
+            "route": "/mcp/tools",
+            "body": {
+              "kind": "array",
+              "count": 114,
+              "stringCount": 114,
+              "rhythmStatus": null,
+              "rhythmToolCount": null,
+              "rhythmPrefixCount": 114
+            },
+            "error": null
+          },
+          {
+            "context": "apiServerCwd",
+            "status": 200,
+            "beganMs": 108502.6,
+            "endedMs": 108530.3,
+            "route": "/mcp",
+            "body": {
+              "kind": "object",
+              "keys": [
+                "rhythm"
+              ],
+              "rhythmStatus": "connected",
+              "error": null
+            },
+            "error": null
+          },
+          {
+            "context": "apiServerCwd",
+            "status": 200,
+            "beganMs": 108502.6,
+            "endedMs": 108530.9,
+            "route": "/mcp/tools",
+            "body": {
+              "kind": "array",
+              "count": 114,
+              "stringCount": 114,
+              "rhythmStatus": null,
+              "rhythmToolCount": null,
+              "rhythmPrefixCount": 114
+            },
+            "error": null
+          },
+          {
+            "context": "privateHome",
+            "status": 200,
+            "beganMs": 108502.7,
+            "endedMs": 108553,
+            "route": "/mcp",
+            "body": {
+              "kind": "object",
+              "keys": [
+                "rhythm"
+              ],
+              "rhythmStatus": "configured",
+              "error": null
+            },
+            "error": null
+          },
+          {
+            "context": "privateHome",
+            "status": 200,
+            "beganMs": 108502.7,
+            "endedMs": 108531,
+            "route": "/mcp/tools",
+            "body": {
+              "kind": "array",
+              "count": 0,
+              "stringCount": 0,
+              "rhythmStatus": null,
+              "rhythmToolCount": null,
+              "rhythmPrefixCount": 0
+            },
+            "error": null
+          },
+          {
+            "context": "ownedCwd",
+            "status": 200,
+            "beganMs": 108502.7,
+            "endedMs": 108553.6,
+            "route": "/mcp",
+            "body": {
+              "kind": "object",
+              "keys": [
+                "rhythm"
+              ],
+              "rhythmStatus": "configured",
+              "error": null
+            },
+            "error": null
+          },
+          {
+            "context": "ownedCwd",
+            "status": 200,
+            "beganMs": 108502.7,
+            "endedMs": 108531.5,
+            "route": "/mcp/tools",
+            "body": {
+              "kind": "array",
+              "count": 0,
+              "stringCount": 0,
+              "rhythmStatus": null,
+              "rhythmToolCount": null,
+              "rhythmPrefixCount": 0
+            },
+            "error": null
+          }
+        ],
+        "api": {
+          "beganMs": 108502.8,
+          "endedMs": 108556.3,
+          "status": 200,
+          "body": {
+            "kind": "array",
+            "count": 1,
+            "stringCount": 0,
+            "rhythmStatus": "connected",
+            "rhythmToolCount": 114,
+            "rhythmPrefixCount": 0
+          }
+        }
+      }
+    }
+  ],
+  "errors": []
+}
