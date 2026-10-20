@@ -110,7 +110,14 @@ test('capability summaries, disclosure, filtering and bulk edits retain individu
   await skills.getByRole('button', { name: 'Select all shown in group: Workspace skills' }).click();
   await expect(skills.locator('summary')).toContainText('2 of 6 selected');
   await page.getByTestId('profile-capability-filter').fill('');
+  await expect(skills).not.toHaveAttribute('open', '');
   await skills.locator('summary').click();
+  await expect(skills).toHaveAttribute('open', '');
+  await skills.locator('summary').focus();
+  await page.keyboard.press('Space');
+  await expect(skills).not.toHaveAttribute('open', '');
+  await page.keyboard.press('Enter');
+  await expect(skills).toHaveAttribute('open', '');
   await skills.getByRole('button', { name: 'Clear group: Workspace skills' }).click();
   await expect(skills.locator('summary')).toContainText('0 of 6 selected');
   await page.getByTestId('skill-planning').check();
