@@ -87,11 +87,21 @@ if (!manifestPath) {
     return response.json() as Promise<unknown>;
   };
   const expectIdle = async () => {
-    expect(await engine('/session'), 'no SDK sessions may use the private root cwd').toEqual([]);
+    // The fork's Session.list can ignore the directory filter under
+    // experimental workspaces; /session/status is a global status map.
+    const sessions = await engine('/session');
+    expect(Array.isArray(sessions), 'real engine session catalog shape').toBe(true);
+    for (const session of sessions as Array<{ id?: unknown; directory?: unknown }>) {
+      expect(typeof session.id).toBe('string');
+      expect(typeof session.directory).toBe('string');
+    }
+    const inRoot = (sessions as Array<{ id: string; directory: string }>).filter(session => session.directory === cwd);
+    expect(inRoot, 'no SDK sessions may use the private root cwd').toEqual([]);
     const status = await engine('/session/status');
-    expect((Array.isArray(status) && status.length === 0)
-      || (status !== null && typeof status === 'object' && Object.keys(status).length === 0),
-    'no engine work may use the private root cwd').toBe(true);
+    expect(status !== null && typeof status === 'object' && !Array.isArray(status),
+      'real engine status map shape').toBe(true);
+    expect(inRoot.filter(session => Object.hasOwn(status as object, session.id)),
+      'no engine work may use the private root cwd').toEqual([]);
   };
   await expectIdle();
 
