@@ -31,6 +31,9 @@ let connectShouldHang = false
 let connectError = "Mock transport cannot connect"
 let holdToolCalls = false
 let releaseToolCall: (() => void) | undefined
+let holdClientClose = false
+let clientCloseStarted: (() => void) | undefined
+let releaseClientClose: (() => void) | undefined
 // Tracks how many Client instances were created (detects leaks)
 let clientCreateCount = 0
 // Tracks how many times transport.close() is called across all mock transports
@@ -188,6 +191,10 @@ void mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
     }
 
     async close() {
+      if (holdClientClose) {
+        clientCloseStarted?.()
+        await new Promise<void>((resolve) => (releaseClientClose = resolve))
+      }
       if (this._state) this._state.closed = true
     }
   },
@@ -201,6 +208,9 @@ beforeEach(() => {
   connectError = "Mock transport cannot connect"
   holdToolCalls = false
   releaseToolCall = undefined
+  holdClientClose = false
+  clientCloseStarted = undefined
+  releaseClientClose = undefined
   clientCreateCount = 0
   transportCloseCount = 0
 })
@@ -397,6 +407,38 @@ it.instance(
       }),
     ),
   { config: { mcp: {} } },
+)
+
+it.instance(
+  "replacement never reports connected while its catalog is empty",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        lastCreatedClientName = "replace-catalog"
+        yield* mcp.add("replace-catalog", { type: "local", command: ["echo", "first"] })
+        expect((yield* mcp.status())["replace-catalog"].status).toBe("connected")
+        expect(mcp.catalog ? yield* mcp.catalog() : []).toEqual(["replace-catalog_test_tool"])
+
+        holdClientClose = true
+        const closeEntered = new Promise<void>((resolve) => (clientCloseStarted = resolve))
+        const replacement = yield* mcp
+          .add("replace-catalog", { type: "local", command: ["echo", "second"] })
+          .pipe(Effect.forkScoped)
+        try {
+          yield* Effect.promise(() => closeEntered)
+          const status = (yield* mcp.status())["replace-catalog"].status
+          const catalog = mcp.catalog ? yield* mcp.catalog() : []
+          if (status === "connected") expect(catalog).toContain("replace-catalog_test_tool")
+        } finally {
+          releaseClientClose?.()
+          holdClientClose = false
+        }
+        yield* Fiber.join(replacement)
+        expect((yield* mcp.status())["replace-catalog"].status).toBe("connected")
+        expect(mcp.catalog ? yield* mcp.catalog() : []).toEqual(["replace-catalog_test_tool"])
+      }),
+    ),
+  { config: { mcp: { "replace-catalog": { type: "local", command: ["echo", "first"] } } } },
 )
 
 it.instance(

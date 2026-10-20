@@ -135,7 +135,7 @@ opencodeMcpRouter.get(
   '/',
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
-      const statusMap = await opencodeClient.listMcp();
+      let statusMap = await opencodeClient.listMcp();
       const persistedConfigs = await opencodeClient.getPersistedMcpConfigs();
       // "Used by N profiles" is decoration: never let the profile lookup fail the list.
       let profileUsage: ReturnType<typeof buildProfileUsage> = {};
@@ -151,6 +151,24 @@ opencodeMcpRouter.get(
       } catch {
         // Tool discovery is an editor enhancement; server status remains useful
         // when an older/unready engine cannot expose the experimental catalog.
+      }
+
+      // Status and catalog are separate engine requests. A replacement can
+      // retire the old definitions between them; one stale connected snapshot
+      // must not make the bundled Rhythm server look connected with zero tools.
+      if (statusMap.rhythm?.status === 'connected' && !toolIds.some((id) => id.startsWith('rhythm_'))) {
+        statusMap = await opencodeClient.listMcp();
+        if (statusMap.rhythm?.status === 'connected') {
+          try {
+            toolIds = await opencodeClient.listMcpToolIds();
+          } catch {
+            // A second missing catalog is reported below for the connected
+            // bundled server; other server statuses retain the first result.
+          }
+          if (!toolIds.some((id) => id.startsWith('rhythm_'))) {
+            throw new AppError(503, 'MCP_CATALOG_UNAVAILABLE', 'Rhythm MCP tool catalog is not ready');
+          }
+        }
       }
 
       const entries = Object.entries(statusMap).map(([name, entry]) => {

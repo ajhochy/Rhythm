@@ -1134,6 +1134,10 @@ export const layer = Layer.effect(
             delete s.clients[name]
             delete s.defs[name]
             delete s.mcpAppsSupported[name]
+            // The transport and its advertised definitions are gone together.
+            // Do not report a connected server with an empty live catalog while
+            // its replacement is still closing this client.
+            if (s.status[name]?.status === "connected") s.status[name] = { status: "configured" }
             return true
           }),
         ),
@@ -1324,8 +1328,8 @@ export const layer = Layer.effect(
       const pending = s.bridge.promise(
         Effect.gen(function* () {
           const result = yield* create(name, mcp, s.oauthOwner)
-          s.status[name] = result.status
           if (!result.mcpClient) {
+            s.status[name] = result.status
             yield* closeClient(s, name)
             return result.status
           }
