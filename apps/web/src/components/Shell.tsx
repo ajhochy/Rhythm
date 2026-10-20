@@ -10,6 +10,7 @@ import { availableAgentToolIds } from '../agentTools/hosts';
 import { useAuthUser } from '../gateway/auth';
 import type { PendingApproval } from '../gateway/approvals';
 import { Splitter } from './Splitter';
+import { displayAccountIdentity } from './accountIdentity';
 
 type OverlayRect = { height: number; left: number; top: number; width: number };
 
@@ -87,7 +88,7 @@ export function navigate(path: string) {
   window.location.hash = path.startsWith('/') ? path : `/${path}`;
 }
 
-function Menu({ label, icon, children, testId, menuId, onOpenChange, onPopoverLayout, className = '', popoverClassName = '', triggerClassName, triggerContent, account = false }: { label: string; icon: IconName; children: React.ReactNode; testId: string; menuId: string; onOpenChange(menuId: string, open: boolean): void; onPopoverLayout(menuId: string, rect: OverlayRect | null): void; className?: string; popoverClassName?: string; triggerClassName?: string; triggerContent?: React.ReactNode; account?: boolean }) {
+function Menu({ label, icon, children, testId, menuId, onOpenChange, onPopoverLayout, className = '', popoverClassName = '', triggerClassName, triggerContent, account = false, accountIdentity = displayAccountIdentity() }: { label: string; icon: IconName; children: React.ReactNode; testId: string; menuId: string; onOpenChange(menuId: string, open: boolean): void; onPopoverLayout(menuId: string, rect: OverlayRect | null): void; className?: string; popoverClassName?: string; triggerClassName?: string; triggerContent?: React.ReactNode; account?: boolean; accountIdentity?: { name: string; initials: string } }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -125,7 +126,7 @@ function Menu({ label, icon, children, testId, menuId, onOpenChange, onPopoverLa
   return (
     <div className={`menu-anchor ${className}`} ref={ref} data-native-overlay-kind={menuId} data-native-overlay-open={open || undefined}>
       <button ref={trigger} className={triggerClassName ?? (account ? 'profile-control' : 'icon-button header-control')} type="button" aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => open ? closeMenu() : setOpen(true)} data-testid={testId}>
-        {triggerContent ?? (account ? <><span className="avatar">AJ</span><span className="account-copy"><strong>AJ Hochhalter</strong><small>Rhythm workspace</small></span><Icon name="chevronDown" size={14} /></> : <Icon name={icon} />)}
+        {triggerContent ?? (account ? <><span className="avatar">{accountIdentity?.initials}</span><span className="account-copy"><strong>{accountIdentity?.name}</strong><small>Rhythm workspace</small></span><Icon name="chevronDown" size={14} /></> : <Icon name={icon} />)}
       </button>
       {open && <div className={`menu-popover ${popoverClassName}`} role="menu" aria-label={label} onKeyDown={moveMenuFocus} onClick={(event) => { const button = (event.target as HTMLElement).closest('button'); if (button && !button.hasAttribute('data-menu-keep-open')) closeMenu(); }}>{children}</div>}
     </div>
@@ -148,7 +149,9 @@ const demoLabels: Record<DemoState, string> = {
 };
 
 export function Shell({ route, children }: { route: string; children: React.ReactNode }) {
-  const pinScope = useAuthUser()?.user.id;
+  const authUser = useAuthUser()?.user;
+  const pinScope = authUser?.id;
+  const accountIdentity = displayAccountIdentity(authUser?.name);
   const [pins, setPins] = useState(() => readAgentToolPins(pinScope));
   useEffect(() => {
     const refresh = () => setPins(readAgentToolPins(pinScope));
@@ -327,8 +330,8 @@ export function Shell({ route, children }: { route: string; children: React.Reac
               <button role="menuitem" className="menu-item stacked" type="button" onClick={() => notify('All notifications marked read')}><strong>Mark all read</strong><small>Clears unread status</small></button>
             </>}
           </Menu>
-          <Menu key={`${route}:account`} label="Account and settings" icon="profile" testId="account-button" menuId="account" onOpenChange={onMenuOpenChange} onPopoverLayout={onPopoverLayout} className="account-menu" account>
-            <div className="account-card"><span className="avatar">AJ</span><div><strong>AJ Hochhalter</strong><small>Rhythm workspace</small></div></div>
+          <Menu key={`${route}:account`} label="Account and settings" icon="profile" testId="account-button" menuId="account" onOpenChange={onMenuOpenChange} onPopoverLayout={onPopoverLayout} className="account-menu" account accountIdentity={accountIdentity}>
+            <div className="account-card"><span className="avatar">{accountIdentity.initials}</span><div><strong>{accountIdentity.name}</strong><small>Rhythm workspace</small></div></div>
             <button className="menu-item" role="menuitem" type="button" onClick={() => navigate('/profiles')} data-testid="account-profiles"><Icon name="profile" size={15} />Profiles</button>
             <button className="menu-item" role="menuitem" type="button" onClick={() => navigate('/tools/agent-settings')}><Icon name="settings" size={15} />Agent settings</button>
             <div className="prototype-diagnostics" role="group" aria-label="Workspace diagnostics">

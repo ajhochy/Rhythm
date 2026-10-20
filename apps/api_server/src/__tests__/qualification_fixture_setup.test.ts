@@ -33,6 +33,7 @@ import { DayflowGuardEnrollmentService, DayflowReceivingContextAuthorityService 
 import { DayflowReceivingContextRepository } from '../repositories/dayflow_receiving_context_repository';
 import { opencodeClient } from '../services/opencode_engine';
 import { SessionsRepository } from '../repositories/sessions_repository';
+import { WorkspaceRepository } from '../repositories/workspace_repository';
 import { authenticateIfPresent, requireAuth } from '../middleware/auth_middleware';
 
 let db: Database.Database, previous: Database.Database | null, root: string;
@@ -46,7 +47,7 @@ beforeEach(() => {
     label: id, icon: 'hub', enabled: true, isAgent: true, systemPrompt: 'Use only the approved scope.',
     corePermissionsJson: '{"read":"allow","edit":"ask","bash":"ask"}', allowedMcpsJson: '[]',
     modelProvider: 'openai', modelId: 'gpt-6.1-sol', ocAgent: id, reasoningEffort: 'xhigh' })) }));
-  state.authority = { fixtureRoot: root, dbPath: join(root, 'rhythm.db'), sourceRevision: 'a'.repeat(40),
+  state.authority = { fixtureRoot: root, dbPath: join(root, 'rhythm.db'), sourceRevision: 'a'.repeat(40), ownerId: 'invented-owner',
     ownerUserId: 1, profileSeedPath,
     publicUserSeed: { id: 1, name: 'Invented owner', email: 'fixture@example.invalid', googleSub: 'invented', timezone: 'UTC' } };
   writeFileSync(state.authority.dbPath, 'owned unit placeholder');
@@ -115,7 +116,12 @@ it('seeds a synthetic actor through ordinary auth middleware and keeps other bea
   writeFileSync(tokenPath, token); chmodSync(tokenPath, 0o600);
   state.authority.tokenSha256 = createHash('sha256').update(token).digest('hex');
   state.authority.syntheticActor = { tokenPath, expiresAt: new Date(Date.now() + 3_600_000).toISOString() };
+  const workspaces = new WorkspaceRepository();
+  expect(workspaces.findForUser(state.authority.ownerUserId)).toBeNull();
   bootstrapQualificationFixture();
+  const workspace = workspaces.findForUser(state.authority.ownerUserId);
+  expect(workspace).toMatchObject({ name: '[smoke] Qualification invented-owner', role: 'admin', createdBy: state.authority.ownerUserId });
+  expect(workspaces.listMembers(workspace!.id)).toMatchObject([{ userId: state.authority.ownerUserId, role: 'admin' }]);
   const sessions = new SessionsRepository();
   expect(sessions.findUserByToken(token)).toMatchObject({ id: state.authority.ownerUserId, email: 'fixture@example.invalid' });
   expect(sessions.findUserByToken('foreign-' + token)).toBeNull();
@@ -129,6 +135,10 @@ it('seeds a synthetic actor through ordinary auth middleware and keeps other bea
   expect(db.prepare('SELECT count(*) AS n FROM sessions').get()).toEqual({ n: 1 });
   bootstrapQualificationFixture();
   expect(db.prepare('SELECT count(*) AS n FROM sessions').get()).toEqual({ n: 1 });
+  expect(db.prepare('SELECT count(*) AS n FROM workspaces').get()).toEqual({ n: 1 });
+  expect(db.prepare('SELECT count(*) AS n FROM workspace_members').get()).toEqual({ n: 1 });
+  db.prepare('DELETE FROM workspace_members WHERE workspace_id=? AND user_id=?').run(workspace!.id, state.authority.ownerUserId);
+  expect(() => bootstrapQualificationFixture()).toThrow('qualification synthetic actor workspace membership invalid');
   db.prepare('INSERT INTO users(id,name,email,google_sub,timezone) VALUES (?,?,?,?,?)')
     .run(2, 'Foreign user', 'foreign@example.invalid', 'qualification-fixture:foreign', 'UTC');
   expect(() => bootstrapQualificationFixture()).toThrow('qualification synthetic actor found foreign user');

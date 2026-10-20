@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createContext, SourceTextModule, SyntheticModule, runInContext } from 'node:vm';
@@ -77,6 +77,7 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
   const signer = options.signer ?? { capability: async () => 'capability', signDecision: async (value) => { signed.push(value); return { signature: 'signature' }; } };
   const interactiveSmoke = options.interactiveSmoke === true;
   const syntheticActor = options.syntheticActor === true;
+  if (syntheticActor) await writeFile(join(directory, 'manifest.json'), JSON.stringify({ fixtureRoot: directory, syntheticActor: {} }), { mode: 0o600 });
   const context = createContext({ process: Object.assign(new EventEmitter(), {
     argv: interactiveSmoke ? ['--interactive-smoke'] : [],
     getuid: () => process.getuid(),
@@ -100,6 +101,9 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
     else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled', port: 9121, url: 'http://127.0.0.1:9121' }), onStatus() {}, async start() {}, async stop() {} }) };
     else if (name === './desktop-google-oauth.mjs') values = { runDesktopGoogleOAuth: (options) => new Promise((resolve) => { logins.push({ options, resolve }); if (immediateLogin) resolve({ sessionToken: 'unexpected', user: { id: 1 } }); }) };
     else if (name === './human-approval-main-signer.mjs') values = signer;
+    else if (name === './qualification-hermes-runtime.mjs' && options.syntheticHermesHostOptions) values = {
+      qualificationHermesHostOptions: options.syntheticHermesHostOptions,
+    };
     else if (name === './hermes-view.mjs') {
       const actual = await import(new URL(name, file).href);
       values = { ...actual, registerHermesView: (input) => { hermesViewOptions = input; return actual.registerHermesView(input); } };
@@ -267,17 +271,23 @@ test('qualification actor signs only an owned UI decision through its private si
   assert.equal(fixtureCalls, 2);
 });
 
-test('qualification actor gives the embedded Hermes host only a private fixture home', async (t) => {
+test('qualification actor refuses Hermes without an attested private backend', async (t) => {
   const h = await host(t, false, undefined, undefined, undefined, { syntheticActor: true });
+  assert.throws(() => h.hermesCredentialOptions(), /Qualification Hermes runtime unavailable/);
+});
+
+test('qualification actor passes only attested private Hermes options to its host', async (t) => {
+  const h = await host(t, false, undefined, undefined, undefined, { syntheticActor: true,
+    syntheticHermesHostOptions: (root) => ({ childHome: join(root, 'home'), hermesHome: join(root, 'hermes-home'),
+      backendExecutablePath: '/private/tmp/staged-hermes/.venv/bin/hermes' }),
+  });
   const options = h.hermesCredentialOptions();
   assert.equal(options.hermesHome, join(h.fixtureRoot, 'hermes-home'));
-  const owned = await stat(options.hermesHome);
-  assert.equal(owned.isDirectory(), true);
-  assert.equal(owned.mode & 0o777, 0o700);
+  assert.equal(options.childHome, join(h.fixtureRoot, 'home'));
+  assert.equal(options.backendExecutablePath, '/private/tmp/staged-hermes/.venv/bin/hermes');
   assert.deepEqual(Object.keys(await options.backendEnv({ profile: 'default' })), []);
-  await rename(options.hermesHome, join(h.fixtureRoot, 'hermes-home-original'));
-  await symlink(h.fixtureRoot, options.hermesHome);
-  assert.throws(() => h.hermesCredentialOptions(), /private owned directory/);
+  await writeFile(join(h.fixtureRoot, 'manifest.json'), JSON.stringify({ fixtureRoot: h.fixtureRoot, syntheticActor: {}, changed: true }), { mode: 0o600 });
+  assert.throws(() => h.hermesCredentialOptions(), /Qualification Hermes runtime unavailable/);
 });
 
 test('human approval: an unowned interactive runtime rejects before native signer use', async (t) => {

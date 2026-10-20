@@ -2,6 +2,9 @@ import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, ran
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { snapshotQualificationHermesRuntime } from '../../apps/electron/src/qualification-hermes-runtime.mjs';
+import { seedQualificationHermesHistory } from './qualification_hermes_history.mjs';
+import { profileKeyFor } from '../../apps/electron/src/colony-preferences.mjs';
 
 function owned(file, mode, directory = false) {
   const st = lstatSync(file);
@@ -52,10 +55,18 @@ export function readQualificationFixture(manifestPath, expectedRevision) {
       || createHash('sha256').update(capability).digest('hex') !== signer.capabilitySha256)
       throw new Error('Qualification approval signer bytes differ');
   }
+  if (m.syntheticActor.hermesRuntime) {
+    const ref = m.syntheticActor.hermesRuntime;
+    if (ref.manifestPath !== join(m.fixtureRoot, 'hermes-runtime.json') || !/^[a-f0-9]{64}$/.test(ref.manifestSha256))
+      throw new Error('Qualification Hermes runtime manifest escaped fixture');
+    owned(ref.manifestPath, 0o600);
+    if (createHash('sha256').update(readFileSync(ref.manifestPath)).digest('hex') !== ref.manifestSha256)
+      throw new Error('Qualification Hermes runtime manifest changed');
+  }
   return { manifest: m, userDataPath };
 }
 
-export function createQualificationFixture(sourceRevision) {
+export function createQualificationFixture(sourceRevision, { hermesRuntimeRoot = process.env.RHYTHM_QUALIFICATION_HERMES_RUNTIME_ROOT } = {}) {
   if (!/^[a-f0-9]{40}$/.test(sourceRevision)) throw new Error('Exact source revision required');
   const fixtureRoot = mkdtempSync('/private/tmp/rhythm-ai-fixture-');
   const ownerId = randomUUID();
@@ -89,7 +100,22 @@ export function createQualificationFixture(sourceRevision) {
     tokenSha256: createHash('sha256').update(token).digest('hex'), profileSeedPath,
     publicUserSeed: { id: ownerUserId, name: `[smoke] ${ownerId}`, email: `${ownerId}@qualification.invalid`, googleSub: `qualification-fixture:${ownerId}`, timezone: 'UTC' },
     syntheticActor: { tokenPath, expiresAt: new Date(Date.now() + 23 * 3_600_000).toISOString(), approvalSigner } };
+  if (hermesRuntimeRoot) {
+    const runtime = snapshotQualificationHermesRuntime(hermesRuntimeRoot);
+    seedQualificationHermesHistory(fixtureRoot, runtime);
+    const manifestPath = join(fixtureRoot, 'hermes-runtime.json');
+    const bytes = JSON.stringify(runtime, null, 2) + '\n';
+    writeFileSync(manifestPath, bytes, { mode: 0o600, flag: 'wx' });
+    manifest.syntheticActor.hermesRuntime = { manifestPath, manifestSha256: createHash('sha256').update(bytes).digest('hex') };
+  }
   const manifestPath = join(fixtureRoot, 'manifest.json');
+  const colonyRoot = join(fixtureRoot, 'electron-user-data', 'colony');
+  const colonyProfiles = join(colonyRoot, 'profiles');
+  const colonyProfile = join(colonyProfiles, profileKeyFor('http://127.0.0.1:4001', String(ownerUserId)));
+  for (const directory of [colonyRoot, colonyProfiles, colonyProfile]) mkdirSync(directory, { mode: 0o700 });
+  const colonySources = { rhythm: { enabled: true, paths: { database: manifest.dbPath } } };
+  if (hermesRuntimeRoot) colonySources.hermes = { enabled: true, paths: { home: join(fixtureRoot, 'hermes-home') } };
+  writeFileSync(join(colonyProfile, 'preferences.json'), JSON.stringify({ v: 1, enabled: true, sources: colonySources }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
   readQualificationFixture(manifestPath, sourceRevision);
   return manifestPath;

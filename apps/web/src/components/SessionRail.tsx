@@ -10,6 +10,7 @@ import type { Session, SessionScope } from '../types';
 import { FocusDialog } from './FocusDialog';
 import { navigate } from './Shell';
 import { usePendingSessionIds } from '../pending-decisions';
+import { displayAccountIdentity } from './accountIdentity';
 import './SessionRail.css';
 
 const tools: { key: string; label: string; description: string; icon: IconName }[] = [
@@ -64,6 +65,7 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
   // #1374 — hidden entirely behind the kill switch: no remote UI, no remote gateway calls.
   const remoteAttachEnabled = gateway.domains.remoteSessions?.enabled === true;
   const auth = useAuthUser();
+  const accountIdentity = displayAccountIdentity(auth?.user.name);
   const preferenceUserId = auth?.user.id ?? 'fixture';
   const initialViewPreferences = readLocalUserPreferences(preferenceUserId);
   const pendingSessions = usePendingSessionIds();
@@ -608,7 +610,7 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
       <button className="rail-more-toggle" type="button" aria-expanded={toolsExpanded} aria-controls="rail-more-tools" onClick={() => setToolsExpandedPreference(!toolsExpanded)} data-testid="rail-more"><Icon name={toolsExpanded ? 'chevronDown' : 'chevronRight'} size={14} />More</button>
       <div id="rail-more-tools" className="tools-nav" hidden={!toolsExpanded}>{remoteAttachEnabled && <button type="button" onClick={onOpenRemoteComputers} title="Continue a session from another Mac" data-testid="rail-remote-computers"><Icon name="worktree" /><strong>Remote computers</strong></button>}{tools.map((tool) => <button type="button" onClick={() => openTool(tool.key)} key={tool.key} title={tool.description} data-testid={`tool-${tool.key}`}><Icon name={tool.icon} /><strong>{tool.label}</strong></button>)}</div>
     </nav>
-    <footer className="rail-account"><button type="button" onClick={() => navigate('/tools/agent-settings')} data-testid="rail-agent-settings"><span className="avatar">AJ</span><span><strong>AJ Hochhalter</strong><small>Agent settings</small></span><Icon name="settings" size={15} /></button></footer>
+    <footer className="rail-account"><button type="button" onClick={() => navigate('/tools/agent-settings')} data-testid="rail-agent-settings"><span className="avatar">{accountIdentity.initials}</span><span><strong>{accountIdentity.name}</strong><small>Agent settings</small></span><Icon name="settings" size={15} /></button></footer>
 
     <FocusDialog open={projectFormOpen} onClose={closeProjectForm} title="Add project" description="Give an existing working directory a name so you can start sessions in it." testId="add-project-dialog">
       <form className="rail-project-form" onSubmit={addProject}>

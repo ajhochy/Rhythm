@@ -176,8 +176,8 @@ async function hostRuntime({
         assert.equal(installedApp, 'present');
         return {};
       },
-      mkdtempSync: () => '/private/tmp/dayflow-host-hooks-smoke',
-      realpathSync: (value) => String(value), rmSync() {},
+      mkdirSync() {}, mkdtempSync: () => '/private/tmp/dayflow-host-hooks-smoke',
+      readFileSync() { throw new Error('not exercised'); }, realpathSync: (value) => String(value), rmSync() {},
     };
     else if (name === 'node:fs/promises') values = {
       mkdir: async () => {},
@@ -193,6 +193,7 @@ async function hostRuntime({
     else if (name === './desktop-google-oauth.mjs') values = { runDesktopGoogleOAuth: async () => { throw new Error('not exercised'); } };
     else if (name === './human-approval-main-signer.mjs') values = { capability: async () => '', signDecision: async () => ({}) };
     else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled' }), onStatus() {}, async start() {}, async stop() {} }) };
+    else if (name === './qualification-hermes-runtime.mjs') values = { qualificationHermesHostOptions: () => { throw new Error('not exercised'); } };
     else if (name === './policy.mjs') values = {
       createExternalOpenLimiter: () => () => true, deepLinkFromArgv: () => undefined, externalHttpUrl: (value) => typeof value === 'string' ? value : null,
       resolveAsset: () => undefined, validateRequest: () => false, webDist: '/fixture/web',

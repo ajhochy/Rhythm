@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { getDb } from '../database/db';
 import { AgentConfigsRepository, type AgentConfigInput } from '../repositories/agent_configs_repository';
+import { WorkspaceRepository } from '../repositories/workspace_repository';
 import { loadQualificationFixtureAuthority, qualificationSyntheticActorToken } from './qualification_fixture_authority';
 import { projectAgentProfileAfterWrite } from './agent_profile_projection_service';
 /** Public identity/profile configuration, plus an opt-in disposable ordinary auth session. */
@@ -48,6 +49,17 @@ export function bootstrapQualificationFixture(phase:'seed'|'project'='seed'):voi
     db.prepare('INSERT INTO qualification_fixture_bootstrap(source_revision) VALUES (?)').run(m.sourceRevision);
   }
   if(m.syntheticActor){
+    const workspaceName=`[smoke] Qualification ${m.ownerId}`;
+    const workspaces=db.prepare('SELECT id,name,created_by FROM workspaces').all() as Array<{id:number;name:string;created_by:number}>;
+    const members=db.prepare('SELECT workspace_id,user_id,role FROM workspace_members').all() as Array<{workspace_id:number;user_id:number;role:string}>;
+    if(workspaces.length===0 && members.length===0){
+      // Use the ordinary constructor, including its admin membership, inside this private SQLite DB.
+      db.transaction(()=>new WorkspaceRepository().create({name:workspaceName,createdBy:m.ownerUserId}))();
+    }else if(workspaces.length!==1 || workspaces[0].name!==workspaceName || workspaces[0].created_by!==m.ownerUserId
+      || members.length!==1 || members[0].workspace_id!==workspaces[0].id
+      || members[0].user_id!==m.ownerUserId || members[0].role!=='admin'){
+      throw new Error('qualification synthetic actor workspace membership invalid');
+    }
     const token=qualificationSyntheticActorToken(m);
     const rows=db.prepare('SELECT token,user_id,expires_at FROM sessions').all() as Array<{token:string;user_id:number;expires_at:string|null}>;
     if(rows.some(row=>row.token!==token || row.user_id!==m.ownerUserId || row.expires_at!==m.syntheticActor!.expiresAt))

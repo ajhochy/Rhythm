@@ -1,0 +1,100 @@
+{
+  "phase": "Recon - observations only",
+  "sourceRevision": "2aa817b867e19ea9aa8fd3fef54750336385d1e7",
+  "privateEvidence": "/private/tmp/rhythm-ai-fixture-fzL8js/recon.json",
+  "startup": {
+    "mainUiMounted": true,
+    "profileCount": 13,
+    "observedPrerequisiteErrors": [
+      "GET /workspaces/me/members 404; fresh actor has no workspace membership",
+      "POST /coordinator-conversations/resolve 404; workstreams launch flags were absent"
+    ]
+  },
+  "sessions": {
+    "parent": {
+      "status": 201,
+      "profileId": "coding-agent",
+      "ownerUserId": 1,
+      "sdkIdentityPresent": true,
+      "cwdRelative": "workspaces/history-parent",
+      "nameStartsWithSmoke": true
+    },
+    "engineChildren": {
+      "statuses": [
+        200,
+        200,
+        200
+      ],
+      "count": 3,
+      "eachHasParentSdkIdentity": true,
+      "costs": [
+        0,
+        0,
+        0
+      ]
+    },
+    "apiPages": [
+      {
+        "requestKind": "first-child-page",
+        "status": 200,
+        "childIndexes": [
+          2,
+          1
+        ],
+        "allChildrenOwnedByUser1": true,
+        "ancestorsAreExactParent": true,
+        "ancestorChildCounts": [
+          3
+        ],
+        "pageInfo": {
+          "limit": 2,
+          "hasMore": true,
+          "nextCursorPresent": true
+        }
+      },
+      {
+        "requestKind": "next-cursor",
+        "status": 200,
+        "childIndexes": [
+          0
+        ],
+        "allChildrenOwnedByUser1": true,
+        "ancestorsAreExactParent": true,
+        "ancestorChildCounts": [
+          3
+        ],
+        "pageInfo": {
+          "limit": 2,
+          "hasMore": false,
+          "nextCursorPresent": false
+        }
+      },
+      {
+        "requestKind": "search-leaf",
+        "status": 200,
+        "childIndexes": [
+          2
+        ],
+        "allChildrenOwnedByUser1": true,
+        "ancestorsAreExactParent": true,
+        "ancestorChildCounts": [
+          3
+        ],
+        "pageInfo": {
+          "limit": 2,
+          "hasMore": false,
+          "nextCursorPresent": false
+        }
+      }
+    ],
+    "rail": {
+      "parentVisible": true,
+      "disclosureText": "3",
+      "note": "Recon clicked disclosure without first observing expanded state; empty child-region text does not establish expanded-child UI behavior. Re-probe before codifying that assertion."
+    }
+  },
+  "approvalRecon": {
+    "status": "returned observation lost by caller spreading object; no native behavior claim",
+    "cleanup": "module finally ran; confirm again in next private recon"
+  }
+}

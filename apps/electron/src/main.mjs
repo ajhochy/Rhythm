@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol, safeStorage, session, shell } from 'electron';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import { createRequire } from 'node:module';
@@ -24,6 +24,7 @@ import { createAccountsAuthState } from './hermes-accounts-auth.mjs';
 import { createHermesAccountsMain } from './hermes-accounts-main.mjs';
 import { createAgentBridgeHost } from './hermes-agent-bridge.mjs';
 import { bindHermesViewSupervisor, registerHermesView } from './hermes-view.mjs';
+import { qualificationHermesHostOptions } from './qualification-hermes-runtime.mjs';
 import { installHermesDesktopUpdate } from './hermes-desktop-updates.mjs';
 import { registerColonyHost } from './colony-host.mjs';
 import { runColonySmoke } from './colony-smoke.mjs';
@@ -48,6 +49,8 @@ for (const stream of [process.stdout, process.stderr]) {
 const isSmoke = process.argv.includes('--smoke');
 const isInteractiveSmoke = process.argv.includes('--interactive-smoke');
 const qualificationSyntheticActor = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST ? agentServerFixture.loadQualificationSyntheticActor() : null;
+const qualificationActorManifestSha256 = qualificationSyntheticActor
+  ? createHash('sha256').update(readFileSync(process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST)).digest('hex') : null;
 if (qualificationSyntheticActor && (isSmoke || isInteractiveSmoke)) throw new Error('qualification synthetic actor requires an ordinary packaged launch');
 const allowTestRuntimePorts = (isSmoke || isInteractiveSmoke) && process.argv.includes('--allow-test-runtime-ports');
 if (isInteractiveSmoke && (!process.env.RHYTHM_SHELL_USER_DATA || !isAbsolute(process.env.RHYTHM_SHELL_USER_DATA))) {
@@ -340,14 +343,21 @@ if (hasSingleInstanceLock) {
   const credentialHostOptions = () => {
     if (accountsBlocked) throw new Error('Previous Hermes backend disposal has not completed');
     if (qualificationSyntheticActor) {
-      const hermesHome = join(qualificationSyntheticActor.fixtureRoot, 'hermes-home');
+      const currentActor = agentServerFixture.loadQualificationSyntheticActor();
+      if (!currentActor || currentActor.token !== qualificationSyntheticActor.token
+        || currentActor.ownerUserId !== qualificationSyntheticActor.ownerUserId
+        || currentActor.fixtureRoot !== qualificationSyntheticActor.fixtureRoot
+        || createHash('sha256').update(readFileSync(process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST)).digest('hex') !== qualificationActorManifestSha256)
+        throw new Error('Qualification Hermes runtime unavailable');
+      const staged = qualificationHermesHostOptions(qualificationSyntheticActor.fixtureRoot);
+      const { hermesHome } = staged;
       try { mkdirSync(hermesHome, { mode: 0o700 }); }
       catch (error) { if (error?.code !== 'EEXIST') throw error; }
       const home = lstatSync(hermesHome);
       if (realpathSync(hermesHome) !== hermesHome || !home.isDirectory() || home.isSymbolicLink() ||
         home.uid !== process.getuid?.() || (home.mode & 0o777) !== 0o700)
         throw new Error('qualification Hermes home must be private owned directory');
-      return { hermesHome, backendEnv: async () => ({}) };
+      return { ...staged, backendEnv: async () => ({}) };
     }
     const adapter = getAccountsMain(), auth = accountsAuth.getSnapshot();
     if (!adapter || !auth.authenticated) return undefined;
@@ -1230,6 +1240,7 @@ if (hasSingleInstanceLock) {
         const signedIn = await accountsAuth.signIn({ serverOrigin: productionApiBase, userId: String(user.id), sessionToken: productionSessionToken,
           envelope: { productionApiBase, sessionToken: productionSessionToken, user } });
         if (!signedIn) throw new Error('qualification synthetic actor main session unavailable');
+        await colonyHost.activateProfile({ productionApiBase, userId: String(user.id) });
       }
     }
     // Hermes Desktop's embedded host owns compatible backend discovery and any

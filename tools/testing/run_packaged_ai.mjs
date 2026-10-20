@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createQualificationFixture } from './qualification_fixture.mjs';
 
 const root = realpathSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../..'));
 const app = realpathSync(process.env.RHYTHM_PACKAGED_APP ?? path.join(root, 'apps/electron/dist/Rhythm.app'));
@@ -29,13 +30,24 @@ const productPaths = [
 execFileSync('git', ['diff', '--exit-code', revision, '--', ...productPaths], { cwd: root, stdio: 'pipe' });
 const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '--', ...productPaths], { cwd: root, encoding: 'utf8' });
 if (untracked.trim()) throw new Error('Untracked product sources require a fresh local build identity before qualification');
+const args = process.argv.slice(2);
+const syntheticIndex = args.indexOf('--synthetic');
+let manifestPath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
+if (syntheticIndex >= 0) {
+  args.splice(syntheticIndex, 1);
+  if (manifestPath) throw new Error('Use either a new --synthetic actor or an explicit fixture manifest');
+  manifestPath = createQualificationFixture(revision);
+  console.log(`Private qualification fixture and evidence: ${path.dirname(manifestPath)}`);
+}
 console.log(`AI behavior qualification: local bundle source ${revision}; model gate=${process.env.RHYTHM_FEATURE_MODEL ?? 'off'}`);
 const result = spawnSync(process.execPath, [
   path.join(root, 'apps/web/node_modules/@playwright/test/cli.js'),
-  'test', '-c', 'tests/packaged/packaged-ai-playwright.config.ts', ...process.argv.slice(2),
+  'test', '-c', 'tests/packaged/packaged-ai-playwright.config.ts', ...args,
 ], {
   cwd: path.join(root, 'apps/web'), stdio: 'inherit',
-  env: { ...process.env, RHYTHM_PACKAGED_APP: app, RHYTHM_FEATURE_EXPECTED_REVISION: revision },
+  env: { ...process.env, RHYTHM_PACKAGED_APP: app, RHYTHM_FEATURE_EXPECTED_REVISION: revision,
+    ...(manifestPath ? { RHYTHM_QUALIFICATION_FIXTURE_MANIFEST: manifestPath,
+      RHYTHM_WORKSTREAMS_ENABLED: 'true', RHYTHM_MANAGED_CONTEXT_EXPORTS: '1' } : {}) },
 });
 if (result.error) throw result.error;
 process.exit(result.status ?? 1);

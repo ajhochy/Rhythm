@@ -19,7 +19,8 @@ tags: [run, Rhythm]
 
 - RED: `npm run build:guard -- /bin/zsh -f -c 'cd apps/api_server && npm test --silent -- --fileParallelism=false'` exited 1. Complete retained output: `/private/tmp/rhythm-engraph-full-api-2026-10-20.log`. It ran 1,056 files and 9,164 tests in 1,054.87 s: 878 files passed, 177 skipped, one failed; 8,779 tests passed, 382 skipped, three failed. All three failures were in `issue_1186_sandbox_foreground.test.ts`. The first explicitly reported `RHYTHM_SANDBOX_DIR must resolve under /tmp, /private/tmp, or /var/folders` for a fixture under the guard's Documents scratch `TMPDIR`. The Engraph ownership file passed in this controlled aggregate.
 - GREEN focused: `npm run build:guard -- /bin/zsh -f -c 'cd apps/api_server && npx vitest run src/__tests__/issue_1186_sandbox_foreground.test.ts --fileParallelism=false'` passed 7/7 in 18.48 s after the fixture change. Log: `/private/tmp/rhythm-1186-guard-green-2026-10-20.log`.
-- `git diff --check` passed after the diagnostic assertion edit. Focused Engraph and second full API suite remain pending after the shared source/build freeze.
+- `npm run build:guard -- /bin/zsh -f -c 'cd apps/api_server && npx vitest run src/__tests__/issue_1574_engraph_ownership.test.ts --fileParallelism=false'` passed 19/19 in 14.34 s after the diagnostic assertion edit. Complete retained output: `/private/tmp/rhythm-engraph-diagnostic-focused-2026-10-20.log`.
+- `git diff --check` passed after the diagnostic assertion edit. The second full API suite remains pending after the shared source/build freeze.
 
 ## Notes
 
