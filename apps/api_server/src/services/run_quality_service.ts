@@ -266,7 +266,7 @@ function labelForAgentKind(db: ReturnType<typeof getDb>, agentKind: string): str
   const row = db
     .prepare(`SELECT label FROM agent_configs WHERE id = ?`)
     .get(agentKind) as { label: string } | undefined;
-  return row?.label ?? agentKind;
+  return row?.label?.trim() || agentKind?.trim() || 'Unknown agent';
 }
 
 export interface RunQualityDeps {

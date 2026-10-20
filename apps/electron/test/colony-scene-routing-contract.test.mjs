@@ -25,7 +25,7 @@ class MessageChannelMain {
   }
 }
 
-function fixture({ onHostEvent, sessionId = 'session-known' } = {}) {
+function fixture({ onHostEvent, sessionId = 'session-known', serviceRequest } = {}) {
   const ipcMain = new EventEmitter()
   const sceneFrame = { detached: false, url: ENTRY, postMessage() {}, send() {} }
   const sceneContents = Object.assign(new EventEmitter(), {
@@ -40,6 +40,7 @@ function fixture({ onHostEvent, sessionId = 'session-known' } = {}) {
     send(channel, message) { this.events.push({ channel, message }); onHostEvent?.(channel, message) },
   })
   let workerRequests = 0
+  let stops = 0
   const actionCalls = []
   const channel = bindColonySceneChannel({
     ipcMain,
@@ -56,16 +57,33 @@ function fixture({ onHostEvent, sessionId = 'session-known' } = {}) {
     },
     onSceneEvent: (event, payload) => hostContents.send('colony:view:event', { attachment: 'attachment-1', event, payload }),
     service: {
-      async request() { workerRequests++; return {} },
-      async stop() {},
+      async request(message) { workerRequests++; return serviceRequest ? serviceRequest(message) : {} },
+      async stop() { stops++ },
     },
     MessageChannelMain,
   })
   ipcMain.emit('colony:scene-ready', { sender: sceneContents, senderFrame: sceneFrame }, { v: 1, product: 'colony' })
-  return { channel, ipcMain, sceneFrame, sceneContents, hostFrame, hostContents, port: MessageChannelMain.latest.port1, workerRequests: () => workerRequests, actionCalls }
+  return { channel, ipcMain, sceneFrame, sceneContents, hostFrame, hostContents, port: MessageChannelMain.latest.port1, workerRequests: () => workerRequests, stops: () => stops, actionCalls }
 }
 
 const tick = () => new Promise((resolve) => setImmediate(resolve))
+
+test('a coded inventory capacity refusal does not revoke the authorized document', async () => {
+  const f = fixture({ serviceRequest: async message => message.id === 'request-1'
+    ? { v: 1, documentId: 'document-1', id: message.id, ok: false, error: { code: 'oversize', message: 'Colony operation exceeds its size or capacity limit' } }
+    : { v: 1, documentId: 'document-1', id: message.id, ok: true, result: { generation: 'generation-1', collection: 'projects', records: [], scannedAt: 1, nextCursor: null } } })
+  const send = id => f.port.emit('message', { data: { v: 1, documentId: 'document-1', id, method: 'inventory.page', payload: { collection: 'projects', limit: 1 } } })
+  send('request-1')
+  await tick()
+  assert.equal(f.port.messages[0].error.code, 'oversize')
+  assert.equal(f.stops(), 0)
+  assert.equal(f.port.closed, false)
+  send('request-2')
+  await tick()
+  assert.equal(f.port.messages[1].result.generation, 'generation-1')
+  assert.equal(f.workerRequests(), 2)
+  await f.channel.dispose()
+})
 
 test('1530:scene-host-selection-routing-in-the-receiver:1 routes known scene selection once and drops unknown selection without worker forwarding', async () => {
   // Regression caught: scene-only intents leak to the worker or select a row that is absent from main's inventory.

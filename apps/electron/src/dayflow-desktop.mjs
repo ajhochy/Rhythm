@@ -28,7 +28,7 @@ export const DAYFLOW_DESKTOP_CHANNELS = Object.freeze({
  * @property {string} [arch]
  */
 
-/** @typedef {{ appRoot?: string, targetArch?: string, execute?: DayflowCommandExecutor }} DayflowArtifactValidationOptions */
+/** @typedef {{ appRoot?: string, targetArch?: string, execute?: DayflowCommandExecutor, allowInstalledRelease?: boolean }} DayflowArtifactValidationOptions */
 /** @typedef {(options?: DayflowArtifactValidationOptions) => Promise<DayflowDesktopArtifact>} DayflowArtifactValidator */
 /** @typedef {{ status: 'ready', version: string, build: string, identifier: string }} DayflowReadyStatus */
 /** @typedef {{ status: 'unavailable', code: string }} DayflowUnavailableStatus */
@@ -65,15 +65,15 @@ export function createDayflowDesktopHost({
   if (typeof validateArtifact !== 'function') throw new TypeError('Dayflow desktop host requires an artifact validator');
   const targetArch = candidates.arch ?? process.arch;
 
-  /** @param {string} appRoot @returns {Promise<DayflowDesktopArtifact>} */
-  const validate = async (appRoot) => validateArtifact({ appRoot, targetArch, execute });
+  /** @param {string} appRoot @param {boolean} [allowInstalledRelease] @returns {Promise<DayflowDesktopArtifact>} */
+  const validate = async (appRoot, allowInstalledRelease = false) => validateArtifact({ appRoot, targetArch, execute, ...(allowInstalledRelease ? { allowInstalledRelease: true } : {}) });
   /** @returns {Promise<DayflowCandidateResolution>} */
   const resolveCandidate = async () => {
     if (platform !== 'darwin') return { kind: 'unsupported' };
     // Do not fall through after a supplied installed candidate fails validation:
     // a signature failure is a security result, not evidence that it is absent.
     if (candidates.installedAppPath) {
-      try { return { kind: 'installed', artifact: await validate(candidates.installedAppPath) }; }
+      try { return { kind: 'installed', artifact: await validate(candidates.installedAppPath, true) }; }
       catch { return { kind: 'invalid' }; }
     }
     if (candidates.bundledAppPath) {

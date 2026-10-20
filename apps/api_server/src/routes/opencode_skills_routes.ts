@@ -330,7 +330,16 @@ opencodeSkillsRouter.get(
           new AppError(404, 'NOT_FOUND', `No skill named '${name}' is currently discovered`),
         );
       }
-      const content = readSkillContentAtLocation(match.location);
+      let content = readSkillContentAtLocation(match.location);
+      // Compiled engine skills have no SKILL.md on disk. Ask the same live
+      // engine for their body; never use cached engine text for a missing file.
+      if (content === null && match.location === '<built-in>') {
+        const engineSkills = await opencodeClient.listSkillsWithContent(directory);
+        const engineMatch = engineSkills.find((skill) =>
+          skill.name === match.name && skill.location === match.location,
+        );
+        if (engineMatch?.content.trim()) content = engineMatch.content;
+      }
       if (content === null) {
         return next(
           new AppError(

@@ -7,6 +7,8 @@ export const DAYFLOW_BUNDLE_IDENTIFIER = 'teleportlabs.com.Dayflow';
 export const DAYFLOW_TEAM_ID = 'L75WYD8X4Y';
 export const DAYFLOW_VERSION = '2.6.0';
 export const DAYFLOW_BUILD = '133';
+const INSTALLED_DAYFLOW_VERSION = '2.7.2';
+const INSTALLED_DAYFLOW_BUILD = '136';
 export const DAYFLOW_ARCHITECTURE = 'arm64';
 // This is intentionally an exact requirement, rather than a team-only check. It pins the
 // Developer ID intermediates and leaf-purpose OIDs used by the upstream Dayflow release.
@@ -38,6 +40,7 @@ export const DAYFLOW_DESIGNATED_REQUIREMENT = 'anchor apple generic and identifi
  * @property {string} [appRoot]
  * @property {string} [targetArch]
  * @property {DayflowCommandExecutor} [execute]
+ * @property {boolean} [allowInstalledRelease] Runtime host only; packaging remains pinned.
  */
 
 /**
@@ -117,6 +120,7 @@ export async function validateDayflowDesktopArtifact({
   appRoot = process.env.RHYTHM_DAYFLOW_APP_DIR,
   targetArch = process.arch,
   execute,
+  allowInstalledRelease = false,
 } = {}) {
   if (typeof appRoot !== 'string' || !appRoot.trim()) {
     throw new Error('Dayflow desktop artifact is required for packaging. Set RHYTHM_DAYFLOW_APP_DIR to the signed Dayflow.app.');
@@ -137,8 +141,13 @@ export async function validateDayflowDesktopArtifact({
     throw new Error('Dayflow artifact Info.plist is not valid JSON', { cause });
   }
   requiredValue(plist, 'CFBundleIdentifier', DAYFLOW_BUNDLE_IDENTIFIER);
-  requiredValue(plist, 'CFBundleShortVersionString', DAYFLOW_VERSION);
-  requiredValue(plist, 'CFBundleVersion', DAYFLOW_BUILD);
+  const reviewedInstalledRelease = allowInstalledRelease
+    && plist.CFBundleShortVersionString === INSTALLED_DAYFLOW_VERSION
+    && plist.CFBundleVersion === INSTALLED_DAYFLOW_BUILD;
+  if (!reviewedInstalledRelease) {
+    requiredValue(plist, 'CFBundleShortVersionString', DAYFLOW_VERSION);
+    requiredValue(plist, 'CFBundleVersion', DAYFLOW_BUILD);
+  }
 
   const details = await checked(execute, 'codesign', ['-d', '--verbose=4', root], 'codesign identity inspection failed');
   const detailsOutput = outputOf(details);
@@ -160,8 +169,8 @@ export async function validateDayflowDesktopArtifact({
     root,
     executable,
     architecture,
-    version: DAYFLOW_VERSION,
-    build: DAYFLOW_BUILD,
+    version: String(plist.CFBundleShortVersionString),
+    build: String(plist.CFBundleVersion),
     identifier: DAYFLOW_BUNDLE_IDENTIFIER,
     teamId: DAYFLOW_TEAM_ID,
     designatedRequirement: DAYFLOW_DESIGNATED_REQUIREMENT,

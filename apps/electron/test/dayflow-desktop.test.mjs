@@ -21,6 +21,36 @@ test('prefers a validated installed app and revalidates before launch without ex
   assert.deepEqual(calls, [['open', ['-a', '/Applications/Dayflow.app']]]);
 });
 
+test('only the installed candidate opts into reviewed 2.7.2/136 compatibility', async () => {
+  const validations = [];
+  const controller = createDayflowDesktopHost({
+    candidates: { installedAppPath: '/installed/Dayflow.app', bundledAppPath: '/bundle/Dayflow.app', arch: 'arm64' },
+    platform: 'darwin',
+    execute: async () => ({ stdout: '' }),
+    validateArtifact: async (options) => {
+      validations.push(options);
+      if (options.allowInstalledRelease !== true) throw new Error('installed release not enabled');
+      return { ...artifact(options.appRoot), version: '2.7.2', build: '136' };
+    },
+  });
+  assert.deepEqual(await controller.getStatus(), { status: 'ready', version: '2.7.2', build: '136', identifier: 'teleportlabs.com.Dayflow' });
+  assert.equal(validations.length, 1);
+  assert.equal(validations[0].appRoot, '/installed/Dayflow.app');
+  assert.equal(validations[0].allowInstalledRelease, true);
+
+  const bundledValidations = [];
+  const bundled = createDayflowDesktopHost({
+    candidates: { bundledAppPath: '/bundle/Dayflow.app', arch: 'arm64' },
+    platform: 'darwin',
+    execute: async () => ({ stdout: '' }),
+    validateArtifact: async (options) => { bundledValidations.push(options); return artifact(options.appRoot); },
+  });
+  assert.equal((await bundled.getStatus()).status, 'ready');
+  assert.equal(bundledValidations.length, 1);
+  assert.equal(bundledValidations[0].appRoot, '/bundle/Dayflow.app');
+  assert.notEqual(bundledValidations[0].allowInstalledRelease, true);
+});
+
 test('uses bundled only when installed is absent, never when an installed signature fails', async () => {
   const missingInstalled = host({ candidates: { installedAppPath: undefined } });
   assert.equal((await missingInstalled.controller.getStatus()).status, 'ready');

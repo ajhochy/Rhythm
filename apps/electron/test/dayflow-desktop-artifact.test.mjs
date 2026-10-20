@@ -71,6 +71,26 @@ test('Dayflow bundling rejects identity/version/build/architecture mismatches be
   });
 });
 
+test('installed Dayflow 2.7.2/136 requires explicit opt-in and the same exact macOS trust checks', async () => {
+  await withTemp(async (root) => {
+    const { app, plist } = await makeDayflowApp(root, { plist: { CFBundleShortVersionString: '2.7.2', CFBundleVersion: '136' } });
+    await assert.rejects(validateDayflowDesktopArtifact({ appRoot: app, targetArch: 'arm64', execute: fakeMacVerification(plist) }), /CFBundleShortVersionString mismatch/);
+    const calls = [];
+    const verified = await validateDayflowDesktopArtifact({ appRoot: app, targetArch: 'arm64', execute: fakeMacVerification(plist, { calls }), allowInstalledRelease: true });
+    assert.equal(verified.version, '2.7.2');
+    assert.equal(verified.build, '136');
+    assert.ok(calls.some(([command, args]) => command === 'codesign' && args.includes('--verify') && args.includes(`=${DAYFLOW_DESIGNATED_REQUIREMENT}`)));
+    assert.ok(calls.some(([command, args]) => command === 'spctl' && args.includes('--assess')));
+    for (const mismatch of [
+      { CFBundleShortVersionString: '2.7.2', CFBundleVersion: '133' },
+      { CFBundleShortVersionString: '2.6.0', CFBundleVersion: '136' },
+      { CFBundleShortVersionString: '2.7.3', CFBundleVersion: '137' },
+    ]) {
+      await assert.rejects(validateDayflowDesktopArtifact({ appRoot: app, targetArch: 'arm64', execute: fakeMacVerification({ ...plist, ...mismatch }), allowInstalledRelease: true }), /mismatch/);
+    }
+  });
+});
+
 test('Dayflow bundling fails closed when exact signature verification fails', async () => {
   await withTemp(async (root) => {
     const { app, plist } = await makeDayflowApp(root);

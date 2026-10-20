@@ -197,7 +197,7 @@ export function localRows(sql: string, ...args: unknown[]) {
 export const test = packagedTest.extend<{ tasks: OwnedRecords; sessions: OwnedRecords; audit: void }>({
   tasks: async ({ page }, use) => { const records = new OwnedRecords(page, 'tasks'); try { await use(records); } finally { await records.cleanup(); } },
   sessions: async ({ page }, use) => { const records = new OwnedRecords(page, 'sessions'); try { await use(records); } finally { await records.cleanup(); } },
-  audit: [async ({ page, packaged }, use) => {
+  audit: [async ({ page, packaged }, use, info) => {
     const identity = JSON.parse(readFileSync(path.join(packaged.appPath, 'Contents/Resources/api_server/build-identity.json'), 'utf8'));
     expect(identity, 'UNVERIFIED: packaged API is not built from the mega source head').toMatchObject({ schemaVersion: 1, sourceRevision: expectedRevision });
     const health = await fetch(`${ENGINE}/global/health`, { signal: AbortSignal.timeout(20_000) });
@@ -210,8 +210,10 @@ export const test = packagedTest.extend<{ tasks: OwnedRecords; sessions: OwnedRe
     deletedOwnSessions.clear();
     try { await use(); } finally {
       await page.unrouteAll({ behavior: 'wait' });
-      expect(packaged.pageErrors, 'uncaught renderer errors during this test').toEqual([]);
+      // Private per-case evidence survives the next worker truncating the shared app log.
       const fresh = readFileSync(log).subarray(offset).toString('utf8');
+      await info.attach('runtime-output', { body: fresh, contentType: 'text/plain' });
+      expect(packaged.pageErrors, 'uncaught renderer errors during this test').toEqual([]);
       const unexpected = fresh.split('\n').filter(line => /\[ERROR\]/.test(line)).filter(line => ![...deletedOwnSessions].some(id =>
         line.includes(`Handled NOT_FOUND GET /agent-sessions/${id} — AgentSession not found`)
         || line.includes(`Handled NOT_FOUND GET /agent-sessions/${id}?transcriptLimit=50 — AgentSession not found`)

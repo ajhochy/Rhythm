@@ -379,7 +379,9 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     let active = true;
     setLiveTasks([]); setTasksError('');
     void gateway.domains.tasks!.list().then(rows => { if (active) setLiveTasks(rows.filter(task => task.status !== 'done')); }).catch(() => { if (active) setTasksError('Task catalog unavailable'); });
-    void gateway.domains.sessions!.branches(advancedContextProject?.id ?? selected.projectId)
+    const projectId = advancedContextProject?.id ?? selected.projectId;
+    setLiveBranches(null);
+    if (projectId) void gateway.domains.sessions!.branches(projectId)
       .then((data) => { if (active) setLiveBranches(data); })
       .catch(() => { if (active) setLiveBranches(null); });
     return () => { active = false; };
