@@ -197,6 +197,10 @@ export function bindColonySceneChannel(options) {
     if (revoked) return
     let validShape = false
     try { validShape = Boolean(message && message.v === 1 && message.product === 'colony' && Object.keys(message).length === 2) } catch {}
+    // Electron can deliver two valid preload notices during the initial navigation.
+    // Neither grants a port until the exact entry document finishes loading.
+    if (validShape && readyEvent && !committed && !transferred && contents.isLoadingMainFrame() &&
+      readyEvent.sender === event.sender && readyEvent.senderFrame === event.senderFrame) return
     if (readyEvent || !validShape) {
       try {
         console.error('[colony:scene-ready:refused]', JSON.stringify({

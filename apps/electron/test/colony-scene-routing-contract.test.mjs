@@ -25,13 +25,13 @@ class MessageChannelMain {
   }
 }
 
-function fixture({ onHostEvent, sessionId = 'session-known', serviceRequest } = {}) {
+function fixture({ onHostEvent, sessionId = 'session-known', serviceRequest, precommit = false } = {}) {
   const ipcMain = new EventEmitter()
-  const sceneFrame = { detached: false, url: ENTRY, postMessage() {}, send() {} }
+  const sceneFrame = { detached: false, url: ENTRY, transferred: [], postMessage(...args) { this.transferred.push(args) }, send() {} }
   const sceneContents = Object.assign(new EventEmitter(), {
     mainFrame: sceneFrame,
     getURL: () => ENTRY,
-    isLoadingMainFrame: () => false,
+    isLoadingMainFrame: () => precommit,
   })
   const hostFrame = { url: 'rhythm://app/index.html#/colony' }
   const hostContents = Object.assign(new EventEmitter(), {
@@ -64,10 +64,40 @@ function fixture({ onHostEvent, sessionId = 'session-known', serviceRequest } = 
     MessageChannelMain,
   })
   ipcMain.emit('colony:scene-ready', { sender: sceneContents, senderFrame: sceneFrame }, { v: 1, product: 'colony' })
-  return { channel, ipcMain, sceneFrame, sceneContents, hostFrame, hostContents, port: MessageChannelMain.latest.port1, workerRequests: () => workerRequests, stops: () => stops, actionCalls }
+  return { channel, ipcMain, sceneFrame, sceneContents, hostFrame, hostContents, port: precommit ? null : MessageChannelMain.latest.port1, workerRequests: () => workerRequests, stops: () => stops, actionCalls }
 }
 
 const tick = () => new Promise((resolve) => setImmediate(resolve))
+
+test('two valid owning ready notices before load commit transfer one usable scene port', async () => {
+  const f = fixture({ precommit: true, serviceRequest: async message => ({ v: 1, documentId: 'document-1', id: message.id, ok: true,
+    result: { generation: 'generation-1', collection: 'projects', records: [], scannedAt: 1, nextCursor: null } }) })
+  assert.equal(f.sceneFrame.transferred.length, 0)
+  f.ipcMain.emit('colony:scene-ready', { sender: f.sceneContents, senderFrame: f.sceneFrame }, { v: 1, product: 'colony' })
+  await tick()
+  assert.equal(f.stops(), 0)
+  assert.equal(f.sceneFrame.transferred.length, 0)
+  f.sceneContents.isLoadingMainFrame = () => false
+  f.sceneContents.emit('did-finish-load')
+  assert.equal(f.sceneFrame.transferred.length, 1)
+  const port = MessageChannelMain.latest.port1
+  port.emit('message', { data: { v: 1, documentId: 'document-1', id: 'request-1', method: 'inventory.page', payload: { collection: 'projects', limit: 1 } } })
+  await tick()
+  assert.equal(port.messages[0].result.generation, 'generation-1')
+  assert.equal(f.workerRequests(), 1)
+  assert.equal(f.stops(), 0)
+  await f.channel.dispose()
+})
+
+test('a malformed owning ready notice during load still revokes before port transfer', async () => {
+  const f = fixture({ precommit: true })
+  f.ipcMain.emit('colony:scene-ready', { sender: f.sceneContents, senderFrame: f.sceneFrame }, { v: 1, product: 'colony', extra: true })
+  await tick()
+  assert.equal(f.stops(), 1)
+  f.sceneContents.isLoadingMainFrame = () => false
+  f.sceneContents.emit('did-finish-load')
+  assert.equal(f.sceneFrame.transferred.length, 0)
+})
 
 test('a coded inventory capacity refusal does not revoke the authorized document', async () => {
   const f = fixture({ serviceRequest: async message => message.id === 'request-1'
