@@ -6,6 +6,7 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { test as base, expect, ENGINE, OwnedRecords, localRows, responseFor, assertResponse, type Row } from './feature-test';
 import { routerCalibrationCases } from './router-calibration-cases';
+import { readQualificationFixture } from '../../../../tools/testing/qualification_fixture.mjs';
 
 // Observed response projections; keep the packaged runner independent of renderer-only workspace aliases.
 type RouterConfig = { routing: { engine: string; scope: string }; features: { model_routing: string }; remoteDataConsent: boolean; openaiDecisions?: { hasApiKey: boolean } };
@@ -239,9 +240,14 @@ for (const sample of routerCalibrationCases) {
     const { OpenAIDecisionsClient } = require(path.join(root, 'services/decision/openai_decisions_client.js'));
     const { GRID_CLASSIFIER_QUESTIONS, gridTierFromScore } = require(path.join(root, 'services/decision/router_grid_classifier.js'));
     const { loadRouterGridConfig } = require(path.join(root, 'services/decision/router_grid_config.js'));
-    // The real saved API key is kept in memory and never attached to reports or assertion output.
-    const settings = JSON.parse(readFileSync(path.join(homedir(), 'Library/Application Support/Rhythm/decision-router.json'), 'utf8'));
-    const grid = loadRouterGridConfig(path.join(homedir(), 'Library/Application Support/Rhythm/router-grid.json'));
+    // An explicit private actor must use its exact-build fixture settings; never fall back to the operator profile.
+    const fixtureManifestPath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
+    const settingsRoot = fixtureManifestPath
+      ? readQualificationFixture(fixtureManifestPath,
+        JSON.parse(readFileSync(path.join(packaged.appPath, 'Contents/Resources/api_server/build-identity.json'), 'utf8')).sourceRevision).manifest.fixtureRoot
+      : path.join(homedir(), 'Library/Application Support/Rhythm');
+    const settings = JSON.parse(readFileSync(path.join(settingsRoot, 'decision-router.json'), 'utf8'));
+    const grid = loadRouterGridConfig(path.join(settingsRoot, 'router-grid.json'));
     const client = new OpenAIDecisionsClient({ baseUrl: settings.openaiDecisions.baseUrl, model: grid.classifier.model, apiKey: settings.openaiDecisions.apiKey, consent: settings.remoteDataConsent, timeoutMs: 1000 });
     const result = await client.decide(sample.prompt, GRID_CLASSIFIER_QUESTIONS, grid.classifier.model);
     expect(result.status, `classifier unavailable: ${result.reason ?? ''}`).toBe('ok');
