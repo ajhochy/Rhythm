@@ -32,15 +32,17 @@
         "apps/web/tests/packaged/packaged-sessions.spec.ts",
         "apps/web/tests/packaged/packaged-session-project-scope.spec.ts"
       ],
-      "coverage": "KEEP: packaged app plus API/SQLite/engine evidence for core CRUD and project scope.",
-      "gapReason": "Child cursor/ancestor pages and account-switch cases remain UNVERIFIED. The repaired unassigned-session branch path passes strict packaged error audit.",
+      "coverage": "KEEP: packaged app plus API/SQLite/engine evidence for core CRUD and project scope. Private packaged 9dff6ab also passed three direct real-engine child identities reconciled into owned API/SQLite history, two cursor pages, ancestor/search readback, parent rail count, and exact owned cleanup.",
+      "gapReason": "Account-switch isolation and actual delegated child execution remain UNVERIFIED; the new child lineage proof creates children directly through the real engine, without a model or delegate tool.",
       "requires": [
         "Disposable packaged app profile with nonce-owned session/project fixtures."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Child cursor/ancestor pages and account-switch cases remain UNVERIFIED; named unassigned session persistence and exact API/DB/engine deletion passed on local 92af.",
-      "newTests": [],
+      "remaining": "Account-switch isolation, actual delegated child execution, and other named-session edge cases remain. Direct real-engine child cursor/ancestor/search and exact API/SQLite/engine cleanup passed in the private packaged fixture.",
+      "newTests": [
+        "apps/web/tests/packaged/packaged-ai-owned-history.spec.ts"
+      ],
       "priority": "P0",
       "backendProofRequired": "UI state and real API/SQLite session/message readback agree with actual engine session/transcript; include reload and exact owned cleanup for writes. Create/read/list/reload agree on name, profile, cwd and project; delete is permanent in API, SQLite and engine."
     },
@@ -689,17 +691,18 @@
         "apps/web/tests/inspector-profiles.spec.ts",
         "apps/web/tests/post-m1-phase-2-profiles.redspec.ts"
       ],
-      "coverage": "CONFIRMED SCOPED on local 92af: real profile rail/editor API agreement and nonce-owned unsaved draft discard leave saved identity catalog unchanged, with no writes. Save and runtime capability boundaries remain unqualified.",
-      "gapReason": "No packaged API/database persisted profile mutation or tool scoping assertion.",
+      "coverage": "CONFIRMED SCOPED on local 92af for profile rail/editor and unsaved draft discard. Private packaged 9dff6ab passed nonce-owned profile create, controlled failed label PATCH with draft retained, label-only revisioned retry, UI reload, API/SQLite readback, and exact cleanup.",
+      "gapReason": "Inherited/explicit MCP and skill scope, broader changed-field matrices, and actual session runtime capabilities remain unqualified; the passed mutation changed only a nonce-owned label.",
       "requires": [
         "Disposable profile with reversible settings and packaged app; no mutation to user profile."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Profile save, failed-save draft retention, changed-field PATCH, inherited/explicit tool scope and real session capabilities remain unqualified; read-only catalog and unsaved draft discard are confirmed.",
+      "remaining": "Inherited/explicit tool scope, skill tags, provider/model changes, dirty-switch edges, and actual session capabilities remain. A label-only changed-field PATCH, failed-save draft retention, revisioned retry and reload passed in a private packaged fixture.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-settings.spec.ts",
-        "apps/web/tests/packaged/packaged-ai-followon.spec.ts"
+        "apps/web/tests/packaged/packaged-ai-followon.spec.ts",
+        "apps/web/tests/packaged/packaged-ai-profile-save.spec.ts"
       ],
       "primaryIssueTracking": [
         {
@@ -775,15 +778,17 @@
         "apps/web/tests/packaged/packaged-approval-expiry.spec.ts",
         "apps/web/tests/e1-approval-queue-live.spec.ts"
       ],
-      "coverage": "KEEP for packaged signed-card refresh/recovery; controlled expiry/denial/history remains UNVERIFIED.",
-      "gapReason": "Current packaged run cannot safely synthesize expiry or retain/delete approval history in user profile.",
+      "coverage": "KEEP: private packaged 9dff6ab passed native signed pending-card snapshot and failed-refresh recovery, inert nonce-owned native Reject with durable history, and controlled SQL-stale Approve denial (403) with unconsumed pending history and exact cleanup.",
+      "gapReason": "Controlled past expires_at proves stale-card denial, not elapsed one-hour expiry, real model/action side-effect prevention, foreign-owner rejection, or every malformed-signature/payload edge.",
       "requires": [
         "Disposable signed-in database and native signer with exact nonce-owned approval cleanup."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Current packaged run cannot safely synthesize expiry or retain/delete approval history in user profile.",
-      "newTests": [],
+      "remaining": "Elapsed one-hour TTL, real model/action side-effect prevention, foreign-owner and malformed-signature/payload edges remain. Native Reject and controlled SQL-stale Approve denial/history passed only for inert owned cards.",
+      "newTests": [
+        "apps/web/tests/packaged/packaged-ai-private-approvals.spec.ts"
+      ],
       "priority": "P0",
       "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Signed pending state and decision receipt agree; refresh updates queue; expiry blocks approval and retains denial action/reason."
     },
@@ -2950,8 +2955,8 @@
         "apps/web/tests/e1-approval-queue-live.spec.ts",
         "apps/web/tests/electron/issue-1579-notifications.spec.ts"
       ],
-      "coverage": "KEEP for visible signed approval snapshot/refresh behavior in packaged suite where actually executed; REDO for live permission/question behavior because phase-5 redspec uses synthetic frames and mocked HTTP. Packaged expiry remains explicitly UNVERIFIED for controlled one-hour expiry/denial/history. Electron notification bridge test does not observe OS notification.",
-      "gapReason": "Test source uses fixture websocket frames, and Oct-19 packaged inventory has only 2 approval passes plus 1 expiry gap; it does not qualify real engine-generated question/permission or native banner.",
+      "coverage": "KEEP: private packaged 9dff6ab passed signed pending-card refresh/recovery, inert native Reject, and controlled stale-card Approve denial/history. REDO live engine permission/question behavior because phase-5 redspec uses synthetic frames and mocked HTTP. OS banner and elapsed one-hour expiry remain unverified.",
+      "gapReason": "Inert owned approval cards do not prove real engine-generated question/permission, reconnect, real side-effect prevention, elapsed one-hour TTL, or native OS banner presentation.",
       "requires": [
         "nonce-owned real session and engine question/permission",
         "real approval store with controllable clock",
@@ -2959,8 +2964,10 @@
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Test source uses fixture websocket frames, and Oct-19 packaged inventory has only 2 approval passes plus 1 expiry gap; it does not qualify real engine-generated question/permission or native banner.",
-      "newTests": [],
+      "remaining": "Real engine-generated question/permission and reconnect, canonical reply binding, native OS banner, elapsed one-hour expiry, and model/action side-effect boundaries remain; private inert approval decisions passed.",
+      "newTests": [
+        "apps/web/tests/packaged/packaged-ai-private-approvals.spec.ts"
+      ],
       "priority": "P0",
       "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Canonical request content binds to one session/request; exact reply is sent once; resolved/revoked/expired cards disappear or become non-actionable; no expired approval accepts approve; native reauth/error state is visible."
     },
@@ -3629,16 +3636,19 @@
         "apps/web/tests/packaged/packaged-rhythm-primary-chat.spec.ts",
         "apps/web/tests/rhythm-primary-entry.spec.ts"
       ],
-      "coverage": "KEEP fixture UI and read-only packaged prequalification; current write/first-use qualification requires disposable journal",
-      "gapReason": "No disposable signed-in canonical journal; protected existing roots must not be rewritten to satisfy first-use or missing-cwd cases.",
+      "coverage": "KEEP fixture UI and read-only packaged prequalification. Private packaged 9dff6ab passed normal synthetic owner identity, first-use setup-unavailable/profile-choice flow, no allocation before choice or dismissal, one canonical owner root/project with empty journal and null SDK mapping, and ready selected UI with strict error audit.",
+      "gapReason": "First-use empty journal is qualified only in the disposable actor. Existing-root reuse/retry, missing historical cwd, busy child reservations, and populated prompt/history/composer behavior remain unqualified.",
       "requires": [
         "disposable primary/journal and signing identity",
         "identity-matched packaged backend/engine"
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked source preserves primary wording",
-      "remaining": "No disposable signed-in canonical journal; protected existing roots must not be rewritten to satisfy first-use or missing-cwd cases.",
-      "newTests": [],
+      "remaining": "Existing-root reuse and exact-key retry, missing historical cwd, busy child reservations, and populated prompt/composer journal behavior remain. Private first-use setup and an SDK-less canonical root selected under strict error audit passed without touching protected roots.",
+      "newTests": [
+        "apps/web/tests/packaged/packaged-ai-000-primary-first-use.spec.ts",
+        "apps/web/tests/packaged/packaged-ai-owner-identity.spec.ts"
+      ],
       "priority": "P0",
       "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Entry opens the designated durable primary chat without sending a prompt; first-use setup persists exactly once; child reservations do not freeze ordinary primary conversation."
     },

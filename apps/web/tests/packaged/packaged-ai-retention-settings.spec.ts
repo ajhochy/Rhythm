@@ -25,13 +25,16 @@ if (!manifestPath) {
   let offAttempted = false;
   let api: ObservedApi | undefined;
   try {
+    // Enter through a neutral route so the Settings GET belongs to one live document.
+    await page.goto('rhythm://app/index.html#/tools/agent-tools');
+    await expect(page.getByTestId('agent-tools-catalog')).toBeVisible();
     const initial = responseFor(page, 'GET', '/system/session-retention');
     await page.goto('rhythm://app/index.html#/settings?settingsSection=session-retention');
-    await page.reload();
     const response = await initial;
     await assertResponse(response, 'GET', '/system/session-retention', 200);
+    const initialState = await response.json();
     api = ObservedApi.from(response);
-    expect(await response.json()).toMatchObject({ mode: 'dry-run', source: 'default', setting: null });
+    expect(initialState).toMatchObject({ mode: 'dry-run', source: 'default', setting: null });
     const panel = page.getByTestId('session-retention-panel');
     await expect(panel).toBeVisible();
     await expect(page.getByTestId('session-retention-env')).toHaveCount(0);

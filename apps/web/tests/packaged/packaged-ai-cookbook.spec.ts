@@ -48,6 +48,62 @@ test('[AI cookbook] creates real inert recipe with ordered steps and persists af
   await expect(page.locator('.recipe-steps li')).toHaveText(['First synthetic step.', 'Second synthetic step.']);
 });
 
+test('[AI cookbook] failed save retains the owned draft and retry persists exactly one inert recipe', async ({ page, cookbookFixture: { title, api } }) => {
+  const steps = ['First inert step.', 'Second inert step.'];
+  const before = (await api.json<Row[]>('/agent-cookbook')).map(row => row.id).sort();
+  const runRequests: string[] = [];
+  const onRequest = (request: import('@playwright/test').Request) => {
+    if (request.method() === 'POST' && /^\/agent-cookbook\/[^/]+\/run$/.test(new URL(request.url()).pathname))
+      runRequests.push(request.url());
+  };
+  page.on('request', onRequest);
+  try {
+    await page.getByTestId('cookbook-new').click();
+    const editor = page.getByTestId('cookbook-editor');
+    await editor.getByLabel('Title', { exact: true }).fill(title);
+    await editor.getByLabel('Description', { exact: true }).fill('Harmless private recipe');
+    await editor.getByLabel('Steps (one per line)', { exact: true }).fill(steps.join('\n'));
+
+    const fail = async (route: import('@playwright/test').Route) => route.request().method() === 'POST'
+      ? route.fulfill({ status: 503, json: { error: { message: '[smoke] controlled cookbook save failure' } } })
+      : route.fallback();
+    await page.route('**/agent-cookbook', fail);
+    try {
+      const failed = responseFor(page, 'POST', '/agent-cookbook');
+      await page.getByTestId('cookbook-save').click();
+      const response = await failed;
+      expect(response.status()).toBe(503);
+      expect(response.request().postDataJSON()).toMatchObject({ title, stepsJson: JSON.stringify(steps) });
+      await expect(editor).toBeVisible();
+      await expect(editor.getByLabel('Title', { exact: true })).toHaveValue(title);
+      await expect(editor.getByLabel('Description', { exact: true })).toHaveValue('Harmless private recipe');
+      await expect(editor.getByLabel('Steps (one per line)', { exact: true })).toHaveValue(steps.join('\n'));
+      expect(localRows('SELECT id FROM agent_cookbook WHERE title=?', title)).toEqual([]);
+      expect((await api.json<Row[]>('/agent-cookbook')).map(row => row.id).sort()).toEqual(before);
+    } finally { await page.unroute('**/agent-cookbook', fail); }
+
+    const saved = responseFor(page, 'POST', '/agent-cookbook');
+    await page.getByTestId('cookbook-save').click();
+    const response = await saved;
+    expect(response.status()).toBe(201);
+    expect(response.request().postDataJSON()).toMatchObject({ title, stepsJson: JSON.stringify(steps) });
+    const row = await response.json() as Row & { stepsJson: string };
+    expect(row).toMatchObject({ id: expect.any(String), title, stepsJson: JSON.stringify(steps) });
+    await expect(editor).toHaveCount(0);
+    await expect(page.getByTestId(`recipe-${row.id}`)).toBeVisible();
+    expect(await api.json<Row>(`/agent-cookbook/${encodeURIComponent(row.id)}`))
+      .toMatchObject({ id: row.id, title, stepsJson: row.stepsJson });
+    expect(localRows('SELECT id,title,steps_json FROM agent_cookbook WHERE id=?', row.id))
+      .toEqual([{ id: row.id, title, steps_json: row.stepsJson }]);
+    const reloaded = responseFor(page, 'GET', '/agent-cookbook');
+    await page.reload();
+    expect((await (await reloaded).json() as Row[]).filter(item => item.title === title))
+      .toMatchObject([{ id: row.id, title }]);
+    await expect(page.getByTestId(`recipe-${row.id}`)).toBeVisible();
+    expect(runRequests, 'saving an inert recipe must not dispatch Run').toEqual([]);
+  } finally { page.off('request', onRequest); }
+});
+
 test('[AI cookbook] blank validation and cancelling a draft leave the backend unchanged', async ({ page, cookbookFixture: { title, api } }) => {
   // Catches accidental creation on cancel/blank submit, without touching an existing recipe.
   const before = (await api.json<Row[]>('/agent-cookbook')).map(row => row.id).sort();
