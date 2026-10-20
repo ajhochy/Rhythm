@@ -53,7 +53,7 @@ export function resolveHermesBackendArtifact(artifactRoot, { allowResignedNative
     if (manifest?.schemaVersion !== 1 || manifest.product !== 'hermes-backend'
       || manifest.sourceCommit !== PINNED_HERMES_DESKTOP_SOURCE_COMMIT
       || manifest.arch !== process.arch || manifest.pythonVersion !== '3.12.13'
-      || !Number.isInteger(manifest.distributionCount) || manifest.distributionCount !== 60
+      || !Number.isInteger(manifest.distributionCount) || manifest.distributionCount !== 73
       || manifest.licenseCount !== manifest.distributionCount
       || !SHA256.test(manifest.uvLockSha256)
       || !manifest.files || typeof manifest.files !== 'object' || Array.isArray(manifest.files)

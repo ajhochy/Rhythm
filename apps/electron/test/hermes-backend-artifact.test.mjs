@@ -23,9 +23,9 @@ function fixture(t) {
     'python/bin/python3': { link: 'python3.12' },
     'site-packages/module.py': { sha256: digest(readFileSync(join(root, 'site-packages', 'module.py'))) },
   };
-  const manifest = { schemaVersion: 1, product: 'hermes-backend', sourceCommit: '789923c8707d34c7c6291ca9dcfc05e2b5370445',
+  const manifest = { schemaVersion: 1, product: 'hermes-backend', sourceCommit: '23589566471dbd2068a0387c85a2cb85d4a7d737',
     uvLockSha256: files['source/uv.lock'].sha256, pythonVersion: '3.12.13', arch: process.arch,
-    distributionCount: 60, licenseCount: 60, files, native: ['python/bin/python3.12'] };
+    distributionCount: 73, licenseCount: 73, files, native: ['python/bin/python3.12'] };
   writeFileSync(join(root, 'manifest.json'), JSON.stringify(manifest));
   return { root, manifest };
 }

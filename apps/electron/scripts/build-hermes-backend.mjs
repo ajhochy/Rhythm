@@ -29,7 +29,7 @@ export function buildHermesBackendArtifact({ sourceRoot, outputRoot }) {
   const pythonRoot = join(sourceRoot, '.uv-python', candidates[0]);
   const site = join(sourceRoot, '.venv', 'lib', 'python3.12', 'site-packages');
   if (realpathSync(pythonRoot) !== pythonRoot || realpathSync(site) !== site) throw new Error('Hermes runtime must be local and canonical');
-  if (stagedRuntime.installedPackages !== 61 || stagedRuntime.uvLockSha256 !== digest(readFileSync(join(sourceRoot, 'uv.lock'))))
+  if (stagedRuntime.installedPackages !== 74 || stagedRuntime.uvLockSha256 !== digest(readFileSync(join(sourceRoot, 'uv.lock'))))
     throw new Error('Hermes staged runtime differs from its frozen lock');
   const lock = readFileSync(join(sourceRoot, 'uv.lock'), 'utf8');
   const locked = new Map();
@@ -38,7 +38,7 @@ export function buildHermesBackendArtifact({ sourceRoot, outputRoot }) {
     if (name && version) locked.set(canonical(name), version);
   }
   const distributions = readdirSync(site).filter((name) => name.endsWith('.dist-info') && !name.startsWith('hermes_agent-'));
-  if (distributions.length !== 60) throw new Error('Hermes frozen dependency count changed');
+  if (distributions.length !== 73) throw new Error('Hermes frozen dependency count changed');
   for (const entry of distributions) {
     const metadata = readFileSync(join(site, entry, 'METADATA'), 'utf8');
     const name = /^Name: (.+)$/m.exec(metadata)?.[1], version = /^Version: (.+)$/m.exec(metadata)?.[1];
