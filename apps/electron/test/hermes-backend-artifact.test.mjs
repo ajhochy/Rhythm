@@ -25,7 +25,8 @@ function fixture(t) {
   };
   const manifest = { schemaVersion: 1, product: 'hermes-backend', sourceCommit: '23589566471dbd2068a0387c85a2cb85d4a7d737',
     uvLockSha256: files['source/uv.lock'].sha256, pythonVersion: '3.12.13', arch: process.arch,
-    distributionCount: 73, licenseCount: 73, files, native: ['python/bin/python3.12'] };
+    distributionCount: process.arch === 'x64' ? 72 : 73, licenseCount: process.arch === 'x64' ? 72 : 73,
+    files, native: ['python/bin/python3.12'] };
   writeFileSync(join(root, 'manifest.json'), JSON.stringify(manifest));
   return { root, manifest };
 }
@@ -35,6 +36,26 @@ test('bundled backend validates its exact executable, source pin, symlinks and e
   assert.equal(resolveHermesBackendArtifact(root).backendExecutablePath, join(root, 'hermes'));
   writeFileSync(join(root, 'site-packages', 'module.py'), 'VALUE = 2\n');
   assert.throws(() => resolveHermesBackendArtifact(root), /Hermes backend artifact/);
+});
+
+test('frozen distribution count is exact for Intel macOS and unknown architectures fail closed', (t) => {
+  const { root, manifest } = fixture(t);
+  const original = Object.getOwnPropertyDescriptor(process, 'arch');
+  try {
+    Object.defineProperty(process, 'arch', { ...original, value: 'x64' });
+    manifest.arch = 'x64';
+    manifest.distributionCount = 72;
+    manifest.licenseCount = 72;
+    writeFileSync(join(root, 'manifest.json'), JSON.stringify(manifest));
+    assert.equal(resolveHermesBackendArtifact(root).manifest.distributionCount, 72);
+
+    Object.defineProperty(process, 'arch', { ...original, value: 'riscv64' });
+    manifest.arch = 'riscv64';
+    writeFileSync(join(root, 'manifest.json'), JSON.stringify(manifest));
+    assert.throws(() => resolveHermesBackendArtifact(root), /Hermes backend artifact/);
+  } finally {
+    Object.defineProperty(process, 'arch', original);
+  }
 });
 
 test('present but invalid backend fails closed, including added files and escaping links', (t) => {

@@ -4,7 +4,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, re
 import { basename, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from '../src/hermes-desktop-config.mjs';
-import { resolveHermesBackendArtifact } from '../src/hermes-backend-artifact.mjs';
+import { HERMES_BACKEND_DISTRIBUTIONS_BY_ARCH, resolveHermesBackendArtifact } from '../src/hermes-backend-artifact.mjs';
 import { snapshotQualificationHermesRuntime } from '../src/qualification-hermes-runtime.mjs';
 
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -15,6 +15,8 @@ const nativeMagic = new Set(['cffaedfe', 'feedfacf', 'cafebabe', 'bebafeca']);
  * Output is a separate relocatable artifact. Caller must run under Rhythm's build guard.
  * @param {{sourceRoot: string, outputRoot: string}} input */
 export function buildHermesBackendArtifact({ sourceRoot, outputRoot }) {
+  if (!Object.hasOwn(HERMES_BACKEND_DISTRIBUTIONS_BY_ARCH, process.arch)) throw new Error('Unsupported Hermes backend architecture');
+  const expectedDistributions = HERMES_BACKEND_DISTRIBUTIONS_BY_ARCH[process.arch];
   if (![sourceRoot, outputRoot].every((path) => typeof path === 'string' && path.startsWith('/private/tmp/') && resolve(path) === path)
     || sourceRoot === outputRoot || outputRoot.startsWith(`${sourceRoot}${sep}`)) throw new Error('Private canonical Hermes source and output paths required');
   const git = (...args) => execFileSync('/usr/bin/git', ['--no-optional-locks', '-C', sourceRoot, ...args], {
@@ -29,7 +31,7 @@ export function buildHermesBackendArtifact({ sourceRoot, outputRoot }) {
   const pythonRoot = join(sourceRoot, '.uv-python', candidates[0]);
   const site = join(sourceRoot, '.venv', 'lib', 'python3.12', 'site-packages');
   if (realpathSync(pythonRoot) !== pythonRoot || realpathSync(site) !== site) throw new Error('Hermes runtime must be local and canonical');
-  if (stagedRuntime.installedPackages !== 74 || stagedRuntime.uvLockSha256 !== digest(readFileSync(join(sourceRoot, 'uv.lock'))))
+  if (stagedRuntime.installedPackages !== expectedDistributions + 1 || stagedRuntime.uvLockSha256 !== digest(readFileSync(join(sourceRoot, 'uv.lock'))))
     throw new Error('Hermes staged runtime differs from its frozen lock');
   const lock = readFileSync(join(sourceRoot, 'uv.lock'), 'utf8');
   const locked = new Map();
@@ -38,7 +40,7 @@ export function buildHermesBackendArtifact({ sourceRoot, outputRoot }) {
     if (name && version) locked.set(canonical(name), version);
   }
   const distributions = readdirSync(site).filter((name) => name.endsWith('.dist-info') && !name.startsWith('hermes_agent-'));
-  if (distributions.length !== 73) throw new Error('Hermes frozen dependency count changed');
+  if (distributions.length !== expectedDistributions) throw new Error('Hermes frozen dependency count changed');
   for (const entry of distributions) {
     const metadata = readFileSync(join(site, entry, 'METADATA'), 'utf8');
     const name = /^Name: (.+)$/m.exec(metadata)?.[1], version = /^Version: (.+)$/m.exec(metadata)?.[1];

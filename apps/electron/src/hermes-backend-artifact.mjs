@@ -4,6 +4,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from './hermes-desktop-config.mjs';
 
 const SHA256 = /^[a-f0-9]{64}$/;
+export const HERMES_BACKEND_DISTRIBUTIONS_BY_ARCH = Object.freeze({ arm64: 73, x64: 72 });
 const failure = () => new Error('Hermes backend artifact is invalid. Repackage the pinned backend.');
 /** @param {string} path */
 const digest = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -53,7 +54,8 @@ export function resolveHermesBackendArtifact(artifactRoot, { allowResignedNative
     if (manifest?.schemaVersion !== 1 || manifest.product !== 'hermes-backend'
       || manifest.sourceCommit !== PINNED_HERMES_DESKTOP_SOURCE_COMMIT
       || manifest.arch !== process.arch || manifest.pythonVersion !== '3.12.13'
-      || !Number.isInteger(manifest.distributionCount) || manifest.distributionCount !== 73
+      || !Object.hasOwn(HERMES_BACKEND_DISTRIBUTIONS_BY_ARCH, process.arch)
+      || manifest.distributionCount !== HERMES_BACKEND_DISTRIBUTIONS_BY_ARCH[process.arch]
       || manifest.licenseCount !== manifest.distributionCount
       || !SHA256.test(manifest.uvLockSha256)
       || !manifest.files || typeof manifest.files !== 'object' || Array.isArray(manifest.files)
