@@ -66,6 +66,7 @@ export interface LiveGatewayConfig {
   apiBase: string;
   engineBase: string;
   productionApiBase: string;
+  qualificationLocalProductionApiBase?: string;
   expectedApiBase?: string;
   expectedEngineBase?: string;
   taskToken?: string;
@@ -76,6 +77,7 @@ export interface GatewayEnvironment {
   apiBase?: string;
   engineBase?: string;
   productionApiBase?: string;
+  qualificationLocalProductionApiBase?: string;
   expectedApiBase?: string;
   expectedEngineBase?: string;
   taskToken?: string;
@@ -133,10 +135,19 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
   const apiBase = validateLiveBase(config.apiBase, 'api', config.expectedApiBase);
   const engineBase = validateLiveBase(config.engineBase, 'engine', config.expectedEngineBase);
   if (apiBase === engineBase) throw new Error('Live configuration error: API and engine expected bases must use distinct ports');
-  const productionApiBase = validateProductionApiBase(config.productionApiBase);
+  // The native host grants this one origin only after validating a private, exact-build fixture.
+  // Browser/Vite configuration has no path to supply the grant in main.tsx. Keep every other
+  // production origin subject to the normal remote HTTPS validator.
+  const fixtureLocalBase = 'http://127.0.0.1:4001';
+  const qualificationLocalOrigin = config.qualificationLocalProductionApiBase === fixtureLocalBase
+    && apiBase === fixtureLocalBase && config.productionApiBase === fixtureLocalBase;
+  const productionApiBase = qualificationLocalOrigin
+    ? fixtureLocalBase : validateProductionApiBase(config.productionApiBase);
   const localFetcher: Fetcher = (input, init) => {
     const headers = new Headers(init?.headers);
-    headers.delete('authorization');
+    // Only the validated private actor uses its seeded ordinary session for owner-scoped local
+    // routes. Normal local calls still strip cloud Authorization for AGENT_LOCAL as before.
+    if (!qualificationLocalOrigin) headers.delete('authorization');
     return fetcher(input, { ...init, headers });
   };
 
@@ -228,6 +239,7 @@ export function composeGateway(environment: GatewayEnvironment): RendererGateway
     apiBase: environment.apiBase ?? '',
     engineBase: environment.engineBase ?? '',
     productionApiBase: environment.productionApiBase ?? '',
+    qualificationLocalProductionApiBase: environment.qualificationLocalProductionApiBase,
     expectedApiBase: environment.expectedApiBase,
     expectedEngineBase: environment.expectedEngineBase,
     taskToken: environment.taskToken,

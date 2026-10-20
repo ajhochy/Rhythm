@@ -78,6 +78,33 @@ async function colonyOverview(scene: Page) {
   });
 }
 
+test('[AI CROSS] cold Hermes startup remains usable across immediate Colony inventory', async ({ page }) => {
+  // Open the real child, then leave before waiting for its backend. This covers
+  // the startup overlap missed by the warm retained-child test below.
+  const hermes = await companionPage(page, 'hermes');
+  const openedAt = Date.now();
+  const scene = await companionPage(page, 'colony');
+  await waitForColonyReady(scene);
+  expect(hermes.isClosed(), 'Hermes child should remain retained during startup').toBe(false);
+  let generation: string | undefined;
+  try {
+    const inventory = await readPostReturnColonyInventory(scene);
+    generation = inventory.generation;
+    expect(inventory.records.length, 'real Colony inventory is empty').toBeGreaterThan(0);
+  } finally {
+    if (generation) await scene.evaluate(async value => (window as any).colonyEmbedded.request('inventory.cancel', { generation: value }), generation);
+  }
+  await scene.waitForTimeout(Math.max(0, 17_000 - (Date.now() - openedAt)));
+  const returned = await companionPage(page, 'hermes');
+  expect(returned, 'the same Hermes child should resume').toBe(hermes);
+  await expect(returned.getByRole('button', { name: /^Gateway ready$/ })).toBeVisible({ timeout: 60_000 });
+  const historyCount = await returned.evaluate(async () => {
+    const body = await (window as any).hermesDesktop.api({ path: '/api/sessions?limit=20&min_messages=2&archived=exclude' });
+    return body.sessions.length;
+  });
+  expect(historyCount, 'Hermes saved history fixture is empty').toBeGreaterThan(0);
+});
+
 test('[AI Hermes] real Desktop opens saved history through its actual gateway', async ({ page }) => {
   // Catches dashboard substitution, a disconnected embedded Desktop and saved history that cannot open.
   const desktop = await companionPage(page, 'hermes');

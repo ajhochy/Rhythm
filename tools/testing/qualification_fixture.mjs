@@ -34,6 +34,10 @@ export function readQualificationFixture(manifestPath, expectedRevision) {
     || !Number.isFinite(expiresAt) || expiresAt <= Date.now() || expiresAt > Date.now() + 86_400_000)
     throw new Error('Qualification fixture bearer invalid or expired');
   if (existsSync(m.dbPath)) owned(m.dbPath, 0o600);
+  if (m.profileSeedPath) {
+    if (m.profileSeedPath !== join(m.fixtureRoot, 'profiles.json')) throw new Error('Qualification profile seed escaped fixture');
+    owned(m.profileSeedPath, 0o600);
+  }
   return { manifest: m, userDataPath };
 }
 
@@ -46,8 +50,17 @@ export function createQualificationFixture(sourceRevision) {
   for (const directory of ['electron-user-data', 'home', 'opencode-config', 'logs']) mkdirSync(join(fixtureRoot, directory), { mode: 0o700 });
   const tokenPath = join(fixtureRoot, 'actor-token');
   writeFileSync(tokenPath, token, { mode: 0o600, flag: 'wx' });
+  const profileSeedPath = join(fixtureRoot, 'profiles.json');
+  const profiles = ['secretary', 'workflow-orchestrator', 'coding-agent', 'verification-gate'].map(id => ({
+    id, revision: 3, label: `[smoke] ${id}`, icon: 'hub', enabled: true, isAgent: true,
+    systemPrompt: 'Work only within the explicit disposable qualification workspace. Never send external messages. Ask before commands or edits.',
+    allowedMcpsJson: '[]', allowedSkillsJson: '[]', corePermissionsJson: '{"read":"allow","edit":"ask","bash":"ask"}',
+    allowedDelegatesJson: '[]', modelProvider: 'openai', modelId: 'gpt-6-luna', ocAgent: id,
+    sessionSelectable: true, schedulable: true, reasoningEffort: 'low', autoApproveActions: false,
+  }));
+  writeFileSync(profileSeedPath, JSON.stringify({ profiles }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
   const manifest = { schemaVersion: 1, sourceRevision, fixtureRoot, dbPath: join(fixtureRoot, 'rhythm.db'), ownerId, ownerUserId,
-    tokenSha256: createHash('sha256').update(token).digest('hex'),
+    tokenSha256: createHash('sha256').update(token).digest('hex'), profileSeedPath,
     publicUserSeed: { id: ownerUserId, name: `[smoke] ${ownerId}`, email: `${ownerId}@qualification.invalid`, googleSub: `qualification-fixture:${ownerId}`, timezone: 'UTC' },
     syntheticActor: { tokenPath, expiresAt: new Date(Date.now() + 23 * 3_600_000).toISOString() } };
   const manifestPath = join(fixtureRoot, 'manifest.json');

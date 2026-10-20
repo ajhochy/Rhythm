@@ -201,6 +201,23 @@ test('qualification actor signs in through owned local auth without safeStorage,
       signDecision() { approvalCalls++; throw new Error('native signer forbidden'); } },
   });
   assert.equal(h.current().bridge.gateway.productionApiBase, 'http://127.0.0.1:4001');
+  assert.equal(h.current().bridge.gateway.qualificationLocalProductionApiBase, 'http://127.0.0.1:4001');
+  const grant = h.listeners.get('rhythm:qualification-local-production-api:get');
+  const guest = { sender: {}, senderFrame: h.current().webContents.mainFrame };
+  grant(guest);
+  assert.equal(guest.returnValue, null);
+  const childFrame = { sender: h.current().webContents, senderFrame: { url: 'rhythm://app/index.html' } };
+  grant(childFrame);
+  assert.equal(childFrame.returnValue, null);
+  const payload = h.event();
+  grant(payload, 'untrusted');
+  assert.equal(payload.returnValue, null);
+  const ownedFrame = h.current().webContents.mainFrame;
+  ownedFrame.url = 'https://guest.invalid/';
+  const wrongOrigin = h.event();
+  grant(wrongOrigin);
+  assert.equal(wrongOrigin.returnValue, null);
+  ownedFrame.url = 'rhythm://app/index.html';
   assert.equal((await h.current().bridge.auth.currentSession()).sessionToken, 'fixture-token');
   assert.deepEqual(h.requests.filter((request) => String(request.url).endsWith('/auth/me')),
     [{ url: 'http://127.0.0.1:4001/auth/me', bearer: 'Bearer fixture-token' }]);
@@ -211,6 +228,15 @@ test('qualification actor signs in through owned local auth without safeStorage,
   assert.equal(h.logins.length, 0);
   assert.equal(secureStoreCalls, 0);
   assert.equal(approvalCalls, 0);
+});
+
+test('ordinary native bridge never grants a fixture-local production origin', async (t) => {
+  const h = await host(t);
+  const ordinaryReply = h.event();
+  h.listeners.get('rhythm:qualification-local-production-api:get')(ordinaryReply);
+  assert.equal(ordinaryReply.returnValue, null);
+  assert.equal(h.current().bridge.gateway.qualificationLocalProductionApiBase, undefined);
+  assert.equal(h.current().bridge.gateway.productionApiBase, A);
 });
 
 test('qualification actor gives the embedded Hermes host only a private fixture home', async (t) => {

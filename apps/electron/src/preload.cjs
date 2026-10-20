@@ -10,6 +10,7 @@ const gateway = Object.freeze({
   apiBase: runtimeValue('RHYTHM_LIVE_API_URL'),
   engineBase: runtimeValue('RHYTHM_LIVE_ENGINE_URL'),
   productionApiBase: ipcRenderer.sendSync('rhythm:production-api:get'),
+  qualificationLocalProductionApiBase: ipcRenderer.sendSync('rhythm:qualification-local-production-api:get') || undefined,
   setProductionApiBase: (/** @type {string} */ value) => ipcRenderer.invoke('rhythm:production-api:set', value),
 });
 const auth = Object.freeze({

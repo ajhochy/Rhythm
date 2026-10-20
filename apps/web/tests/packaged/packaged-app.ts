@@ -131,8 +131,10 @@ async function attach(
 export async function waitForSignedIn(page: Page) {
   const signIn = page.getByRole('heading', { name: 'Sign in to Rhythm' });
   const main = page.locator('#main-content');
-  await main.or(signIn).first().waitFor({ timeout: 90_000 });
+  const fatal = page.getByRole('heading', { name: 'Live gateway could not start', exact: true });
+  await main.or(signIn).or(fatal).first().waitFor({ timeout: 90_000 });
   if (await main.isVisible()) return;
+  if (await fatal.isVisible()) throw new Error(`Packaged startup failed: ${await page.getByRole('alert').innerText()}`);
   if (!loginMode) {
     throw new Error('UNVERIFIED: the smoke profile is not signed in. Run `npm run test:packaged:login` once and complete Google sign-in.');
   }

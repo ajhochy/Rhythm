@@ -1,5 +1,5 @@
 export const BRIDGE_KEYS = Object.freeze(['version', 'appVersion', 'platform', 'openExternal', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'dayflowDesktop', 'dayflowView', 'selectDirectory', 'saveFile', 'hermes', 'hermesView', 'colonyView', 'openDesignView', 'aiAccounts', 'remoteEnvironments']);
-export const GATEWAY_KEYS = Object.freeze(['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase']);
+export const GATEWAY_KEYS = Object.freeze(['apiBase', 'engineBase', 'productionApiBase', 'qualificationLocalProductionApiBase', 'setProductionApiBase']);
 export const AUTH_KEYS = Object.freeze(['signInWithGoogle', 'currentSession', 'logout']);
 export const HUMAN_APPROVAL_KEYS = Object.freeze(['capability', 'signDecision']);
 export const AGENT_SERVER_KEYS = Object.freeze(['status', 'onStatusChange', 'restart', 'getManualWorkstreams', 'setManualWorkstreams']);

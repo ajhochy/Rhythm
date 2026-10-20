@@ -27,6 +27,7 @@ declare global {
         apiBase?: string;
         engineBase?: string;
         productionApiBase?: string;
+        qualificationLocalProductionApiBase?: string;
       };
       auth?: DesktopAuthBridge;
       dayflowDesktop?: DayflowDesktopBridge;
@@ -57,6 +58,8 @@ const renderGateway = (taskToken?: string, user?: AuthUser) => {
     apiBase,
     engineBase,
     productionApiBase,
+    // This authority comes only from Electron's verified fixture actor; Vite env cannot grant it.
+    qualificationLocalProductionApiBase: runtimeGateway?.gateway?.qualificationLocalProductionApiBase,
     expectedApiBase,
     expectedEngineBase,
     taskToken,

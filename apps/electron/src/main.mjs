@@ -879,6 +879,14 @@ if (hasSingleInstanceLock) {
     if (!ownsDocument(event) || args.length) return;
     event.returnValue = productionApiBase;
   });
+  // Only a verified, private qualification actor may route cloud-domain UI requests to its
+  // disposable local API. The ordinary production origin policy remains remote HTTPS.
+  ipcMain.on('rhythm:qualification-local-production-api:get', (event, ...args) => {
+    // A sync IPC listener must always reply, including denials, so normal launches cannot hang.
+    event.returnValue = null;
+    if (!ownsDocument(event) || args.length || !qualificationSyntheticActor) return;
+    event.returnValue = AGENT_SERVER_BASE_URL;
+  });
   const setProductionApi = createProductionApiSetHandler({
     allowedSender: () => mainWindow?.webContents,
     save: async (value) => {

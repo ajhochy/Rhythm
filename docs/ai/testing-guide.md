@@ -1011,13 +1011,35 @@ stock packaged lifecycle or the approved sandbox procedure above.
 
 The mega has a specialized `RHYTHM_QUALIFICATION_FIXTURE_MANIFEST` seam in
 `apps/electron/src/agent-server.mjs` and the API qualification services. It binds a
-private temporary DB/config/engine-state tree to the exact build, seeds public
-identity/synthetic profiles, and uses a fixture-only bearer for enumerated cases.
-It does not qualify real OAuth/session authentication. There is no general manifest
-launcher/CRUD adapter in this suite yet; implementing one is feasible follow-up,
-not a need to change the live journal. Isolated model dispatch needs appropriate
-provider authorization; provider-free router fixture modes are not real-model proof.
-Companion and Keychain isolation require their own audit beyond API fixture paths.
+private temporary DB/config/engine-state tree to the exact build. The opt-in
+`syntheticActor` extension seeds a disposable ordinary session bearer through the
+normal authentication repository, binds Chromium user data to the same private
+root and refuses occupied runtimes or saved operator authentication. It supplies
+four bounded synthetic profiles; no live database or account store is copied.
+This qualifies no real OAuth or Keychain behavior. First native startup recon on
+`8b6a4c3f24` exposed a renderer origin-validation prerequisite; its repair and
+confirmation are tracked in the continuation run, so this is not yet a green
+full-coverage command.
+
+To create explicit private state for a selected disposable scenario after building:
+
+```sh
+REV=$(node -p "require('./apps/electron/dist/Rhythm.app/Contents/Resources/api_server/build-identity.json').sourceRevision")
+FIXTURE_MANIFEST=$(node tools/testing/qualification_fixture.mjs "$REV")
+RHYTHM_QUALIFICATION_FIXTURE_MANIFEST="$FIXTURE_MANIFEST" \
+  node tools/testing/run_packaged_ai.mjs <selected-disposable-spec>
+```
+
+The launcher and SQLite readback revalidate exact revision, canonical0700 root,
+0600 manifest/token, token digest/expiry and private Chromium profile. Invalid
+fixture state fails instead of falling back to the operator database. Retain its
+private logs while diagnosing; remove only the exact manifest-owned root after
+the app and all owned runtimes have stopped and fixture cleanup is verified.
+Pure filesystem guard check: `node --test tools/testing/qualification_fixture.test.mjs`.
+Isolated model dispatch still needs separately authorized provider credentials;
+provider-free router fixture modes are not real-model proof. Hermes child HOME,
+native signer, companion input stores and device/relay custody require their own
+boundary checks beyond API startup isolation.
 
 The new checks use real catalog/readback/reload and one-request error injection,
 read-only memory/filter/search and skill content, schedule history/cancel, canonical
