@@ -14,6 +14,7 @@ export const API = 'http://127.0.0.1:4001';
 export const ENGINE = 'http://127.0.0.1:4096';
 // These precise 404s are the deletion proof, not a service outage. Never allow arbitrary ERROR lines.
 const deletedOwnSessions = new Set<string>();
+const expiredOwnedApprovalIds = new Set<string>();
 export const expectedRevision = process.env.RHYTHM_FEATURE_EXPECTED_REVISION
   ?? execFileSync('git', ['rev-parse', 'mega/2026-09-29-consolidation'], { encoding: 'utf8' }).trim();
 process.env.RHYTHM_FEATURE_EXPECTED_REVISION ??= expectedRevision;
@@ -163,7 +164,7 @@ export class OwnedRecords {
     expect(row).toMatchObject(this.kind === 'tasks' ? { title: name } : { name, cwd: this.directory });
     return row;
   }
-  async cleanup() {
+  async cleanup(options: { keepDirectory?: boolean } = {}) {
     this.page.off('response', this.listener);
     this.page.off('request', this.onRequest);
     await Promise.all(this.pending);
@@ -183,7 +184,7 @@ export class OwnedRecords {
       expect((await this.api.fetch(`${collection}/${encodeURIComponent(id)}`)).status, 'deleted record still readable').toBe(404);
     }
     expect((await this.list()).filter(row => this.owns(row.title ?? row.name)), 'nonce-owned records leaked').toEqual([]);
-    if (this.directory) await rm(this.directory, { recursive: true });
+    if (this.directory && !options.keepDirectory) await rm(this.directory, { recursive: true });
   }
 }
 
@@ -196,6 +197,21 @@ export function localRows(sql: string, ...args: unknown[]) {
     : path.join(homedir(), 'Library/Application Support/Rhythm Electron/rhythm.db');
   const db = new Database(dbPath, { readonly: true, fileMustExist: true });
   try { return db.prepare(sql).all(...args); } finally { db.close(); }
+}
+
+/** Declare only the exact stale-card denial exercised by a private negative test. */
+export function expectExpiredOwnedApprovalDenial(id: string, action: string, decisionNonce: string) {
+  const manifestPath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
+  expect(manifestPath, 'negative approval setup requires a disposable actor').toBeTruthy();
+  expect(readQualificationFixture(manifestPath!, expectedRevision).manifest.syntheticActor).toBeDefined();
+  expect(id).toMatch(/^[a-f0-9-]{36}$/);
+  expect(action).toMatch(/^\[smoke\] .+/);
+  expect(decisionNonce.length).toBeGreaterThan(0);
+  const rows = localRows('SELECT id,status,session_id,expires_at FROM agent_approvals WHERE id=? AND action=? AND decision_nonce=?', id, action, decisionNonce);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ id, status: 'pending', session_id: null });
+  expect(Date.parse(String(rows[0].expires_at))).toBeLessThan(Date.now());
+  expiredOwnedApprovalIds.add(id);
 }
 
 export const test = packagedTest.extend<{ tasks: OwnedRecords; sessions: OwnedRecords; audit: void }>({
@@ -212,6 +228,7 @@ export const test = packagedTest.extend<{ tasks: OwnedRecords; sessions: OwnedRe
     const offset = statSync(log).size;
     packaged.pageErrors.length = 0;
     deletedOwnSessions.clear();
+    expiredOwnedApprovalIds.clear();
     try { await use(); } finally {
       await page.unrouteAll({ behavior: 'wait' });
       // Private per-case evidence survives the next worker truncating the shared app log.
@@ -223,7 +240,9 @@ export const test = packagedTest.extend<{ tasks: OwnedRecords; sessions: OwnedRe
         || line.includes(`Handled NOT_FOUND GET /agent-sessions/${id}?transcriptLimit=50 — AgentSession not found`)
         || line.includes(`Handled NOT_FOUND GET /agent-sessions/${id}/pending-permissions — AgentSession not found`)
         || line.includes(`Handled NOT_FOUND GET /agent-sessions/${id}/model-provenance — AgentSession not found`)));
-      expect(unexpected, 'unexpected app errors in this test window').toEqual([]);
+      const unplanned = unexpected.filter(line => ![...expiredOwnedApprovalIds].some(id =>
+        line.includes(`Handled FORBIDDEN PATCH /agent-approvals/${id} — This approval expired; ask for a new proposal`)));
+      expect(unplanned, 'unexpected app errors in this test window').toEqual([]);
     }
   }, { auto: true }],
 });

@@ -1337,10 +1337,10 @@ function LiveCookbookTool() {
     const steps = String(data.get('steps')).split('\n').map((value) => value.trim()).filter(Boolean);
     try {
       await gateway.domains.cookbook!.create({ title: String(data.get('title')), description: String(data.get('description') || '') || null, stepsJson: JSON.stringify(steps) });
+      setEditing(null);
       setTrace({ method: 'POST', route: '/agent-cookbook', detail: 'Recipe created with {title,description,stepsJson}' });
       await load();
     } catch (err) { notify(err instanceof Error ? err.message : 'Recipe save failed'); }
-    setEditing(null);
   };
 
   const run = async (recipe: CookbookRecipe) => {

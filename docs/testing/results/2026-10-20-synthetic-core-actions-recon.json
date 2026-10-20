@@ -1,0 +1,369 @@
+{
+  "phase": "Recon - observed local signed d44c1ec694 snapshot, not test assertions",
+  "revision": "d44c1ec694a8772bbf3343de8e35689a4ab37cc5",
+  "observations": [
+    {
+      "step": "approval recon",
+      "observed": {
+        "authority": {
+          "fixtureRoot": "<private-fixture>",
+          "sourceRevision": "d44c1ec694a8772bbf3343de8e35689a4ab37cc5",
+          "ownerUserId": 1,
+          "signerDescriptorPresent": true,
+          "tokenMatched": true
+        },
+        "initial": {
+          "status": 200,
+          "route": "/agent-approvals",
+          "authorizationMatched": true,
+          "nativeCapabilityPresent": true
+        },
+        "reject": {
+          "create": {
+            "id": "6e647ade-ded3-4511-b6ee-0403db8ddacd",
+            "status": "pending",
+            "action": "[smoke] approval recon 7c021e97-1dab-462a-8ef0-7b2793c4e323 0",
+            "sessionId": null,
+            "agentConfigId": "coding-agent",
+            "decisionNoncePresent": true,
+            "expiresAt": null,
+            "continuationState": null
+          },
+          "queueStatus": 200,
+          "visibleBeforeClick": true,
+          "patchStatus": 200,
+          "patchBody": {
+            "id": "6e647ade-ded3-4511-b6ee-0403db8ddacd",
+            "status": "rejected",
+            "action": "[smoke] approval recon 7c021e97-1dab-462a-8ef0-7b2793c4e323 0",
+            "sessionId": null,
+            "agentConfigId": "coding-agent",
+            "decisionNoncePresent": false,
+            "expiresAt": null,
+            "continuationState": null
+          },
+          "historyStatus": 200,
+          "historyRows": [
+            {
+              "id": "6e647ade-ded3-4511-b6ee-0403db8ddacd",
+              "status": "rejected",
+              "action": "[smoke] approval recon 7c021e97-1dab-462a-8ef0-7b2793c4e323 0",
+              "sessionId": null,
+              "agentConfigId": "coding-agent",
+              "decisionNoncePresent": false,
+              "expiresAt": null,
+              "continuationState": null
+            }
+          ],
+          "database": {
+            "status": "rejected",
+            "session_id": null,
+            "continuation_state": null,
+            "decision_nonce": null
+          },
+          "visibleAfterClick": false
+        },
+        "expiry": {
+          "create": {
+            "id": "e3c9f490-3682-4440-8386-4652fcb61787",
+            "status": "pending",
+            "action": "[smoke] approval recon 7c021e97-1dab-462a-8ef0-7b2793c4e323 1",
+            "sessionId": null,
+            "agentConfigId": "coding-agent",
+            "decisionNoncePresent": true,
+            "expiresAt": null,
+            "continuationState": null
+          },
+          "queueStatus": 200,
+          "controlledExpiryWrite": 1,
+          "uiCardVisibleBeforeClick": true,
+          "patchStatus": 403,
+          "patchBody": {
+            "id": null,
+            "status": null,
+            "action": null,
+            "sessionId": null,
+            "agentConfigId": null,
+            "decisionNoncePresent": false,
+            "expiresAt": null,
+            "continuationState": null
+          },
+          "uiError": "This approval expired; ask for a new proposal Retry with Refresh approvals. Rhythm approvals are in this outer queue, not embedded engine permissions.",
+          "pendingStatus": 200,
+          "pendingRows": [],
+          "historyStatus": 200,
+          "historyRows": [
+            {
+              "id": "e3c9f490-3682-4440-8386-4652fcb61787",
+              "status": "pending",
+              "action": "[smoke] approval recon 7c021e97-1dab-462a-8ef0-7b2793c4e323 1",
+              "sessionId": null,
+              "agentConfigId": "coding-agent",
+              "decisionNoncePresent": true,
+              "expiresAt": "2026-10-20T20:53:54.615Z",
+              "continuationState": null
+            },
+            {
+              "id": "6e647ade-ded3-4511-b6ee-0403db8ddacd",
+              "status": "rejected",
+              "action": "[smoke] approval recon 7c021e97-1dab-462a-8ef0-7b2793c4e323 0",
+              "sessionId": null,
+              "agentConfigId": "coding-agent",
+              "decisionNoncePresent": false,
+              "expiresAt": null,
+              "continuationState": null
+            }
+          ],
+          "database": {
+            "status": "pending",
+            "session_id": null,
+            "continuation_state": null,
+            "consumed_at": null,
+            "decision_nonce": "<present>",
+            "expires_at": "2026-10-20T20:53:54.615Z"
+          }
+        },
+        "cleanup": [
+          {
+            "id": "6e647ade-ded3-4511-b6ee-0403db8ddacd",
+            "deletedRows": 1
+          },
+          {
+            "id": "e3c9f490-3682-4440-8386-4652fcb61787",
+            "deletedRows": 1
+          }
+        ],
+        "errors": []
+      }
+    },
+    {
+      "step": "no-model core recon",
+      "observed": {
+        "phase": "Recon - observations only",
+        "authority": {
+          "fixtureRoot": "<private-fixture>",
+          "sourceRevision": "d44c1ec694a8772bbf3343de8e35689a4ab37cc5",
+          "ownerUserId": 1,
+          "tokenMatched": true
+        },
+        "profile": {
+          "nonce": "de2bd729-7e0",
+          "steps": {
+            "initial": {
+              "status": 200,
+              "count": 13,
+              "createVisible": true
+            },
+            "create": {
+              "draftStatus": "Unsaved changes",
+              "status": 201,
+              "requestKeys": [
+                "label",
+                "icon",
+                "enabled",
+                "isAgent",
+                "isManager",
+                "systemPrompt",
+                "allowedMcpsJson",
+                "allowedSkillsJson",
+                "corePermissionsJson",
+                "allowedDelegatesJson",
+                "autoApproveActions",
+                "reasoningEffort",
+                "presetId",
+                "sortOrder",
+                "modelProvider",
+                "modelId",
+                "ocAgent",
+                "sessionSelectable",
+                "modelTierHint",
+                "defaultAnthropicAccountId",
+                "defaultOpenaiAccountId"
+              ],
+              "row": {
+                "id": "smoke-profile-recon-de2bd729-7e0",
+                "label": "[smoke] profile recon de2bd729-7e0",
+                "revision": 0,
+                "updatedAt": "2026-10-20T20:53:56.783Z",
+                "allowedMcpsJson": "{}",
+                "allowedSkillsJson": "[]"
+              },
+              "uiStatus": "Profile saved"
+            },
+            "changeFailedThenRetry": {
+              "controlledFailure": {
+                "status": 503,
+                "keys": [
+                  "label"
+                ],
+                "draftLabel": "[smoke] profile recon de2bd729-7e0 revised",
+                "errorVisible": true
+              },
+              "retry": {
+                "status": 200,
+                "keys": [
+                  "label"
+                ],
+                "row": {
+                  "id": "smoke-profile-recon-de2bd729-7e0",
+                  "label": "[smoke] profile recon de2bd729-7e0 revised",
+                  "revision": 1,
+                  "updatedAt": "2026-10-20T20:53:57.190Z",
+                  "allowedMcpsJson": "{}",
+                  "allowedSkillsJson": "[]"
+                }
+              },
+              "detail": {
+                "status": 200,
+                "row": {
+                  "id": "smoke-profile-recon-de2bd729-7e0",
+                  "label": "[smoke] profile recon de2bd729-7e0 revised",
+                  "revision": 1,
+                  "updatedAt": "2026-10-20T20:53:57.190Z",
+                  "allowedMcpsJson": "{}",
+                  "allowedSkillsJson": "[]"
+                }
+              },
+              "database": [
+                {
+                  "id": "smoke-profile-recon-de2bd729-7e0",
+                  "label": "[smoke] profile recon de2bd729-7e0 revised",
+                  "revision": 1
+                }
+              ],
+              "reloadedLabel": "Claude Code"
+            }
+          },
+          "cleanup": [
+            {
+              "id": "smoke-profile-recon-de2bd729-7e0",
+              "status": 204,
+              "remaining": 0
+            }
+          ],
+          "errors": []
+        },
+        "cookbook": {
+          "nonce": "74bc1e04-21d",
+          "steps": {
+            "initial": {
+              "status": 200,
+              "count": 0,
+              "createVisible": true
+            },
+            "controlledFailure": {
+              "status": 503,
+              "requestTitle": "[smoke] cookbook recon 74bc1e04-21d",
+              "editorVisible": false,
+              "database": []
+            },
+            "retry": {
+              "status": 201,
+              "row": {
+                "id": "8c6c1b91-0fcc-490f-a6d9-14cd4c2c6c24",
+                "title": "[smoke] cookbook recon 74bc1e04-21d",
+                "stepsJson": "[\"First inert step.\",\"Second inert step.\"]"
+              },
+              "readStatus": 200,
+              "matchingIds": [
+                "8c6c1b91-0fcc-490f-a6d9-14cd4c2c6c24"
+              ],
+              "database": [
+                {
+                  "id": "8c6c1b91-0fcc-490f-a6d9-14cd4c2c6c24",
+                  "title": "[smoke] cookbook recon 74bc1e04-21d",
+                  "steps_json": "[\"First inert step.\",\"Second inert step.\"]"
+                }
+              ],
+              "runRequested": false
+            }
+          },
+          "cleanup": [
+            {
+              "id": "8c6c1b91-0fcc-490f-a6d9-14cd4c2c6c24",
+              "status": 204,
+              "remaining": 0
+            }
+          ],
+          "errors": []
+        },
+        "retention": {
+          "steps": {
+            "before": {
+              "status": 200,
+              "body": {
+                "mode": "dry-run",
+                "source": "default",
+                "setting": null
+              }
+            },
+            "ui": {
+              "status": 200,
+              "panelVisible": true,
+              "selectedMode": "dry-run",
+              "envOverride": false
+            },
+            "cancelOn": {
+              "error": "locator.check: Clicking the checkbox did not change its state\nCall log:\n\u001b[2m  - waiting for getByTestId('session-retention-panel').locator('input[name=\"session-retention\"][value=\"on\"]')\u001b[22m\n\u001b[2m    - locator resolved to <input value=\"on\" type=\"radio\" name=\"session-retention\"/>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\u001b[2m    - performing click action\u001b[22m\n\u001b[2m    - click action done\u001b[22m\n\u001b[2m    - waiting for scheduled navigations to finish\u001b[22m\n\u001b[2m    - navigations have finished\u001b[22m\n"
+            },
+            "saveOff": {
+              "error": "locator.check: Clicking the checkbox did not change its state\nCall log:\n\u001b[2m  - waiting for getByTestId('session-retention-panel').locator('input[name=\"session-retention\"][value=\"off\"]')\u001b[22m\n\u001b[2m    - locator resolved to <input value=\"off\" type=\"radio\" name=\"session-retention\"/>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\u001b[2m    - performing click action\u001b[22m\n\u001b[2m    - click action done\u001b[22m\n\u001b[2m    - waiting for scheduled navigations to finish\u001b[22m\n\u001b[2m    - navigations have finished\u001b[22m\n"
+            }
+          },
+          "restore": {
+            "guardedRows": 1,
+            "readback": {
+              "status": 200,
+              "body": {
+                "mode": "dry-run",
+                "source": "default",
+                "setting": null
+              }
+            }
+          },
+          "errors": []
+        },
+        "mcp": {
+          "inspector": {
+            "status": 200,
+            "serverCount": 1,
+            "selectedId": "mcp:rhythm",
+            "server": {
+              "name": "rhythm",
+              "status": "connected",
+              "toolCount": 114
+            },
+            "displayedStatus": "Connected",
+            "displayedCard": "rhythmrhythm \u00b7 Local \u00b7 node \u00b7 114 tools \u00b7 Used by 9 profilesConnectedDisconnectRemove"
+          },
+          "stdio": {
+            "toolCount": 114,
+            "firstNames": [
+              "rhythm_ping",
+              "rhythm_list_tasks",
+              "rhythm_create_task",
+              "rhythm_update_task",
+              "rhythm_complete_task",
+              "rhythm_delete_task",
+              "rhythm_list_project_templates",
+              "rhythm_create_project_template",
+              "rhythm_add_project_step",
+              "rhythm_create_project_instance",
+              "rhythm_list_project_instances",
+              "rhythm_update_project_step"
+            ],
+            "pingListed": true,
+            "ping": {
+              "isError": false,
+              "contentTypes": [
+                "text"
+              ],
+              "mentionsApiStatus": true
+            }
+          },
+          "errors": []
+        }
+      }
+    }
+  ]
+}

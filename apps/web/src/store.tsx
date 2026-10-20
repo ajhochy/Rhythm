@@ -777,7 +777,12 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
 
     // post-m1-phase-5 c1c: rehydrate at most the FIRST pending permission for a session — the
     // renderer never invents a WS event to recover one lost to a reconnect gap.
-    const rehydratePendingPermission = (id: string) => {
+    const rehydratePendingPermission = (session: Session) => {
+      // Coordinator roots have no SDK session until an engine-backed chat starts.
+      // Their ordinary permission endpoint cannot answer, including during the
+      // initial list/detail hydration before selected-session effects run.
+      if (!session.sdkSessionId) return;
+      const id = session.id;
       void gateway.domains.permissions!.pending(id).then((pending) => {
         const first = pending[0];
         if (!active || !first) return;
@@ -795,7 +800,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       const id = selectedIdRef.current;
       if (id) {
         sessionSocketRef.current?.send({ v: 1, type: 'session.subscribe', id });
-        if (pendingSessionRef.current.id === id && pendingSessionRef.current.sdkSessionId) rehydratePendingPermission(id);
+        if (pendingSessionRef.current.id === id) rehydratePendingPermission(pendingSessionRef.current);
       }
       // A successful automatic reconcile ends the outage onError reported; only the
       // manual Reconnect cleared it, so a runtime restart left "unavailable" over a
@@ -848,7 +853,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
           });
           return { ...hydrateWorkingState(detail, session), messages: transcript.messages };
         }));
-        rehydratePendingPermission(chosen);
+        rehydratePendingPermission(detail);
       }
     }).catch(onError).finally(() => { if (active) setLoading(false); });
 

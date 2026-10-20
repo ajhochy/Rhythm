@@ -83,6 +83,7 @@ type FixtureState = {
   sessionInputFrames: Record<string, unknown>[];
   rootExists: boolean;
   rootPermissionReads: number;
+  ordinaryPermissionReads: number;
   retryFailed: boolean;
   setupRelease?: () => void;
 };
@@ -94,6 +95,7 @@ async function openRhythmFixture(page: Page, options: {
   rootStatus?: 'idle' | 'error';
   ordinaryStatus?: 'idle' | 'error';
   rejectSdklessRootPermissions?: boolean;
+  ordinarySdkMapping?: boolean;
 } = {}): Promise<FixtureState> {
   const state: FixtureState = {
     resolveCalls: 0,
@@ -104,9 +106,10 @@ async function openRhythmFixture(page: Page, options: {
     sessionInputFrames: [],
     rootExists: options.existingRoot ?? false,
     rootPermissionReads: 0,
+    ordinaryPermissionReads: 0,
     retryFailed: false,
   };
-  const origin = { ...session('ordinary-root', 'project-ordinary', 'Ordinary chat'), status: options.ordinaryStatus ?? 'idle' };
+  const origin = { ...session('ordinary-root', 'project-ordinary', 'Ordinary chat'), status: options.ordinaryStatus ?? 'idle', ...(options.ordinarySdkMapping ? { sdkSessionId: 'sdk-ordinary-root' } : {}) };
   const alternateOrigin = session('ordinary-other-root', 'project-other', 'Another ordinary chat');
   const rhythmRoot = { ...session('rhythm-root', 'project-rhythm', 'Rhythm'), status: options.rootStatus ?? 'idle', sdkSessionId: null };
   let releaseSetup = () => {};
@@ -199,6 +202,10 @@ async function openRhythmFixture(page: Page, options: {
         ? respond({ error: { code: 'SDK_SESSION_UNAVAILABLE' } }, 409)
         : respond([]);
     }
+    if (request.method() === 'GET' && url.pathname === `/agent-sessions/${origin.id}/pending-permissions`) {
+      state.ordinaryPermissionReads += 1;
+      return respond([]);
+    }
     if (request.method() === 'GET' && url.pathname === '/agent-sessions') {
       const sessions = state.rootExists ? [rhythmRoot, origin, alternateOrigin] : [origin, alternateOrigin];
       return respond({ sessions, ancestors: [], pageInfo: { nextCursor: null, hasMore: false } });
@@ -248,6 +255,8 @@ async function openRhythmFixture(page: Page, options: {
 
 async function expectRhythmRoot(page: Page, state: FixtureState) {
   // The coding-runs panel lives in Details → Runs, not in the transcript.
+  const details = page.getByTestId('session-details');
+  if (await details.getAttribute('aria-expanded') === 'false') await details.click();
   await expect(page.getByTestId('inspector-runs').or(page.getByTestId('inspector-collapsed-runs'))).toBeVisible();
   if (await page.getByTestId('inspector-runs').isVisible()) await page.getByTestId('inspector-runs').click();
   else await page.getByTestId('inspector-collapsed-runs').click();
@@ -376,6 +385,26 @@ test('an existing server root reopens after navigation and repeated entry clicks
   await expectRhythmRoot(page, state);
   expect(state.setupBodies).toEqual([]);
   expect(state.resolveCalls).toBe(2);
+});
+
+test('an SDK-less Coordinator root never reads ordinary permissions while an SDK-backed chat does', async ({ page }) => {
+  const state = await openRhythmFixture(page, { existingRoot: true, rejectSdklessRootPermissions: true, ordinarySdkMapping: true });
+  await page.getByTestId('rhythm-primary-entry').click();
+  await expect(page.getByTestId('rhythm-primary-status')).toContainText('Rhythm is ready.');
+  await expect(page.getByText('Persisted Rhythm history', { exact: true })).toBeVisible();
+  expect(state.rootPermissionReads).toBe(0);
+
+  await page.getByTestId('group-project-project-ordinary').click();
+  await page.getByTestId('session-ordinary-root').click();
+  await expect(page.getByTestId('session-ordinary-root')).toHaveAttribute('aria-current', 'true');
+  await expect.poll(() => state.ordinaryPermissionReads).toBeGreaterThan(0);
+
+  await page.getByTestId('rhythm-primary-entry').click();
+  await expect(page.getByTestId('rhythm-primary-status')).toContainText('Rhythm is ready.');
+  await page.reload();
+  await page.getByTestId('rhythm-primary-entry').click();
+  await expect(page.getByTestId('rhythm-primary-status')).toContainText('Rhythm is ready.');
+  expect(state.rootPermissionReads).toBe(0);
 });
 
 test('ready inert coordinator accepts composition after restart while ordinary error without SDK stays disabled', async ({ page }) => {

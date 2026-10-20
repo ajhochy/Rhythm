@@ -457,6 +457,8 @@ export function FixtureAgentSettingsTool({ Frame }: AgentSettingsToolProps) {
 
 export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const gateway = useGateway();
+  const auth = useAuthUser();
+  const canManageAutoPromotion = auth?.user.role === 'admin' || auth?.user.role === 'system';
   const sessions = gateway.domains.sessions!;
   const mcp = gateway.domains.mcp!;
   // Every account mutation below also nudges the shared store catalog (store.tsx), so
@@ -543,7 +545,14 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   };
 
   useEffect(() => { setActionNotices({}); }, [selectedId]);
-  useEffect(() => { void loadAutoPromotion(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (canManageAutoPromotion) void loadAutoPromotion();
+    else {
+      setAutoPromotionState(null);
+      setAutoPromotionError('');
+      setAutoPromotionLoading(false);
+    }
+  }, [canManageAutoPromotion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const routes: Record<LoadSection, string> = { accounts: '/opencode/auth/accounts', openai: '/opencode/auth/openai/accounts', mcp: '/opencode/mcp', providers: '/opencode/auth' };
   const readSection = async (section: LoadSection, kind: 'load' | 'retry' | 'action' = 'load') => {
@@ -1063,7 +1072,9 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const visibleMcpServers = [...mcpServers]
     .sort((left, right) => mcpAttentionRank(left) - mcpAttentionRank(right) || left.name.localeCompare(right.name))
     .filter((server) => server.name.toLocaleLowerCase().includes((mcpServers.length > 10 ? mcpSearch : '').trim().toLocaleLowerCase()));
-  const autoPromotionSummary = autoPromotionError
+  const autoPromotionSummary = !canManageAutoPromotion
+    ? 'Administrator access required'
+    : autoPromotionError
     ? 'Unavailable'
     : autoPromotionState
       ? `${autoPromotionState.state.autoPromotionEnabled ? 'Enabled' : 'Disabled'} · ${autoPromotionState.state.autoPromotionEligible ? 'Eligible' : 'Not eligible'}`
@@ -1077,7 +1088,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     keybindings: `${sendMessageKeyLabel(keybindings.sendKey)} to send · This device`,
     runtime: gateway.environment ? `API :${gateway.environment.apiPort} · engine :${gateway.environment.enginePort}` : 'Local runtime unavailable',
     mcp: mcpError || `${connectedMcp} connected · ${mcpServers.length} configured`,
-  }, { autoPromotion: autoPromotionError ? 'Error' : undefined });
+  }, { autoPromotion: !canManageAutoPromotion ? 'Restricted' : autoPromotionError ? 'Error' : undefined });
 
   const providerBadge = (id: string) => {
     const connected = authProviders?.includes(id) ?? false;
@@ -1305,7 +1316,9 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
 
   const view = (id: string): SettingsView | null => {
     switch (id) {
-      case sectionIds.autoPromotion: return { kind: 'form', content: <><SectionIntro scope="Workspace">The server enforces administrator access, eligibility, regression checks, and explicit confirmation.</SectionIntro><AutoPromotionSettings state={autoPromotionState} loading={autoPromotionLoading} error={autoPromotionError} reload={loadAutoPromotion} reportError={setAutoPromotionError} /></> };
+      case sectionIds.autoPromotion: return { kind: 'form', content: canManageAutoPromotion
+        ? <><SectionIntro scope="Workspace">The server enforces administrator access, eligibility, regression checks, and explicit confirmation.</SectionIntro><AutoPromotionSettings state={autoPromotionState} loading={autoPromotionLoading} error={autoPromotionError} reload={loadAutoPromotion} reportError={setAutoPromotionError} /></>
+        : <><SectionIntro scope="Workspace">Auto-promotion is an organization-wide autonomy setting.</SectionIntro><p role="status">Administrator access required to view or change auto-promotion.</p></> };
       case sectionIds.accounts: return accountsView();
       case sectionIds.models: return { kind: 'form', content: modelsInspector() };
       case sectionIds.modelRouting: return { kind: 'columns', columns: modelRouting.columns() };
