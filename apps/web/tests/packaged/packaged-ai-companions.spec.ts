@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
-import { test as base, expect } from './feature-test';
+import { test as base, expect, expectedRevision } from './feature-test';
+import { readQualificationFixture } from '../../../../tools/testing/qualification_fixture.mjs';
 
 // Audit the real guest renderers as well as the host renderer audited by feature-test.
 const test = base.extend<{ nativeAudit: void }>({
@@ -35,6 +36,36 @@ async function companionPage(page: Page, kind: 'hermes' | 'colony'): Promise<Pag
   });
   await expect.poll(() => find().length, { timeout: 60_000, message: `${kind}: actual pinned child renderer did not attach` }).toBe(1);
   return find()[0];
+}
+
+async function waitForHermesUsable(desktop: Page) {
+  const manifestPath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
+  if (!manifestPath) {
+    await expect(desktop.getByRole('button', { name: /^Gateway ready$/ })).toBeVisible({ timeout: 60_000 });
+    return;
+  }
+  // A credentialless private actor has a live backend and saved history while provider
+  // setup remains pending. Recon at 28bcc2aa44 records this exact user-visible state.
+  const { manifest } = readQualificationFixture(manifestPath, expectedRevision);
+  expect(manifest.syntheticActor).toBeDefined();
+  await expect(desktop.getByRole('button', { name: /^Gateway needs setup$/ })).toBeVisible({ timeout: 60_000 });
+  const live = await desktop.evaluate(async () => {
+    const status = await (window as any).hermesDesktop.api({ path: '/api/status' });
+    const history = await (window as any).hermesDesktop.api({ path: '/api/sessions?limit=20&min_messages=2&archived=exclude' });
+    return { versionIsString: typeof status.version === 'string', identityIsString: typeof status.install_id === 'string',
+      count: history.sessions.length, privateCount: history.sessions.filter((row: any) =>
+        typeof row.title === 'string' && row.title.startsWith('[smoke] Private Hermes history ')).length };
+  });
+  expect(live.versionIsString).toBe(true);
+  expect(live.identityIsString).toBe(true);
+  expect(live.count).toBeGreaterThan(0);
+  expect(live.privateCount).toBe(live.count);
+  const onboarding = desktop.getByRole('heading', { name: "Let's get you setup with Hermes Agent" });
+  if (await onboarding.isVisible()) {
+    await desktop.getByRole('button', { name: "I'll choose a provider later" }).click();
+    await expect(onboarding).toBeHidden();
+  }
+  await expect(desktop.getByRole('textbox', { name: 'Search sessions', exact: true })).toBeVisible();
 }
 
 async function waitForColonyReady(scene: Page) {
@@ -97,7 +128,7 @@ test('[AI CROSS] cold Hermes startup remains usable across immediate Colony inve
   await scene.waitForTimeout(Math.max(0, 17_000 - (Date.now() - openedAt)));
   const returned = await companionPage(page, 'hermes');
   expect(returned, 'the same Hermes child should resume').toBe(hermes);
-  await expect(returned.getByRole('button', { name: /^Gateway ready$/ })).toBeVisible({ timeout: 60_000 });
+  await waitForHermesUsable(returned);
   const historyCount = await returned.evaluate(async () => {
     const body = await (window as any).hermesDesktop.api({ path: '/api/sessions?limit=20&min_messages=2&archived=exclude' });
     return body.sessions.length;
@@ -109,7 +140,7 @@ test('[AI Hermes] real Desktop opens saved history through its actual gateway', 
   // Catches dashboard substitution, a disconnected embedded Desktop and saved history that cannot open.
   const desktop = await companionPage(page, 'hermes');
   await expect(desktop.getByRole('textbox', { name: 'Search sessions', exact: true })).toBeVisible();
-  await expect(desktop.getByRole('button', { name: /^Gateway ready$/ })).toBeVisible({ timeout: 60_000 });
+  await waitForHermesUsable(desktop);
   const sessions = await desktop.evaluate(async () => {
     const body = await (window as any).hermesDesktop.api({ path: '/api/sessions?limit=20&min_messages=2&archived=exclude' });
     return body.sessions.map((row: any) => ({ id: row.id, title: row.title }));
@@ -131,7 +162,7 @@ test('[AI Hermes] real Desktop opens saved history through its actual gateway', 
 test('[AI Hermes] an unsent draft survives tab switches without creating a backend session', async ({ page }) => {
   // Catches remount destroying unsent work, and new-chat/draft actions accidentally dispatching paid work.
   const desktop = await companionPage(page, 'hermes');
-  await expect(desktop.getByRole('button', { name: /^Gateway ready$/ })).toBeVisible({ timeout: 60_000 });
+  await waitForHermesUsable(desktop);
   const ids = () => desktop.evaluate(async () => {
     const body = await (window as any).hermesDesktop.api({ path: '/api/sessions?limit=100&archived=exclude' });
     return body.sessions.map((row: any) => row.id).sort();
@@ -158,7 +189,7 @@ test('[AI Hermes] an unsent draft survives tab switches without creating a backe
 test('[AI Hermes] notification overlay preserves a usable native workspace and restores it', async ({ page }) => {
   // Catches #1579: opening the bell made the embedded app vanish and never recover.
   const desktop = await companionPage(page, 'hermes');
-  await expect(desktop.getByRole('button', { name: /^Gateway ready$/ })).toBeVisible({ timeout: 60_000 });
+  await waitForHermesUsable(desktop);
   const historyIds = () => desktop.evaluate(async () => {
     const body = await (window as any).hermesDesktop.api({ path: '/api/sessions?limit=20&archived=exclude' });
     return body.sessions.map((row: any) => row.id).sort();
@@ -189,7 +220,7 @@ test('[AI CROSS] Hermes remains responsive after Colony inventory while hidden b
   let scene: Page | undefined;
   let generation: string | undefined;
   try {
-    await expect(hermes.getByRole('button', { name: /^Gateway ready$/ })).toBeVisible({ timeout: 60_000 });
+    await waitForHermesUsable(hermes);
     const baselineCount = await hermes.evaluate(async slot => {
       const body = await (window as any).hermesDesktop.api({ path: '/api/sessions?limit=20&min_messages=2&archived=exclude' });
       const ids = body.sessions.map((row: { id: string }) => row.id).sort();
@@ -223,7 +254,7 @@ test('[AI CROSS] Hermes remains responsive after Colony inventory while hidden b
 
     const returned = await companionPage(page, 'hermes');
     expect(returned, 'the retained Hermes child should resume').toBe(hermes);
-    await expect(returned.getByRole('button', { name: /^Gateway ready$/ })).toBeVisible({ timeout: 60_000 });
+    await waitForHermesUsable(returned);
     const resumed = await returned.evaluate(async slot => {
       const body = await (window as any).hermesDesktop.api({ path: '/api/sessions?limit=20&min_messages=2&archived=exclude' });
       const ids = body.sessions.map((row: { id: string }) => row.id).sort();
