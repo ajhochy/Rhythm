@@ -95,6 +95,53 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); setDb(prev); db.close(); for (const k of envKeys) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } });
 
 describe('G2 real turn router with synthetic external boundaries', () => {
+  it('Coordinator guarded route cannot overwrite a fixed choice made while Luna awaited', async () => {
+    const s = session();
+    const fetch = boundary.fetch.getMockImplementation()!;
+    boundary.fetch.mockImplementation(async (...args: any[]) => {
+      repo.updateFields(s.id, { providerId: 'openai', modelId: 'gpt-6.1-sol', modelMode: 'fixed' });
+      return fetch(...args);
+    });
+    const routed = await run(s.id, { guardedCommit: () => {
+      const current = repo.findById(s.id);
+      return current?.modelMode === 'auto';
+    } });
+    expect(routed).toMatchObject({ applied: false, held: { reason: 'router_state_unavailable' } });
+    expect(repo.findById(s.id)).toMatchObject({ modelMode: 'fixed', providerId: 'openai', modelId: 'gpt-6.1-sol', routerDecidedAt: null });
+    expect(boundary.routing).not.toHaveBeenCalled();
+  });
+  it('Coordinator guarded Grid uses the same selected model, account, variant and applied receipt', async () => {
+    const s = session();
+    const expected = repo.findById(s.id)!;
+    const routed = await run(s.id, { guardedCommit: (pick: any) =>
+      repo.commitGuardedGridRoute(s.id, expected, pick, pick.applyAccount) });
+    expect(routed).toMatchObject({ applied: true, route: { providerID: 'anthropic', modelID: 'claude-haiku-5-5' },
+      gridAccountId: 'anthropic-2', variant: 'low' });
+    expect(repo.findById(s.id)).toMatchObject({ providerId: 'anthropic', modelId: 'claude-haiku-5-5',
+      anthropicAccountId: 'anthropic-2', anthropicAccountSource: 'router', routerVariant: 'low' });
+    expect(boundary.routing).toHaveBeenCalledWith(s.sdkSessionId, 'anthropic-2', { pinned: false });
+    expect((await new RouterGridAttemptsRepository().readState(s.id))?.model).toBe('anthropic/claude-haiku-5-5');
+  });
+  it.each([
+    ['owner', "owner_user_id = NULL"],
+    ['reasoning', 'thinking_budget = 4096'],
+    ['permission', "permission_mode = 'acceptEdits'"],
+    ['account', "anthropic_account_id = 'another-account', anthropic_account_source = 'pinned'"],
+    ['model', "provider_id = 'openai', model_id = 'gpt-6-sol'"],
+  ])('Coordinator CAS rejects %s drift after Luna without applying a model or account', async (_kind, update) => {
+    const s = session();
+    const expected = repo.findById(s.id)!;
+    const fetch = boundary.fetch.getMockImplementation()!;
+    boundary.fetch.mockImplementation(async (...args: any[]) => {
+      db.prepare(`UPDATE agent_sessions SET ${update} WHERE id=?`).run(s.id);
+      return fetch(...args);
+    });
+    const routed = await run(s.id, { guardedCommit: (pick: any) =>
+      repo.commitGuardedGridRoute(s.id, expected, pick, pick.applyAccount) });
+    expect(routed).toMatchObject({ applied: false, held: { reason: 'router_state_unavailable' } });
+    expect(repo.findById(s.id)?.routerDecidedAt).toBeNull();
+    expect(boundary.routing).not.toHaveBeenCalled();
+  });
   it.each(['unavailable', 'mixed'])('inventory-c1: nonempty %s usage cannot hide a healthy unknown-quota account', async kind => {
     boundary.models = boundary.models.filter(m => m.provider === 'anthropic');
     boundary.inventory = { anthropic: [{ id: 'anthropic-1', status: 'ok' }], openai: [] };
@@ -400,6 +447,15 @@ describe('Free Mode F1/F2 through the real turn router, runner and mobile path (
     expect(mobile).toBeInstanceOf(FreeModeHeld);
     expect(boundary.fetch).toHaveBeenCalledTimes(1); // stored classification reused, still no new call
     expect(queue()).toHaveLength(1);
+  });
+  it('Coordinator Free Mode returns a nonqueued hold and cannot enter WS replay', async () => {
+    freeOn(); exhaustAll(); const s = session();
+    expect(await run(s.id, { preventFreeQueue: true, guardedCommit: () => true })).toMatchObject({
+      applied: false, held: { reason: 'router_state_unavailable', durable: false },
+    });
+    expect(queue()).toEqual([]);
+    expect(repo.findById(s.id)?.routerDecidedAt).toBeNull();
+    expect(boundary.routing).not.toHaveBeenCalled();
   });
   it('F2 idle recovery: fresh usage event drains without a new routed turn, single-flight', async () => {
     freeOn(); exhaustAll(); const held = session(); await run(held.id);

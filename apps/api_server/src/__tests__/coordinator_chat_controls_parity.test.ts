@@ -68,6 +68,7 @@ describe('coordinator foreground honors the session model, reasoning and Fast', 
   let allowlist: ReturnType<typeof vi.fn>;
   let hooks: { allowlist?: () => void; mint?: () => void; stream?: () => void };
   let scopeModel: { providerID: string; modelID: string };
+  let autoRoute: ((input: { selection: any; prompt: string; current(): boolean }) => Promise<any>) | null;
   let sequence = 0;
 
   const bodyOf = (call = 0) => (sdkPromptAsync.mock.calls[call][0] as { body: Record<string, unknown> }).body;
@@ -99,6 +100,7 @@ describe('coordinator foreground honors the session model, reasoning and Fast', 
     access = { value: true };
     hooks = {};
     scopeModel = { providerID: 'provider-default', modelID: 'model-default' };
+    autoRoute = null;
     db.prepare(`INSERT OR IGNORE INTO agent_configs (id, label, icon, command, enabled, is_agent)
       VALUES ('secretary', 'Secretary', 'x', 'synthetic', 1, 1)`).run();
     setProfile({ oc_agent: 'secretary', session_selectable: 1, model_provider: 'provider-default', model_id: 'model-default', system_prompt: 'You are the Secretary.' });
@@ -155,6 +157,10 @@ describe('coordinator foreground honors the session model, reasoning and Fast', 
           memory: async () => null,
         }),
       },
+      autoRoute: async (input: { selection: any; prompt: string; current(): boolean }) => autoRoute
+        ? autoRoute(input)
+        : { route: { providerID: input.selection.requestedModel.providerId, modelID: input.selection.requestedModel.modelId },
+          source: 'baseline', applied: false, requestedSource: 'auto', requestedTier: null },
       enabled: () => true,
       now: () => NOW,
     } as never);
@@ -201,7 +207,7 @@ describe('coordinator foreground honors the session model, reasoning and Fast', 
     expect(bodyOf()).not.toHaveProperty('fastMode');
   });
 
-  it('Auto with a stored session model uses that model; Auto without one uses the profile model; neither uses the router', async () => {
+  it('Auto with Grid disabled keeps the stored session model, else the profile model', async () => {
     setSession({ model_mode: 'auto' });
     expect(await send()).toMatchObject({ kind: 'foreground_accepted' });
     expect(bodyOf().model).toEqual({ providerID: 'provider-pick', modelID: 'model-pick' });
@@ -210,6 +216,63 @@ describe('coordinator foreground honors the session model, reasoning and Fast', 
     expect(await send()).toMatchObject({ kind: 'foreground_accepted' });
     expect(bodyOf().model).toEqual({ providerID: 'provider-default', modelID: 'model-default' });
     expect(db.prepare('SELECT router_decided_at FROM agent_sessions WHERE id=?').get('primary')).toEqual({ router_decided_at: null });
+  });
+
+  it('Auto commits a guarded Grid pick before SDK dispatch and records requested versus final route', async () => {
+    setSession({ model_mode: 'auto' });
+    const applyAccount = vi.fn();
+    autoRoute = async ({ selection, current }) => {
+      expect(current()).toBe(true);
+      expect(new AgentSessionsRepository().commitGuardedGridRoute(selection.session.id, selection.session, {
+        providerId: 'anthropic', modelId: 'claude-haiku-5-5', variant: 'low',
+        accountProvider: 'anthropic', accountId: 'synthetic-account',
+      }, applyAccount)).toBe(true);
+      return { route: { providerID: 'anthropic', modelID: 'claude-haiku-5-5' }, source: 'router', applied: true,
+        variant: 'low', gridAccountId: 'synthetic-account', requestedSource: 'auto', requestedTier: null };
+    };
+    expect(await send()).toMatchObject({ kind: 'foreground_accepted' });
+    expect(applyAccount).toHaveBeenCalledTimes(1);
+    expect(bodyOf().model).toEqual({ providerID: 'anthropic', modelID: 'claude-haiku-5-5' });
+    expect(bodyOf().variant).toBe('low');
+    expect(db.prepare(`SELECT requested_source, requested_provider_id, requested_model_id,
+      resolved_provider_id, resolved_model_id, final_provider_id, final_model_id
+      FROM agent_turn_dispatches WHERE session_id='primary'`).get()).toEqual({
+      requested_source: 'session', requested_provider_id: 'provider-pick', requested_model_id: 'model-pick',
+      resolved_provider_id: 'anthropic', resolved_model_id: 'claude-haiku-5-5',
+      final_provider_id: 'anthropic', final_model_id: 'claude-haiku-5-5',
+    });
+  });
+
+  it('Auto does not dispatch when the user changes to Fixed during classification', async () => {
+    setSession({ model_mode: 'auto' });
+    autoRoute = async ({ current }) => {
+      setSession({ model_mode: 'fixed' });
+      expect(current()).toBe(false);
+      return { route: null, source: 'baseline', applied: false, requestedSource: 'auto', requestedTier: null,
+        held: { reason: 'router_state_unavailable', message: 'Selection changed', durable: false } };
+    };
+    expect(await send()).toMatchObject({ kind: 'foreground_uncertain' });
+    expect(sdkPromptAsync).not.toHaveBeenCalled();
+    expect(db.prepare('SELECT router_decided_at FROM agent_sessions WHERE id=?').get('primary')).toEqual({ router_decided_at: null });
+  });
+
+  it('Auto cannot commit after the Secretary profile revision changes during classification', async () => {
+    setSession({ model_mode: 'auto' });
+    autoRoute = async ({ current }) => {
+      setProfile({ system_prompt: 'New server-owned profile prompt.' });
+      expect(current()).toBe(false);
+      return { route: null, source: 'baseline', applied: false, requestedSource: 'auto', requestedTier: null,
+        held: { reason: 'router_state_unavailable', message: 'Profile changed', durable: false } };
+    };
+    expect(await send()).toMatchObject({ kind: 'foreground_uncertain' });
+    expect(sdkPromptAsync).not.toHaveBeenCalled();
+  });
+
+  it('Fixed bypasses the Auto classifier even when a Grid adapter is present', async () => {
+    autoRoute = vi.fn(async () => { throw new Error('Fixed must not classify'); });
+    expect(await send()).toMatchObject({ kind: 'foreground_accepted' });
+    expect(autoRoute).not.toHaveBeenCalled();
+    expect(bodyOf().model).toEqual({ providerID: 'provider-pick', modelID: 'model-pick' });
   });
 
   it('records the ordinary session provenance for the exact native message', async () => {

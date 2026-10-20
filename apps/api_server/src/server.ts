@@ -515,6 +515,23 @@ async function main() {
           memory: prepareAutomaticMemoryPreface,
         }),
       },
+      autoRoute: async ({ selection, prompt, current }) => {
+        const { routeTurnForSession } = await import('./services/decision/turn_routing');
+        return routeTurnForSession({
+          sessionId: selection.session.id,
+          sessionRow: selection.session,
+          prompt,
+          agentId: selection.profile.id,
+          requestedSource: 'auto',
+          baseRoute: { providerID: selection.requestedModel.providerId, modelID: selection.requestedModel.modelId },
+          sessionAuto: true,
+          gridOnly: true,
+          preventFreeQueue: true,
+          guardedCommit: (pick) => current() && conversationSessions.commitGuardedGridRoute(
+            selection.session.id, selection.session, pick, pick.applyAccount,
+          ),
+        });
+      },
       waitingSessionIds: async () => {
         const { streamBridge } = await import('./services/opencode_stream_bridge');
         return streamBridge.listWaitingSessionIds();

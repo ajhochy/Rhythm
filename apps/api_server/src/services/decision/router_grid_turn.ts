@@ -234,6 +234,9 @@ export async function routeGridTurn(input: RouteTurnForSessionInput, mode: 'on' 
         const state = checkFreeMode({ config, accounts, usageFresh: fresh, openrouterUsable, tier: classification.tier, now,statePath:fixture?.statePath });
         if (state.recovered && !fixture) startFreeRelease(config);
         if (state.active && result.kind === 'none') {
+          if (input.preventFreeQueue) return { ...baseline, held: {
+            reason: 'router_state_unavailable', message: 'Paid model capacity is exhausted. This request was not sent; resend it when capacity returns.', durable: false,
+          } };
           const reference = row?.scheduledTaskId ? `scheduled:${row.scheduledTaskId}` : `session:${input.sessionId}`;
           const hold = holdForFreeMode({ config, taskId: reference, ownerUserId: row?.ownerUserId ?? null, reference, classification, now,statePath:fixture?.statePath });
           await attempts.append(input.sessionId, classification, { kind: 'free_queued', model: null, provider: null,
@@ -258,10 +261,30 @@ export async function routeGridTurn(input: RouteTurnForSessionInput, mode: 'on' 
       // Journal the intended route before side effects, but never authorize restart reconstruction yet.
       await attempts.append(input.sessionId, classification, attemptResult);
       if (mode === 'on' && result.kind === 'route') {
-        await applyGridAccount(input.sessionId, result.provider, result.accountId,fixture);
-        if (row) new AgentSessionsRepository().setRouterDecision(input.sessionId, {
-          providerId: result.provider, modelId: result.model.slice(result.provider.length + 1), variant: variant ?? null, decidedAt: new Date(now).toISOString(),
-        });
+        if (input.guardedCommit) {
+          const accountProvider = result.provider === 'anthropic' || result.provider === 'openai' ? result.provider : null;
+          const accountService = accountProvider && result.accountId
+            ? fixture?.inventory[accountProvider] ?? (accountProvider === 'anthropic'
+              ? (await import('../anthropic_accounts_service')).anthropicAccountsService
+              : (await import('../openai_accounts_service')).openaiAccountsService)
+            : null;
+          if (accountService && !accountService.getAccount(result.accountId!)) throw new Error('grid_account_unavailable');
+          const committed = input.guardedCommit({
+            providerId: result.provider, modelId: result.model.slice(result.provider.length + 1), variant: variant ?? null,
+            accountProvider, accountId: result.accountId,
+            applyAccount: () => {
+              if (accountService && row?.sdkSessionId && result.accountId)
+                accountService.setRouting(row.sdkSessionId, result.accountId, { pinned: accountSource === 'pinned' });
+            },
+          });
+          if (!committed) throw new Error('grid_foreground_authority_changed');
+          if (accountProvider && result.accountId && accountSource === 'router') markAutoAccountSession(input.sessionId, accountProvider);
+        } else {
+          await applyGridAccount(input.sessionId, result.provider, result.accountId,fixture);
+          if (row) new AgentSessionsRepository().setRouterDecision(input.sessionId, {
+            providerId: result.provider, modelId: result.model.slice(result.provider.length + 1), variant: variant ?? null, decidedAt: new Date(now).toISOString(),
+          });
+        }
         // Only actual account + session success creates an applied authorization receipt.
         await attempts.append(input.sessionId, classification, { ...attemptResult, applied: true });
       }

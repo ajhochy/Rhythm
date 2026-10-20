@@ -16,6 +16,7 @@ import {
 /** Subset of an agent_sessions row the turn router needs. */
 export interface TurnRoutingSessionRow {
   id: string;
+  sdkSessionId?: string | null;
   modelMode: 'auto' | 'fixed' | string;
   routerDecidedAt: string | null;
   routerVariant?: string | null;
@@ -45,6 +46,14 @@ export interface RouteTurnForSessionInput {
   sessionAuto: boolean;
   client?: DecisionOpts['client'];
   gridClient?: OpenAIDecisionsClient;
+  /** C2 foreground only: one synchronous authority/CAS commit after Grid's awaits. */
+  guardedCommit?: (pick: { providerId: string; modelId: string; variant: string | null;
+    accountProvider: 'anthropic' | 'openai' | null; accountId: string | null;
+    applyAccount(): void }) => boolean;
+  /** C2 cannot enter the ordinary WS Free Mode replay queue. */
+  preventFreeQueue?: boolean;
+  /** C2 uses Grid only; legacy routing has no guarded write boundary. */
+  gridOnly?: boolean;
 }
 
 export interface RouteTurnForSessionResult {
@@ -80,6 +89,8 @@ export async function routeTurnForSession(
     const { routeGridTurn } = await import('./router_grid_turn');
     return routeGridTurn(input, settings.features.model_routing);
   }
+  if (input.gridOnly) return { route: input.baseRoute, source: 'baseline', applied: false,
+    requestedSource: input.requestedSource, requestedTier: input.requestedTier ?? null };
   const gridSession = input.sessionAuto && !!input.sessionRow?.routerDecidedAt &&
     (!!input.sessionRow.routerVariant || settings.routing.engine === 'grid');
   const carriedVariant = gridSession && input.sessionRow?.providerId === input.baseRoute?.providerID &&

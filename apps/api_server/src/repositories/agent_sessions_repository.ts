@@ -1333,6 +1333,49 @@ export class AgentSessionsRepository {
       .run(pick.providerId, pick.modelId, pick.variant ?? null, pick.decidedAt, new Date().toISOString(), id).changes);
   }
 
+  /** C2-only Grid commit: compare the entire captured root route/authority row before any account or model write. */
+  commitGuardedGridRoute(
+    id: string,
+    expected: AgentSession,
+    pick: { providerId: string; modelId: string; variant: string | null; accountProvider: 'anthropic' | 'openai' | null; accountId: string | null },
+    applyAccount: () => void,
+  ): boolean {
+    const currentAccountId = pick.accountProvider === 'anthropic' ? expected.anthropicAccountId
+      : pick.accountProvider === 'openai' ? expected.openaiAccountId : null;
+    const currentAccountSource = pick.accountProvider === 'anthropic' ? expected.anthropicAccountSource
+      : pick.accountProvider === 'openai' ? expected.openaiAccountSource : null;
+    if (currentAccountId && currentAccountSource !== 'router' && currentAccountId !== pick.accountId) return false;
+    const accountColumn = pick.accountProvider === 'anthropic' ? 'anthropic_account_id'
+      : pick.accountProvider === 'openai' ? 'openai_account_id' : null;
+    const sourceColumn = pick.accountProvider === 'anthropic' ? 'anthropic_account_source'
+      : pick.accountProvider === 'openai' ? 'openai_account_source' : null;
+    const accountUpdate = accountColumn && sourceColumn && pick.accountId
+      ? `, ${accountColumn} = ?, ${sourceColumn} = ?` : '';
+    const accountValues = accountUpdate ? [pick.accountId, currentAccountId && currentAccountSource !== 'router' ? 'pinned' : 'router'] : [];
+    const now = new Date().toISOString();
+    const changes = this.mutateAndReplicate(id, (db) => {
+      const updated = db.prepare(`UPDATE agent_sessions SET provider_id = ?, model_id = ?, router_variant = ?,
+        router_decided_at = ?, updated_at = ? ${accountUpdate}
+        WHERE id = ? AND model_mode = 'auto' AND owner_user_id IS ? AND project_id IS ?
+          AND profile_id IS ? AND sdk_session_id IS ? AND cwd IS ?
+          AND parent_session_id IS NULL AND is_system = 0 AND category = 'chat' AND archived_at IS NULL
+          AND provider_id IS ? AND model_id IS ? AND router_decided_at IS ? AND router_variant IS ?
+          AND anthropic_account_id IS ? AND anthropic_account_source IS ?
+          AND openai_account_id IS ? AND openai_account_source IS ?
+          AND permission_mode IS ? AND approval_bypass_explicit = ?
+          AND thinking_budget IS ? AND fast_mode = ?`)
+        .run(pick.providerId, pick.modelId, pick.variant, now, now, ...accountValues,
+          id, expected.ownerUserId, expected.projectId, expected.profileId, expected.sdkSessionId, expected.cwd,
+          expected.providerId, expected.modelId, expected.routerDecidedAt, expected.routerVariant,
+          expected.anthropicAccountId, expected.anthropicAccountSource, expected.openaiAccountId, expected.openaiAccountSource,
+          expected.permissionMode, expected.approvalBypassExplicit ? 1 : 0,
+          expected.thinkingBudget, expected.fastMode ? 1 : 0).changes;
+      if (updated) applyAccount();
+      return updated;
+    });
+    return changes === 1;
+  }
+
   /** Forget the router's pick so the next prompt is routed again. */
   clearRouterDecision(id: string): void {
     this.mutateAndReplicate(id, (db) => db

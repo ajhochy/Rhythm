@@ -169,6 +169,8 @@ export interface CoordinatorConversationServiceDependencies {
   jobs?: Pick<AgentBridgeJobsRepository, 'getNativeForWorkstream' | 'coordinatorBudgetState'>;
   /** Existing local chat binding lookup, never SDK history. */
   sessions?: Pick<AgentSessionsRepository, 'findById'> & Partial<Pick<AgentSessionsRepository, 'insert'>>;
+  /** Server-composed Grid route; only the real server can commit a guarded Auto pick. */
+  autoRoute?: (input: { selection: ManagedSelection; prompt: string; current(): boolean }) => Promise<import('./decision/turn_routing').RouteTurnForSessionResult>;
   /** Existing canonical local transcript mirror; no route reads SDK history directly. */
   messages?: Pick<AgentSessionMessagesRepository, 'listBySessionStructuredPage'>;
   /** Local session ids with an unanswered permission or question (coding run "needs you"). */
@@ -238,6 +240,10 @@ export interface CoordinatorConversationServiceDependencies {
       profileId: string;
       providerId: string;
       modelId: string;
+      /** Authorized session model before an Auto Grid pick; provenance remains session-owned. */
+      baselineProviderId?: string;
+      baselineModelId?: string;
+      routedVariant?: string;
       /** Persisted session reasoning budget captured with the selection (CAS via reservationCurrent). */
       thinkingBudget: number | null;
       /** Persisted explicit Fast flag; only `true` is ever forwarded. */
@@ -984,13 +990,17 @@ export class CoordinatorConversationService {
     // this command key.
     const initialized = await this.ensureManagedSelection(actor, request, selected, true);
     const latest = this.repository.get({ ...scope(actor.user.id, request), commandKey: request.commandKey });
-    const finalSelection = this.currentRootSelection(actor, request, true);
+    const beforeRoute = this.currentRootSelection(actor, request, true);
     const stillReserved = latest.kind === 'found'
       ? latest.conversation.commandDedupe.find((command) => command.key === request.commandKey)
       : null;
     if (
-      !initialized || latest.kind !== 'found' || !finalSelection || !finalSelection.session.sdkSessionId ||
-      !this.sameSelection(initialized, finalSelection) ||
+      !initialized || latest.kind !== 'found' || !beforeRoute || !beforeRoute.session.sdkSessionId ||
+      !this.sameSelection(initialized, beforeRoute) ||
+      initialized.session.anthropicAccountId !== beforeRoute.session.anthropicAccountId ||
+      initialized.session.anthropicAccountSource !== beforeRoute.session.anthropicAccountSource ||
+      initialized.session.openaiAccountId !== beforeRoute.session.openaiAccountId ||
+      initialized.session.openaiAccountSource !== beforeRoute.session.openaiAccountSource ||
       latest.conversation.controlRevision !== reserved.conversation.controlRevision ||
       stillReserved?.kind !== 'foreground' || stillReserved.state !== 'reserved'
     ) {
@@ -1002,6 +1012,55 @@ export class CoordinatorConversationService {
       }));
     }
     const foregroundEpoch = reserved.conversation.controlRevision;
+    const sameAccounts = (left: ManagedSelection, right: ManagedSelection): boolean =>
+      left.session.anthropicAccountId === right.session.anthropicAccountId &&
+      left.session.anthropicAccountSource === right.session.anthropicAccountSource &&
+      left.session.openaiAccountId === right.session.openaiAccountId &&
+      left.session.openaiAccountSource === right.session.openaiAccountSource;
+    const beforeRouteCurrent = (): boolean => {
+      const current = this.repository.get({ ...scope(actor.user.id, request), commandKey: request.commandKey });
+      const selection = this.currentRootSelection(actor, request, true);
+      const command = current.kind === 'found'
+        ? current.conversation.commandDedupe.find((candidate) => candidate.key === request.commandKey) : null;
+      return current.kind === 'found' && current.conversation.primaryOwnerRoot === true &&
+        current.conversation.controlRevision === foregroundEpoch &&
+        command?.kind === 'foreground' && command.state === 'reserved' &&
+        Boolean(selection && this.sameSelection(beforeRoute, selection) && sameAccounts(beforeRoute, selection));
+    };
+    let routed: import('./decision/turn_routing').RouteTurnForSessionResult | null = null;
+    if (beforeRoute.session.modelMode === 'auto' && this.dependencies.autoRoute) {
+      try { routed = await this.dependencies.autoRoute({ selection: beforeRoute, prompt: request.message, current: beforeRouteCurrent }); }
+      catch { /* A reserved turn must fail closed if routing is unavailable. */ }
+      if (!routed || routed.held) {
+        return this.foregroundSettledResult(this.repository.settleForegroundMessage({
+          ...scope(actor.user.id, request), commandKey: request.commandKey, message: request.message, outcome: 'uncertain',
+        }));
+      }
+    }
+    const finalSelection = this.currentRootSelection(actor, request, true);
+    const routedAccountProvider = routed?.route?.providerID === 'anthropic' || routed?.route?.providerID === 'openai'
+      ? routed.route.providerID : null;
+    const priorRoutedAccount = routedAccountProvider === 'anthropic' ? beforeRoute.session.anthropicAccountId
+      : routedAccountProvider === 'openai' ? beforeRoute.session.openaiAccountId : null;
+    const priorRoutedSource = routedAccountProvider === 'anthropic' ? beforeRoute.session.anthropicAccountSource
+      : routedAccountProvider === 'openai' ? beforeRoute.session.openaiAccountSource : null;
+    const selectedAccountSource: 'pinned' | 'router' = priorRoutedAccount && priorRoutedSource !== 'router' ? 'pinned' : 'router';
+    const expectedAfterRoute: ManagedSelection = routed?.applied && routed.route ? {
+      ...beforeRoute,
+      session: { ...beforeRoute.session, providerId: routed.route.providerID, modelId: routed.route.modelID,
+        ...(routed.gridAccountId && routedAccountProvider === 'anthropic'
+          ? { anthropicAccountId: routed.gridAccountId, anthropicAccountSource: selectedAccountSource } : {}),
+        ...(routed.gridAccountId && routedAccountProvider === 'openai'
+          ? { openaiAccountId: routed.gridAccountId, openaiAccountSource: selectedAccountSource } : {}),
+      },
+      requestedModel: { ...beforeRoute.requestedModel, providerId: routed.route.providerID, modelId: routed.route.modelID },
+    } : beforeRoute;
+    if (!finalSelection || !this.sameSelection(expectedAfterRoute, finalSelection) ||
+      !sameAccounts(expectedAfterRoute, finalSelection)) {
+      return this.foregroundSettledResult(this.repository.settleForegroundMessage({
+        ...scope(actor.user.id, request), commandKey: request.commandKey, message: request.message, outcome: 'uncertain',
+      }));
+    }
     const reservationCurrent = (): boolean => {
       const current = this.repository.get({ ...scope(actor.user.id, request), commandKey: request.commandKey });
       const currentSelection = this.currentRootSelection(actor, request, true);
@@ -1012,7 +1071,7 @@ export class CoordinatorConversationService {
         current.conversation.primaryOwnerRoot === true &&
         current.conversation.controlRevision === foregroundEpoch &&
         command?.kind === 'foreground' && command.state === 'reserved' &&
-        Boolean(currentSelection && this.sameSelection(finalSelection, currentSelection));
+        Boolean(currentSelection && this.sameSelection(finalSelection, currentSelection) && sameAccounts(finalSelection, currentSelection));
     };
     const contract = await this.foregroundCoordinatorContract(
       actor,
@@ -1037,6 +1096,10 @@ export class CoordinatorConversationService {
         profileId: finalSelection.profile.id,
         providerId: finalSelection.requestedModel.providerId,
         modelId: finalSelection.requestedModel.modelId,
+        baselineProviderId: beforeRoute.requestedModel.providerId,
+        baselineModelId: beforeRoute.requestedModel.modelId,
+        routedVariant: finalSelection.session.modelMode === 'auto'
+          ? routed?.variant ?? finalSelection.session.routerVariant ?? undefined : undefined,
         thinkingBudget: finalSelection.session.thinkingBudget ?? null,
         fastMode: finalSelection.session.fastMode === true,
         cwd: finalSelection.session.cwd,
@@ -2975,11 +3038,10 @@ export class CoordinatorConversationService {
         permissionAuthority,
       };
     }
-    // Auto routing is eligible only when it remains rooted in the persisted
-    // current profile. The service never guesses a fallback provider/model;
-    // the existing coordinator resolves this exact profile at its own boundary.
-    // Auto never uses the Kev router here; a stored session model is the
-    // ordinary resolver's own precedence, else the profile's configured model.
+    // Auto remains rooted in the persisted profile. A stored session model is
+    // the ordinary resolver's baseline; the foreground Grid route, if enabled,
+    // is classified only after the durable command reservation and committed
+    // under a fresh owner/profile/permission and session-row comparison.
     const sessionModel = allowSessionModel && session.providerId && session.modelId
       ? { providerId: session.providerId, modelId: session.modelId }
       : { providerId: profile.modelProvider, modelId: profile.modelId };
@@ -3170,7 +3232,7 @@ export interface CoordinatorForegroundSenderDependencies {
 
 /**
  * One ordinary C2 foreground turn. The model is the authorized SESSION model
- * resolved by the ordinary resolver (never the router, never a browser value);
+ * resolved by the ordinary resolver and, for Auto, the guarded Grid route;
  * persisted reasoning and an explicit Fast flag ride the ordinary
  * `reasoningConfig`/`fastMode` request shape. The profile's prompt, tool and
  * grant scope stays selected by the profile and is compared independently of
@@ -3179,7 +3241,7 @@ export interface CoordinatorForegroundSenderDependencies {
  */
 export function createCoordinatorForegroundSender(deps: CoordinatorForegroundSenderDependencies): ForegroundSend {
   return async ({
-    actor, localSessionId, sdkSessionId, projectId, profileId, providerId, modelId, thinkingBudget, fastMode,
+    actor, localSessionId, sdkSessionId, projectId, profileId, providerId, modelId, baselineProviderId, baselineModelId, routedVariant, thinkingBudget, fastMode,
     cwd, message, commandKey, controlRevision, reservationCurrent, system, contextCurrent,
   }) => {
     type Session = ReturnType<AgentSessionsRepository['findById']>;
@@ -3322,6 +3384,7 @@ export function createCoordinatorForegroundSender(deps: CoordinatorForegroundSen
         // Ordinary WS request shape: only an explicit persisted value is sent.
         ...(thinkingBudget !== null ? { reasoningConfig: { type: 'enabled', budgetTokens: thinkingBudget } } : {}),
         ...(fastMode ? { fastMode: true } : {}),
+        ...(routedVariant ? { variant: routedVariant } : {}),
       },
       undefined,
       undefined,
@@ -3330,8 +3393,8 @@ export function createCoordinatorForegroundSender(deps: CoordinatorForegroundSen
         sdkSessionId,
         origin: 'prompt_api',
         requestedSource: 'session',
-        requestedProviderId: providerId,
-        requestedModelId: modelId,
+        requestedProviderId: baselineProviderId ?? providerId,
+        requestedModelId: baselineModelId ?? modelId,
         resolvedProviderId: providerId,
         resolvedModelId: modelId,
         finalProviderId: providerId,
