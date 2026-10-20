@@ -7,9 +7,9 @@ const statusLabel: Record<string, string> = {
 
 test('[AI settings] selected MCP inspector agrees with the real server status and tools', async ({ page }) => {
   // Catches stale/misleading settings UI when real server status or advertised tools change.
-  await page.goto('rhythm://app/index.html#/tools/agent-settings?settingsSection=mcp');
+  await page.goto('rhythm://app/index.html#/tools/agent-tools');
   const pending = responseFor(page, 'GET', '/opencode/mcp');
-  await page.reload();
+  await page.goto('rhythm://app/index.html#/tools/agent-settings?settingsSection=mcp');
   const response = await pending;
   await assertResponse(response, 'GET', '/opencode/mcp', 200);
   const servers = await response.json() as Array<{ name: string; status: string; tools: string[] }>;

@@ -4,7 +4,7 @@ repo: rhythm
 branch: test/feature-playwright-2026-10-19
 pr: null
 issues: [1598]
-status: in-progress
+status: failed-qualification
 tags: [run, rhythm, playwright, repair]
 index: "[[Rhythm]]"
 ---
@@ -75,3 +75,36 @@ Read-only source review confirmed the existing qualification manifest scopes DB,
 The user does not know the original input paths. Cheap read-only research confirmed the canonical Oct 4 signing manifest root and Oct 6 C9 source/build root are gone. Installed/current/previous reviewed Rhythm bundles contain the standalone signed Dayflow companion but no native helper/addon/production dylib or accepted wrapper manifests/sidecar. Builder/staging require the exact immutable 749-file source and 280-file signing layout; no inventories were reconstructed or validation bypassed.
 
 Time Machine metadata reports Oct 10/16 NAS backups and Oct 19/20 local snapshots. Its returned NAS path is absent; the actually mounted NAS root returns Permission denied, so no backup contents or restorations were attempted. Recovery of the accepted original source/layout archive remains unverified and is required for embedded Dayflow. Signed standalone Dayflow readiness is already separately confirmed; it is not substituted for the missing embedded module.
+
+
+## Reader-isolation candidate confirmation
+
+Local commit `92af064652a6f44155d09470af48a7b566994baf` was rebuilt using `bash /private/tmp/rhythm-ai-reader-isolation-build-sign.sh`; guarded packaging, Developer ID sign-only and `codesign --verify --deep --strict` exited zero. The packaged API identity exactly matches that source. Native Dayflow omission remains explicit. Private receipts use `/private/tmp/rhythm-ai-colony-reader-isolation-{build,sign}.log`.
+
+`RHYTHM_FEATURE_MODEL=1 node tools/testing/run_packaged_ai.mjs packaged-ai-companions.spec.ts packaged-ai-followon.spec.ts packaged-sessions.spec.ts --grep 'AI Bot Crossing|AI profiles|AI Gallery|named session persists' --output /private/tmp/rhythm-ai-reader-isolation-confirm --reporter=list,json` exited one: **4 passed / 2 failed / 0 skipped / 0 flaky**, 136.64 seconds. The actual Bot host/scene paged-inventory comparison, profile discard/no-write, unavailable Gallery inspector/no-write, and named-session API/DB/engine persistence/deletion plus strict audit passed. Both Bot tab-return cases rendered retained populated scenes and then failed on their additional observer reader with coded `oversize`. Each actual host and scene now owns its own generation; whether these are normal active refresh capacity or leaked generations is under bounded read-only measurement. No capacity or error audit was weakened. Private structured receipt `/private/tmp/rhythm-ai-reader-isolation-confirm.json`.
+
+
+The measured Bot capacity recon returned five exact capacity refusals before a successful five-record page at 5,204 ms (below the 60s snapshot expiry), while 58 project rows and the hidden notice remained stable. The acceptance correction bounds only post-return observer acquisition to 30s for that exact coded capacity error; other errors propagate immediately. No production retry/cap change was made.
+
+Final focused command: `RHYTHM_FEATURE_MODEL=1 node tools/testing/run_packaged_ai.mjs packaged-ai-companions.spec.ts packaged-ai-followon.spec.ts packaged-ai-tools.spec.ts packaged-sessions.spec.ts --grep 'AI Bot Crossing|AI profiles.*discarding|AI Gallery|named session persists|empty agent kind' --output /private/tmp/rhythm-ai-reader-isolation-final-confirm --reporter=list,json` exited zero: **7/7 passed**, no skips or flakies, 69.91s. All three actual Bot cases, nonce draft discard, real unavailable Gallery record, exact historical empty-kind Report Card counts and named session persistence/deletion passed strict audit. Structured private receipt `/private/tmp/rhythm-ai-reader-isolation-final-confirm.json`. Full 159-case real-model suite is running separately; this scoped pass does not qualify remaining inventory claims.
+
+
+## Full exact-build repair suite
+
+`RHYTHM_FEATURE_MODEL=1 node tools/testing/run_packaged_ai.mjs --output /private/tmp/rhythm-ai-repair-full --reporter=list,json` exited one: **67 passed / 92 failed / 0 skipped / 0 flaky**, 601.02s. Snapshot contains 159 cases and predates the later MCP test correction/CROSS addition. Failures:77 explicit inventory gaps,12 prerequisites, one absent embedded Dayflow, one late retained-Hermes IPC timeout, and one MCP test response-lifetime authoring error. [Sanitized cases](../../testing/results/2026-10-20-ai-repair-behavior-summary.json); raw private receipt `/private/tmp/rhythm-ai-repair-full.log.json`.
+
+All 18 catalogs/recovery cases, all 17 router cases (including actual cheap routes/routine edits), all four real conversation cases, all five ordinary session cases and owned project scope pass. Hermes history/draft/overlay pass. Bot inventory assertions completed, but that case's strict audit caught a pending Hermes request timeout 15s after leaving its retained child; the other two Bot cases pass. Do not relabel its full-run audit as green or assign the failure to Bot inventory. Trace lacks the request route/backend health, so cause remains unproven.
+
+The MCP GET returned 200; a test reload destroyed that response before body consumption. The narrow test correction enters from neutral Agent Tools with the waiter armed before navigation and no reload. Model/profile Settings cases passed in this snapshot and are unchanged. An additional CROSS regression keeps the same Hermes child hidden beyond 16.5s while driving real Colony inventory, then compares actual saved history on return; it makes no writes/settings/model calls. Separate eight-case confirmation is running with strict audits. These follow-ups must not be combined into a fictional full-suite green receipt.
+
+
+## CROSS and MCP follow-up
+
+`RHYTHM_FEATURE_MODEL=1 node tools/testing/run_packaged_ai.mjs packaged-ai-companions.spec.ts packaged-ai-settings.spec.ts --grep 'AI Hermes|AI Bot Crossing|AI CROSS|selected MCP inspector' --output /private/tmp/rhythm-ai-cross-mcp-confirm --reporter=list,json` exited one: **6 passed / 2 failed**, 172.22s, no skips/flakies. All three Hermes cases, new retained-child hidden-interval CROSS, search/clear Bot case and corrected MCP test pass. The prior late Hermes timeout did not reproduce; it remains unresolved, not repaired by any code change.
+
+The first Bot observer uses host IPC after CROSS has already returned from Colony. That host negative result erases its worker code into `Bot Crossing inventory unavailable`; no revocation appears, but capacity is not proven by that receipt alone. The test will acquire an explicit observer generation through the bounded coded scene path before comparing that same generation through the real host bridge, preserving actual host/scene/cursor outcomes without allocating a third host reader. The other failed Bot test completed behavior but strict audit caught background Google Calendar/Gmail/Planning Center sync errors due missing local OAuth application configuration. No integration/account settings were changed and these errors were not allowlisted; this is a separate local configuration/isolation prerequisite. Private raw receipt `/private/tmp/rhythm-ai-cross-mcp-confirm.json`.
+
+Read-only SQLite cleanup after the full suite found zero `[smoke]` sessions, projects and cookbook records created since 19:17:03Z; each writer also ran its exact nonce API/DB/engine deletion assertions. No foreign records were deleted.
+
+
+Final Bot command `RHYTHM_FEATURE_MODEL=1 node tools/testing/run_packaged_ai.mjs packaged-ai-companions.spec.ts --grep 'AI Bot Crossing' --output /private/tmp/rhythm-ai-bot-final-confirm --reporter=list,json` exited zero: **3/3 passed**, no skips/flakies, 55.70s. It acquires the observer generation through the bounded coded scene entry, compares actual host/scene records for that exact generation, advances the host cursor, cancels only its own snapshot, and retains tab/search/hash assertions and strict audit. No product change or rebuild followed 92af. Current discovery 160 cases/15 files; final whole-suite receipt remains the separate 159-case 67/92 run. No source/aggregate qualification PASS.

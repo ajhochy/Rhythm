@@ -31,3 +31,5 @@ tags: [run, Rhythm]
 - The GitNexus index available in the original checkout is stale and not present in this worktree. Its disambiguated `SessionRail` upstream impact returned LOW with zero indexed direct callers or affected processes/modules; the rendered tests and parent packaged check are the authoritative behavior evidence.
 - No backend, engine, native app, account setting, project record, commit, push or PR was changed in this lane.
 - `apps/web/tests/packaged/feature-test.ts` now admits only that additional same-ID `/model-provenance` NOT_FOUND after nonce-owned deletion. The audit also includes Electron main-process lines beginning `Error occurred in handler for `; all other server and handler errors remain unexpected.
+
+- Exact signed local 92af confirmation passed the named unassigned session case twice; final seven-case repair confirmation was 7/7. API/DB/engine persistence and hard deletion passed the strict audit without `/projects//branches`. Full-suite receipt is recorded in the umbrella repair run.

@@ -33,13 +33,13 @@
         "apps/web/tests/packaged/packaged-session-project-scope.spec.ts"
       ],
       "coverage": "KEEP: packaged app plus API/SQLite/engine evidence for core CRUD and project scope.",
-      "gapReason": "Child cursor/ancestor pages and account-switch cases remain UNVERIFIED; strict unexpected-log audit catches empty-project branch request.",
+      "gapReason": "Child cursor/ancestor pages and account-switch cases remain UNVERIFIED. The repaired unassigned-session branch path passes strict packaged error audit.",
       "requires": [
         "Disposable packaged app profile with nonce-owned session/project fixtures."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Child cursor/ancestor pages and account-switch cases remain UNVERIFIED; strict unexpected-log audit catches empty-project branch request.",
+      "remaining": "Child cursor/ancestor pages and account-switch cases remain UNVERIFIED; named unassigned session persistence and exact API/DB/engine deletion passed on local 92af.",
       "newTests": [],
       "priority": "P0",
       "backendProofRequired": "UI state and real API/SQLite session/message readback agree with actual engine session/transcript; include reload and exact owned cleanup for writes. Create/read/list/reload agree on name, profile, cwd and project; delete is permanent in API, SQLite and engine."
@@ -689,16 +689,17 @@
         "apps/web/tests/inspector-profiles.spec.ts",
         "apps/web/tests/post-m1-phase-2-profiles.redspec.ts"
       ],
-      "coverage": "KEEP source tests plus new real packaged read-only checks; remaining mutation/execution boundaries stay explicit.",
+      "coverage": "CONFIRMED SCOPED on local 92af: real profile rail/editor API agreement and nonce-owned unsaved draft discard leave saved identity catalog unchanged, with no writes. Save and runtime capability boundaries remain unqualified.",
       "gapReason": "No packaged API/database persisted profile mutation or tool scoping assertion.",
       "requires": [
         "Disposable profile with reversible settings and packaged app; no mutation to user profile."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Actual profile rail and selected label/editor agree with fresh GET after reload. Profile save, failed draft retention, tool scope and real session capabilities remain unqualified.",
+      "remaining": "Profile save, failed-save draft retention, changed-field PATCH, inherited/explicit tool scope and real session capabilities remain unqualified; read-only catalog and unsaved draft discard are confirmed.",
       "newTests": [
-        "apps/web/tests/packaged/packaged-ai-settings.spec.ts"
+        "apps/web/tests/packaged/packaged-ai-settings.spec.ts",
+        "apps/web/tests/packaged/packaged-ai-followon.spec.ts"
       ],
       "primaryIssueTracking": [
         {
@@ -1134,14 +1135,14 @@
         "apps/web/tests/post-m1-phase-7-research-gallery.redspec.ts",
         "apps/web/tests/pages/agent-tools-list-inspector.spec.ts"
       ],
-      "coverage": "CODED, CONFIRMATION PENDING: actual Gallery catalog fetch plus persisted missing-media row inspector; available-media rendering, folder operations, authenticated asset loading and playback remain unqualified.",
+      "coverage": "CONFIRMED SCOPED on local 92af: actual catalog fetch, persisted missing-media inspector, disabled unavailable action and unchanged API identity. Available media, folder operations and playback remain unqualified.",
       "gapReason": "No packaged available-media preview, folder mutation or playback qualification; the current follow-on is intended to cover only the missing-media unavailable inspector.",
       "requires": [
         "Nonce-owned generated image/video artifact and reversible folder fixture in packaged app."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Confirm the codified missing-media inspector regression. No packaged available-media preview, folder mutation or playback qualification.",
+      "remaining": "Packaged available-media preview, folder mutation, authenticated asset loading and playback remain unqualified.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
         "apps/web/tests/packaged/packaged-ai-followon.spec.ts"
@@ -1588,8 +1589,8 @@
         "apps/electron/test/colony-desktop-artifact.test.mjs",
         "apps/electron/test/colony-installed/run.mjs"
       ],
-      "coverage": "CODED, CONFIRMATION PENDING: packaged scene readiness, same-child retention, search clear and populated data read; exact-frame authority, hostile-frame and corrupted-artifact cases remain unqualified.",
-      "gapReason": "Renderer Playwright stubs colonyView. Native boundary tests use synthetic artifact and fake Electron. The follow-on packaged test still needs confirmation; installed harness coverage does not prove exact document authority.",
+      "coverage": "CONFIRMED SCOPED on local 92af: actual pinned native scene, host/scene paged inventory agreement, same-child tab retention, no-match search and clear. Six real Electron frame-fixture boundary cases pass separately; full hostile/corrupt packaged acceptance remains unqualified.",
+      "gapReason": "Actual local packaged happy-path behavior is confirmed. Hostile-frame and corrupted-artifact packaged cases remain fixture-only; source/fixture checks are separate from the signed local candidate.",
       "requires": [
         "actual packaged Rhythm",
         "pinned Colony artifact",
@@ -1599,7 +1600,7 @@
       "trackingStatus": "open; the quoted planning-status clause is stale relative to this mega tree, where implementation commits exist; release qualification remains separate",
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "72ac recon observed a populated scene and retained child; codified actual test confirmation is pending. Hostile-frame and corrupted-artifact cases remain fixture-only.",
+      "remaining": "Actual packaged scene/paging/retention/search checks passed. Hostile-frame and corrupted-artifact cases remain fixture-only; Intel and installed/release qualification remain outstanding.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-companions.spec.ts"
       ],
@@ -1689,7 +1690,7 @@
         "apps/electron/test/colony-installed/verify.test.mjs",
         "apps/web/tests/pages/colony.spec.ts"
       ],
-      "coverage": "KEEP adapter contracts; REDO in installed app with sanitized harness fixture",
+      "coverage": "CONFIRMED SCOPED on local 92af: actual host and scene inventory pages agree; continuation has no duplicate IDs. Real sealed-worker synthetic source stays byte-identical during independent-reader cancellation regression. Complete multi-harness packaged provenance/state/immutability remains unqualified.",
       "gapReason": "Existing UI tests synthesize the bridge/inventory; native tests use fixtures. No Playwright assertion proves packaged source discovery and read-only behavior together.",
       "requires": [
         "read-only sanitized harness fixture",
@@ -1700,7 +1701,7 @@
       "trackingStatus": "open; scanner/source discovery code and contract tests exist; no complete packaged acceptance proof",
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Actual paged IPC inventory and child agreement are exercised. Known/unknown state and per-harness source-byte immutability still require sanitized stores.",
+      "remaining": "Actual paged IPC inventory and child agreement pass. Known/unknown state and per-harness source-byte immutability in the packaged app still require sanitized stores.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-companions.spec.ts"
       ],
@@ -1868,8 +1869,8 @@
         "apps/web/tests/pages/colony-fallback.spec.ts",
         "apps/web/tests/pages/colony-settings.spec.ts"
       ],
-      "coverage": "KEEP rendered tests; REDO via packaged native artifact",
-      "gapReason": "The tests do render React but invent sessions and replace native bridge; they cannot catch artifact/UI scene mismatch.",
+      "coverage": "CONFIRMED SCOPED on local 92af: populated native scene, unique no-match search, clear to same project digest and retained child. Full scene/rail/inspector selection and fallback consistency remain unqualified.",
+      "gapReason": "Packaged scene search/clear/retention is confirmed. Cross-rail selection, partial-source failure, status mapping and unavailable/fallback parity still lack complete packaged evidence.",
       "requires": [
         "actual packaged app and artifact",
         "synthetic task fixture",
@@ -1878,8 +1879,10 @@
       "trackingStatus": "open; UI feature slices exist; actual packaged native scene/rail parity not fully proven",
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "The tests do render React but invent sessions and replace native bridge; they cannot catch artifact/UI scene mismatch.",
-      "newTests": [],
+      "remaining": "Add packaged scene/rail/inspector selection parity, partial-source failure, historical/unknown activity and unavailable fallback checks.",
+      "newTests": [
+        "apps/web/tests/packaged/packaged-ai-companions.spec.ts"
+      ],
       "primaryIssueTracking": [
         {
           "issue": "#1526",
@@ -2080,8 +2083,8 @@
         "apps/electron/test/colony-native-frame-contract.test.mjs",
         "apps/electron/test/security-smoke-receipt.test.mjs"
       ],
-      "coverage": "KEEP boundary tests; ABSENT integrated packaged cross-host journey",
-      "gapReason": "Tests cover separate boundaries and mocked bridge journeys; no current test verifies account/owner transition across visible companion surfaces in packaged app.",
+      "coverage": "CONFIRMED SCOPED on local 92af: actual Hermes-to-Colony-to-same-Hermes journey retains history after a hidden interval beyond15s and real Colony inventory. Earlier full-run late Hermes timeout remains unresolved; account/owner/privacy boundaries are not qualified.",
+      "gapReason": "Integrated retained-child navigation is exercised. Account/owner switch, logout, forged/stale routes, grants and cross-surface privacy remain unqualified; separate boundary fixtures cannot substitute for those journeys.",
       "requires": [
         "actual packaged Rhythm",
         "synthetic sessions/identities",
@@ -2090,8 +2093,10 @@
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Tests cover separate boundaries and mocked bridge journeys; no current test verifies account/owner transition across visible companion surfaces in packaged app.",
-      "newTests": [],
+      "remaining": "Add packaged account/owner/logout/revocation/forged-intent/redaction journeys with synthetic identities. Diagnose the full-run late Hermes IPC timeout despite a passing narrower hidden-interval regression.",
+      "newTests": [
+        "apps/web/tests/packaged/packaged-ai-companions.spec.ts (real retained-child hidden-interval CROSS)"
+      ],
       "priority": "P1",
       "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Only allowed target and owner are reachable; logout/account switch/revoke removes old access; credentials and private transcripts never appear in logs/evidence."
     },
@@ -2985,8 +2990,8 @@
         "apps/web/tests/gateway/self-improvement-gateways.spec.ts:55-67",
         "apps/web/tests/packaged/packaged-ai-recon.spec.ts:4 (GET observation only)"
       ],
-      "coverage": "REDO for data truth. Phase-7 UI redspec uses a fully fabricated rollup through openPhase7Live route interception. Gateway unit tests cover normalization, not actual owner-scoped service data. The packaged recon only observes route/status/keys; it asserts no rendered rollup values.",
-      "gapReason": "No packaged assertion ties real run rows, measurements and owner scope to the displayed scorecard.",
+      "coverage": "CONFIRMED SCOPED on local 92af: real API aggregate/count and 7-day window checks; empty-kind row visibly uses Unknown agent with exact counts, inspector and unchanged API readback. Raw-run provenance, owner isolation and unmeasured-rate boundaries remain unqualified.",
+      "gapReason": "Packaged checks do not trace individual raw runs to measurement provenance, establish owner-scope isolation across identities, or fully verify that unmeasured data never becomes a fabricated percentage.",
       "requires": [
         "synthetic owned run history with known measured/unmeasured cases",
         "real API service/database query",
@@ -2994,9 +2999,9 @@
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "No packaged assertion ties real run rows, measurements and owner scope to the displayed scorecard.",
+      "remaining": "Add raw-run measurement/provenance and owner-scope isolation evidence; verify unmeasured percentages stay truthful. Aggregate counts/window and real empty-kind identity are checked.",
       "newTests": [
-        "apps/web/tests/packaged/packaged-ai-tools.spec.ts",
+        "apps/web/tests/packaged/packaged-ai-tools.spec.ts (real rollup window/counts and confirmed empty-kind fallback)",
         "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts"
       ],
       "priority": "P2",

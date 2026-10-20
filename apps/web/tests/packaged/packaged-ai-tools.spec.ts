@@ -105,6 +105,32 @@ test('[AI quality] changing time window changes the API rollup and displayed evi
   } else await expect(page.getByRole('heading', { name: surface.empty, exact: true })).toBeVisible();
 });
 
+test('[AI quality] empty agent kind keeps its authoritative Unknown agent identity and exact counts', async ({ page }) => {
+  // Catches blank report-card identities when the real rollup contains an empty kind.
+  const surface = aiSurfaces.find(s => s.slug === 'report-card')!;
+  const response = await openAiSurface(page, surface);
+  const body = await response.json();
+  const rows = body.agents as AiRow[];
+  const row = rows.find(item => typeof item.agentKind === 'string' && item.agentKind.trim() === '');
+  expect(row, 'UNVERIFIED: the live rollup has no real empty-kind agent row').toBeDefined();
+  expect(row!.agentLabel).toBe('Unknown agent');
+
+  const rowView = page.getByTestId(`report-agent-${row!.agentKind}`);
+  await expect(rowView).toBeVisible();
+  await expect(rowView).toContainText('Unknown agent');
+  await expect(rowView).toContainText(`${row!.totalRuns} runs`);
+  await expect(rowView).toContainText(`${row!.completedRuns} completed`);
+  await rowView.click();
+  const inspector = page.getByTestId('list-inspector-detail');
+  await expect(inspector).toContainText(`${row!.totalRuns} runs`);
+  await expect(inspector).toContainText(`${row!.completedRuns} completed`);
+  if (row!.notEnoughData) await expect(inspector).toContainText('Not enough data to score this agent yet.');
+
+  // Re-read the exact API surface after selection; selection is view-local and must not mutate rollup data.
+  const canonical = await ObservedApi.from(response).json<{ agents: AiRow[] }>('/agents/run-quality?windowDays=30');
+  expect(canonical.agents).toEqual(rows);
+});
+
 test('[AI shared agents] canonical revision and runtime readiness match the real catalog', async ({ page }) => {
   // Catches old per-host agent copies being presented as the canonical shared projection.
   await page.goto('rhythm://app/index.html#/tools/agent-tools');

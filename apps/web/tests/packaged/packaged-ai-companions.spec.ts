@@ -49,6 +49,20 @@ async function waitForColonyReady(scene: Page) {
   }), { timeout: 60_000, message: 'Bot Crossing did not reach a populated, non-failing scene state' }).toBe(true);
 }
 
+async function readPostReturnColonyInventory(scene: Page) {
+  // The returning host and retained scene each own a snapshot slot. Observe only after
+  // one completes; a third read cannot fit the worker's unchanged two-slot cap.
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    try {
+      return await scene.evaluate(async () => (window as any).colonyEmbedded.request('inventory.page', { collection: 'threads', limit: 5 }));
+    } catch (error) {
+      if (!(error instanceof Error) || !/(?:^|: )\[colony:oversize\] Colony operation exceeds its size or capacity limit$/.test(error.message) || Date.now() >= deadline) throw error;
+      await scene.waitForTimeout(Math.min(500, deadline - Date.now()));
+    }
+  }
+}
+
 async function colonyOverview(scene: Page) {
   return scene.evaluate(() => {
     const rows = [...document.querySelectorAll<HTMLElement>('.projects .repo')];
@@ -141,6 +155,63 @@ test('[AI Hermes] notification overlay preserves a usable native workspace and r
   await expect(desktop.getByRole('textbox', { name: 'Search sessions', exact: true })).toBeVisible();
 });
 
+test('[AI CROSS] Hermes remains responsive after Colony inventory while hidden beyond the backend timeout', async ({ page }) => {
+  // Keep history identities inside the native renderer so test output contains only counts/status.
+  const historySlot = `__rhythmCrossHistory_${randomUUID().replaceAll('-', '')}`;
+  const hermes = await companionPage(page, 'hermes');
+  let scene: Page | undefined;
+  let generation: string | undefined;
+  try {
+    await expect(hermes.getByRole('button', { name: /^Gateway ready$/ })).toBeVisible({ timeout: 60_000 });
+    const baselineCount = await hermes.evaluate(async slot => {
+      const body = await (window as any).hermesDesktop.api({ path: '/api/sessions?limit=20&min_messages=2&archived=exclude' });
+      const ids = body.sessions.map((row: { id: string }) => row.id).sort();
+      Object.defineProperty(window, slot, { value: ids, configurable: true });
+      return ids.length;
+    }, historySlot);
+    expect(baselineCount, 'Hermes saved history fixture is empty').toBeGreaterThan(0);
+
+    scene = await companionPage(page, 'colony');
+    await waitForColonyReady(scene);
+    expect(hermes.isClosed(), 'Hermes child should remain alive off-tab').toBe(false);
+    const hiddenAt = Date.now();
+    try {
+      // The scene and host may already own both snapshot slots; retry only that
+      // documented capacity response, for at most 30 seconds.
+      const inventory = await readPostReturnColonyInventory(scene);
+      generation = inventory.generation;
+      expect(inventory.collection).toBe('threads');
+      expect(inventory.records.length, 'real Colony inventory is empty').toBeGreaterThan(0);
+      expect(inventory.scannedAt).toBeGreaterThan(0);
+    } finally {
+      if (generation) {
+        await scene.evaluate(async value => (window as any).colonyEmbedded.request('inventory.cancel', { generation: value }), generation);
+        generation = undefined;
+      }
+    }
+    // No test-initiated Hermes API calls while hidden. The strict main and
+    // native renderer audits still reject any background failure.
+    await scene.waitForTimeout(Math.max(0, 16_500 - (Date.now() - hiddenAt)));
+    expect(Date.now() - hiddenAt).toBeGreaterThanOrEqual(16_500);
+
+    const returned = await companionPage(page, 'hermes');
+    expect(returned, 'the retained Hermes child should resume').toBe(hermes);
+    await expect(returned.getByRole('button', { name: /^Gateway ready$/ })).toBeVisible({ timeout: 60_000 });
+    const resumed = await returned.evaluate(async slot => {
+      const body = await (window as any).hermesDesktop.api({ path: '/api/sessions?limit=20&min_messages=2&archived=exclude' });
+      const ids = body.sessions.map((row: { id: string }) => row.id).sort();
+      const before = (window as any)[slot] as string[] | undefined;
+      return { count: ids.length, same: Array.isArray(before) && JSON.stringify(ids) === JSON.stringify(before) };
+    }, historySlot);
+    expect(resumed).toEqual({ count: baselineCount, same: true });
+  } finally {
+    if (generation && scene && !scene.isClosed()) {
+      await scene.evaluate(async value => (window as any).colonyEmbedded.request('inventory.cancel', { generation: value }), generation);
+    }
+    if (!hermes.isClosed()) await hermes.evaluate(slot => { delete (window as any)[slot]; }, historySlot);
+  }
+});
+
 test('[AI Bot Crossing] actual pinned scene reads paged local inventory', async ({ page }) => {
   // Catches a healthy-looking React host with no real scene or disconnected multi-harness inventory service.
   const scene = await companionPage(page, 'colony');
@@ -150,13 +221,18 @@ test('[AI Bot Crossing] actual pinned scene reads paged local inventory', async 
   expect(status).toMatchObject({ v: 1, available: true, enabled: true });
   let generation: string | undefined;
   try {
-    const first = await page.evaluate(async () => (window as any).rhythmShell.colonyView.inventoryPage({ collection: 'threads', limit: 5 }));
-    generation = first.generation;
+    // The retained scene and host may already occupy both worker snapshot slots.
+    // Acquire one bounded scene generation, then exercise the host against that same snapshot.
+    const acquired = await readPostReturnColonyInventory(scene);
+    generation = acquired.generation;
+    expect(typeof generation).toBe('string');
+    const first = await page.evaluate(async generation => (window as any).rhythmShell.colonyView.inventoryPage({ collection: 'threads', limit: 5, generation }), generation);
     expect(first.collection).toBe('threads');
     expect(first.records.length).toBeLessThanOrEqual(5);
     expect(first.scannedAt).toBeGreaterThan(0);
     expect(first.records.length, 'UNVERIFIED: Bot Crossing inventory fixture is empty').toBeGreaterThan(0);
     for (const row of first.records) expect(typeof row.id).toBe('string');
+    expect(acquired.records.map((row: any) => row.id)).toEqual(first.records.map((row: any) => row.id));
     const fromScene = await scene.evaluate(async generation => (window as any).colonyEmbedded.request('inventory.page', { collection: 'threads', limit: 5, generation }), generation);
     expect(fromScene.records.map((row: any) => row.id)).toEqual(first.records.map((row: any) => row.id));
     if (first.nextCursor) {
@@ -182,7 +258,7 @@ test('[AI Bot Crossing] tab switch preserves one scene and restores usable inven
   await expect(scene.getByRole('searchbox', { name: 'Search projects and sessions', exact: true })).toBeVisible({ timeout: 60_000 });
   let generation: string | undefined;
   try {
-    const inventory = await scene.evaluate(async () => (window as any).colonyEmbedded.request('inventory.page', { collection: 'threads', limit: 5 }));
+    const inventory = await readPostReturnColonyInventory(scene);
     generation = inventory.generation;
     expect(inventory.collection).toBe('threads');
     expect(inventory.records.length, 'UNVERIFIED: restored Bot Crossing inventory is empty').toBeGreaterThan(0);
@@ -231,7 +307,7 @@ test('[AI Bot Crossing] no-match search clears back to the retained populated sc
   // Read the actual post-return scene service after readiness and cancel only this observer's generation.
   let generation: string | undefined;
   try {
-    const inventory = await returnedScene.evaluate(async () => (window as any).colonyEmbedded.request('inventory.page', { collection: 'threads', limit: 5 }));
+    const inventory = await readPostReturnColonyInventory(returnedScene);
     generation = typeof inventory.generation === 'string' ? inventory.generation : undefined;
     expect(inventory.collection).toBe('threads');
     expect(Array.isArray(inventory.records)).toBe(true);

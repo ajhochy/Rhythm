@@ -1,0 +1,1184 @@
+{
+  "schemaVersion": 1,
+  "productRevision": "92af064652a6f44155d09470af48a7b566994baf",
+  "command": "RHYTHM_FEATURE_MODEL=1 node tools/testing/run_packaged_ai.mjs --output /private/tmp/rhythm-ai-repair-full --reporter=list,json",
+  "exitCode": 1,
+  "stats": {
+    "startTime": "2026-10-20T19:17:03.521Z",
+    "duration": 601018.9469999999,
+    "expected": 67,
+    "skipped": 0,
+    "unexpected": 92,
+    "flaky": 0
+  },
+  "classificationCounts": {
+    "passed": 67,
+    "hermes-background-timeout": 1,
+    "native-dayflow-build-unavailable": 1,
+    "test-authoring-response-lifetime": 1,
+    "prerequisite-unverified": 12,
+    "inventory-unverified": 77
+  },
+  "cases": [
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:brain] real collection renders and survives reload",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 1974
+    },
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:brain] unavailable backend is visible and a real reload recovers",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 637
+    },
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:skills] real collection renders and survives reload",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 52860
+    },
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:skills] unavailable backend is visible and a real reload recovers",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 30065
+    },
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:playbooks] real collection renders and survives reload",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 2273
+    },
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:playbooks] unavailable backend is visible and a real reload recovers",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 409
+    },
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:tasks] real collection renders and survives reload",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 872
+    },
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:tasks] unavailable backend is visible and a real reload recovers",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 683
+    },
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:cookbook] real collection renders and survives reload",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 326
+    },
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:cookbook] unavailable backend is visible and a real reload recovers",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 548
+    },
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:review] real collection renders and survives reload",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 367
+    },
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:review] unavailable backend is visible and a real reload recovers",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 1272
+    },
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:report-card] real collection renders and survives reload",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 4681
+    },
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:report-card] unavailable backend is visible and a real reload recovers",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 4092
+    },
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:gallery] real collection renders and survives reload",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 1759
+    },
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:gallery] unavailable backend is visible and a real reload recovers",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 1717
+    },
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:deep-research] real collection renders and survives reload",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 1049
+    },
+    {
+      "file": "packaged-ai-catalogs.spec.ts",
+      "title": "[AI catalog:deep-research] unavailable backend is visible and a real reload recovers",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 737
+    },
+    {
+      "file": "packaged-ai-companions.spec.ts",
+      "title": "[AI Hermes] real Desktop opens saved history through its actual gateway",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 7017
+    },
+    {
+      "file": "packaged-ai-companions.spec.ts",
+      "title": "[AI Hermes] an unsent draft survives tab switches without creating a backend session",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 435
+    },
+    {
+      "file": "packaged-ai-companions.spec.ts",
+      "title": "[AI Hermes] notification overlay preserves a usable native workspace and restores it",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 327
+    },
+    {
+      "file": "packaged-ai-companions.spec.ts",
+      "title": "[AI Bot Crossing] actual pinned scene reads paged local inventory",
+      "status": "unexpected",
+      "classification": "hermes-background-timeout",
+      "durationMs": 14586
+    },
+    {
+      "file": "packaged-ai-companions.spec.ts",
+      "title": "[AI Bot Crossing] tab switch preserves one scene and restores usable inventory",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 17412
+    },
+    {
+      "file": "packaged-ai-companions.spec.ts",
+      "title": "[AI Bot Crossing] no-match search clears back to the retained populated scene and live inventory",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 5063
+    },
+    {
+      "file": "packaged-ai-companions.spec.ts",
+      "title": "[AI Dayflow] advertised native workspace actually attaches",
+      "status": "unexpected",
+      "classification": "native-dayflow-build-unavailable",
+      "durationMs": 366
+    },
+    {
+      "file": "packaged-ai-companions.spec.ts",
+      "title": "[AI Dayflow] original signed application artifact is ready",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 1329
+    },
+    {
+      "file": "packaged-ai-cookbook.spec.ts",
+      "title": "[AI cookbook] creates real inert recipe with ordered steps and persists after reload",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 897
+    },
+    {
+      "file": "packaged-ai-cookbook.spec.ts",
+      "title": "[AI cookbook] blank validation and cancelling a draft leave the backend unchanged",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 194
+    },
+    {
+      "file": "packaged-ai-followon.spec.ts",
+      "title": "[AI profiles] discarding a new smoke draft leaves the saved profile catalog unchanged",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 2423
+    },
+    {
+      "file": "packaged-ai-followon.spec.ts",
+      "title": "[AI Gallery] missing media row remains inspectable and unavailable without changing its record",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 1216
+    },
+    {
+      "file": "packaged-ai-schedules.spec.ts",
+      "title": "[AI schedules] history belongs to the selected schedule and survives reopening",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 382
+    },
+    {
+      "file": "packaged-ai-schedules.spec.ts",
+      "title": "[AI schedules] blank validation and cancelling a new schedule schedule no work",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 340
+    },
+    {
+      "file": "packaged-ai-settings.spec.ts",
+      "title": "[AI settings] selected MCP inspector agrees with the real server status and tools",
+      "status": "unexpected",
+      "classification": "test-authoring-response-lifetime",
+      "durationMs": 284
+    },
+    {
+      "file": "packaged-ai-settings.spec.ts",
+      "title": "[AI settings] model curation reflects real visibility and search clears back to catalog rows",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 2453
+    },
+    {
+      "file": "packaged-ai-settings.spec.ts",
+      "title": "[AI profiles] live profile rail and selected editor agree with GET /agent-configs",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 2599
+    },
+    {
+      "file": "packaged-ai-tools.spec.ts",
+      "title": "[AI memory] selected inspector contains authoritative content and kind filtering and reload stay truthful",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 442
+    },
+    {
+      "file": "packaged-ai-tools.spec.ts",
+      "title": "[AI memory] no-match search is empty and clearing it restores real rows",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 1253
+    },
+    {
+      "file": "packaged-ai-tools.spec.ts",
+      "title": "[AI skills] engine content matches the selected skill; cancel and blank save make no write",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 26769
+    },
+    {
+      "file": "packaged-ai-tools.spec.ts",
+      "title": "[AI quality] changing time window changes the API rollup and displayed evidence",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 643
+    },
+    {
+      "file": "packaged-ai-tools.spec.ts",
+      "title": "[AI quality] empty agent kind keeps its authoritative Unknown agent identity and exact counts",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 930
+    },
+    {
+      "file": "packaged-ai-tools.spec.ts",
+      "title": "[AI shared agents] canonical revision and runtime readiness match the real catalog",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 184
+    },
+    {
+      "file": "packaged-approval-expiry.spec.ts",
+      "title": "[P0] approvals: signed pending snapshot matches real visible cards",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 320
+    },
+    {
+      "file": "packaged-approval-expiry.spec.ts",
+      "title": "[P0] approvals: failed refresh is visible, retains cards and recovers",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 5136
+    },
+    {
+      "file": "packaged-approval-expiry.spec.ts",
+      "title": "[P0] approvals: UNVERIFIED one-hour expiry, stale signed denial and history retention",
+      "status": "unexpected",
+      "classification": "prerequisite-unverified",
+      "durationMs": 2
+    },
+    {
+      "file": "packaged-conversation.spec.ts",
+      "title": "[P0] conversation: real answer, canonical transcript and reload agree without duplicate user messages",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 9157
+    },
+    {
+      "file": "packaged-conversation.spec.ts",
+      "title": "[P0] conversation: UNVERIFIED reconnect and paged older history preserve one canonical transcript",
+      "status": "unexpected",
+      "classification": "prerequisite-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-conversation.spec.ts",
+      "title": "[P0] conversation: blank send and discarded draft leave the backend transcript unchanged",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 3993
+    },
+    {
+      "file": "packaged-conversation.spec.ts",
+      "title": "[P0] conversation: two owned sessions retain independent answers across switching and reload",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 7990
+    },
+    {
+      "file": "packaged-conversation.spec.ts",
+      "title": "[P0] conversation: cancel stops an observed real engine turn and restores sending",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 8540
+    },
+    {
+      "file": "packaged-coordinator-multi-run.spec.ts",
+      "title": "[P0] coordinator: Runs rows agree with the authoritative run list",
+      "status": "unexpected",
+      "classification": "prerequisite-unverified",
+      "durationMs": 841
+    },
+    {
+      "file": "packaged-coordinator-multi-run.spec.ts",
+      "title": "[P0] coordinator: UNVERIFIED two simultaneous repo goals, confined branches and once-only reports",
+      "status": "unexpected",
+      "classification": "prerequisite-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-coordinator-multi-run.spec.ts",
+      "title": "[P0] coordinator: UNVERIFIED needs-you, open-run and confirmed Stop cancel the whole run tree",
+      "status": "unexpected",
+      "classification": "prerequisite-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-coordinator-multi-run.spec.ts",
+      "title": "[P0] coordinator: UNVERIFIED restart preserves runs and emits no duplicate report",
+      "status": "unexpected",
+      "classification": "prerequisite-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-model-router.spec.ts",
+      "title": "[P0] model router: saved Grid/Luna/consent settings agree with the rendered controls",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 4194
+    },
+    {
+      "file": "packaged-model-router.spec.ts",
+      "title": "[P0] model router: trivial Auto work stays cheap, applies the actual route, and reuses it after reload",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 9179
+    },
+    {
+      "file": "packaged-model-router.spec.ts",
+      "title": "[P0] model router qualification: routine arithmetic retains an eligible tier 3 or 4 route",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 7014
+    },
+    {
+      "file": "packaged-model-router.spec.ts",
+      "title": "[P0] model router: a one-literal edit is served by a routine-tier model",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 8038
+    },
+    {
+      "file": "packaged-model-router.spec.ts",
+      "title": "[P0] model router: explicit session model pin serves Luna without a Grid attempt",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 6977
+    },
+    {
+      "file": "packaged-model-router.spec.ts",
+      "title": "[P0] model router classifier: formatting is tier 4",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 911
+    },
+    {
+      "file": "packaged-model-router.spec.ts",
+      "title": "[P0] model router classifier: extraction is tier 4",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 254
+    },
+    {
+      "file": "packaged-model-router.spec.ts",
+      "title": "[P0] model router classifier: one literal edit does not become tier 2",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 679
+    },
+    {
+      "file": "packaged-model-router.spec.ts",
+      "title": "[P0] model router classifier: hard architecture reaches tier 1",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 250
+    },
+    {
+      "file": "packaged-model-router.spec.ts",
+      "title": "[P0] model router classifier: one parameter rename stays routine",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 256
+    },
+    {
+      "file": "packaged-model-router.spec.ts",
+      "title": "[P0] model router classifier: one documentation typo stays routine",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 225
+    },
+    {
+      "file": "packaged-model-router.spec.ts",
+      "title": "[P0] model router classifier: one CSS spacing edit stays routine",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 272
+    },
+    {
+      "file": "packaged-model-router.spec.ts",
+      "title": "[P0] model router classifier: one obvious bounds fix stays routine",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 230
+    },
+    {
+      "file": "packaged-model-router.spec.ts",
+      "title": "[P0] model router classifier: a routine email stays routine",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 375
+    },
+    {
+      "file": "packaged-model-router.spec.ts",
+      "title": "[P0] model router classifier: a multi-file feature retains a capable tier",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 419
+    },
+    {
+      "file": "packaged-model-router.spec.ts",
+      "title": "[P0] model router classifier: moderate research retains a capable tier",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 237
+    },
+    {
+      "file": "packaged-model-router.spec.ts",
+      "title": "[P0] model router classifier: hard debugging retains a capable tier",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 265
+    },
+    {
+      "file": "packaged-rhythm-primary-chat.spec.ts",
+      "title": "[P0] primary: permanent entry reopens the server-designated root and canonical history",
+      "status": "unexpected",
+      "classification": "prerequisite-unverified",
+      "durationMs": 1521
+    },
+    {
+      "file": "packaged-rhythm-primary-chat.spec.ts",
+      "title": "[P0] primary: failed resolve preserves the ordinary session and visibly retries",
+      "status": "unexpected",
+      "classification": "prerequisite-unverified",
+      "durationMs": 1996
+    },
+    {
+      "file": "packaged-rhythm-primary-chat.spec.ts",
+      "title": "[P0] primary: rapid entry and reload keep one canonical root",
+      "status": "unexpected",
+      "classification": "prerequisite-unverified",
+      "durationMs": 1375
+    },
+    {
+      "file": "packaged-rhythm-primary-chat.spec.ts",
+      "title": "[P0] primary: UNVERIFIED first-use profile-choice, dismissal and retry",
+      "status": "unexpected",
+      "classification": "prerequisite-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-rhythm-primary-chat.spec.ts",
+      "title": "[P0] primary: UNVERIFIED scoped message persists once on the canonical Coordinator root",
+      "status": "unexpected",
+      "classification": "prerequisite-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-session-project-scope.spec.ts",
+      "title": "[P0] session project scope: owned project and session survive a collapsed-group reload",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 6078
+    },
+    {
+      "file": "packaged-sessions.spec.ts",
+      "title": "[P0] sessions: named session persists correct cwd/profile and deletes from API, DB and engine",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 3474
+    },
+    {
+      "file": "packaged-sessions.spec.ts",
+      "title": "[P0] sessions: UNVERIFIED child pagination keeps owned ancestry and project scope",
+      "status": "unexpected",
+      "classification": "prerequisite-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-sessions.spec.ts",
+      "title": "[P0] sessions: blank names, cancel and reload cannot allocate an unnamed session",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 2869
+    },
+    {
+      "file": "packaged-sessions.spec.ts",
+      "title": "[P0] sessions: failed creation keeps the name and permits recovery",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 3585
+    },
+    {
+      "file": "packaged-sessions.spec.ts",
+      "title": "[P0] sessions: long Unicode name persists without truncating stored identity",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 3359
+    },
+    {
+      "file": "packaged-sessions.spec.ts",
+      "title": "[P0] sessions: cancel permanent deletion leaves the owned session intact",
+      "status": "expected",
+      "classification": "passed",
+      "durationMs": 3827
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:sessions-crud] Sessions create, reload, scope, delete",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 2
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:conversation-transcript] Real chat, canonical transcript, isolation",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:session-autonaming] Session auto-naming",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:transcript-byte-bounds] Transcript page byte bound",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:served-model-provenance] Served model provenance",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 3
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:router-first-prompt] Auto router first-turn decision",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:router-grid-policy] Grid router policy UI",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:router-curation] Router model catalog curation",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:openai-multi-account] OpenAI accounts per request and failover",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:account-reauthorization] Provider account reauthorization",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:provider-runtime-compat] Provider version/auth recovery",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:attachments-upload-render] Composer attachments and hosted artifact rendering",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:memory-auto-retrieval] Automatic memory relevance and context injection",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:memory-inspector] Agent Memory inspector",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 2
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:mcp-profile-scope] MCP profile allowlist and dispatcher reachability",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:profile-edit-and-capabilities] Agent profile editing and capabilities",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:mcp-inspector-and-packaging] MCP catalog inspector and Electron bundle",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:approval-expiry] Approval queue refresh and expiry",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:session-service-reconnect] Session service outage recovery",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:reasoning-transcript] Live reasoning display and transcript usage footer",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:usage-budget-and-context-gauge] Provider usage budget and context gauge",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:agent-settings-provider-model-curation] Provider-first model curation and immediate picker refresh",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:open-design-host-tool] OpenDesign embedded workspace tool",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:mcp-apps-ga-security] MCP Apps GA security and rollback modes",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:research-model-planning-budget] Deep Research lead/researcher models and bounded parallel plan",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:research-magazine-artifact] Research magazine artifact, discussion, versions and comments",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:creative-gallery-media] Creative deliverable Gallery and media viewer",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:agent-settings-runtime-mcp-controls] Agent Settings runtime controls, MCP status and retry",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:prompt-existing-session-http-mcp] Prompt an existing agent session over authenticated HTTP or MCP",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:session-summary-and-patch-preview-bounds] Bound session summary memory and file diff previews",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:HERMES-01] Pinned Hermes Desktop native child, attachment, resize, teardown",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:HERMES-02] Hermes intents navigate to Rhythm session or create chat",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:HERMES-03] Owner-authenticated Hermes approvals and durable workflow notifications",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:HERMES-04] Hermes credential, account, and memory privacy",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:HERMES-05] Signed Desktop install and in-place update",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:COLONY-01] Pinned Bot Crossing native scene and exact document authority",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:COLONY-02] Multi-harness discovery, inventory, and read-only source behavior",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:COLONY-03] Open task/session in owning harness",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:COLONY-04] Colony inspector actions, archive/restore/viewed, import and account switch",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:COLONY-05] Colony rail, search/filter, status, scene selection and inspector consistency",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:DAYFLOW-01] Dayflow readiness and explicit native app launch",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:DAYFLOW-02] Native Dayflow viewport and unavailable states",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:DAYFLOW-03] Dayflow source consent, preview, selected import and receiving context",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:CROSS-01] Cross-companion navigation and privacy/ownership transitions",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:coordinator-current-multi-run] Coordinator starts and tracks concurrent workflow-orchestrator coding runs",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:coordinator-run-needs-you-stop-restart] Coordinator run open, needs-you, stop/cancel, restart and notifications",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:recipe-workflow-durable-runner] Durable recipe/workstream workflow runner: stages, transitions, budgets and cancellation",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:async-delegation-worktree-isolation] Async delegation can create server-owned isolated worktree for child",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:session-project-worktree-binding] Sessions created in isolated worktrees retain project identity and project grouping",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:agent-skill-allowlists-and-discovery] Agent profile allowed-skills management and skill metadata/tag discovery",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:agent-schedules-crud-and-manual-run] Agent scheduled tasks: create/edit/list/cancel/trigger and execution history",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:automation-rules-schedule-actions] Event-driven Automations rules and auto-schedule task action",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:live-artifact-viewer-and-sharing] Live artifact tabs, rendering, state, sharing and capability gateway",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:research-projects-and-magazine-artifacts] Research Projects run history, budget completion, source display and living-magazine artifact",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:mobile-ai-relay-send-transcript] Mobile/secondary client AI relay: send accepted prompts, live transcript, reconnect and outbox",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:notification-push-native-presentation] Agent notifications: API event, renderer state, relay and native Electron banner",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:web-worktree-controls] Web session worktree controls and bounded reset/remove errors",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:relay-remote-desktop-attach] Secondary desktop remote attach and remote session gateway",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 3
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:scheduled-run-visible-session] Scheduled/background AI run appears in session list and opens in scheduled scope",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:commands-and-managed-playbooks] Slash command discovery, dispatch, and managed playbooks",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:agent-permissions-questions-approvals] Agent permission decisions, questions, pending approvals and expiration",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:run-quality-report-card] Agent Run Quality / Report Card and quality evidence",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:self-improvement-proposals-promotion] Self-improvement proposal review, run outcomes and auto-promotion settings",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:session-retention-cleanup-settings] Session retention and cleanup controls",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:agent-settings-models-runtime-accounts] AI provider/model curation, credentials, runtime controls and profile settings",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:automatic-memory-injection-consent] Automatic memory relevance, consent-scoped shared memory and semantic degradation",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:engine-anthropic-plugin-version-compat] Vendored Anthropic plugin model compatibility",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:managed-work-goal-issuance-and-capability-context] Coordinator status-only coding capability disclosure",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:engine-background-performance-and-status-truth] Engine background I/O performance and honest runtime status",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:mobile-audio-outbox-and-transcript-transport] Mobile relay audio and durable message outbox transport",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:logout-pending-approval-recovery] Electron logout keeps app open and recovers pending approvals",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:cookbook-recipe-management] Cookbook recipe create, inspect, persistence, delete and run handoff",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:ai-webhook-management-and-trigger] AI inbound webhook management and local trigger delivery",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:ai-email-signal-context] Email signals launch scoped AI context without sending a message",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:rhythm-primary-entry-and-journal] Rhythm primary entry, first use and persistent Coordinator journal",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:busy-prompt-queue-and-resume] Busy-session prompt queue, ordering and continuation",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    },
+    {
+      "file": "packaged-zz-ai-coverage-gaps.spec.ts",
+      "title": "[AI UNVERIFIED:agent-tools-catalog-and-pins] AI tools catalog, host availability and account-scoped pinning",
+      "status": "unexpected",
+      "classification": "inventory-unverified",
+      "durationMs": 1
+    }
+  ],
+  "testSnapshot": "159-case working-tree snapshot based on 92af; excludes later MCP sequencing correction and CROSS addition",
+  "currentDiscovery": {
+    "cases": 160,
+    "files": 15,
+    "wholeSuiteRerunAfterTestOnlyFollowups": false
+  },
+  "followups": [
+    {
+      "command": "RHYTHM_FEATURE_MODEL=1 node tools/testing/run_packaged_ai.mjs packaged-ai-companions.spec.ts packaged-ai-followon.spec.ts packaged-ai-tools.spec.ts packaged-sessions.spec.ts --grep 'AI Bot Crossing|AI profiles.*discarding|AI Gallery|named session persists|empty agent kind' --output /private/tmp/rhythm-ai-reader-isolation-final-confirm --reporter=list,json",
+      "stats": {
+        "startTime": "2026-10-20T19:15:46.976Z",
+        "duration": 69913.779,
+        "expected": 7,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "exitCode": 0,
+      "notes": "Scoped repair acceptance before CROSS and final observer correction."
+    },
+    {
+      "command": "RHYTHM_FEATURE_MODEL=1 node tools/testing/run_packaged_ai.mjs packaged-ai-companions.spec.ts packaged-ai-settings.spec.ts --grep 'AI Hermes|AI Bot Crossing|AI CROSS|selected MCP inspector' --output /private/tmp/rhythm-ai-cross-mcp-confirm --reporter=list,json",
+      "stats": {
+        "startTime": "2026-10-20T19:28:13.989Z",
+        "duration": 172220.119,
+        "expected": 6,
+        "skipped": 0,
+        "unexpected": 2,
+        "flaky": 0
+      },
+      "exitCode": 1,
+      "notes": "Six pass: Hermes3, CROSS, Bot search, corrected MCP. Two fail: generic host observer refusal; background missing OAuth configuration audit. No Hermes timeout reproduction."
+    },
+    {
+      "command": "RHYTHM_FEATURE_MODEL=1 node tools/testing/run_packaged_ai.mjs packaged-ai-companions.spec.ts --grep 'AI Bot Crossing' --output /private/tmp/rhythm-ai-bot-final-confirm --reporter=list,json",
+      "stats": {
+        "startTime": "2026-10-20T19:32:54.406Z",
+        "duration": 55696.553,
+        "expected": 3,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "exitCode": 0,
+      "notes": "Final actual host/scene paging, retained child and search/clear with explicit observer snapshot and strict audits."
+    }
+  ]
+}
