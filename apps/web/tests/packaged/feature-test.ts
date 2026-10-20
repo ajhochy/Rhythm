@@ -214,10 +214,11 @@ export const test = packagedTest.extend<{ tasks: OwnedRecords; sessions: OwnedRe
       const fresh = readFileSync(log).subarray(offset).toString('utf8');
       await info.attach('runtime-output', { body: fresh, contentType: 'text/plain' });
       expect(packaged.pageErrors, 'uncaught renderer errors during this test').toEqual([]);
-      const unexpected = fresh.split('\n').filter(line => /\[ERROR\]/.test(line)).filter(line => ![...deletedOwnSessions].some(id =>
+      const unexpected = fresh.split('\n').filter(line => /\[ERROR\]|^Error occurred in handler for /.test(line)).filter(line => ![...deletedOwnSessions].some(id =>
         line.includes(`Handled NOT_FOUND GET /agent-sessions/${id} — AgentSession not found`)
         || line.includes(`Handled NOT_FOUND GET /agent-sessions/${id}?transcriptLimit=50 — AgentSession not found`)
-        || line.includes(`Handled NOT_FOUND GET /agent-sessions/${id}/pending-permissions — AgentSession not found`)));
+        || line.includes(`Handled NOT_FOUND GET /agent-sessions/${id}/pending-permissions — AgentSession not found`)
+        || line.includes(`Handled NOT_FOUND GET /agent-sessions/${id}/model-provenance — AgentSession not found`)));
       expect(unexpected, 'unexpected app errors in this test window').toEqual([]);
     }
   }, { auto: true }],

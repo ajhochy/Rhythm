@@ -6,6 +6,7 @@ import { resolveColonyArtifact } from './colony-desktop-artifact.mjs'
 import { validateColonyRequest, validateColonyResponse } from './colony-channel.mjs'
 
 const CAPABILITIES = ['inventory-v1', 'state-v1', 'host-intents-v1', 'state-mark-v1', 'import-v1']
+const SERVICE_REVOCATION_REASONS = new Set(['worker-exit', 'protocol-refusal', 'startup-failed', 'request-timeout', 'send-failed', 'owner-dispose', 'owner-stop'])
 
 /** @param {{isPackaged:boolean,resourcesPath:string,developmentNodePath?:string}} options */
 export async function resolveColonyNode({ isPackaged, resourcesPath, developmentNodePath }) {
@@ -51,7 +52,12 @@ export function createColonyService(options) {
   let controlPending = /** @type {any} */ (null)
   const status = () => ({ state: ready ? 'ready' : blocked ? 'failed' : child ? 'starting' : 'unavailable', pid: child?.pid ?? null, reason,
     capabilities: ready ? [...CAPABILITIES] : [] })
-  const revoke = () => {
+  const revoke = (/** @type {string} */ cause, /** @type {{code?:unknown,pendingMatched?:boolean}} */ detail = {}) => {
+    if ((ready || pending.size || controlPending) && cause !== 'owner-stop' && cause !== 'owner-dispose') {
+      try { console.error('[colony:service:revoked]', JSON.stringify({ reason: SERVICE_REVOCATION_REASONS.has(cause) ? cause : 'unknown',
+        errorCode: typeof detail.code === 'string' && ['invalid_request', 'invalid_response', 'oversize', 'revoked', 'busy', 'unavailable'].includes(detail.code) ? detail.code : 'other',
+        pendingMatched: detail.pendingMatched === true })) } catch {}
+    }
     ready = false
     for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(Object.assign(new Error('Colony document revoked'), { code: 'revoked' })) }
     pending.clear()
@@ -61,8 +67,8 @@ export function createColonyService(options) {
       controlPending = null
     }
   }
-  const stop = () => {
-    revoke()
+  const stop = (/** @type {string} */ cause = 'owner-stop', /** @type {{code?:unknown,pendingMatched?:boolean}} */ detail = {}) => {
+    revoke(cause, detail)
     if (stopping) return stopping
     if (blocked) return Promise.reject(blocked)
     const owned = child
@@ -119,7 +125,7 @@ export function createColonyService(options) {
           const fail = (/** @type {Error} */ error) => { clearTimeout(timer); reject(error) }
           owned.once('error', fail)
           owned.once('exit', () => {
-            if (child === owned) { child = null; revoke(); reason = 'Colony worker exited' }
+            if (child === owned) { child = null; revoke('worker-exit'); reason = 'Colony worker exited' }
             fail(new Error('Colony worker exited before readiness'))
           })
           owned.on('message', (/** @type {any} */ message) => {
@@ -156,7 +162,10 @@ export function createColonyService(options) {
                 const entry = pending.get(message.id)
                 if (!entry) throw new Error('Unexpected Colony response')
                 pending.delete(message.id); clearTimeout(entry.timer); entry.resolve(message)
-              } catch { reason = 'Colony worker protocol refused'; void stop().catch(() => {}) }
+              } catch (error) {
+                reason = 'Colony worker protocol refused'
+                void stop('protocol-refusal', { code: /** @type {any} */ (error)?.code, pendingMatched: typeof message?.id === 'string' && pending.has(message.id) }).catch(() => {})
+              }
             }
           })
           owned.send({ type: 'colony:init', v: 1, documentId, dataDir: options.dataDir, sources: options.sources })
@@ -165,7 +174,7 @@ export function createColonyService(options) {
         return status()
       } catch (error) {
         reason = error instanceof Error ? error.message : 'Colony unavailable'
-        await stop()
+        await stop('startup-failed')
         throw error
       }
     })().finally(() => { launch = null })
@@ -178,9 +187,9 @@ export function createColonyService(options) {
       validateColonyRequest(message, documentId)
       if (pending.has(message.id) || pending.size >= 32) throw new Error('Colony request limit or duplicate request')
       return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { void stop().catch(() => {}) }, 60000)
+        const timer = setTimeout(() => { void stop('request-timeout').catch(() => {}) }, 60000)
         pending.set(message.id, { resolve, reject, timer })
-        try { child?.send(message) } catch { void stop().catch(() => {}) }
+        try { child?.send(message) } catch { void stop('send-failed').catch(() => {}) }
       })
     },
     async control(/** @type {any} */ value) {
@@ -206,6 +215,6 @@ export function createColonyService(options) {
         try { child?.send(message) } catch (error) { clearTimeout(timer); controlPending = null; reject(error) }
       })
     },
-    async dispose() { disposed = true; await stop(); await launch?.catch(() => {}); await stop() },
+    async dispose() { disposed = true; await stop('owner-dispose'); await launch?.catch(() => {}); await stop('owner-dispose') },
   }
 }

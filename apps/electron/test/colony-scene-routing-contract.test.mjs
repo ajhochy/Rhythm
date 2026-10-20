@@ -59,6 +59,7 @@ function fixture({ onHostEvent, sessionId = 'session-known', serviceRequest } = 
     service: {
       async request(message) { workerRequests++; return serviceRequest ? serviceRequest(message) : {} },
       async stop() { stops++ },
+      status() { return { state: 'ready' } },
     },
     MessageChannelMain,
   })
@@ -83,6 +84,24 @@ test('a coded inventory capacity refusal does not revoke the authorized document
   assert.equal(f.port.messages[1].result.generation, 'generation-1')
   assert.equal(f.workerRequests(), 2)
   await f.channel.dispose()
+})
+
+test('a malformed scene request revokes and reports only a bounded diagnostic reason', async () => {
+  const reports = []
+  const previous = console.error
+  console.error = (...parts) => {
+    if (parts[0] === '[colony:channel:revoked]') reports.push(parts[1])
+    else previous(...parts)
+  }
+  try {
+    const f = fixture()
+    f.port.emit('message', { data: { v: 1, documentId: 'document-1', id: 'request-1', method: 'inventory.page', payload: { collection: 'threads', limit: 251, privateData: '/private-secret-probe' } } })
+    await tick()
+    assert.equal(f.stops(), 1)
+    assert.equal(f.port.closed, true)
+    assert.deepEqual(reports.map(JSON.parse), [{ reason: 'scene-request-failed', serviceState: 'ready', errorCode: 'invalid_request', phase: 'request-validation', method: 'inventory.page' }])
+    assert.equal(reports.join('').includes('/private-secret-probe'), false)
+  } finally { console.error = previous }
 })
 
 test('1530:scene-host-selection-routing-in-the-receiver:1 routes known scene selection once and drops unknown selection without worker forwarding', async () => {
