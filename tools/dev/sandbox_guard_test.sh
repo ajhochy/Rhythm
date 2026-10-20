@@ -186,17 +186,17 @@ chmod +x "$FAKE_ENGINE_BIN"
 out="$(env RHYTHM_SANDBOX_DIR="$RESTART_SB" RHYTHM_SANDBOX_ENGINE_DIR="$FAKE_ENGINE_DIR" \
   bash -c '
     source "$1"
-    printf "4242\n" >"$PID_FILE"
-    trap "[[ -f $SB/fake-listener.pid ]] && builtin kill \$(< $SB/fake-listener.pid) 2>/dev/null || true" EXIT
-    printf "5252\n" >"$ENGINE_PID_FILE"
-    kill() { [[ "$1" == "-0" ]]; }
-    ps() { printf "node %s/apps/api_server/dist/server.js --rhythm-sandbox=%s\n" "$ROOT" "$SB"; }
-    listener() { [[ "$1" == "$ENGINE_PORT" ]] && printf "5252\n"; }
+    python3 -I -c "import time; time.sleep(300)" "$API_BIN" "--rhythm-sandbox=$SB" & api_pid=$!
+    sleep 300 & old_engine=$!
+    trap "builtin kill $api_pid $old_engine 2>/dev/null || true" EXIT
+    printf "%s\n" "$api_pid" >"$PID_FILE"
+    printf "%s\n" "$old_engine" >"$ENGINE_PID_FILE"
+    listener() { [[ "$1" == "$ENGINE_PORT" ]] && printf "%s\n" "$old_engine"; }
     process_executable() { printf "/not-this-sandbox/opencode\n"; }
     restart_engine
   ' bash "$SANDBOX_SH" 2>&1)"
 status=$?
-if [[ "$status" -ne 0 && "$out" == *"no longer uses this sandbox"* ]]; then
+if [[ "$status" -ne 0 && "$out" == *"recorded engine PID"* && "$out" == *"no longer uses this sandbox's built fork"* ]]; then
   pass=$((pass + 1))
 else
   fail_count=$((fail_count + 1))
@@ -210,29 +210,41 @@ mkdir -p "$RESTART_SB/home" "$RESTART_SB/vault" "$RESTART_SB/live-artifacts"
 chmod 700 "$RESTART_SB"
 printf 'prior-log-line\n' >"$RESTART_SB/api_server.log"
 cat >"$FAKE_ENGINE_BIN" <<'SH'
-#!/usr/bin/env bash
-sb="$(dirname "$HOME")"
-printf '%s\n' "$$" >"$sb/fake-listener.pid"
-printf '%s\n' "$HOME|$OPENCODE_DB|$RHYTHM_API_BASE|${OPENCODE_CONFIG_CONTENT-unset}|$OPENCODE_DISABLE_EXTERNAL_SKILLS|$PWD" >"$sb/engine.env"
-printf '%s\n' "$*" >"$sb/engine.args"
-exec sleep 300
+#!/usr/bin/env python3
+import os
+import pathlib
+import sys
+import time
+
+sb = pathlib.Path(os.environ["HOME"]).parent
+(sb / "fake-listener.pid").write_text(f"{os.getpid()}\n")
+(sb / "engine.env").write_text("|".join((
+    os.environ["HOME"], os.environ["OPENCODE_DB"], os.environ["RHYTHM_API_BASE"],
+    os.environ.get("OPENCODE_CONFIG_CONTENT", "unset"),
+    os.environ["OPENCODE_DISABLE_EXTERNAL_SKILLS"], os.getcwd(),
+)) + "\n")
+(sb / "engine.args").write_text(" ".join(sys.argv[1:]) + "\n")
+time.sleep(300)
 SH
 chmod +x "$FAKE_ENGINE_BIN"
 out="$(env RHYTHM_SANDBOX_DIR="$RESTART_SB" RHYTHM_SANDBOX_ENGINE_DIR="$FAKE_ENGINE_DIR" \
   bash -c '
     source "$1"
-    : >"$SB/api.alive"
-    printf "4242\n" >"$PID_FILE"
+    python3 -I -c "import time; time.sleep(300)" "$API_BIN" "--rhythm-sandbox=$SB" & api_pid=$!
+    printf "%s\n" "$api_pid" >"$PID_FILE"
     sleep 300 & old_engine=$!
-    trap "builtin kill $old_engine 2>/dev/null || true; [[ -f $SB/fake-listener.pid ]] && builtin kill \$(< $SB/fake-listener.pid) 2>/dev/null || true" EXIT
+    cleanup_test_children() {
+      for child in $(jobs -pr); do builtin kill "$child" 2>/dev/null || true; done
+      if [[ -f "$SB/fake-listener.pid" ]]; then
+        local engine_pid="$(<"$SB/fake-listener.pid")"
+        if process_kernel_arguments_match "$engine_pid" "$ENGINE_BIN"; then
+          builtin kill "$engine_pid" 2>/dev/null || true
+        fi
+      fi
+    }
+    trap cleanup_test_children EXIT
     printf "%s\n" "$old_engine" >"$SB/fake-listener.pid"
     printf "%s\n" "$old_engine" >"$ENGINE_PID_FILE"
-    kill() {
-      if [[ "$1" == "-0" && "$2" == "4242" ]]; then [[ -e "$SB/api.alive" ]]; return; fi
-      if [[ "$1" == "4242" ]]; then rm -f "$SB/api.alive"; printf "api\n" >>"$SB/kills"; return; fi
-      builtin kill "$@"
-    }
-    ps() { printf "node %s/apps/api_server/dist/server.js --rhythm-sandbox=%s\n" "$ROOT" "$SB"; }
     listener() {
       [[ "$1" == "$ENGINE_PORT" && -f "$SB/fake-listener.pid" ]] || return 0
       local pid="$(<"$SB/fake-listener.pid")"
@@ -243,12 +255,14 @@ out="$(env RHYTHM_SANDBOX_DIR="$RESTART_SB" RHYTHM_SANDBOX_ENGINE_DIR="$FAKE_ENG
     prepare_security_shim
     restart_engine
     new_engine="$(<"$ENGINE_PID_FILE")"
-    [[ "$(<"$PID_FILE")" == "4242" && "$new_engine" != "$old_engine" ]]
-    [[ "$(<"$SB/engine.env")" == "$SB/home|opencode-rhythm-sandbox.db|http://127.0.0.1:4098|unset|1|$ROOT" ]]
-    [[ "$(<"$SB/engine.args")" == "serve --hostname 127.0.0.1 --port 4097 --cors http://127.0.0.1:4175" ]]
-    [[ "$(<"$LOG_FILE")" == "prior-log-line" ]]
-    down
-    [[ ! -e "$SB" ]]
+    [[ "$(<"$PID_FILE")" == "$api_pid" && "$new_engine" != "$old_engine" ]] || exit 87
+    builtin kill -0 "$api_pid" || exit 88
+    [[ "$(<"$SB/engine.env")" == "$SB/home|opencode-rhythm-sandbox.db|http://127.0.0.1:4098|unset|1|$ROOT" ]] || exit 89
+    [[ "$(<"$SB/engine.args")" == "serve --hostname 127.0.0.1 --port 4097 --cors http://127.0.0.1:4175" ]] || exit 90
+    [[ "$(<"$LOG_FILE")" == "prior-log-line" ]] || exit 91
+    down || exit 92
+    [[ ! -e "$SB" ]] || exit 93
+    ! builtin kill -0 "$api_pid" 2>/dev/null || exit 94
     ! builtin kill -0 "$new_engine" 2>/dev/null
   ' bash "$SANDBOX_SH" 2>&1)"
 status=$?
@@ -266,12 +280,18 @@ chmod 700 "$RESTART_SB"
 out="$(env RHYTHM_SANDBOX_DIR="$RESTART_SB" RHYTHM_SANDBOX_ENGINE_DIR="$FAKE_ENGINE_DIR" \
   bash -c '
     source "$1"
-    printf "4242\n" >"$PID_FILE"
-    kill() {
-      if [[ "$1" == "-0" && "$2" == "4242" ]]; then return 0; fi
-      builtin kill "$@"
+    python3 -I -c "import time; time.sleep(300)" "$API_BIN" "--rhythm-sandbox=$SB" & api_pid=$!
+    printf "%s\n" "$api_pid" >"$PID_FILE"
+    cleanup_test_children() {
+      for child in $(jobs -pr); do builtin kill "$child" 2>/dev/null || true; done
+      if [[ -f "$SB/fake-listener.pid" ]]; then
+        local engine_pid="$(<"$SB/fake-listener.pid")"
+        if process_kernel_arguments_match "$engine_pid" "$ENGINE_BIN"; then
+          builtin kill "$engine_pid" 2>/dev/null || true
+        fi
+      fi
     }
-    ps() { printf "node %s/apps/api_server/dist/server.js --rhythm-sandbox=%s\n" "$ROOT" "$SB"; }
+    trap cleanup_test_children EXIT
     listener() {
       [[ "$1" == "$ENGINE_PORT" && -f "$SB/fake-listener.pid" ]] || return 0
       local pid="$(<"$SB/fake-listener.pid")"
@@ -282,8 +302,9 @@ out="$(env RHYTHM_SANDBOX_DIR="$RESTART_SB" RHYTHM_SANDBOX_ENGINE_DIR="$FAKE_ENG
     prepare_security_shim
     launch_engine || true
     [[ -f "$ENGINE_PID_FILE" ]] || exit 91
-    down
-    [[ ! -e "$SB" ]]
+    down || exit 92
+    [[ ! -e "$SB" ]] || exit 93
+    ! builtin kill -0 "$api_pid" 2>/dev/null
   ' bash "$SANDBOX_SH" 2>&1)"
 status=$?
 if [[ "$status" -eq 0 ]]; then
