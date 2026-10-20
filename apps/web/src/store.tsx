@@ -81,7 +81,7 @@ interface FixtureContextValue {
   loadOlder(id: string): Promise<void>; replyPermission(reply: 'once' | 'always' | 'reject', reason?: string): void;
   answerQuestion(answer: string): void; rejectQuestion(): void; sendInput(input: string, attachments?: ComposerAttachment[]): void; reconnect(): void;
   runShell(command: string): void; setActiveFile(path: string): void; resetWorktree(): void; removeWorktree(): void;
-  createProfile(): string; updateProfile(id: string, patch: Partial<IdentityProfile>): Promise<string>; duplicateProfile(id: string): string;
+  createProfile(): string; updateProfile(id: string, patch: Partial<IdentityProfile>, expectedRevision?: number): Promise<IdentityProfile>; duplicateProfile(id: string): string;
   deleteProfile(id: string): Promise<void>; setDefaultProfile(id: string): void; resetFixtures(): void;
   sessionGatewayMode: GatewayMode; liveSessionError: string | null;
   createLiveSession(input: LiveSessionInput): Promise<string>; deleteLiveSession(id: string): Promise<void>;
@@ -1366,14 +1366,14 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     defaultAnthropicAccountId: profile.defaultAnthropicAccountId ?? null,
     defaultOpenaiAccountId: profile.defaultOpenaiAccountId ?? null,
   });
-  const updateProfile = async (id: string, patch: Partial<IdentityProfile>) => {
+  const updateProfile = async (id: string, patch: Partial<IdentityProfile>, expectedRevision?: number) => {
     const existing = profiles.find((profile) => profile.id === id);
-    if (!existing) return id;
+    if (!existing) throw new Error('Profile is no longer available');
     const next = { ...existing, ...patch, updatedAt: FIXED_NOW };
     if (!live) {
       setProfiles((current) => current.map((profile) => profile.id === id ? next : profile));
       notify('Profile changes saved');
-      return id;
+      return next;
     }
     const mutation = profileMutation(next);
     const previous = profileMutation(existing);
@@ -1381,12 +1381,12 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     const changed = Object.fromEntries(Object.entries(mutation).filter(([key, value]) => value !== previous[key as keyof ProfileMutation]));
     const saved = id.startsWith('profile-created-')
       ? await gateway.domains.sessions!.createProfile(mutation)
-      : await gateway.domains.sessions!.patchProfile(id, changed);
+      : await gateway.domains.sessions!.patchProfile(id, changed, expectedRevision);
     const readback = (await gateway.domains.sessions!.profiles()).find(profile => profile.id === saved.id);
     if (!readback) throw new Error('Saved profile missing from readback');
     setProfiles((current) => current.map((profile) => profile.id === id ? readback : profile));
     notify('Profile changes saved');
-    return saved.id;
+    return readback;
   };
   const duplicateProfile = (id: string) => { const source = profiles.find((profile) => profile.id === id); if (!source) return id; const nextId = `profile-created-${crypto.randomUUID()}`; setProfiles((current) => [...current, { ...structuredClone(source), id: nextId, presetId: null, ocAgent: null, label: `${source.label} copy`, isDefault: false, updatedAt: FIXED_NOW }]); notify(live ? 'Duplicate profile draft — save to create' : 'Profile duplicated'); return nextId; };
   const deleteProfile = async (id: string) => { if (profiles.find((profile) => profile.id === id)?.isDefault) { notify('Choose another default before deleting this profile'); return; } if (live && !id.startsWith('profile-created-')) await gateway.domains.sessions!.deleteProfile(id); setProfiles((current) => current.filter((profile) => profile.id !== id)); notify('Profile deleted'); };

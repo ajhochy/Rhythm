@@ -213,8 +213,9 @@ export function Profiles() {
     )) as Partial<IdentityProfile>;
     savingRef.current = true; setSaving(true); setSaveError(''); setSaved(false);
     try {
-      const id = await updateProfile(submitted.id, patch);
-      setDraft({ ...submitted, id }); setBaseline(draftSignature({ ...submitted, id })); setSelectedId(id);
+      const savedProfile = await updateProfile(submitted.id, patch, submitted.revision);
+      const savedDraft = { ...submitted, id: savedProfile.id, revision: savedProfile.revision };
+      setDraft(savedDraft); setBaseline(draftSignature(savedDraft)); setSelectedId(savedProfile.id);
       setRenaming(false); setSaved(true); notify('Profile saved');
     } catch (error) { setSaveError(error instanceof Error ? error.message : 'Profile could not be saved'); }
     finally { savingRef.current = false; setSaving(false); }

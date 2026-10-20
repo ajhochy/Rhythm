@@ -67,7 +67,7 @@ export type SessionListQuery = {
 };
 export type SessionListPage = { sessions: SessionCatalogEntry[]; ancestors: SessionCatalogEntry[]; pageInfo: TranscriptPageInfo };
 export type SessionSort = 'newest' | 'oldest' | 'name' | 'activity' | 'status';
-export type IdentityProfile = Profile & { autoApproveActions?: boolean; reasoningEffort?: string | null };
+export type IdentityProfile = Profile & { autoApproveActions?: boolean; reasoningEffort?: string | null; revision?: number };
 // needsVerification: mirrors the #1572 catalog contract's available:'unknown' rows — the
 // provider is authorized and the model is not known-unavailable, but entitlement could not
 // be confirmed. Selectable, but the curation UI must show it as unverified rather than solid.
@@ -311,7 +311,7 @@ export interface SessionGateway {
   // success, until the engine gains that capability.
   dispatchMcp(localId: string, server: string, tool: string, args: Record<string, unknown>): Promise<never>;
   createProfile(input: ProfileMutation): Promise<IdentityProfile>;
-  patchProfile(id: string, input: Partial<ProfileMutation>): Promise<IdentityProfile>;
+  patchProfile(id: string, input: Partial<ProfileMutation>, expectedRevision?: number): Promise<IdentityProfile>;
   deleteProfile(id: string): Promise<void>;
   hardDelete(localId: string): Promise<void>;
   cancel(localId: string): Promise<void>;
@@ -636,6 +636,8 @@ function mapProfile(value: unknown): IdentityProfile {
     mcps: parseList(source.allowedMcpsJson), skills: parseList(source.allowedSkillsJson),
     permissionRules: parsePermissions(source.corePermissionsJson), managedSkills: false,
     isDefault: source.isDefault === true, updatedAt: string(source.updatedAt, new Date(0).toISOString()),
+    ...(typeof source.revision === 'number' && Number.isSafeInteger(source.revision) && source.revision >= 0
+      ? { revision: source.revision } : {}),
     isAgent: source.isAgent !== false, isManager: source.isManager === true,
     allowedMcpsJson: typeof source.allowedMcpsJson === 'string' ? source.allowedMcpsJson : null,
     allowedSkillsJson: typeof source.allowedSkillsJson === 'string' ? source.allowedSkillsJson : null,
@@ -846,7 +848,10 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
     },
     create: async (input) => toSessionViewModel(await response<unknown>('Create session', request('/agent-sessions', { method: 'POST', body: JSON.stringify(input) }))),
     createProfile: async (input) => mapProfile(await response<unknown>('Create profile', request('/agent-configs', { method: 'POST', body: JSON.stringify(input) }))),
-    patchProfile: async (id, input) => mapProfile(await response<unknown>('Update profile', request(`/agent-configs/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) }))),
+    patchProfile: async (id, input, expectedRevision) => mapProfile(await response<unknown>('Update profile', request(`/agent-configs/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(expectedRevision === undefined ? input : { expectedRevision, ...input }),
+    }))),
     deleteProfile: async (id) => response<void>('Delete profile', request(`/agent-configs/${encodeURIComponent(id)}`, { method: 'DELETE' })),
     hardDelete: async (localId) => response<void>('Delete session', request(`/agent-sessions/${encodeURIComponent(localId)}/hard`, { method: 'DELETE', body: JSON.stringify({ removeWorktree: true }) })),
     cancel: async (localId) => response<void>('Cancel session', request(`/agent-sessions/${encodeURIComponent(localId)}/cancel`, { method: 'POST' })),
