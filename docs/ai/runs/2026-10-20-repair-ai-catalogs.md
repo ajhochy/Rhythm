@@ -4,7 +4,7 @@ repo: Rhythm
 branch: test/feature-playwright-2026-10-19
 pr: null
 issues: []
-status: unverified
+status: verified-scoped
 tags: [run, Rhythm]
 ---
 
@@ -31,3 +31,12 @@ tags: [run, Rhythm]
 - The earlier combined run timed out at Vitest's 5-second limit in the invalid MP4 test because `generateLocalVideoPoster` permits its Quick Look child the same 5 seconds. The bounded negative rerun and real positive poster run both passed. No Quick Look child remained afterward.
 - GitNexus's original-checkout index is stale (indexed 2026-08-26 at `d341516`) and returned LOW/0 indexed callers for the available symbols. Manual callers include the Skills editor/Flutter, run-quality route/web view, and Gallery API/web view. No high-risk result was reported.
 - No API or app process was launched here. The parent will collect packaged skill content, Report Card label, and Gallery row/file evidence against the rebuilt candidate. This run is source-level evidence only.
+
+
+## Actual combined runtime confirmation
+
+The parent rebuilt and locally Developer-ID signed product `cf49da55af7b9066b4478c391ac9e3efc499afa9`, then ran the focused packaged command recorded in [the combined repair run](2026-10-20-mega-ai-repairs.md). All 18 real catalog render/reload/503-recovery cases and all five tool-detail cases passed, including real Skills content and Report Card window readback. The first combined command was 33 pass/4 fail overall; its four other failures must not be counted as catalog failures or erased.
+
+`npm run build:guard -- bash /private/tmp/rhythm-ai-repair-sandbox-check.sh` passed all three actual fork+API tests using a wholly synthetic read-only fixture source: compiled built-in content agrees with the engine; a historical blank-kind run is still counted and visibly labelled; a missing local Gallery deliverable keeps its record but has null asset URLs. Sandbox started only through `tools/dev/sandbox.sh` on 4098/4097/4099 and tore down successfully. Full command/fixture/receipt details are in the combined run, private log `/private/tmp/rhythm-ai-repair-sandbox-check.log`.
+
+A later b9 packaged recon observed the missing-media row's disabled `Deliverable unavailable` action; the stronger no-write/readback follow-on test is codified but awaits confirmation. These receipts qualify the repaired paths, not creative generation, available-media playback or all AI execution.

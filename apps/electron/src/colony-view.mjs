@@ -39,7 +39,7 @@ export function createColonyAssetHandler(artifact) {
 }
 
 const FRAME_BYTES = 1024 * 1024
-const CHANNEL_REVOCATION_REASONS = new Set(['frame-mismatch', 'scene-request-failed', 'port-closed', 'port-transfer-failed', 'scene-ready-invalid', 'scene-navigation', 'render-process-gone', 'scene-destroyed'])
+const CHANNEL_REVOCATION_REASONS = new Set(['frame-mismatch', 'scene-request-failed', 'port-closed', 'port-transfer-failed', 'scene-ready-duplicate', 'scene-ready-malformed', 'scene-navigation', 'render-process-gone', 'scene-destroyed'])
 const SCENE_FAILURE_PHASES = new Set(['request-validation', 'intent-policy', 'worker-request', 'scene-projection', 'response-validation', 'port-response'])
 // ponytail: the scene reassembles every page and aborts past 32 MiB total; stopping threads at 24 MiB leaves room for
 // projects/warnings. Threads arrive newest first, so only the oldest history is dropped. Upgrade path: a scanner-side cap.
@@ -195,7 +195,20 @@ export function bindColonySceneChannel(options) {
     // Foreign frames cannot revoke another document, either.
     if (event.sender !== contents || event.senderFrame !== contents.mainFrame || (expectedFrame && event.senderFrame !== expectedFrame)) return
     if (revoked) return
-    if (readyEvent || !message || message.v !== 1 || message.product !== 'colony' || Object.keys(message).length !== 2) { void dispose('scene-ready-invalid'); return }
+    let validShape = false
+    try { validShape = Boolean(message && message.v === 1 && message.product === 'colony' && Object.keys(message).length === 2) } catch {}
+    if (readyEvent || !validShape) {
+      try {
+        console.error('[colony:scene-ready:refused]', JSON.stringify({
+          readySeen: Boolean(readyEvent), validShape, transferred, committed,
+          sceneEntry: event.senderFrame?.url === ENTRY,
+          currentEntry: contents.mainFrame?.url === ENTRY,
+          loading: contents.isLoadingMainFrame(),
+        }))
+      } catch {}
+      void dispose(readyEvent ? 'scene-ready-duplicate' : 'scene-ready-malformed')
+      return
+    }
     readyEvent = event
     flush()
   }

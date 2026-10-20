@@ -104,6 +104,40 @@ test('a malformed scene request revokes and reports only a bounded diagnostic re
   } finally { console.error = previous }
 })
 
+test('a repeated ready event reports whether the owning scene had already transferred its port', async () => {
+  const reports = []
+  const previous = console.error
+  console.error = (...parts) => {
+    if (parts[0] === '[colony:scene-ready:refused]') reports.push(parts[1])
+    else if (parts[0] !== '[colony:channel:revoked]') previous(...parts)
+  }
+  try {
+    const f = fixture()
+    f.ipcMain.emit('colony:scene-ready', { sender: f.sceneContents, senderFrame: f.sceneFrame }, { v: 1, product: 'colony', privateData: '/private-secret-probe' })
+    await tick()
+    assert.equal(f.stops(), 1, 'a second ready event still revokes the one-time port')
+    assert.deepEqual(reports.map(JSON.parse), [{ readySeen: true, validShape: false, transferred: true, committed: true, sceneEntry: true, currentEntry: true, loading: false }])
+    assert.equal(reports.join('').includes('/private-secret-probe'), false)
+  } finally { console.error = previous }
+})
+
+test('a repeated valid ready event also revokes the one-time scene port', async () => {
+  const reports = []
+  const previous = console.error
+  console.error = (...parts) => {
+    if (parts[0] === '[colony:scene-ready:refused]') reports.push(parts[1])
+    else if (parts[0] !== '[colony:channel:revoked]') previous(...parts)
+  }
+  try {
+    const f = fixture()
+    f.ipcMain.emit('colony:scene-ready', { sender: f.sceneContents, senderFrame: f.sceneFrame }, { v: 1, product: 'colony' })
+    await tick()
+    assert.equal(f.stops(), 1)
+    assert.equal(f.port.closed, true)
+    assert.deepEqual(reports.map(JSON.parse), [{ readySeen: true, validShape: true, transferred: true, committed: true, sceneEntry: true, currentEntry: true, loading: false }])
+  } finally { console.error = previous }
+})
+
 test('1530:scene-host-selection-routing-in-the-receiver:1 routes known scene selection once and drops unknown selection without worker forwarding', async () => {
   // Regression caught: scene-only intents leak to the worker or select a row that is absent from main's inventory.
   const f = fixture()

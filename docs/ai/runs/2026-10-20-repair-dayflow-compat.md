@@ -4,7 +4,7 @@ repo: Rhythm
 branch: test/feature-playwright-2026-10-19
 pr: null
 issues: []
-status: unverified
+status: verified-scoped
 tags: [run, Rhythm, electron, dayflow]
 ---
 
@@ -28,3 +28,8 @@ tags: [run, Rhythm, electron, dayflow]
 - The default validator call sites in staging, package signing and packaged verification pass no runtime option, so only 2.6.0/build 133 remains eligible for packaging.
 - GitNexus is stale in the original checkout and absent in this worktree. Disambiguated upstream impact on both edited functions returned LOW and zero indexed callers/processes/modules. Manual call-site review covered the main-owned host, staging, signer, packaged verifier and dedicated tests.
 - No installed app, native module, permission, account setting, launcher, commit, push or PR was changed in this lane.
+
+
+## Packaged signed-app readiness
+
+The exact locally rebuilt/signed cf49 candidate passed `[AI Dayflow] original signed application artifact is ready` (770 ms) in the parent's focused packaged run. Actual main-process signature/version validation returned ready, and the real Agent Tools descriptor was visible. The test neither opened the recording app nor granted recording permissions. This confirms the installed 2.7.2/build 136 compatibility repair; the separate embedded native Dayflow module remains absent and unqualified. See [combined repair run](2026-10-20-mega-ai-repairs.md) for exact build/run command and private receipts.

@@ -1134,16 +1134,17 @@
         "apps/web/tests/post-m1-phase-7-research-gallery.redspec.ts",
         "apps/web/tests/pages/agent-tools-list-inspector.spec.ts"
       ],
-      "coverage": "ABSENT packaged creative media workflow; current tests are fixture/spec coverage.",
-      "gapReason": "No packaged Gallery fetch, folder mutation or real design artifact preview against backend.",
+      "coverage": "CODED, CONFIRMATION PENDING: actual Gallery catalog fetch plus persisted missing-media row inspector; available-media rendering, folder operations, authenticated asset loading and playback remain unqualified.",
+      "gapReason": "No packaged available-media preview, folder mutation or playback qualification; the current follow-on is intended to cover only the missing-media unavailable inspector.",
       "requires": [
         "Nonce-owned generated image/video artifact and reversible folder fixture in packaged app."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "No packaged Gallery fetch, folder mutation or real design artifact preview against backend.",
+      "remaining": "Confirm the codified missing-media inspector regression. No packaged available-media preview, folder mutation or playback qualification.",
       "newTests": [
-        "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts"
+        "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "apps/web/tests/packaged/packaged-ai-followon.spec.ts"
       ],
       "priority": "P2",
       "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Owned poster/image/video loads with correct authenticated origin and selected artifact; folders support create/rename/delete/drag; failure on one item does not poison others."
