@@ -1,33 +1,32 @@
 # Rhythm — project state
 
 ## Current focus
-Repair and qualify the local mega AI feature candidate, with Bot Crossing and unassigned-session errors first. [Repair run](runs/2026-10-20-mega-ai-repairs.md), [inventory](plans/2026-10-20-ai-feature-test-inventory.md). Overall qualification remains failed/incomplete while required flows lack evidence.
+Repair and qualify the local mega AI features against an exact locally built app. AJ requests continued repairs and coverage until all required behavior passes. [Continuation record](runs/2026-10-20-ai-full-coverage-continuation.md), [AI inventory](plans/2026-10-20-ai-feature-test-inventory.md). Overall qualification remains incomplete.
 
 ## Active branch / PR
-- Local branch `test/feature-playwright-2026-10-19`; mega base `894c16f44d30c77dc25d41e7d9a57a644b6ffcfa`.
-- Product candidate `92af064652a6f44155d09470af48a7b566994baf`, locally rebuilt/signed 0.18.83 Electron app. Exact packaged API and bundled/live fork identity enforced by runner.
-- Bot artifact sealed from local dependency commit `a1f113340e643c50325ac1c1e0fc1ed0ed2e066b`.
-- Existing integration target mega / #1598. Local commits only; no push, PR, merge, release, installation or installed-app changes. Original checkout dirt preserved.
+- Active branch `test/feature-playwright-2026-10-19`; mega base `894c16f44d30c77dc25d41e7d9a57a644b6ffcfa`. Latest checkpoint source `9067e14ff1`; further local changes are in progress.
+- Latest native-tested app: exact `28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3`, 0.18.83, local Developer ID sign-only, strict deep signature valid, unnotarized. Newer source requires another local build.
+- Local commits only. No push, new PR, merge, release or installation. Original checkout dirt preserved. Existing mega integration target #1598.
 
 ## In progress
-- Full 159-case packaged AI receipt: 67 passed/92 failed, 601.02s. Final test-only follow-ups are separate; current discovery 160 cases/15 files. [Classified results](../testing/results/2026-10-20-ai-repair-findings.md).
-- Inventory covers 489 month-window commits in 82 groups (77 active/partial and five historical). Narrow successes leave broader execution/privacy/device boundaries explicit.
+- Main Rhythm/Coordinator Auto currently bypasses Grid/Luna. AJ explicitly approved routing main-chat Auto too. Repair must preserve command deduplication, owner/profile/permission checks, truthful model provenance and strict C2/Dayflow authority joins; delayed classification must not overwrite a changed model/account/owner.
+- Actual Engraph CLI 1.7.2 lifecycle/reference-search Recon in a wholly synthetic sandbox. Earlier aggregate spawn failures did not reproduce in the final controlled baseline; source tests alone do not qualify the executable or Flutter settings UI.
+- New schedule-owner, managed Playbook YAML and Hermes provider-card/SDK repairs await rebuilt native confirmation. Private primary test independence and further memory/skills/Dayflow observations are being added.
+- Inventory covers 489 month-window commits, 83 behavior groups: 78 active user features and five historical boundaries. Remaining claims stay explicit failing coverage cases.
 
 ## Risks / known issues
-- Embedded native Dayflow is absent: accepted source/layout/signing manifests are unavailable at recorded local paths. Installed/current/previous bundles contain only the standalone companion; backup contents remain unverified/inaccessible. No manifest/signature validation bypass.
-- Permanent primary cwd is absent. Primary/Coordinator/approval lifecycle tests require supported disposable signed-in state; do not rewrite the user's journal or equate fixture bearer with ordinary authentication.
-- Full suite caught a late retained-Hermes API timeout; the added hidden-interval CROSS test passed without reproducing it. Missing local OAuth application configuration also causes background sync audit failures in a follow-up. Neither is allowlisted or claimed repaired.
-- Full PR gate has five unresolved Engraph ownership spawn failures (21/22 batches pass); guarded ownership file 19/19 and related serial cluster 99/99 pass separately. Root cause unproven; aggregate remains failed.
-- Multi-harness immutability, hostile native frames/corrupt artifacts in the packaged app, account failover/privacy, execution, relay/device and permission claims retain explicit gaps.
-- GitNexus index is stale; LOW/UNKNOWN results are supplemented by manual scope review. Builds stay within the shared 10 GiB guard; sandbox/runtime ownership rules remain mandatory.
+- Main Auto routing, actual delegated goals, provider failover/reauthorization, permission/model side effects, elapsed approval TTL, recording/privacy, reconnect, relay and physical-device behavior remain unqualified. Passing a catalog or source test does not close these claims.
+- Synthetic actor/profile paths are mandatory for mutating tests. Never rewrite the operator journal, borrow live databases or run a second API server by hand. Sandboxes use the guarded launcher and ports4098/4097/4099; native tests require exclusive ports4001/4096/4002.
+- Hermes uses a sealed bundled Python backend. Next package inputs are source235895664, 404-file JS factory and 73 external Python distributions; no lazy installs or operator checkout dependency. Current tested28bcc app still has the older60-distribution payload.
+- Native Dayflow source/layout were recovered with explicit provenance and normal manifest/signing checks. Attachment passes; recording and OS consent do not have current qualification.
+- GitNexus index remains stale; manual scope review supplements its results. All builds remain within the shared10GiB guard.
 
 ## Test status
-- Exact 92af signed candidate focused acceptance: 7/7 passed, no skips/flakies, 69.91s. Covers three actual Bot paging/retention/search cases, named unassigned session API/DB/engine persistence/deletion with strict audit, profile draft discard, unavailable Gallery inspector and historical empty-kind Report Card.
-- Bot source regression 41/41 and real native frame fixture 6/6; independent-reader real sealed-worker RED/GREEN preserves the two-generation cap and source bytes. Post-return observer waits only for exact capacity refusal, max 30s before 60s expiry; measured native refresh cleared at 5.2s.
-- Live isolated API+fork repairs 3/3 pass (built-in skill content, historical label, unavailable Gallery); catalog native subset 18/18 passed. Standalone signed Dayflow readiness passes separately from absent embedded module.
-- Full 159 suite: 67 pass/92 fail; failures are 77 inventory gaps, 12 prerequisites, missing embedded Dayflow, late Hermes timeout and MCP response-lifetime test authoring. All 17 router and 10 ordinary session/conversation/project cases pass.
-- MCP no-reload correction and CROSS pass in separate 6/2 follow-up; other failures there are host observer acquisition and missing local integration config. Final corrected Bot observer confirmation is 3/3, 55.70s. Whole suite was not rerun after these test-only changes.
-- Issue gate and built-web smoke passed. PR aggregate 21/22; no overall PR/release PASS. Historical d7 result remains separate.
+- Full serial API baseline at e13fe81363 (later changes through9067 were tests/docs only): 884 passed and180 skipped files; 8,799 passed and385 skipped tests; zero failed, exit0, 1,131.93s. Engraph ownership19/19 and issue1186 fixtures7/7 pass inside this aggregate. This predates the new main-Auto repair.
+- Exact28bcc scoped native run: 37 passed, one explicit elapsed-approval-TTL coverage failure, zero skipped/flaky, 102.136s. All10 companion cases, actual native Dayflow attachment, real MCP114-tool catalog/stdio, real-engine child history, private approvals/profile retry, memory paging, Gallery/Research, cookbook, pins and retention pass in that scope.
+- Schedule disabled persistence and local Bearer ownership are source/API green; owner live sandbox1/1. Managed Playbook parser/HTTP9/9 and real API/engine sandbox1/1 pass. Newer native confirmation remains pending.
+- Hermes provider setup rendered8/8, Azure/catalog12/12 and full Electron587 passed/5 skipped/0 failed before final architecture count-map follow-up. No current authenticated provider-flow claim.
+- Historical router17/17 is scoped earlier-build evidence; ordinary and main-chat router cases require the next exact local build and bounded real-model run. No full AI suite PASS.
 
 ## Next step
-Diagnose retained-Hermes late timeout with request/backend health evidence; recover accepted native Dayflow inputs and supported isolated signed-in primary/Coordinator state. Resolve local integration configuration and aggregate Engraph failure, then extend missing ownership/execution/device coverage. No overall qualification claim.
+Finish safe main-Auto routing with regression and real API/engine proof; inspect actual Engraph Recon. Freeze source, rebuild/sign locally with current Hermes and recovered Dayflow inputs, rerun native and bounded real-model tests, and keep replacing coverage gaps with observed behavior plus independent confirmation.
