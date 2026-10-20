@@ -26,6 +26,7 @@ import { join } from 'path';
 import { logger } from '../utils/logger';
 import { GEMINI_CODE_ASSIST_PROJECT_ID, opencodeDataFile } from '../config/env';
 import { CredentialsBridgeService } from './credentials_bridge_service';
+import { loadQualificationFixtureAuthority } from './qualification_fixture_authority';
 import { anthropicAccountsService } from './anthropic_accounts_service';
 import { openaiAccountsService, identityFromTokens } from './openai_accounts_service';
 
@@ -279,7 +280,7 @@ async function fetchAnthropic(auth: Record<string, unknown>): Promise<UsageBudge
     items: [],
   };
   const token =
-    credsBridge.readClaudeCreds()?.access ??
+    (loadQualificationFixtureAuthority() ? null : credsBridge.readClaudeCreds()?.access) ??
     (auth.anthropic as { access?: string } | undefined)?.access;
   if (!token) return [{ ...base, kind: 'unavailable', reason: 'No Anthropic credentials' }];
   return [await probeAnthropicAccount(token, base)];
