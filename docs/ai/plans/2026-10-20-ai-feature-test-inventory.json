@@ -3742,6 +3742,64 @@
       ],
       "priority": "P1",
       "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Only wired host tools are pinnable; descriptors open the correct real companion; pinned shortcuts remain scoped to identity and survive reload without losing existing tabs."
+    },
+    {
+      "id": "engraph-semantic-memory-runtime",
+      "feature": "Semantic Memory local backend and reference search",
+      "claim": "A person can select an installed Engraph binary in Flutter Settings, enable a Rhythm-private index of the canonical agent-memory root, see honest lifecycle/health status, retrieve owner-safe native-ranked references, and disable it without touching an unrelated process; standard FTS remains available when the backend is unavailable.",
+      "source": "apps/desktop_flutter/lib/features/settings/views/settings_view.dart:235; apps/desktop_flutter/lib/features/settings/widgets/semantic_memory_section.dart; apps/api_server/src/routes/engraph_manager_routes.ts; apps/api_server/src/routes/agentMemoryRoutes.ts; docs/ai/runs/2026-09-24-finish-mega-resume.md; docs/ai/contracts/issue-1574.json",
+      "commits": [
+        "efe771093c",
+        "4893d12bc1",
+        "4f915540f7",
+        "abfd5bcdde"
+      ],
+      "issues": [
+        "#1096",
+        "#1573",
+        "#1574"
+      ],
+      "entry": "Flutter Settings \u2192 Semantic Memory; local API /engraph-manager/status, discover, choose-binary, enable, disable, check-health, retry, rebuild; explicit reference retrieval through GET /agent-memory/search?view=references. The Electron/web prototype has no Engraph settings UI.",
+      "expected": "Selecting a real installed CLI, enabling, and polling reaches Ready only after an authenticated local search. A synthetic canonical note is indexed and returned as an owner-safe reference; disable stops only the verified owned backend and reference search degrades honestly while FTS remains available.",
+      "edges": [
+        "missing or invalid binary and actionable UI state",
+        "previous-port foreign or unmarked Engraph process remains alive and is reported for manual inspection",
+        "indexing failure, health timeout, retry, rebuild, and restart ownership",
+        "owner filtering and canonical-file revalidation",
+        "disabled or unavailable native backend with standard FTS fallback",
+        "Rhythm-private HOME, index, API key, and model/cache paths",
+        "signed Flutter UI and macOS permission diagnostics"
+      ],
+      "existingTests": [
+        "apps/api_server/src/__tests__/issue_1574_engraph_ownership.test.ts",
+        "apps/api_server/src/__tests__/engraph_manager.test.ts",
+        "apps/api_server/src/__tests__/live_e2e_issue_1574_engraph_process.test.ts",
+        "apps/api_server/src/__tests__/live_e2e_1096_engraph_manager_http.test.ts",
+        "apps/api_server/src/__tests__/live_e2e_engraph_manager.test.ts",
+        "apps/desktop_flutter/test/contract/issue_1096_semantic_memory_test.dart"
+      ],
+      "coverage": "INCOMPLETE: guarded focused ownership checks passed 19/19 and a related source cluster passed 99/99; the current full serial API gate also passed the 19-case ownership file but is still running. Historical 2026-07-24 signed Flutter and real Engraph sandbox smoke belongs to an older source/build. No current signed Flutter or current-source real Engraph index/reference search has been qualified.",
+      "gapReason": "The ownership aggregate tests use controlled fixtures, and the installed Electron prototype has no Engraph settings UI. They cannot prove the person-visible Flutter control, actual installed CLI, semantic reference retrieval, FTS fallback, or exact real-process shutdown at this source revision. Issue #1574 c2 explicitly remains UNVERIFIED for real API/engine/native behavior.",
+      "requires": [
+        "Fresh approved synthetic read-only SQLite/config fixture; private sandbox HOME, manager config, vault, model/cache outputs and API 4098/engine 4097/gateway 4099; no operator store or credentials.",
+        "Verified installed arm64 Engraph executable chosen only inside that sandbox; optional model download must remain disabled and shared output monitored under the 10 GiB guard.",
+        "Separate signed Flutter fixture/build for the Settings UI and macOS permission states; Electron packaged UI cannot substitute for it."
+      ],
+      "kind": "user-feature",
+      "claimKind": "source-backed summary; #1574 contract and historical run logs preserve primary acceptance wording",
+      "remaining": "Run a current-source real CLI HTTP lifecycle and synthetic note reference search in a fresh isolated sandbox; prove owner/canonical mapping, disabled fallback and exact child cleanup. Then qualify the person-visible Flutter Settings path in a current signed disposable build. Do not infer either from 19 ownership tests or an older signed smoke.",
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Actual installed Engraph process and private index, /engraph-manager status/health/ownership, canonical /agent-memory reference result and SQLite/vault mapping must agree for a nonce-owned synthetic note; disable must leave no owned process, preserve foreign processes, and FTS must remain usable. Current signed Flutter Settings UI state and actions require a separate native-client receipt."
     }
-  ]
+  ],
+  "qualification": {
+    "latestLocallySignedProductRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
+    "scope": "38 selected private native cases; broader inventory and model cases remain unqualified",
+    "passed": 37,
+    "failedExplicitCoverageGap": 1,
+    "skipped": 0,
+    "flaky": 0,
+    "newerSourceRepairsAwaitLocalRebuild": true
+  }
 }
