@@ -1002,6 +1002,23 @@ It also includes failing inventory-driven gaps. Reports go to
 Keep raw traces/screenshots private: they can contain the signed-in user's data.
 Only sanitized recon and result summaries belong in commits.
 
+`RHYTHM_SMOKE_USER_DATA` isolates only the Chromium profile; it does **not** isolate
+the local database, engine state, companion state or Keychain credentials. The default
+fixture uses signed-in local app data. A disposable-primary/owner-switch scenario needs
+a supported isolated database **and** profile/engine/companion inputs (or a disposable
+macOS account), not just that variable. Never launch a second API by hand; use the
+stock packaged lifecycle or the approved sandbox procedure above.
+
+The mega has a specialized `RHYTHM_QUALIFICATION_FIXTURE_MANIFEST` seam in
+`apps/electron/src/agent-server.mjs` and the API qualification services. It binds a
+private temporary DB/config/engine-state tree to the exact build, seeds public
+identity/synthetic profiles, and uses a fixture-only bearer for enumerated cases.
+It does not qualify real OAuth/session authentication. There is no general manifest
+launcher/CRUD adapter in this suite yet; implementing one is feasible follow-up,
+not a need to change the live journal. Isolated model dispatch needs appropriate
+provider authorization; provider-free router fixture modes are not real-model proof.
+Companion and Keychain isolation require their own audit beyond API fixture paths.
+
 The new checks use real catalog/readback/reload and one-request error injection,
 read-only memory/filter/search and skill content, schedule history/cancel, canonical
 shared-agent readiness, quality windows, and nonce-owned inert cookbook recipes.

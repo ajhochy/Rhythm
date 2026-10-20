@@ -141,15 +141,26 @@ test('[AI Bot Crossing] actual pinned scene reads paged local inventory', async 
   }
 });
 
-test('[AI Bot Crossing] leaving and reopening produces one connected scene', async ({ page }) => {
-  // Catches orphan native scenes and stale authority after route remount.
+test('[AI Bot Crossing] tab switch preserves one scene and restores usable inventory', async ({ page }) => {
+  // The native service intentionally suspends the scene on departure; return must restore real data access.
   const old = await companionPage(page, 'colony');
   await expect(old.getByRole('searchbox', { name: 'Search projects and sessions', exact: true })).toBeVisible({ timeout: 60_000 });
   await page.goto('rhythm://app/index.html#/tools/agent-tools');
-  await expect.poll(() => old.isClosed(), { timeout: 20_000 }).toBe(true);
+  expect(old.isClosed()).toBe(false);
   const scene = await companionPage(page, 'colony');
+  expect(scene).toBe(old);
   await expect(scene.getByRole('searchbox', { name: 'Search projects and sessions', exact: true })).toBeVisible({ timeout: 60_000 });
-  expect(await page.evaluate(async () => (window as any).rhythmShell.colonyView.getStatus())).toMatchObject({ available: true, enabled: true });
+  let generation: string | undefined;
+  try {
+    const inventory = await scene.evaluate(async () => (window as any).colonyEmbedded.request('inventory.page', { collection: 'threads', limit: 5 }));
+    generation = inventory.generation;
+    expect(inventory.collection).toBe('threads');
+    expect(inventory.records.length, 'UNVERIFIED: restored Bot Crossing inventory is empty').toBeGreaterThan(0);
+    expect(inventory.scannedAt).toBeGreaterThan(0);
+    for (const row of inventory.records) expect(typeof row.id).toBe('string');
+  } finally {
+    if (generation) await scene.evaluate(async generation => (window as any).colonyEmbedded.request('inventory.cancel', { generation }), generation);
+  }
 });
 
 test('[AI Dayflow] advertised native workspace actually attaches', async ({ page }) => {

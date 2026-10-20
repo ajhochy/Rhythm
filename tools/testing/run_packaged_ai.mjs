@@ -17,7 +17,14 @@ const productPaths = [
   'apps/api_server/src', 'apps/web/src', 'apps/electron/src',
   'apps/opencode_fork/packages/opencode/src', 'apps/mcp_server/src',
   'apps/api_server/package.json', 'apps/web/package.json', 'apps/electron/package.json',
-  'apps/electron/scripts', 'package-lock.json',
+  'apps/api_server/scripts', 'apps/api_server/opencode_plugins', 'apps/api_server/config_seeds',
+  'apps/api_server/vendor', 'apps/api_server/resources', 'apps/api_server/tsconfig.json',
+  'apps/api_server/package-lock.json', 'apps/web/public', 'apps/web/index.html',
+  'apps/web/vite.config.ts', 'apps/web/package-lock.json', 'apps/electron/package-lock.json',
+  'apps/electron/scripts', 'apps/electron/native', 'apps/electron/assets',
+  'apps/mcp_server/scripts', 'apps/mcp_server/resources', 'apps/mcp_server/package-lock.json',
+  'apps/opencode_fork/packages', 'apps/opencode_fork/package.json', 'apps/opencode_fork/bun.lock',
+  'package.json', 'package-lock.json',
 ];
 execFileSync('git', ['diff', '--exit-code', revision, '--', ...productPaths], { cwd: root, stdio: 'pipe' });
 const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '--', ...productPaths], { cwd: root, encoding: 'utf8' });

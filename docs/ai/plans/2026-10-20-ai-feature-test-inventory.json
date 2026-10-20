@@ -40,7 +40,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Child cursor/ancestor pages and account-switch cases remain UNVERIFIED; strict unexpected-log audit catches empty-project branch request.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P0",
+      "backendProofRequired": "UI state and real API/SQLite session/message readback agree with actual engine session/transcript; include reload and exact owned cleanup for writes. Create/read/list/reload agree on name, profile, cwd and project; delete is permanent in API, SQLite and engine."
     },
     {
       "id": "conversation-transcript",
@@ -90,7 +92,9 @@
           "state": "OPEN",
           "interpretation": "Open issue explicitly combines live reasoning streaming and human-readable timestamps; work on #1553/#1554 may partially address reasoning, while #1565 separately confirms Electron timestamp gap. Full acceptance is still open."
         }
-      ]
+      ],
+      "priority": "P0",
+      "backendProofRequired": "UI state and real API/SQLite session/message readback agree with actual engine session/transcript; include reload and exact owned cleanup for writes. UI, API and engine show one user prompt and real assistant answer with provider/model provenance, same ordering after reload."
     },
     {
       "id": "session-autonaming",
@@ -123,7 +127,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "No assertion links generated title to post-turn session list/readback.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "UI state and real API/SQLite session/message readback agree with actual engine session/transcript; include reload and exact owned cleanup for writes. Useful conversation produces stable visible session name and it survives reload/list refresh."
     },
     {
       "id": "transcript-byte-bounds",
@@ -157,7 +163,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "No bounded real transcript fixture with historical attachment payloads and mirror/API response byte assertions.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P0",
+      "backendProofRequired": "UI state and real API/SQLite session/message readback agree with actual engine session/transcript; include reload and exact owned cleanup for writes. Seed pages stay under gateway byte ceiling and older-message errors are visible rather than silently stale."
     },
     {
       "id": "served-model-provenance",
@@ -197,7 +205,9 @@
           "state": "OPEN",
           "interpretation": "Open issue has observed alias-only provenance and unrecoverable missing request IDs; separate routed-model provenance from mere selected-alias display."
         }
-      ]
+      ],
+      "priority": "P0",
+      "backendProofRequired": "UI settings/decision and persisted API policy/decision agree with actual served engine message provider/model/account/effort; negative paths cause no dispatch. Visible provider/model matches the same actual assistant message and API/engine record."
     },
     {
       "id": "router-first-prompt",
@@ -254,7 +264,9 @@
           "state": "MERGED",
           "interpretation": "Merged carrier for #1588, but its own verification says apps/web left to Desktop CI and #1588 closes in favour; bundled merge/tests are not installed app or real-model promotion proof."
         }
-      ]
+      ],
+      "priority": "P0",
+      "backendProofRequired": "UI settings/decision and persisted API policy/decision agree with actual served engine message provider/model/account/effort; negative paths cause no dispatch. Actual first turn uses selected eligible model/account/effort; ledger and engine agree; continuation reuses; fixed model bypasses."
     },
     {
       "id": "router-grid-policy",
@@ -289,7 +301,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Broader malformed-input and process-restart cases are not in focused 17-case qualification.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P0",
+      "backendProofRequired": "UI settings/decision and persisted API policy/decision agree with actual served engine message provider/model/account/effort; negative paths cause no dispatch. UI save/readback round-trips policy served by API; missing file shows defaults; malformed save rejected."
     },
     {
       "id": "router-curation",
@@ -317,22 +331,26 @@
         "apps/web/tests/contract/issue-1580-model-curation.spec.ts",
         "apps/web/tests/contract/issue-1580-provider-connect-card.test.mjs"
       ],
-      "coverage": "ABSENT packaged; current tests are contract/fake API.",
+      "coverage": "KEEP source tests plus new real packaged read-only checks; remaining mutation/execution boundaries stay explicit.",
       "gapReason": "No installed UI readback against real catalog/provider state.",
       "requires": [
         "Packaged app and real API model catalog; provider auth optional for read-only catalog case."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "No installed UI readback against real catalog/provider state.",
-      "newTests": [],
+      "remaining": "Actual full model catalog visibility agrees with rendered switches; no-match/clear restores a real row. Save, empty/disconnected recovery and process restart remain unqualified.",
+      "newTests": [
+        "apps/web/tests/packaged/packaged-ai-settings.spec.ts"
+      ],
       "primaryIssueTracking": [
         {
           "issue": "#1594",
           "state": "CLOSED",
           "interpretation": "Consolidation PR supersedes #1590/#1592/#1593/#1595/#1596 and carries #1588/#1589; use it to resolve duplicate lineage, not as independent feature acceptance. Manual smoke items in the body must remain distinct from merged tests."
         }
-      ]
+      ],
+      "priority": "P0",
+      "backendProofRequired": "UI settings/decision and persisted API policy/decision agree with actual served engine message provider/model/account/effort; negative paths cause no dispatch. Checked catalog IDs agree with enabled API set and routing candidates; empty/disconnected catalogs recover visibly."
     },
     {
       "id": "openai-multi-account",
@@ -377,7 +395,9 @@
           "state": "OPEN",
           "interpretation": "Research/proposal only, explicitly says no product code changed and requests revising #1566 unavailable expectation. Do not represent reachable OpenAI budget as implemented."
         }
-      ]
+      ],
+      "priority": "P0",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Selected account applies per request; automatic eligible fallback works; explicit account pin is preserved; usage percentage means used."
     },
     {
       "id": "account-reauthorization",
@@ -419,7 +439,9 @@
           "state": "MERGED",
           "interpretation": "Merged PR reports reauthorization and provider auth work with live :4001 HTTP observations, but merge is not installed Electron/product proof; retain its explicit app boundary."
         }
-      ]
+      ],
+      "priority": "P0",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Same account ID returns connected and remains default; sibling provider/account remains intact."
     },
     {
       "id": "provider-runtime-compat",
@@ -453,7 +475,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "No delayed-credential launch sequence or packaged qualification isolation assertion.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P0",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Current provider request succeeds; auth file appearing after launch updates account state; qualification writes only isolated data/config."
     },
     {
       "id": "attachments-upload-render",
@@ -493,7 +517,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "No packaged real selected file send, backend artifact readback, relay byte-bound or file boundary matrix.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Picked file reaches engine once; artifact route returns same owned bytes and transcript renders correct image/file fallback."
     },
     {
       "id": "memory-auto-retrieval",
@@ -533,7 +559,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "No real turn asserts the fact excerpt actually received by engine; October 8 audit is observational only.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Relevant owned fact reaches model context and evidence receipt; irrelevant/short follow-up abstains; active/owner gates hold."
     },
     {
       "id": "memory-inspector",
@@ -571,7 +599,9 @@
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-tools.spec.ts",
         "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts"
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Selecting a row shows its full matching content and source/date; deleted/missing rows produce honest empty/error state."
     },
     {
       "id": "mcp-profile-scope",
@@ -623,7 +653,9 @@
           "state": "CLOSED",
           "interpretation": "Postmortem issue specifically says the previous scope fix was ineffective at runtime and its test was a boundary-only mock. Do not count the cited commit or closed status as behavioral proof; later scope tests/fixes must establish current behavior."
         }
-      ]
+      ],
+      "priority": "P0",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Only profile-granted tools are callable; granted deferred tools remain reachable; ungranted tools remain unavailable; packaged Rhythm MCP lists actual tools."
     },
     {
       "id": "profile-edit-and-capabilities",
@@ -657,22 +689,26 @@
         "apps/web/tests/inspector-profiles.spec.ts",
         "apps/web/tests/post-m1-phase-2-profiles.redspec.ts"
       ],
-      "coverage": "REDO: renderer tests exist but no packaged save/readback and real session behavior.",
+      "coverage": "KEEP source tests plus new real packaged read-only checks; remaining mutation/execution boundaries stay explicit.",
       "gapReason": "No packaged API/database persisted profile mutation or tool scoping assertion.",
       "requires": [
         "Disposable profile with reversible settings and packaged app; no mutation to user profile."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "No packaged API/database persisted profile mutation or tool scoping assertion.",
-      "newTests": [],
+      "remaining": "Actual profile rail and selected label/editor agree with fresh GET after reload. Profile save, failed draft retention, tool scope and real session capabilities remain unqualified.",
+      "newTests": [
+        "apps/web/tests/packaged/packaged-ai-settings.spec.ts"
+      ],
       "primaryIssueTracking": [
         {
           "issue": "#1523",
           "state": "CLOSED",
           "interpretation": "Design acceptance is all unchecked at filing; issue says backend was not established broken. Treat as UX/control redesign intent, not evidence of implemented controls or backend defect."
         }
-      ]
+      ],
+      "priority": "P0",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Changed-field PATCH persists and reloads; failed save retains draft; inherited/explicit choices and skill tags remain stable."
     },
     {
       "id": "mcp-inspector-and-packaging",
@@ -700,15 +736,19 @@
         "apps/web/tests/tools.spec.ts",
         "apps/web/tests/agent-settings-accounts-playwright.config.ts"
       ],
-      "coverage": "ABSENT packaged real MCP list launch; existing UI tests use fixtures.",
+      "coverage": "KEEP source tests plus new real packaged read-only checks; remaining mutation/execution boundaries stay explicit.",
       "gapReason": "No packaged tool-list check against built Resource MCP server; historical 103-tool count should not be hard-coded as current.",
       "requires": [
         "Exact packaged build and safe bundled MCP launch; assert current list without exposing private server configuration."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "No packaged tool-list check against built Resource MCP server; historical 103-tool count should not be hard-coded as current.",
-      "newTests": []
+      "remaining": "MCP inspector agreement passed once, but final targeted run hit120s renderer/automation timeout with backend healthy; reliable readback remains unqualified. Actual MCP inspector status/tool count is exercised. Direct packaged Resource MCP stdio launch/list and runtime invocation/scoping remain unqualified.",
+      "newTests": [
+        "apps/web/tests/packaged/packaged-ai-settings.spec.ts"
+      ],
+      "priority": "P0",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Packaged server starts over stdio, returns live tool catalog and inspector displays actual status/count."
     },
     {
       "id": "approval-expiry",
@@ -742,7 +782,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Current packaged run cannot safely synthesize expiry or retain/delete approval history in user profile.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P0",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Signed pending state and decision receipt agree; refresh updates queue; expiry blocks approval and retains denial action/reason."
     },
     {
       "id": "session-service-reconnect",
@@ -774,7 +816,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "No packaged controlled transport interruption and reconciliation assertion.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P0",
+      "backendProofRequired": "UI state and real API/SQLite session/message readback agree with actual engine session/transcript; include reload and exact owned cleanup for writes. After controlled disconnect/reconnect, stale outage/error clears only when live session state reconciles; accepted turn clears stale error status."
     },
     {
       "id": "reasoning-transcript",
@@ -820,7 +864,9 @@
           "state": "OPEN",
           "interpretation": "Open issue explicitly combines live reasoning streaming and human-readable timestamps; work on #1553/#1554 may partially address reasoning, while #1565 separately confirms Electron timestamp gap. Full acceptance is still open."
         }
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "UI state and real API/SQLite session/message readback agree with actual engine session/transcript; include reload and exact owned cleanup for writes. Whitespace reasoning has no row; streamed reasoning shows meaningful headline and SafeMarkdown body; in-flight all-zero usage is hidden; priced cost is rounded and plan-priced cost omitted."
     },
     {
       "id": "usage-budget-and-context-gauge",
@@ -862,7 +908,9 @@
           "state": "OPEN",
           "interpretation": "Open issue reports Electron raw ISO timestamp rendering and says #1010 only closed Flutter path; this contradicts any broad claim that timestamp formatting is already complete across clients."
         }
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. GET /agents/usage-budget results render correct window/credits/unavailable semantics by account; manual refresh works; context usage uses actual counts and readable abbreviation."
     },
     {
       "id": "agent-settings-provider-model-curation",
@@ -895,22 +943,26 @@
         "apps/web/tests/contract/issue-1580-provider-connect-card.test.mjs",
         "apps/web/tests/contract/settings-columns-live.spec.ts"
       ],
-      "coverage": "REDO: scoped browser/contract evidence; no packaged live-auth/catalog/persisted visibility test. Issue #1580 remains OPEN in GitHub despite merged implementation portions.",
+      "coverage": "KEEP source tests plus new real packaged read-only checks; remaining mutation/execution boundaries stay explicit.",
       "gapReason": "Issue acceptance requires live sandbox/provider evidence; current test inventory has no packaged settings behavior and issue remains open.",
       "requires": [
         "Packaged app, actual provider catalog, disposable profile; real login only with authorized test account."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Issue acceptance requires live sandbox/provider evidence; current test inventory has no packaged settings behavior and issue remains open.",
-      "newTests": [],
+      "remaining": "Read-only actual catalog visibility/search is exercised. Provider connection, save/persistence and failure/account matrices remain unqualified.",
+      "newTests": [
+        "apps/web/tests/packaged/packaged-ai-settings.spec.ts"
+      ],
       "primaryIssueTracking": [
         {
           "issue": "#1572",
           "state": "OPEN",
           "interpretation": "Open issue explicitly says #1143 is narrower/completed and provider curation/account availability/Ollama promotion remain inconsistent. Do not count #1143 as full model-picker parity."
         }
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Live connected/provider readiness states, inline login handoff, searchable live model catalog, persisted visibility and picker refresh without restart/profile switch."
     },
     {
       "id": "open-design-host-tool",
@@ -941,7 +993,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "No packaged/live OpenDesign MCP/workspace attach proof, service readiness check, or real interaction evidence.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P2",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Open action attaches workspace in host region; pin preference persists by scope; unavailable/malformed bridge yields fixed actionable error and Retry, never blank success."
     },
     {
       "id": "mcp-apps-ga-security",
@@ -976,7 +1030,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Packaged docs/contracts exist, but issue explicitly requires full security matrix and packaged smoke across modes; no completion record found.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Scripts/network/navigation/storage/link/context/lifecycle abuse are denied or fenced; flag off is rollback; interactive remains opt-in until manual approval."
     },
     {
       "id": "research-model-planning-budget",
@@ -1011,7 +1067,9 @@
       "remaining": "No packaged end-to-end run verifies actual provider/model per stage, budget ledger and synthesis behavior.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts"
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Configured lead/researcher models appear in run stages; bounded parallel work stays within budget; exhausted runs synthesize available evidence and disclose degraded completion."
     },
     {
       "id": "research-magazine-artifact",
@@ -1047,7 +1105,9 @@
       "remaining": "No packaged live artifact write/read/version and exact discussion integration proof.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts"
-      ]
+      ],
+      "priority": "P2",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Same run+bytes is no-op; changed output versions; Ask opens exact discussion with quoted section/source link; export saves HTML/Markdown; per-run sources dedupe."
     },
     {
       "id": "creative-gallery-media",
@@ -1084,7 +1144,9 @@
       "remaining": "No packaged Gallery fetch, folder mutation or real design artifact preview against backend.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts"
-      ]
+      ],
+      "priority": "P2",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Owned poster/image/video loads with correct authenticated origin and selected artifact; folders support create/rename/delete/drag; failure on one item does not poison others."
     },
     {
       "id": "agent-settings-runtime-mcp-controls",
@@ -1118,15 +1180,17 @@
         "apps/web/tests/agent-settings-hermes-accounts.spec.ts",
         "apps/web/tests/agent-settings-accounts-playwright.config.ts"
       ],
-      "coverage": "REDO: contract/scoped tests but no packaged runtime ownership/restart and MCP status sequence.",
+      "coverage": "KEEP source tests plus new real packaged read-only checks; remaining mutation/execution boundaries stay explicit.",
       "gapReason": "No exact packaged runtime integration proof or live MCP failure/retry path.",
       "requires": [
         "Disposable runtime process owned by fixture and packaged app; never terminate adopted live runtime."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "No exact packaged runtime integration proof or live MCP failure/retry path.",
-      "newTests": [],
+      "remaining": "MCP inspector agreement passed once, but final targeted run hit120s renderer/automation timeout with backend healthy; reliable readback remains unqualified. Actual MCP rail, selected status and advertised tool count agree with real GET. Connect/retry/remove/credential controls and runtime lifecycle remain unqualified.",
+      "newTests": [
+        "apps/web/tests/packaged/packaged-ai-settings.spec.ts"
+      ],
       "primaryIssueTracking": [
         {
           "issue": "#1560",
@@ -1138,7 +1202,9 @@
           "state": "OPEN",
           "interpretation": "Open issue documents MCP form-first ordering and no search/filter/grouping across 26 servers; do not claim broken-server discoverability is covered by connection CRUD."
         }
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Status reflects owned runtime; restart only affects owned spawned runtime; MCP action errors/retries stay local and visible; navigation survives section load failures."
     },
     {
       "id": "prompt-existing-session-http-mcp",
@@ -1183,7 +1249,9 @@
           "state": "MERGED",
           "interpretation": "Merged feature adds prompt-existing-session HTTP/MCP endpoint; PR body describes shared input behavior, but merge alone does not establish packaged/real-engine execution. This is the actual prompt-session PR, unlike #1577."
         }
-      ]
+      ],
+      "priority": "P0",
+      "backendProofRequired": "UI state and real API/SQLite session/message readback agree with actual engine session/transcript; include reload and exact owned cleanup for writes. HTTP caller attribution comes from auth, MCP proof is signed/bound to route and arguments, stored profile scope is applied, SDK session is reused, and outcome appears in immutable prompt log."
     },
     {
       "id": "session-summary-and-patch-preview-bounds",
@@ -1220,7 +1288,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Live test proves backend bounded behavior and health, while browser spec intercepts routes; no packaged UI behavior proof for actual omitted-diff metadata.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "UI state and real API/SQLite session/message readback agree with actual engine session/transcript; include reload and exact owned cleanup for writes. Old messages, tool output and attachment bytes are not materialized to produce a summary; small patches remain exact; oversized file/aggregate patch is clearly marked omitted with correct summary counts."
     },
     {
       "id": "HERMES-01",
@@ -1271,7 +1341,9 @@
       "remaining": "Actual pinned renderer, saved history, draft/tab survival and overlay/service recovery are exercised. Crash/restart, artifact rejection and complete teardown ownership require disposable fixtures.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-companions.spec.ts"
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "Actual pinned Hermes child and gateway/durable session state agree; explicit ownership/privacy before any mutation. Against parent-launched actual Rhythm candidate, verify real pinned Hermes renderer, visible allocated tab bounds, expected child controls, no duplicate outer chrome, successful resize/detach, and no renderer errors."
     },
     {
       "id": "HERMES-02",
@@ -1312,7 +1384,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Protocol and renderer tests use synthetic intent/bridge results; native smoke proves attached renderer but must assert actual navigation outcome and target identity.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Actual pinned Hermes child and gateway/durable session state agree; explicit ownership/privacy before any mutation. Click/open intent navigates to the exact authorized existing Rhythm session, or creates a new chat, and leaves Hermes child usable."
     },
     {
       "id": "HERMES-03",
@@ -1361,7 +1435,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Unit and service checks do not show the actual embedded Hermes approval and notification outcome in packaged Rhythm.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Actual pinned Hermes child and gateway/durable session state agree; explicit ownership/privacy before any mutation. Correct owner can decide the displayed approval; notification is associated with durable workflow/session and appears once in the intended host."
     },
     {
       "id": "HERMES-04",
@@ -1410,7 +1486,9 @@
       "remaining": "Current security tests cover policy and bridge contracts but not packaged renderer-visible privacy transitions.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-tools.spec.ts"
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "Actual pinned Hermes child and gateway/durable session state agree; explicit ownership/privacy before any mutation. Only granted/consented data reaches Hermes; account switch/revocation clears access; outbound secret redaction is observable."
     },
     {
       "id": "HERMES-05",
@@ -1455,7 +1533,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "No current packaged Playwright assertion observes the real embedded update flow.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Actual pinned Hermes child and gateway/durable session state agree; explicit ownership/privacy before any mutation. Verified compatible artifact installs once; cancel/failure is visible and current Desktop remains usable."
     },
     {
       "id": "COLONY-01",
@@ -1518,7 +1598,7 @@
       "trackingStatus": "open; the quoted planning-status clause is stale relative to this mega tree, where implementation commits exist; release qualification remains separate",
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Actual pinned scene, child-to-service inventory agreement and route teardown/remount are exercised. Hostile-frame and corrupted-artifact cases remain fixture-only.",
+      "remaining": "Actual pinned scene and retention are exercised; both direct host inventory and restored child inventory fail with revoked/unavailable channels. Hostile-frame and corrupted-artifact cases remain fixture-only.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-companions.spec.ts"
       ],
@@ -1563,7 +1643,9 @@
           "state": "OPEN",
           "interpretation": "Open installed signed-app qualification on Apple Silicon and Intel; source/CI evidence cannot satisfy installed acceptance."
         }
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "Actual pinned native child and host IPC agree with owned multi-harness inventory/persistence; foreign harness stores remain unchanged. Actual pinned scene is visible; only exact committed main frame receives port; navigation/remount revokes authority and teardown stops owned service."
     },
     {
       "id": "COLONY-02",
@@ -1642,7 +1724,9 @@
           "state": "OPEN",
           "interpretation": "Open installed signed-app qualification on Apple Silicon and Intel; source/CI evidence cannot satisfy installed acceptance."
         }
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "Actual pinned native child and host IPC agree with owned multi-harness inventory/persistence; foreign harness stores remain unchanged. Sanitized fixture sessions from each supported harness appear with accurate known/unknown status, provenance and opaque open refs; source stores remain byte-identical."
     },
     {
       "id": "COLONY-03",
@@ -1696,7 +1780,9 @@
           "state": "OPEN",
           "interpretation": "Open Colony bridge requirement rejects unverified artifacts and fallback loading; acceptance still outstanding by issue state."
         }
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "Actual pinned native child and host IPC agree with owned multi-harness inventory/persistence; foreign harness stores remain unchanged. Open reaches the correct existing task/session in its native owner (Rhythm, Codex, Claude Code, Hermes/OpenCode where supported) and preserves identity."
     },
     {
       "id": "COLONY-04",
@@ -1744,7 +1830,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Current page tests use mocked persistence; no packaged UI check ties displayed success to durable owned state and unchanged harness stores.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Actual pinned native child and host IPC agree with owned multi-harness inventory/persistence; foreign harness stores remain unchanged. Allowed action persists and renders accurately; import summary matches; account switch clears scoped preferences; harness databases/transcripts are unchanged."
     },
     {
       "id": "COLONY-05",
@@ -1802,7 +1890,9 @@
           "state": "OPEN",
           "interpretation": "Open UI implementation depends on verified bridge and staged artifact; acceptance not complete."
         }
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "Actual pinned native child and host IPC agree with owned multi-harness inventory/persistence; foreign harness stores remain unchanged. Search/filter and selection are consistent between rail, inspector and scene; freshness/partial errors are visible, no-match and unknown states are honest."
     },
     {
       "id": "DAYFLOW-01",
@@ -1848,7 +1938,9 @@
       "remaining": "Readiness is asserted against the real artifact validator. Explicit native launch requires a valid owned app and recording/permission-free fixture.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-companions.spec.ts"
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "Actual signed artifact/native module and viewport receipts; selected-source import agrees with owned API context and consent, without extra recording authority. Show ready/unavailable/unsupported; do not launch on render; explicit click launches validated app; no renderer-controlled path or command."
     },
     {
       "id": "DAYFLOW-02",
@@ -1859,8 +1951,7 @@
         "54888e924c",
         "49c2e5a01f",
         "5c36667493",
-        "adf89d68cc",
-        "54888e924c"
+        "adf89d68cc"
       ],
       "issues": [
         "#1605"
@@ -1893,7 +1984,9 @@
       "remaining": "Actual native attachment is asserted and unavailable is a failure. Resize/late attach and native visual bounds remain unqualified until a valid module is packaged.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-companions.spec.ts"
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "Actual signed artifact/native module and viewport receipts; selected-source import agrees with owned API context and consent, without extra recording authority. Native Dayflow occupies correct visible bounds across resize/scroll; failed or late attach produces explicit unavailable state."
     },
     {
       "id": "DAYFLOW-03",
@@ -1943,7 +2036,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "UI test runs E40 harness with fake bridge. API has real synthetic SQLite and env-gated live tests; Dayflow scheduled qualification has recorded partial/held paths and must not be represented as all green.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Actual signed artifact/native module and viewport receipts; selected-source import agrees with owned API context and consent, without extra recording authority. No source access on mount; dated preview; only selected records commit after consent; stale/revoked/mismatched authority holds safely."
     },
     {
       "id": "CROSS-01",
@@ -1995,7 +2090,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Tests cover separate boundaries and mocked bridge journeys; no current test verifies account/owner transition across visible companion surfaces in packaged app.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Only allowed target and owner are reachable; logout/account switch/revoke removes old access; credentials and private transcripts never appear in logs/evidence."
     },
     {
       "id": "coordinator-current-multi-run",
@@ -2038,7 +2135,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Current P0 run test cannot create disposable Coordinator goals/runs and the persistent primary journal is non-deletable; current-branch packaged test run recorded 0/4 coordinator cases passing, all four UNVERIFIED.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P0",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Two distinct goals can run concurrently; each row matches authoritative status, objective, branch, child session and usage; reports arrive once; execution stays in its selected repository worktree."
     },
     {
       "id": "coordinator-run-needs-you-stop-restart",
@@ -2078,7 +2177,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Packaged run cases explicitly UNVERIFIED; no disposable pending-run fixture or owned runtime-restart harness. Existing native notification browser tests cannot prove an Electron/macOS banner was raised or clicked.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P0",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. A waiting child is openable and answerable; confirmed cancellation stops all descendants, removes stale approval/question affordances and suppresses final success report; restart rehydrates runs without duplicate report or notice."
     },
     {
       "id": "bounded-coordinator-workflow-retired",
@@ -2111,7 +2212,9 @@
       "kind": "audit-boundary",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "The identical term workflow names two separate systems; issue #1485 recipe runner and current Coordinator runs must have separate IDs and test mappings.",
-      "newTests": []
+      "newTests": [],
+      "priority": "audit",
+      "backendProofRequired": "Historical source/lifecycle audit; no current user-flow qualification claim."
     },
     {
       "id": "recipe-workflow-durable-runner",
@@ -2154,7 +2257,10 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Issue acceptance includes a complete planning-to-PR workflow and Flutter editor; existing tests and commits cover only staged infrastructure and do not demonstrate this acceptance path.",
-      "newTests": []
+      "newTests": [],
+      "implementationState": "partial-infrastructure-with-unqualified-authoring-and-full-run",
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Recipe schema validates fail-closed; stage inputs/outputs and verdicts persist; resume avoids duplicate side effects; bounded loops/fan-out/budgets and cancellation produce durable terminal state."
     },
     {
       "id": "async-delegation-worktree-isolation",
@@ -2194,7 +2300,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Existing Playwright assertions don't verify actual filesystem target or child engine path.cwd. Issue #1575 remains open in GitHub result, so do not treat implementation commit as issue closure.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Child path.cwd, transcript stream, prompt execution and persisted worktree metadata all agree with the newly created worktree; permission bypass is allowed only with isolated worktree."
     },
     {
       "id": "session-project-worktree-binding",
@@ -2236,7 +2344,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "The project-collapse Playwright uses openFixture canonical synthetic rows, and stored local preference; it does not exercise production backend. Delegated-worktree behavior has separate missing end-to-end assertion.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "UI state and real API/SQLite session/message readback agree with actual engine session/transcript; include reload and exact owned cleanup for writes. Create/open worktree session retains selected project grouping across reload; project plus starts inside that project; changing project does not overwrite collapse preferences."
     },
     {
       "id": "agent-skill-allowlists-and-discovery",
@@ -2282,7 +2392,9 @@
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-tools.spec.ts",
         "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts"
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. User can find/filter allowed skills, change profile allowlist, retain metadata after skill rewrite, and runtime only advertises allowed skills to that profile/child."
     },
     {
       "id": "agent-schedules-crud-and-manual-run",
@@ -2339,7 +2451,9 @@
           "state": "CLOSED",
           "interpretation": "Issue acceptance itself has all four checkboxes unchecked and explicitly asks for mocked scheduler tests; closed status does not certify its own acceptance. Treat as historical scheduled-task requirement; check current implementation and live matrix separately."
         }
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Schedule CRUD reflects persisted state, manual trigger queues and actually runs one attempt, progress/history updates, cancellation disables future executions, scheduler never silently targets hosted API."
     },
     {
       "id": "automation-rules-schedule-actions",
@@ -2375,7 +2489,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Rule CRUD and actual event receipt/agent dispatch are different claims; UI spec stubs all backend requests.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Name-only edit retains enabled flag and nested config; action-specific inputs persist; event trigger delivery preserves target and payload through the handoff."
     },
     {
       "id": "live-artifact-viewer-and-sharing",
@@ -2419,7 +2535,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "The filename .live.redspec is misleading for runtime proof: browser API paths are intercepted (see handlers at lines 72-76); this is a contract UI harness, not a live artifact server test.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Tabs restore for correct identity, artifact content renders in sandboxed frame, deleted/denied artifact clears safely, share/collaborator changes persist, capability requests use owner-bound routes."
     },
     {
       "id": "research-projects-and-magazine-artifacts",
@@ -2461,7 +2579,9 @@
       "remaining": "Tests assert render/gateway contracts without proving a real research run creates the displayed artifact/version/source records.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts"
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Budget exhaustion finishes explicitly, run history retains outputs/sources, parallel work has one terminal outcome, Ask about this targets exact artifact discussion, comments/version state round-trip."
     },
     {
       "id": "mobile-ai-relay-send-transcript",
@@ -2509,7 +2629,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Mobile UI/device, remote desktop custody and web remote-session gateway are distinct runtime surfaces; browser fake bridge cannot establish relay delivery, accepted send durability or physical notification behavior.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "UI state and real API/SQLite session/message readback agree with actual engine session/transcript; include reload and exact owned cleanup for writes. Accepted prompt is not lost across offline transition; retransmit is idempotent; transcript switches to live authoritative source; attachment metadata relays while bytes stay on artifact path; heartbeat timeout produces visible failure/retry."
     },
     {
       "id": "notification-push-native-presentation",
@@ -2554,7 +2676,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "No repeatable current packaged app + OS-level notification test; Oct. 12 run explicitly states native macOS banner was not exercised.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Only validated owned event triggers the correct single notification; click opens right session; no duplicate renderer banner; waiting state reflects actual observed busy/request state; revocation clears notice."
     },
     {
       "id": "web-worktree-controls",
@@ -2595,7 +2719,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "UI and gateway shape can agree while engine writes in wrong checkout; requires checking actual repository HEAD/status and path after action.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. After create/reset/remove, rendered branch/path/session project agree with actual Git worktree; errors remain bounded and retryable; no action escapes owned root."
     },
     {
       "id": "relay-remote-desktop-attach",
@@ -2636,7 +2762,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Current test does not exercise encrypted grants, device pairing/revocation, SSE bridge or actual remote host.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Only paired/enabled device can attach; paths are allowlisted; stream reconnect replays without duplicate messages; kill switch denies calls; device revocation closes access."
     },
     {
       "id": "scheduled-run-visible-session",
@@ -2683,7 +2811,9 @@
           "state": "CLOSED",
           "interpretation": "Issue acceptance itself has all four checkboxes unchecked and explicitly asks for mocked scheduler tests; closed status does not certify its own acceptance. Treat as historical scheduled-task requirement; check current implementation and live matrix separately."
         }
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "UI state and real API/SQLite session/message readback agree with actual engine session/transcript; include reload and exact owned cleanup for writes. Scheduled session opens under the matching rail scope and remains distinct from chat/background history; run status and transcript refer to same run."
     },
     {
       "id": "apps-web-tests-false-confidence-audit",
@@ -2736,7 +2866,9 @@
       "kind": "audit-boundary",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "The test corpus has overlapping names and heterogeneous harnesses; feature status cannot be inferred from filenames, test counts, or green fixture suites. Source-level and UI fixture coverage are useful contracts but do not establish packaged app, real engine, relay, phone, or OS behavior.",
-      "newTests": []
+      "newTests": [],
+      "priority": "audit",
+      "backendProofRequired": "Historical source/lifecycle audit; no current user-flow qualification claim."
     },
     {
       "id": "commands-and-managed-playbooks",
@@ -2775,7 +2907,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "No packaged test verifies a real engine command catalog selection produces a command invocation and observable output; playbook CRUD fixture tests don't prove engine reload.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Engine-provided command name/hints render in composer; selecting and sending emits session.command with separated arguments; managed playbook mutation refreshes engine catalog and content."
     },
     {
       "id": "agent-permissions-questions-approvals",
@@ -2820,7 +2954,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Test source uses fixture websocket frames, and Oct-19 packaged inventory has only 2 approval passes plus 1 expiry gap; it does not qualify real engine-generated question/permission or native banner.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P0",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Canonical request content binds to one session/request; exact reply is sent once; resolved/revoked/expired cards disappear or become non-actionable; no expired approval accepts approve; native reauth/error state is visible."
     },
     {
       "id": "run-quality-report-card",
@@ -2861,7 +2997,9 @@
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-tools.spec.ts",
         "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts"
-      ]
+      ],
+      "priority": "P2",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Display owner-authorized aggregate based on actual completed run evidence; insufficient/unmeasured data remains explicit; changing window requests correct query and never shows fabricated percentages."
     },
     {
       "id": "self-improvement-proposals-promotion",
@@ -2900,7 +3038,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Current test calls the gateway with mocked fetch and static state; product controls can look correct while remote/local state is rejected or deployment remains pending.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P2",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Review decisions map to exact selected proposal/run; write/enable mutation requires explicit confirmation; malformed or unsupported verdicts fail closed; deployment status is visible and not inferred from accepted request."
     },
     {
       "id": "session-retention-cleanup-settings",
@@ -2937,7 +3077,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "The suite verifies UI semantics in an isolated harness but never checks backend effective config or that eligible/ineligible session rows are retained/deleted correctly.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "UI state and real API/SQLite session/message readback agree with actual engine session/transcript; include reload and exact owned cleanup for writes. Report-only is default; user explicitly confirms destructive On mode; Off saves immediately; env override prevents UI mutation; actual cleanup follows documented age/idle/size rules and is recoverable/audited."
     },
     {
       "id": "agent-settings-models-runtime-accounts",
@@ -2976,7 +3118,7 @@
         "apps/web/tests/contract/issue-1562.spec.ts",
         "apps/web/tests/packaged/packaged-model-router.spec.ts"
       ],
-      "coverage": "KEEP for component and gateway UI contracts; most issue-specific browser tests use intercepted fixture routes. Packaged model-router spec proves model routing interaction for current packaged app, not provider OAuth/credentials/runtime restart/profile persistence. No full packaged settings journey found.",
+      "coverage": "KEEP source tests plus new real packaged read-only checks; remaining mutation/execution boundaries stay explicit.",
       "gapReason": "Settings correctness crosses renderer, credential bridge/native lifecycle, API catalog and engine picker; fixture browser results don't prove installed provider auth or real engine model availability.",
       "requires": [
         "synthetic provider account fixtures with no secrets",
@@ -2986,8 +3128,12 @@
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Settings correctness crosses renderer, credential bridge/native lifecycle, API catalog and engine picker; fixture browser results don't prove installed provider auth or real engine model availability.",
-      "newTests": []
+      "remaining": "Actual catalog visibility/search, MCP inspector and profile readback are exercised. Credential lifecycle, provider auth, global preference save and runtime picker/account matrices remain unqualified.",
+      "newTests": [
+        "apps/web/tests/packaged/packaged-ai-settings.spec.ts"
+      ],
+      "priority": "P0",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Model visibility writes persist and affect session picker; provider connect/re-auth reports authoritative status; runtime restart action targets only Rhythm-owned process; profile update rejects stale revision without losing unsaved edits."
     },
     {
       "id": "automatic-memory-injection-consent",
@@ -3032,7 +3178,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "A successful memory search or UI row does not prove the expected text reaches the model or that consent revocation takes effect on the next turn.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Only permitted, relevant facts enter prompt; evidence evaluates the final injected text; disabled consent returns no shared memory; unavailable semantic index is clearly reported and fallback behavior remains valid."
     },
     {
       "id": "engine-anthropic-plugin-version-compat",
@@ -3064,16 +3212,19 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "The test checks source routing/provider metadata; no installed app or live provider proof is encoded.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P0",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Current supported Anthropic models are not rejected due to a stale claimed Claude Code version."
     },
     {
       "id": "managed-work-admission-and-native-guard",
       "feature": "Managed-work admission and native authority guard",
-      "claim": "The Oct 6 G2 slices introduced additive admission after preflight and native corrupt-record/inheritance guard semantics; generic admission/guard primitives can outlive the retired bounded Coordinator coding adapter.",
+      "claim": "Finite G2 admission was removed in d03bf90e08. Schema-2 fork guard code remains but no current non-test schema-2 enrollment producer was found; current API enrollment emits v1 Dayflow authority. Generic goal reservation remains current under coordinator-current-multi-run.",
       "source": "apps/api_server/src/__tests__/coding_workflow_admission.test.ts:1; apps/opencode_fork/packages/opencode/src/session/rhythm_provider_guard.ts:1; apps/opencode_fork/packages/opencode/test/session/rhythm-provider-guard-workflow.test.ts:1; docs/ai/runs/2026-10-06-resume-orchestration.md:17-40",
       "commits": [
         "32045fb3ed",
-        "3788a9b7d9"
+        "3788a9b7d9",
+        "d03bf90e08"
       ],
       "issues": [
         "PR #1607"
@@ -3091,26 +3242,26 @@
         "apps/api_server/src/__tests__/coding_workflow_capability.test.ts (source test; inspect whether provider/tool mocked)",
         "apps/opencode_fork/packages/opencode/test/session/ (fork suite; not packaged proof)"
       ],
-      "coverage": "KEEP/REDO: preserve generic managed-work admission and native guard behavior; bounded Coordinator signed-workflow implementation is retired.",
-      "gapReason": "Need mapping from source tests to exact current generic API path and packaged desktop; do not infer all G2 functionality retired.",
-      "requires": [
-        "current API + fork identity",
-        "packaged Electron admission scenario",
-        "negative corrupt/foreign authority case"
-      ],
-      "kind": "user-feature",
+      "coverage": "Historical audit boundary; excluded from active user-feature failures.",
+      "gapReason": "Finite G2 admission was removed in d03bf90e08. Schema-2 fork guard code remains but no current non-test schema-2 enrollment producer was found; current API enrollment emits v1 Dayflow authority. Generic goal reservation remains current under coordinator-current-multi-run.",
+      "requires": [],
+      "kind": "audit-boundary",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Need mapping from source tests to exact current generic API path and packaged desktop; do not infer all G2 functionality retired.",
-      "newTests": []
+      "remaining": "",
+      "newTests": [],
+      "lifecycle": "historical-retired",
+      "priority": "audit",
+      "backendProofRequired": "Historical source/lifecycle audit; no current user-flow qualification claim."
     },
     {
       "id": "managed-work-callback-membership-capacity",
       "feature": "Managed-work callback identity and capacity accounting",
-      "claim": "G2 S4 adds a callback anchor, validates workflow membership before SDK lookup, counts capacity once, and requires complete usage evidence.",
+      "claim": "G2 callback anchor/membership and capacity accounting APIs/tests were removed in d03bf90e08. Current generic run status and reporting belong to coordinator-current-multi-run; no current user entry for this historical G2 contract was found.",
       "source": "apps/api_server/src/__tests__/coding_workflow_callback_anchor.test.ts:1; apps/api_server/src/__tests__/coding_workflow_callback_membership.test.ts:1; apps/api_server/src/__tests__/coding_workflow_capacity_single_count.test.ts:1; apps/api_server/src/__tests__/coding_workflow_capacity_usage_completeness.test.ts:1; docs/ai/runs/2026-10-06-resume-callback-test.md:33",
       "commits": [
         "f21bc3b2c4",
-        "406ffd75f4"
+        "406ffd75f4",
+        "d03bf90e08"
       ],
       "issues": [
         "PR #1607"
@@ -3128,26 +3279,27 @@
       "existingTests": [
         "apps/api_server/src/__tests__/coding_workflow_capability.test.ts (source-level contract; real callback behavior pending)"
       ],
-      "coverage": "REDO/ABSENT for packaged/live callback behavior; source tests are not runtime proof.",
-      "gapReason": "Run log explicitly separates live G2 from packaged/native acceptance; callback qualification remained pending.",
-      "requires": [
-        "isolated backend/fork live qualification",
-        "packaged callback and duplicate accounting scenario"
-      ],
-      "kind": "user-feature",
+      "coverage": "Historical audit boundary; excluded from active user-feature failures.",
+      "gapReason": "G2 callback anchor/membership and capacity accounting APIs/tests were removed in d03bf90e08. Current generic run status and reporting belong to coordinator-current-multi-run; no current user entry for this historical G2 contract was found.",
+      "requires": [],
+      "kind": "audit-boundary",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Run log explicitly separates live G2 from packaged/native acceptance; callback qualification remained pending.",
-      "newTests": []
+      "remaining": "",
+      "newTests": [],
+      "lifecycle": "historical-retired",
+      "priority": "audit",
+      "backendProofRequired": "Historical source/lifecycle audit; no current user-flow qualification claim."
     },
     {
       "id": "managed-work-checked-results",
       "feature": "Managed-work checked result and bounded continuation receipt",
-      "claim": "G2 S5 records checked results for selected references and reserves exactly one subsequent workflow ordinal; coordinator status text reports honest state. These result primitives are distinct from the retired bounded coding layer.",
+      "claim": "Selected-reference checked results and exact next-ordinal reservation were removed in d03bf90e08. Current generic run reports remain under coordinator-current-multi-run; they do not implement this historical G2 contract.",
       "source": "apps/api_server/src/__tests__/coding_workflow_capability.test.ts:1; docs/ai/plans/2026-10-06-core-followon-reviewed.md:16; docs/ai/runs/2026-10-06-resume-orchestration.md:17-40",
       "commits": [
         "3f0b00d218",
         "1df700465b",
-        "583a40feb5"
+        "583a40feb5",
+        "d03bf90e08"
       ],
       "issues": [
         "PR #1607"
@@ -3165,23 +3317,22 @@
       "existingTests": [
         "apps/api_server/src/__tests__/coding_workflow_capability.test.ts (source test; not complete live end-to-end proof)"
       ],
-      "coverage": "REDO/ABSENT for real packaged result-to-visible-report flow.",
-      "gapReason": "Oct 6 run records live G2 follow-up and real outcome as unknown; ordinary planning/status alone was insufficient.",
-      "requires": [
-        "isolated real API/fork run",
-        "visible packaged result and report assertions",
-        "negative missing/stale artifact case"
-      ],
-      "kind": "user-feature",
+      "coverage": "Historical audit boundary; excluded from active user-feature failures.",
+      "gapReason": "Selected-reference checked results and exact next-ordinal reservation were removed in d03bf90e08. Current generic run reports remain under coordinator-current-multi-run; they do not implement this historical G2 contract.",
+      "requires": [],
+      "kind": "audit-boundary",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Oct 6 run records live G2 follow-up and real outcome as unknown; ordinary planning/status alone was insufficient.",
-      "newTests": []
+      "remaining": "",
+      "newTests": [],
+      "lifecycle": "historical-retired",
+      "priority": "audit",
+      "backendProofRequired": "Historical source/lifecycle audit; no current user-flow qualification claim."
     },
     {
       "id": "managed-work-goal-issuance-and-capability-context",
-      "feature": "Managed-work goal issuance and capability disclosure",
-      "claim": "The web Coordinator can intentionally issue a workflow goal after acknowledgement, while backend context reports lane capability and cross-project unsupported cases. This records issuance/capability, not successful completion of a coding task.",
-      "source": "apps/web/src/components/CoordinatorConversationCard.tsx:43-120; apps/web/tests/coordinator-workflow-issuance.test.mjs:1; apps/api_server/src/__tests__/coding_workflow_capability.test.ts:1",
+      "feature": "Coordinator status-only coding capability disclosure",
+      "claim": "Current server context computes project authorization and active workflow-orchestrator / verification-gate roster as a status-only capability. Finite G2 issuance was removed; generic run dispatch is covered separately.",
+      "source": "apps/api_server/src/services/coding_workflow_capability.ts:26; apps/api_server/src/server.ts:308; apps/api_server/src/services/coordinator_conversation_context.ts:646; commit d03bf90e08",
       "commits": [
         "e5e018218e",
         "03cc16e057"
@@ -3189,29 +3340,30 @@
       "issues": [
         "PR #1607"
       ],
-      "entry": "Web Coordinator Details UI and API-generated capability context.",
-      "expected": "Acknowledged goal produces one intended request; unsupported cross-project path is disclosed and does not launch.",
+      "entry": "Coordinator server-generated context; generic start-goal dispatch is a separate current feature.",
+      "expected": "Capability accurately reports lane, available, reason and crossProject from current project authorization and active roster; status disclosure itself grants no authority or dispatch.",
       "edges": [
-        "no acknowledgement",
-        "double submit",
-        "missing project",
+        "missing project authorization",
+        "inactive workflow-orchestrator",
+        "inactive verification-gate",
         "foreign project",
-        "capability unavailable",
-        "web prototype versus packaged client"
+        "status disclosure must not dispatch work"
       ],
       "existingTests": [
-        "apps/web/tests/coordinator-workflow-issuance.test.mjs (unit/mock boundary; not packaged client)"
+        "apps/api_server/src/__tests__/coding_workflow_capability.test.ts (source fixture; not packaged/runtime proof)"
       ],
-      "coverage": "KEEP issuance test for local logic; packaged UI and actual managed-work admission ABSENT.",
-      "gapReason": "The web UI is a prototype/design reference; no packaged end-to-end issuance proof.",
+      "coverage": "KEEP source predicate tests; current real context disclosure remains unqualified.",
+      "gapReason": "No packaged real-engine assertion that current capability disclosure follows authorization/roster changes without dispatch.",
       "requires": [
-        "packaged desktop test with disposable project",
-        "real API request and rejected cross-project case"
+        "disposable authorized project and agent roster",
+        "real generated Coordinator context observation; no generic goal dispatch needed"
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "The web UI is a prototype/design reference; no packaged end-to-end issuance proof.",
-      "newTests": []
+      "remaining": "No packaged real-engine assertion that current capability disclosure follows authorization/roster changes without dispatch.",
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Capability accurately reports lane, available, reason and crossProject from current project authorization and active roster; status disclosure itself grants no authority or dispatch."
     },
     {
       "id": "engine-background-performance-and-status-truth",
@@ -3249,7 +3401,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Fixture-based performance tests do not establish behavior of the current packaged fork or API runtime.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Large repositories and active sessions remain responsive; \u201cworking/online\u201d indicators follow observed progress/liveness."
     },
     {
       "id": "mobile-audio-outbox-and-transcript-transport",
@@ -3288,8 +3442,10 @@
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Outbox/repository and transcript fixture tests do not establish paired-device relay retries or native audio behavior.",
-      "newTests": []
+      "remaining": "Source outbox/transcript contracts remain useful and can run without a device. Real relay delivery/idempotency needs a disposable paired-client transport fixture; native audio and phone UI require device evidence.",
+      "newTests": [],
+      "priority": "P2",
+      "backendProofRequired": "UI state and real API/SQLite session/message readback agree with actual engine session/transcript; include reload and exact owned cleanup for writes. Retries preserve one pending outbox item per live record; voice input/output and transcript streaming remain ordered across relay reconnect."
     },
     {
       "id": "logout-pending-approval-recovery",
@@ -3326,7 +3482,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Tests exercise source behavior but no packaged Electron reauthentication with pending approvals.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P0",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Logging out preserves the app shell; a subsequent valid session loads pending approvals for the current identity without leaking prior-user approvals."
     },
     {
       "id": "cookbook-recipe-management",
@@ -3362,7 +3520,9 @@
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-cookbook.spec.ts",
         "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts"
-      ]
+      ],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Ordered prompt steps persist and reload; explicit run opens the matching owned session; only selected owned recipe is deleted."
     },
     {
       "id": "ai-webhook-management-and-trigger",
@@ -3398,7 +3558,10 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "Live UI intentionally renders Not available for live sessions yet. No packaged endpoint management or exactly-once real execution proof.",
-      "newTests": []
+      "newTests": [],
+      "implementationState": "partial-unavailable-ui",
+      "priority": "P2",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Actual endpoints can be inspected and an authenticated local event creates exactly one intended agent run with durable delivery history."
     },
     {
       "id": "ai-email-signal-context",
@@ -3430,7 +3593,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
       "remaining": "No sanitized mailbox/context fixture; live existing messages cannot be used for send/permission tests.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P2",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Signal inspection matches source, explicit launch binds its context to a secretary session, and external text cannot grant tool authority or send mail."
     },
     {
       "id": "rhythm-primary-entry-and-journal",
@@ -3467,7 +3632,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked source preserves primary wording",
       "remaining": "No disposable signed-in canonical journal; protected existing roots must not be rewritten to satisfy first-use or missing-cwd cases.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P0",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Entry opens the designated durable primary chat without sending a prompt; first-use setup persists exactly once; child reservations do not freeze ordinary primary conversation."
     },
     {
       "id": "busy-prompt-queue-and-resume",
@@ -3511,7 +3678,9 @@
           "state": "OPEN",
           "interpretation": "This is an evidence-tracking issue, not a fresh implementation request. Its real permission/question, busy-queue, delete/worktree, websearch/command, files/VCS, recovery, config, schedules, image, memory scenarios remain unchecked in the body."
         }
-      ]
+      ],
+      "priority": "P0",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Accepted queued prompts run exactly once in order; reconnect/reload preserves pending state; stop/cancel never presents missing output as success."
     },
     {
       "id": "agent-tools-catalog-and-pins",
@@ -3546,7 +3715,9 @@
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked source preserves primary wording",
       "remaining": "No packaged account-scoped pin/unpin/reset persistence proof with disposable identity preferences.",
-      "newTests": []
+      "newTests": [],
+      "priority": "P1",
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Only wired host tools are pinnable; descriptors open the correct real companion; pinned shortcuts remain scoped to identity and survive reload without losing existing tabs."
     }
   ]
 }

@@ -120,3 +120,5 @@ Actual locally built candidate d7fb554735, signed 0.18.83, normal packaged lifec
 Unavailable states are observations, not successful feature qualification. See combined recon JSON for native bridge statuses.
 
 Additional native control observation: the pinned child renders `<input id="filter-query" type="search" aria-label="Search projects and sessions">`. Its accessible role is searchbox, not textbox. The first assertion selected the wrong role; no inventory IPC had yet been invoked.
+
+Retention Recon: the full packaged run observed the original child still open after route departure (20-second observation), matching colony-view.mjs suspendCurrent/resumeCurrent and detach handlers. The old test expectation that detach destroys the page was a codify error. Correct contract: preserve one actual child and regain usable inventory after returning. The separate direct inventory check returned Colony document revoked; this remains a runtime failure to reproduce, not a reason to skip inventory readback.
