@@ -37,6 +37,33 @@ async function companionPage(page: Page, kind: 'hermes' | 'colony'): Promise<Pag
   return find()[0];
 }
 
+async function waitForColonyReady(scene: Page) {
+  // Do not acquire or cancel an inventory generation while the scene owns its initial poll.
+  await expect.poll(() => scene.evaluate(() => {
+    const bootCount = document.querySelectorAll('.boot').length;
+    const notice = document.querySelector('.scan-notice');
+    const noticeHidden = !notice || notice instanceof HTMLElement && notice.hidden;
+    const noticeKind = noticeHidden ? 'hidden' : notice?.textContent?.startsWith('Scan unavailable.') ? 'scan-unavailable' : 'benign-notice';
+    const projectCount = document.querySelectorAll('.projects .repo').length;
+    return bootCount === 0 && noticeKind !== 'scan-unavailable' && projectCount > 0;
+  }), { timeout: 60_000, message: 'Bot Crossing did not reach a populated, non-failing scene state' }).toBe(true);
+}
+
+async function colonyOverview(scene: Page) {
+  return scene.evaluate(() => {
+    const rows = [...document.querySelectorAll<HTMLElement>('.projects .repo')];
+    const text = rows.map(row => row.innerText).join('\n');
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index++) hash = Math.imul(hash ^ text.charCodeAt(index), 16777619);
+    const notes = [...document.querySelectorAll<HTMLElement>('.projects .project-category-note')].map(note => note.textContent?.trim() ?? '');
+    return {
+      projectCount: rows.length,
+      rowsDigest: (hash >>> 0).toString(16),
+      noLocationsMatch: notes.includes('No locations match these filters.'),
+    };
+  });
+}
+
 test('[AI Hermes] real Desktop opens saved history through its actual gateway', async ({ page }) => {
   // Catches dashboard substitution, a disconnected embedded Desktop and saved history that cannot open.
   const desktop = await companionPage(page, 'hermes');
@@ -117,6 +144,7 @@ test('[AI Hermes] notification overlay preserves a usable native workspace and r
 test('[AI Bot Crossing] actual pinned scene reads paged local inventory', async ({ page }) => {
   // Catches a healthy-looking React host with no real scene or disconnected multi-harness inventory service.
   const scene = await companionPage(page, 'colony');
+  await waitForColonyReady(scene);
   await expect(scene.getByRole('searchbox', { name: 'Search projects and sessions', exact: true })).toBeVisible({ timeout: 60_000 });
   const status = await page.evaluate(async () => (window as any).rhythmShell.colonyView.getStatus());
   expect(status).toMatchObject({ v: 1, available: true, enabled: true });
@@ -144,11 +172,13 @@ test('[AI Bot Crossing] actual pinned scene reads paged local inventory', async 
 test('[AI Bot Crossing] tab switch preserves one scene and restores usable inventory', async ({ page }) => {
   // The native service intentionally suspends the scene on departure; return must restore real data access.
   const old = await companionPage(page, 'colony');
+  await waitForColonyReady(old);
   await expect(old.getByRole('searchbox', { name: 'Search projects and sessions', exact: true })).toBeVisible({ timeout: 60_000 });
   await page.goto('rhythm://app/index.html#/tools/agent-tools');
   expect(old.isClosed()).toBe(false);
   const scene = await companionPage(page, 'colony');
   expect(scene).toBe(old);
+  await waitForColonyReady(scene);
   await expect(scene.getByRole('searchbox', { name: 'Search projects and sessions', exact: true })).toBeVisible({ timeout: 60_000 });
   let generation: string | undefined;
   try {
@@ -160,6 +190,58 @@ test('[AI Bot Crossing] tab switch preserves one scene and restores usable inven
     for (const row of inventory.records) expect(typeof row.id).toBe('string');
   } finally {
     if (generation) await scene.evaluate(async generation => (window as any).colonyEmbedded.request('inventory.cancel', { generation }), generation);
+  }
+});
+
+test('[AI Bot Crossing] no-match search clears back to the retained populated scene and live inventory', async ({ page }) => {
+  const originalScene = await companionPage(page, 'colony');
+  await waitForColonyReady(originalScene);
+  const before = await colonyOverview(originalScene);
+  expect(before.projectCount).toBeGreaterThan(0);
+
+  await page.goto('rhythm://app/index.html#/tools/agent-tools');
+  expect(originalScene.isClosed()).toBe(false);
+  const returnedScene = await companionPage(page, 'colony');
+  expect(returnedScene).toBe(originalScene);
+  await waitForColonyReady(returnedScene);
+  const afterReturn = await colonyOverview(returnedScene);
+  expect(afterReturn.projectCount).toBe(before.projectCount);
+  expect(afterReturn.rowsDigest).toBe(before.rowsDigest);
+
+  const search = returnedScene.getByRole('searchbox', { name: 'Search projects and sessions', exact: true });
+  await expect(search).toBeVisible();
+  let smokeQuery: string | null = null;
+  try {
+    smokeQuery = `[smoke] no-match ${randomUUID().slice(0, 8)}`;
+    await search.fill(smokeQuery);
+    await expect.poll(async () => {
+      const observed = await colonyOverview(returnedScene);
+      return observed.projectCount === 0 && observed.noLocationsMatch;
+    }, { timeout: 15_000, message: 'unique local search should display the real no-locations state' }).toBe(true);
+  } finally {
+    if (smokeQuery && !returnedScene.isClosed() && await search.inputValue().catch(() => '') === smokeQuery) {
+      await search.fill('');
+    }
+  }
+  await expect.poll(async () => {
+    const observed = await colonyOverview(returnedScene);
+    return observed.projectCount === before.projectCount && observed.rowsDigest === before.rowsDigest && !observed.noLocationsMatch;
+  }, { timeout: 15_000, message: 'clearing the local search should restore the same populated projects' }).toBe(true);
+
+  // Read the actual post-return scene service after readiness and cancel only this observer's generation.
+  let generation: string | undefined;
+  try {
+    const inventory = await returnedScene.evaluate(async () => (window as any).colonyEmbedded.request('inventory.page', { collection: 'threads', limit: 5 }));
+    generation = typeof inventory.generation === 'string' ? inventory.generation : undefined;
+    expect(inventory.collection).toBe('threads');
+    expect(Array.isArray(inventory.records)).toBe(true);
+    expect(inventory.records.length).toBeGreaterThan(0);
+    expect(inventory.records.length).toBeLessThanOrEqual(5);
+    expect(inventory.scannedAt).toBeGreaterThan(0);
+  } finally {
+    if (generation && !returnedScene.isClosed()) {
+      await returnedScene.evaluate(async value => (window as any).colonyEmbedded.request('inventory.cancel', { generation: value }), generation);
+    }
   }
 });
 

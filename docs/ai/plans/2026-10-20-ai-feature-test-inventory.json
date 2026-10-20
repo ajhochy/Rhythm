@@ -1588,8 +1588,8 @@
         "apps/electron/test/colony-desktop-artifact.test.mjs",
         "apps/electron/test/colony-installed/run.mjs"
       ],
-      "coverage": "KEEP native fake-Electron contracts; REDO actual app-child visibility",
-      "gapReason": "Renderer Playwright stubs colonyView. Native boundary tests use synthetic artifact and fake Electron. Installed harness coverage is not packaged Playwright proving the actual pinned scene/user action.",
+      "coverage": "CODED, CONFIRMATION PENDING: packaged scene readiness, same-child retention, search clear and populated data read; exact-frame authority, hostile-frame and corrupted-artifact cases remain unqualified.",
+      "gapReason": "Renderer Playwright stubs colonyView. Native boundary tests use synthetic artifact and fake Electron. The follow-on packaged test still needs confirmation; installed harness coverage does not prove exact document authority.",
       "requires": [
         "actual packaged Rhythm",
         "pinned Colony artifact",
@@ -1599,7 +1599,7 @@
       "trackingStatus": "open; the quoted planning-status clause is stale relative to this mega tree, where implementation commits exist; release qualification remains separate",
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Actual pinned scene and retention are exercised; both direct host inventory and restored child inventory fail with revoked/unavailable channels. Hostile-frame and corrupted-artifact cases remain fixture-only.",
+      "remaining": "72ac recon observed a populated scene and retained child; codified actual test confirmation is pending. Hostile-frame and corrupted-artifact cases remain fixture-only.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-companions.spec.ts"
       ],

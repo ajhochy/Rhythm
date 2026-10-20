@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { access, lstat, mkdir } from 'node:fs/promises'
 import path from 'node:path'
@@ -186,10 +187,15 @@ export function createColonyService(options) {
       if (!ready || !child || disposed) throw Object.assign(new Error('Colony document revoked'), { code: 'revoked' })
       validateColonyRequest(message, documentId)
       if (pending.has(message.id) || pending.size >= 32) throw new Error('Colony request limit or duplicate request')
+      // Host and scene readers must not share the worker's cached implicit generation:
+      // either reader cancels after its own walk, which would invalidate the other's cursor.
+      const workerMessage = message.method === 'inventory.page' && !Object.hasOwn(message.payload, 'generation') && !Object.hasOwn(message.payload, 'cursor')
+        ? { ...message, payload: { ...message.payload, generation: randomUUID() } }
+        : message
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => { void stop('request-timeout').catch(() => {}) }, 60000)
         pending.set(message.id, { resolve, reject, timer })
-        try { child?.send(message) } catch { void stop('send-failed').catch(() => {}) }
+        try { child?.send(workerMessage) } catch { void stop('send-failed').catch(() => {}) }
       })
     },
     async control(/** @type {any} */ value) {
