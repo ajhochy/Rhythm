@@ -4,6 +4,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createQualificationFixture } from './qualification_fixture.mjs';
+import { resolveOptionalHermesBackendArtifact } from '../../apps/electron/src/hermes-backend-artifact.mjs';
 
 const root = realpathSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../..'));
 const app = realpathSync(process.env.RHYTHM_PACKAGED_APP ?? path.join(root, 'apps/electron/dist/Rhythm.app'));
@@ -36,7 +37,12 @@ let manifestPath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
 if (syntheticIndex >= 0) {
   args.splice(syntheticIndex, 1);
   if (manifestPath) throw new Error('Use either a new --synthetic actor or an explicit fixture manifest');
-  manifestPath = createQualificationFixture(revision);
+  const bundledBackend = resolveOptionalHermesBackendArtifact(path.join(app, 'Contents/Resources'));
+  if (bundledBackend && process.env.RHYTHM_QUALIFICATION_HERMES_RUNTIME_ROOT)
+    throw new Error('A signed bundled Hermes backend cannot be combined with an external qualification runtime');
+  manifestPath = bundledBackend
+    ? createQualificationFixture(revision, { hermesRuntimeRoot: null, hermesBackendArtifactRoot: bundledBackend.root })
+    : createQualificationFixture(revision);
   console.log(`Private qualification fixture and evidence: ${path.dirname(manifestPath)}`);
 }
 console.log(`AI behavior qualification: local bundle source ${revision}; model gate=${process.env.RHYTHM_FEATURE_MODEL ?? 'off'}`);

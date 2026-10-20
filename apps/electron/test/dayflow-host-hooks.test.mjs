@@ -208,6 +208,7 @@ async function hostRuntime({
     else if (name === './hermes-agent-bridge.mjs') values = { createAgentBridgeHost: () => ({ revokeAll: async () => {}, onRegistrarReady: async () => {}, mintForAttempt: () => ({}) }) };
     else if (name === './hermes-view.mjs') values = { bindHermesViewSupervisor() {}, registerHermesView: () => hermesAdapter };
     else if (name === './hermes-desktop-updates.mjs') values = { installHermesDesktopUpdate: async () => ({}) };
+    else if (name === './hermes-backend-artifact.mjs') values = { resolveOptionalHermesBackendArtifact: () => undefined };
     else if (name === './colony-host.mjs') values = { registerColonyHost: () => colonyAdapter };
     else if (name === './colony-smoke.mjs') values = { runColonySmoke: async () => ({}) };
     else if (name === './open-design-view.mjs') values = { registerOpenDesignView: (options) => { openDesignOptions.push(options); return openDesignAdapter; } };

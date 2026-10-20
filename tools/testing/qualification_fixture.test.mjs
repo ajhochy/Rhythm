@@ -4,10 +4,13 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { createQualificationFixture, readQualificationFixture } from './qualification_fixture.mjs';
 import { qualificationHermesHostOptions } from '../../apps/electron/src/qualification-hermes-runtime.mjs';
+import { resolveHermesBackendArtifact } from '../../apps/electron/src/hermes-backend-artifact.mjs';
 import { profileKeyFor } from '../../apps/electron/src/colony-preferences.mjs';
 
 test('fixture readback stays bound to private exact-build bytes on every read', (t) => {
-  const revision = 'a'.repeat(40), manifestPath = createQualificationFixture(revision, { hermesRuntimeRoot: null }), root = dirname(manifestPath);
+  const revision = 'a'.repeat(40), manifestPath = createQualificationFixture(revision, {
+    hermesRuntimeRoot: null, hermesBackendArtifactRoot: null,
+  }), root = dirname(manifestPath);
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const read = () => readQualificationFixture(manifestPath, revision);
   assert.equal(read().manifest.dbPath, join(root, 'rhythm.db'));
@@ -34,5 +37,20 @@ test('attested private Hermes runtime seeds a normal two-message history read', 
   const { manifest } = readQualificationFixture(manifestPath, revision);
   assert.equal(qualificationHermesHostOptions(root).backendExecutablePath,
     join(process.env.RHYTHM_QUALIFICATION_HERMES_RUNTIME_ROOT, '.venv', 'bin', 'hermes'));
+  assert.equal(statSync(join(root, 'hermes-home', 'state.db')).isFile(), true);
+});
+
+test('bundled backend seeds private Hermes history without an external runtime grant', {
+  skip: !process.env.RHYTHM_QUALIFICATION_HERMES_BACKEND_ARTIFACT_DIR,
+}, (t) => {
+  const revision = 'a'.repeat(40);
+  const backend = resolveHermesBackendArtifact(process.env.RHYTHM_QUALIFICATION_HERMES_BACKEND_ARTIFACT_DIR);
+  const manifestPath = createQualificationFixture(revision, { hermesRuntimeRoot: null, hermesBackendArtifactRoot: backend.root });
+  const root = dirname(manifestPath);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const { manifest } = readQualificationFixture(manifestPath, revision);
+  assert.equal(manifest.syntheticActor.hermesRuntime, undefined);
+  assert.equal(qualificationHermesHostOptions(root, undefined, backend.backendExecutablePath).backendExecutablePath,
+    backend.backendExecutablePath);
   assert.equal(statSync(join(root, 'hermes-home', 'state.db')).isFile(), true);
 });

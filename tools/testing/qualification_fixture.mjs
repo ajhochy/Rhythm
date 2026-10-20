@@ -3,6 +3,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { snapshotQualificationHermesRuntime } from '../../apps/electron/src/qualification-hermes-runtime.mjs';
+import { resolveHermesBackendArtifact } from '../../apps/electron/src/hermes-backend-artifact.mjs';
 import { seedQualificationHermesHistory } from './qualification_hermes_history.mjs';
 import { profileKeyFor } from '../../apps/electron/src/colony-preferences.mjs';
 import { assertQualificationModelLoan, provisionQualificationModelLoan } from '../../apps/electron/src/qualification-model-loan.mjs';
@@ -68,8 +69,12 @@ export function readQualificationFixture(manifestPath, expectedRevision) {
   return { manifest: m, userDataPath };
 }
 
-export function createQualificationFixture(sourceRevision, { hermesRuntimeRoot = process.env.RHYTHM_QUALIFICATION_HERMES_RUNTIME_ROOT } = {}) {
+export function createQualificationFixture(sourceRevision, {
+  hermesRuntimeRoot = process.env.RHYTHM_QUALIFICATION_HERMES_RUNTIME_ROOT,
+  hermesBackendArtifactRoot = process.env.RHYTHM_QUALIFICATION_HERMES_BACKEND_ARTIFACT_DIR,
+} = {}) {
   if (!/^[a-f0-9]{40}$/.test(sourceRevision)) throw new Error('Exact source revision required');
+  if (hermesRuntimeRoot && hermesBackendArtifactRoot) throw new Error('Select one Hermes backend source for qualification');
   const fixtureRoot = mkdtempSync('/private/tmp/rhythm-ai-fixture-');
   const ownerId = randomUUID();
   const ownerUserId = 1;
@@ -110,13 +115,17 @@ export function createQualificationFixture(sourceRevision, { hermesRuntimeRoot =
     writeFileSync(manifestPath, bytes, { mode: 0o600, flag: 'wx' });
     manifest.syntheticActor.hermesRuntime = { manifestPath, manifestSha256: createHash('sha256').update(bytes).digest('hex') };
   }
+  if (hermesBackendArtifactRoot) {
+    const bundledBackend = resolveHermesBackendArtifact(hermesBackendArtifactRoot);
+    seedQualificationHermesHistory(fixtureRoot, bundledBackend, { bundled: true });
+  }
   const manifestPath = join(fixtureRoot, 'manifest.json');
   const colonyRoot = join(fixtureRoot, 'electron-user-data', 'colony');
   const colonyProfiles = join(colonyRoot, 'profiles');
   const colonyProfile = join(colonyProfiles, profileKeyFor('http://127.0.0.1:4001', String(ownerUserId)));
   for (const directory of [colonyRoot, colonyProfiles, colonyProfile]) mkdirSync(directory, { mode: 0o700 });
   const colonySources = { rhythm: { enabled: true, paths: { database: manifest.dbPath } } };
-  if (hermesRuntimeRoot) colonySources.hermes = { enabled: true, paths: { home: join(fixtureRoot, 'hermes-home') } };
+  if (hermesRuntimeRoot || hermesBackendArtifactRoot) colonySources.hermes = { enabled: true, paths: { home: join(fixtureRoot, 'hermes-home') } };
   writeFileSync(join(colonyProfile, 'preferences.json'), JSON.stringify({ v: 1, enabled: true, sources: colonySources }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
   readQualificationFixture(manifestPath, sourceRevision);

@@ -27,6 +27,7 @@ import { bindHermesViewSupervisor, registerHermesView } from './hermes-view.mjs'
 import { qualificationHermesHostOptions } from './qualification-hermes-runtime.mjs';
 import { armQualificationModelLoanDeadline } from './qualification-model-loan.mjs';
 import { installHermesDesktopUpdate } from './hermes-desktop-updates.mjs';
+import { resolveOptionalHermesBackendArtifact } from './hermes-backend-artifact.mjs';
 import { registerColonyHost } from './colony-host.mjs';
 import { runColonySmoke } from './colony-smoke.mjs';
 import { createDayflowDesktopHost, registerDayflowDesktopIpc } from './dayflow-desktop.mjs';
@@ -352,6 +353,8 @@ if (hasSingleInstanceLock) {
   };
   const credentialHostOptions = () => {
     if (accountsBlocked) throw new Error('Previous Hermes backend disposal has not completed');
+    const bundledBackend = typeof process.resourcesPath === 'string'
+      ? resolveOptionalHermesBackendArtifact(process.resourcesPath) : undefined;
     if (qualificationSyntheticActor) {
       const currentActor = agentServerFixture.loadQualificationSyntheticActor();
       if (!currentActor || currentActor.token !== qualificationSyntheticActor.token
@@ -359,7 +362,8 @@ if (hasSingleInstanceLock) {
         || currentActor.fixtureRoot !== qualificationSyntheticActor.fixtureRoot
         || createHash('sha256').update(readFileSync(qualificationFixtureManifestPath ?? '')).digest('hex') !== qualificationActorManifestSha256)
         throw new Error('Qualification Hermes runtime unavailable');
-      const staged = qualificationHermesHostOptions(qualificationSyntheticActor.fixtureRoot);
+      const staged = qualificationHermesHostOptions(qualificationSyntheticActor.fixtureRoot,
+        undefined, bundledBackend?.backendExecutablePath);
       const { hermesHome } = staged;
       try { mkdirSync(hermesHome, { mode: 0o700 }); }
       catch (error) { if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'EEXIST') throw error; }
@@ -370,13 +374,15 @@ if (hasSingleInstanceLock) {
       return { ...staged, backendEnv: async () => ({}) };
     }
     const adapter = getAccountsMain(), auth = accountsAuth.getSnapshot();
-    if (!adapter || !auth.authenticated) return undefined;
+    if (!adapter || !auth.authenticated) return bundledBackend
+      ? { backendExecutablePath: bundledBackend.backendExecutablePath } : undefined;
     /** @type {ReturnType<typeof adapter.createBackendAttempt> | undefined} */
     let attempt;
     /** @type {string | undefined} */
     let attemptId;
     return {
       hermesHome: accountsHermesHome,
+      ...(bundledBackend ? { backendExecutablePath: bundledBackend.backendExecutablePath } : {}),
       backendEnvContext: Object.freeze({ serverOrigin: auth.serverOrigin, rhythmUserId: auth.userId, authGeneration: auth.authGeneration }),
       backendEnv: async (/** @type {any} */ request) => {
         const accountEnvironment = await (attempt?.backendEnv(request) ?? Promise.resolve({}));

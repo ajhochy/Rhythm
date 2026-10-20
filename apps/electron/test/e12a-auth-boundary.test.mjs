@@ -113,6 +113,9 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
     else if (name === './qualification-hermes-runtime.mjs' && options.syntheticHermesHostOptions) values = {
       qualificationHermesHostOptions: options.syntheticHermesHostOptions,
     };
+    else if (name === './hermes-backend-artifact.mjs' && options.bundledHermesPath) values = {
+      resolveOptionalHermesBackendArtifact: () => ({ backendExecutablePath: options.bundledHermesPath }),
+    };
     else if (name === './hermes-view.mjs') {
       const actual = await import(new URL(name, file).href);
       values = { ...actual, registerHermesView: (input) => { hermesViewOptions = input; return actual.registerHermesView(input); } };
@@ -307,6 +310,26 @@ test('qualification actor passes only attested private Hermes options to its hos
   assert.deepEqual(Object.keys(await options.backendEnv({ profile: 'default' })), []);
   await writeFile(join(h.fixtureRoot, 'manifest.json'), JSON.stringify({ fixtureRoot: h.fixtureRoot, syntheticActor: {}, changed: true }), { mode: 0o600 });
   assert.throws(() => h.hermesCredentialOptions(), /Qualification Hermes runtime unavailable/);
+});
+
+test('qualification actor selects the common bundled backend while retaining its private homes', async (t) => {
+  const bundle = '/private/tmp/signed-app/Contents/Resources/hermes-backend/hermes';
+  const h = await host(t, false, undefined, undefined, undefined, { syntheticActor: true, bundledHermesPath: bundle,
+    syntheticHermesHostOptions: (root, _revision, selectedBundle) => {
+      assert.equal(selectedBundle, bundle);
+      return { childHome: join(root, 'home'), hermesHome: join(root, 'hermes-home'), backendExecutablePath: selectedBundle };
+    },
+  });
+  const selected = h.hermesCredentialOptions();
+  assert.equal(selected.backendExecutablePath, bundle);
+  assert.equal(selected.childHome, join(h.fixtureRoot, 'home'));
+  assert.equal(selected.hermesHome, join(h.fixtureRoot, 'hermes-home'));
+});
+
+test('ordinary Hermes selects the bundled backend even before an account adapter is available', async (t) => {
+  const bundle = '/private/tmp/signed-app/Contents/Resources/hermes-backend/hermes';
+  const h = await host(t, false, undefined, undefined, undefined, { bundledHermesPath: bundle });
+  assert.equal(h.hermesCredentialOptions()?.backendExecutablePath, bundle);
 });
 
 test('human approval: an unowned interactive runtime rejects before native signer use', async (t) => {

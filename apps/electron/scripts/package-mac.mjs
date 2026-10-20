@@ -11,6 +11,7 @@ import { hardenElectronFuses } from './harden-electron-fuses.mjs';
 import { renderPackagedBuildConfig, resolveRequiredGoogleDesktopClientId } from './package-build-config.mjs';
 import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from '../src/hermes-desktop-config.mjs';
 import { refreshHermesDesktopArtifactIntegrity, resolveHermesDesktopArtifact } from '../src/hermes-desktop-artifact.mjs';
+import { resolveHermesBackendArtifact } from '../src/hermes-backend-artifact.mjs';
 import { EXPECTED_COLONY_ELECTRON_MAJOR, PINNED_COLONY_SOURCE_COMMIT } from '../src/colony-desktop-config.mjs';
 import { refreshColonyArtifactIntegrity, resolveColonyArtifact } from '../src/colony-desktop-artifact.mjs';
 import { stageNativeDayflow } from './stage-native-dayflow.mjs';
@@ -147,6 +148,17 @@ export async function stageHermesDesktopArtifact({ resources, artifactRoot = pro
   return destination;
 }
 
+/** The pinned Python backend is a separate sealed resource, shared by ordinary and private Hermes. */
+export async function stageHermesBackendArtifact({ resources, artifactRoot = process.env.RHYTHM_HERMES_BACKEND_ARTIFACT_DIR }) {
+  if (typeof artifactRoot !== 'string' || !artifactRoot) throw new Error('Pinned Hermes backend artifact is required for packaging.');
+  resolveHermesBackendArtifact(artifactRoot);
+  const destination = resolve(resources, 'hermes-backend');
+  await rm(destination, { recursive: true, force: true });
+  await cp(artifactRoot, destination, { recursive: true, verbatimSymlinks: true });
+  resolveHermesBackendArtifact(destination);
+  return destination;
+}
+
 /** Stage only a verified artifact created by the pinned Colony (Bot Crossing) source builder.
  * It deliberately has no development-checkout/PATH fallback, and refuses a payload built for a
  * different packaged Node than this packaging run installs (see packagedNode below). */
@@ -260,6 +272,7 @@ if (process.env.RHYTHM_NATIVE_DAYFLOW_LAYOUT) {
   process.stdout.write('RHYTHM_NATIVE_DAYFLOW_LAYOUT not set; packaging without native Dayflow.\n');
 }
 await stageHermesDesktopArtifact({ resources });
+await stageHermesBackendArtifact({ resources });
 await stageColonyArtifact({ resources });
 await stageDayflowDesktopArtifact({ resources, execute: run });
 await stageRhythmIcon({
@@ -384,6 +397,7 @@ await resolveHermesDesktopArtifact({
   expectedSourceCommit: PINNED_HERMES_DESKTOP_SOURCE_COMMIT,
   allowDirty: false,
 });
+resolveHermesBackendArtifact(resolve(resources, 'hermes-backend'));
 const stagedColonyArtifact = resolve(resources, 'colony-desktop');
 await refreshColonyArtifactIntegrity({ artifactRoot: stagedColonyArtifact });
 await resolveColonyArtifact({

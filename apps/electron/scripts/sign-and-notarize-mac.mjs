@@ -23,6 +23,7 @@ import { promisify } from 'node:util';
 import { hardenElectronFuses } from './harden-electron-fuses.mjs';
 import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from '../src/hermes-desktop-config.mjs';
 import { refreshHermesDesktopArtifactIntegrity, resolveHermesDesktopArtifact } from '../src/hermes-desktop-artifact.mjs';
+import { refreshHermesBackendArtifactIntegrity, resolveHermesBackendArtifact } from '../src/hermes-backend-artifact.mjs';
 import { EXPECTED_COLONY_ELECTRON_MAJOR, PINNED_COLONY_SOURCE_COMMIT } from '../src/colony-desktop-config.mjs';
 import { refreshColonyArtifactIntegrity, resolveColonyArtifact } from '../src/colony-desktop-artifact.mjs';
 import { findNestedCodeSignTargets, isMachO, validateDayflowDesktopArtifact } from '../src/dayflow-desktop-artifact.mjs';
@@ -78,7 +79,11 @@ const engine = resolve(contentsDir, 'Resources/opencode_bin/opencode');
 const approvalHelper = resolve(contentsDir, 'Resources/human-approval/rhythm-approval-signer');
 const nativeDayflowHelper = resolve(contentsDir, 'Helpers/rhythm-dayflow');
 const dayflowDesktopArtifact = resolve(contentsDir, 'Resources/dayflow-desktop/Dayflow.app');
+const hermesBackendArtifact = resolve(contentsDir, 'Resources/hermes-backend');
+const hermesBackendBeforeSigning = resolveHermesBackendArtifact(hermesBackendArtifact);
 const targets = await findNestedCodeSignTargets(contentsDir, { excludedRoots: [dayflowDesktopArtifact] });
+const expectedHermesNative = new Set(hermesBackendBeforeSigning.manifest.native.map((entry) => resolve(hermesBackendArtifact, entry)));
+for (const target of expectedHermesNative) if (!targets.includes(target)) throw new Error('Hermes backend native code is missing from signing targets');
 if (!targets.includes(approvalHelper) || !(await isMachO(approvalHelper))) {
   throw new Error('Packaged approval helper Mach-O is missing from nested signing targets');
 }
@@ -112,6 +117,9 @@ await resolveHermesDesktopArtifact({
   expectedSourceCommit: PINNED_HERMES_DESKTOP_SOURCE_COMMIT,
   allowDirty: false,
 });
+// Codesign changes native bytes in place. All non-native bytes must still match the staged
+// payload; only the declared native entries are refreshed before the outer app signature.
+refreshHermesBackendArtifactIntegrity(hermesBackendArtifact);
 // Must run after the reseal above (mutating the artifact later invalidates this signature) and
 // before the outer app codesign, so this exact signed manifest ships inside the sealed bundle.
 if (hermesDesktopManifestSigningKey) await signHermesDesktopManifest({ artifactRoot: hermesDesktopArtifact, signingKey: hermesDesktopManifestSigningKey });

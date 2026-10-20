@@ -120,8 +120,8 @@ export function snapshotQualificationHermesRuntime(runtimeRoot, expectedRevision
 }
 
 /** Called on every synthetic Hermes attach; never reads a normal user profile or PATH. */
-/** @param {string} fixtureRoot @param {string} [expectedRevision] */
-export function qualificationHermesHostOptions(fixtureRoot, expectedRevision = PINNED_HERMES_DESKTOP_SOURCE_COMMIT) {
+/** @param {string} fixtureRoot @param {string} [expectedRevision] @param {string} [bundledBackendExecutablePath] */
+export function qualificationHermesHostOptions(fixtureRoot, expectedRevision = PINNED_HERMES_DESKTOP_SOURCE_COMMIT, bundledBackendExecutablePath) {
   try {
     if (typeof fixtureRoot !== 'string' || !fixtureRoot.startsWith('/private/tmp/') || resolve(fixtureRoot) !== fixtureRoot) throw failure();
     privateOwned(fixtureRoot, 0o700, true);
@@ -129,6 +129,15 @@ export function qualificationHermesHostOptions(fixtureRoot, expectedRevision = P
     privateOwned(fixtureManifestPath, 0o600);
     const fixture = JSON.parse(readFileSync(fixtureManifestPath, 'utf8'));
     if (fixture.fixtureRoot !== fixtureRoot || !fixture.syntheticActor) throw failure();
+    const childHome = join(fixtureRoot, 'home');
+    privateOwned(childHome, 0o700, true);
+    if (bundledBackendExecutablePath !== undefined) {
+      if (typeof bundledBackendExecutablePath !== 'string' || !bundledBackendExecutablePath.startsWith('/')
+        || realpathSync(bundledBackendExecutablePath) !== bundledBackendExecutablePath
+        || !lstatSync(bundledBackendExecutablePath).isFile()) throw failure();
+      return Object.freeze({ childHome, hermesHome: join(fixtureRoot, 'hermes-home'),
+        backendExecutablePath: bundledBackendExecutablePath });
+    }
     const ref = fixture.syntheticActor.hermesRuntime;
     const runtimeManifestPath = join(fixtureRoot, 'hermes-runtime.json');
     if (ref?.manifestPath !== runtimeManifestPath || !SHA256.test(ref.manifestSha256)) throw failure();
@@ -139,8 +148,6 @@ export function qualificationHermesHostOptions(fixtureRoot, expectedRevision = P
     if (manifest.schemaVersion !== 1 || manifest.sourceRevision !== expectedRevision) throw failure();
     const current = snapshotQualificationHermesRuntime(manifest.runtimeRoot, expectedRevision);
     if (JSON.stringify(current) !== JSON.stringify(manifest)) throw failure();
-    const childHome = join(fixtureRoot, 'home');
-    privateOwned(childHome, 0o700, true);
     return Object.freeze({ childHome, hermesHome: join(fixtureRoot, 'hermes-home'),
       backendExecutablePath: current.backendExecutablePath });
   } catch { throw failure(); }

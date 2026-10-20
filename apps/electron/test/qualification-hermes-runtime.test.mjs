@@ -55,6 +55,20 @@ test('an exact private pinned runtime grants only its staged executable and home
   assert.throws(() => qualificationHermesHostOptions(f.fixtureRoot, f.revision), /Qualification Hermes runtime unavailable/);
 });
 
+test('a validated common bundle needs only the private actor authority and homes', (t) => {
+  const f = fixture(t);
+  f.actor.syntheticActor.hermesRuntime = undefined;
+  f.saveActor();
+  const bundled = join(f.fixtureRoot, 'bundled-hermes');
+  writeFileSync(bundled, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  assert.deepEqual(qualificationHermesHostOptions(f.fixtureRoot, f.revision, bundled), {
+    childHome: join(f.fixtureRoot, 'home'), hermesHome: join(f.fixtureRoot, 'hermes-home'),
+    backendExecutablePath: bundled,
+  });
+  f.actor.syntheticActor = null; f.saveActor();
+  assert.throws(() => qualificationHermesHostOptions(f.fixtureRoot, f.revision, bundled), /Qualification Hermes runtime unavailable/);
+});
+
 test('each attach rejects changed manifest, executable, dependency, or source bytes', (t) => {
   const f = fixture(t);
   const read = () => qualificationHermesHostOptions(f.fixtureRoot, f.revision);
