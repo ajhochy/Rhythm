@@ -7,6 +7,7 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Page, Response } from '@playwright/test';
 import { test as packagedTest, expect, waitForSignedIn } from './packaged-app';
+import { readQualificationFixture } from '../../../../tools/testing/qualification_fixture.mjs';
 
 export { expect } from '@playwright/test';
 export const API = 'http://127.0.0.1:4001';
@@ -190,7 +191,10 @@ const requireApi = createRequire(new URL('../../../api_server/package.json', imp
 type ReadonlyDb = { prepare(sql: string): { get(...args: unknown[]): Row | undefined; all(...args: unknown[]): Row[] }; close(): void };
 export function localRows(sql: string, ...args: unknown[]) {
   const Database = requireApi('better-sqlite3') as new (file: string, options: { readonly: true; fileMustExist: true }) => ReadonlyDb;
-  const db = new Database(path.join(homedir(), 'Library/Application Support/Rhythm Electron/rhythm.db'), { readonly: true, fileMustExist: true });
+  const fixtureManifest = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
+  const dbPath = fixtureManifest ? readQualificationFixture(fixtureManifest, expectedRevision).manifest.dbPath
+    : path.join(homedir(), 'Library/Application Support/Rhythm Electron/rhythm.db');
+  const db = new Database(dbPath, { readonly: true, fileMustExist: true });
   try { return db.prepare(sql).all(...args); } finally { db.close(); }
 }
 

@@ -8,7 +8,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { afterEach, describe, expect, it } from "vitest";
@@ -86,7 +85,9 @@ function fakeSandboxEnv(): {
   root: string;
   sandbox: string;
 } {
-  const root = mkdtempSync(join(tmpdir(), "rhythm-1186-unit-"));
+  const root = mkdtempSync(
+    join(process.platform === "darwin" ? "/private/tmp" : "/tmp", "rhythm-1186-unit-"),
+  );
   tempRoots.add(root);
   const fakeBin = join(root, "bin");
   const fakeHome = join(root, "home");

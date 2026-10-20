@@ -7,6 +7,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync } from
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { readQualificationFixture } from '../../../../tools/testing/qualification_fixture.mjs';
 
 export const RUNTIME_PORTS = [4001, 4096, 4002];
 const appPath = process.env.RHYTHM_PACKAGED_APP ?? '';
@@ -14,7 +15,11 @@ const appPath = process.env.RHYTHM_PACKAGED_APP ?? '';
 // user's real HOME, so the smoke reuses the normal saved session. It touches real local data;
 // the port check below guarantees the installed app is not running alongside it.
 // RHYTHM_SMOKE_USER_DATA swaps in a separate profile (sign in once via test:packaged:login).
-const userData = process.env.RHYTHM_SMOKE_USER_DATA
+const fixtureManifest = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
+const fixture = fixtureManifest ? readQualificationFixture(fixtureManifest, process.env.RHYTHM_FEATURE_EXPECTED_REVISION) : undefined;
+if (fixture && process.env.RHYTHM_SMOKE_USER_DATA && process.env.RHYTHM_SMOKE_USER_DATA !== fixture.userDataPath)
+  throw new Error('Qualification fixture Chromium profile differs');
+const userData = fixture?.userDataPath ?? process.env.RHYTHM_SMOKE_USER_DATA
   ?? path.join(homedir(), 'Library/Application Support/rhythm-electron-shell');
 export const loginMode = process.env.RHYTHM_SMOKE_LOGIN === '1';
 
@@ -39,6 +44,7 @@ export type PackagedApp = {
 };
 
 async function launch(): Promise<{ app: PackagedApp; browser: Browser }> {
+  if (fixtureManifest) readQualificationFixture(fixtureManifest, process.env.RHYTHM_FEATURE_EXPECTED_REVISION);
   if (!appPath || !existsSync(path.join(appPath, 'Contents/MacOS/Rhythm'))) {
     throw new Error(`Set RHYTHM_PACKAGED_APP to a Rhythm.app bundle (got "${appPath}")`);
   }

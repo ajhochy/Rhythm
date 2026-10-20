@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
@@ -8,6 +8,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({ authority: null as any, sdk: 0 }));
 vi.mock('../services/qualification_fixture_authority', () => ({
   loadQualificationFixtureAuthority: () => state.authority, qualificationApiBootId: 'setup-unit-boot',
+  qualificationSyntheticActorToken: (m: any) => readFileSync(m.syntheticActor.tokenPath, 'utf8'),
 }));
 vi.mock('../services/opencode_engine', () => ({
   opencodeClient: { reloadConfig: vi.fn(), createSession: async () => ({ id: 'ses_setup_' + ++state.sdk }),
@@ -31,6 +32,8 @@ import { DayflowQualifiedEvidenceService } from '../services/dayflow_qualified_e
 import { DayflowGuardEnrollmentService, DayflowReceivingContextAuthorityService } from '../services/dayflow_receiving_context_authority';
 import { DayflowReceivingContextRepository } from '../repositories/dayflow_receiving_context_repository';
 import { opencodeClient } from '../services/opencode_engine';
+import { SessionsRepository } from '../repositories/sessions_repository';
+import { authenticateIfPresent, requireAuth } from '../middleware/auth_middleware';
 
 let db: Database.Database, previous: Database.Database | null, root: string;
 let savedVitest: string | undefined, savedNodeEnv: string | undefined;
@@ -105,6 +108,30 @@ it('does not accept a projected file without its durable current-revision trust 
   db.exec("CREATE TRIGGER reject_projection BEFORE INSERT ON agent_profile_projections BEGIN SELECT RAISE(ABORT, 'unit durable projection refusal'); END");
   expect(() => projectBoot()).toThrow('qualification profile projection unavailable');
   expect(existsSync(join(root, 'opencode-config', 'agents', 'secretary.md'))).toBe(true);
+});
+it('seeds a synthetic actor through ordinary auth middleware and keeps other bearers invalid', async () => {
+  const token = randomBytes(32).toString('hex');
+  const tokenPath = join(root, 'actor-token');
+  writeFileSync(tokenPath, token); chmodSync(tokenPath, 0o600);
+  state.authority.tokenSha256 = createHash('sha256').update(token).digest('hex');
+  state.authority.syntheticActor = { tokenPath, expiresAt: new Date(Date.now() + 3_600_000).toISOString() };
+  bootstrapQualificationFixture();
+  const sessions = new SessionsRepository();
+  expect(sessions.findUserByToken(token)).toMatchObject({ id: state.authority.ownerUserId, email: 'fixture@example.invalid' });
+  expect(sessions.findUserByToken('foreign-' + token)).toBeNull();
+  for (const middleware of [requireAuth, authenticateIfPresent]) {
+    const req = { header: () => 'Bearer ' + token } as never;
+    let failure: unknown;
+    await middleware(req, {} as never, ((error?: unknown) => { failure = error; }) as never);
+    expect(failure).toBeUndefined();
+    expect((req as { auth?: { user: { id: number } } }).auth?.user.id).toBe(state.authority.ownerUserId);
+  }
+  expect(db.prepare('SELECT count(*) AS n FROM sessions').get()).toEqual({ n: 1 });
+  bootstrapQualificationFixture();
+  expect(db.prepare('SELECT count(*) AS n FROM sessions').get()).toEqual({ n: 1 });
+  db.prepare('INSERT INTO users(id,name,email,google_sub,timezone) VALUES (?,?,?,?,?)')
+    .run(2, 'Foreign user', 'foreign@example.invalid', 'qualification-fixture:foreign', 'UTC');
+  expect(() => bootstrapQualificationFixture()).toThrow('qualification synthetic actor found foreign user');
 });
 it('establishes real selected-journal consent and canonical import without a later consent-revoking config update', async () => {
   const sessionId = randomUUID(), project = new ProjectsRepository().createCoordinatorOwned({ ownerUserId: 1,

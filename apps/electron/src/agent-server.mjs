@@ -81,26 +81,56 @@ export function findServerEntry(nodePath, executablePath = process.execPath) {
   return null;
 }
 
-export function electronDbPath() {
-  const manifest = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
-  if (manifest) {
+/** @param {{manifestPath?: string, buildIdentityPath?: string}} [options] */
+function readQualificationFixtureManifest({ manifestPath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST, buildIdentityPath = resolve(dirname(dirname(process.execPath)), 'Resources/api_server/build-identity.json') } = {}) {
+  if (manifestPath) {
     /** @param {string} p @param {number} mode @param {boolean} [directory] */
     const owned = (p, mode, directory = false) => {
       const st = lstatSync(p);
       if (realpathSync(p) !== p || st.isSymbolicLink() || (directory ? !st.isDirectory() : !st.isFile()) || st.uid !== process.getuid?.() || (!directory && st.nlink!==1) || (st.mode & 0o777) !== mode) throw new Error('qualification fixture ownership invalid');
     };
-    if (!manifest.startsWith('/private/tmp/') || resolve(manifest) !== manifest) throw new Error('qualification fixture manifest path invalid');
-    owned(dirname(manifest), 0o700, true); owned(manifest, 0o600);
-    const m = JSON.parse(readFileSync(manifest, 'utf8'));
-    const identityPath = resolve(dirname(dirname(process.execPath)), 'Resources/api_server/build-identity.json');
-    const build = JSON.parse(readFileSync(identityPath, 'utf8'));
+    if (!manifestPath.startsWith('/private/tmp/') || resolve(manifestPath) !== manifestPath) throw new Error('qualification fixture manifest path invalid');
+    owned(dirname(manifestPath), 0o700, true); owned(manifestPath, 0o600);
+    const m = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    const build = JSON.parse(readFileSync(buildIdentityPath, 'utf8'));
     if (m.schemaVersion !== 1 || !/^[a-f0-9]{40}$/.test(m.sourceRevision) || build.schemaVersion !== 1 || build.sourceRevision !== m.sourceRevision ||
         !/^[a-f0-9]{64}$/.test(m.tokenSha256) || !m.ownerId || !Number.isSafeInteger(m.ownerUserId) || m.ownerUserId <= 0 ||
         typeof m.fixtureRoot !== 'string' || !m.fixtureRoot.startsWith('/private/tmp/') || resolve(m.fixtureRoot) !== m.fixtureRoot || m.dbPath !== join(m.fixtureRoot, 'rhythm.db')) throw new Error('qualification fixture build or scope invalid');
     owned(m.fixtureRoot, 0o700, true);
     try { const db=lstatSync(m.dbPath); if(!db.isFile() || db.isSymbolicLink() || realpathSync(m.dbPath)!==m.dbPath || db.uid!==process.getuid?.() || db.nlink!==1 || (db.mode & 0o077)!==0)throw new Error('qualification fixture database ownership invalid'); } catch(e){if(!(e && typeof e==='object' && 'code' in e && e.code==='ENOENT'))throw e;}
-    return m.dbPath;
+    if(m.syntheticActor){
+      const actor=m.syntheticActor,expiry=Date.parse(actor.expiresAt);
+      if(actor.tokenPath!==join(m.fixtureRoot,'actor-token') || !/^qualification-fixture:[A-Za-z0-9_-]{1,128}$/.test(m.publicUserSeed?.googleSub) ||
+        !/^[^@\s]+@[^@\s]+\.invalid$/.test(m.publicUserSeed?.email) || !Number.isFinite(expiry) || expiry<=Date.now() || expiry>Date.now()+86_400_000)
+        throw new Error('qualification synthetic actor scope invalid');
+      owned(actor.tokenPath,0o600);
+      const token=readFileSync(actor.tokenPath,'utf8');
+      if(!/^[a-f0-9]{64}$/.test(token) || createHash('sha256').update(token).digest('hex')!==m.tokenSha256)
+        throw new Error('qualification synthetic actor token invalid');
+      return {manifest:m,token};
+    }
+    return {manifest:m,token:null};
   }
+  return null;
+}
+
+/** @param {{manifestPath?: string, buildIdentityPath?: string, userDataPath?: string}} [options] */
+export function loadQualificationSyntheticActor(options = {}) {
+  const fixture=readQualificationFixtureManifest(options);
+  if(!fixture?.token)return null;
+  const userDataPath=options.userDataPath ?? process.env.RHYTHM_SHELL_USER_DATA;
+  if(userDataPath!==join(fixture.manifest.fixtureRoot,'electron-user-data'))throw new Error('qualification synthetic actor userData path invalid');
+  const userData=lstatSync(userDataPath);
+  if(realpathSync(userDataPath)!==userDataPath || !userData.isDirectory() || userData.isSymbolicLink() || userData.uid!==process.getuid?.() || (userData.mode&0o777)!==0o700)
+    throw new Error('qualification synthetic actor userData ownership invalid');
+  if(['auth-session.bin','remote-attach-grant.bin','server-config.json'].some(name=>existsSync(join(userDataPath,name))))
+    throw new Error('qualification synthetic actor userData contains regular account state');
+  return Object.freeze({token:fixture.token,ownerUserId:fixture.manifest.ownerUserId,fixtureRoot:fixture.manifest.fixtureRoot});
+}
+
+export function electronDbPath() {
+  const fixture=readQualificationFixtureManifest();
+  if(fixture)return fixture.manifest.dbPath;
   const supportDir = join(homedir(), 'Library/Application Support/Rhythm Electron');
   return join(supportDir, 'rhythm.db');
 }
@@ -156,9 +186,19 @@ export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, human
   env.RHYTHM_OPENCODE_ENGINE_PORT = String(enginePort);
   env.DB_PATH = dbPathValue;
   if(baseEnv.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST){
-    const m=JSON.parse(readFileSync(baseEnv.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST,'utf8'));
+    const m=readQualificationFixtureManifest({manifestPath:baseEnv.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST})?.manifest;
+    if(!m)throw new Error('qualification fixture missing');
     if(electronDbPath()!==dbPathValue)throw new Error('qualification database differs');
     env.DB_CLIENT='sqlite';
+    if(m.syntheticActor){
+      env.HOME=join(m.fixtureRoot,'home');
+      delete env.RHYTHM_RELAY_URLS;delete env.RHYTHM_RELAY_BEARER;
+      delete env.RHYTHM_ELECTRON_MIGRATE_LEGACY;
+      // A fixture must not inherit provider credentials or auth-file pointers from the operator shell.
+      for(const key of Object.keys(env))if(/(?:^|_)(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?|AUTH)(?:_|$)/.test(key) ||
+        /^(?:AWS|AZURE|CLOUDSDK|GOOGLE_APPLICATION)_/.test(key))delete env[key];
+      if(mcpRolesDir)env.MCP_ROLES_DIR=mcpRolesDir;else delete env.MCP_ROLES_DIR;
+    }
     env.XDG_CONFIG_HOME=join(m.fixtureRoot,'xdg-config');
     // The engine derives its data/cache/state dirs (opencode.db, auth.json, logs) from
     // these, else from HOME: config alone left the 0.18.69 qualification engine
@@ -399,11 +439,19 @@ export class AgentServerService {
     this.#manualWorkstreamsLaunch = undefined;
     this.#emit();
 
+    const qualificationFixture=Boolean(process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST);
+    if(qualificationFixture)electronDbPath(); // Validate the immutable exact-build authority before probing or adopting anything.
+    const syntheticActor=qualificationFixture && Boolean(loadQualificationSyntheticActor());
+
     const occupied = [];
     for (const port of [AGENT_SERVER_PORT, AGENT_SERVER_ENGINE_PORT]) {
       if (!await this.#bounded(portAvailable(port), `checking port ${port}`)) occupied.push(port);
     }
     if (occupied.length) {
+      if(qualificationFixture){
+        this.#setFailed('portConflict', `Qualification fixture requires vacant API and engine ports ${occupied.join(' / ')}.`);
+        return this.status;
+      }
       const healthy = await runningRhythmRuntime();
       if (generation !== this.#generation) return this.status;
       if (healthy) {
@@ -418,13 +466,15 @@ export class AgentServerService {
     }
     if (generation !== this.#generation) return this.status;
 
-    let material;
-    try {
-      material = await this.#bounded(capabilityMaterial(), 'reading the approval identity', this.#capabilityBudgetMs);
-    } catch (error) {
-      this.#appendStderr(error instanceof Error ? error.message : String(error));
-      this.#setFailed('approvalCredentialsUnavailable', 'Rhythm could not access its approval identity. Complete any macOS Keychain authorization, then retry.');
-      return this.status;
+    let material={humanApprovalPublicKey:'',humanApprovalCapabilitySha256:''};
+    if(!syntheticActor){
+      try {
+        material = await this.#bounded(capabilityMaterial(), 'reading the approval identity', this.#capabilityBudgetMs);
+      } catch (error) {
+        this.#appendStderr(error instanceof Error ? error.message : String(error));
+        this.#setFailed('approvalCredentialsUnavailable', 'Rhythm could not access its approval identity. Complete any macOS Keychain authorization, then retry.');
+        return this.status;
+      }
     }
 
     const nodePath = await this.#bounded(findNode(), 'locating Node.js');
@@ -442,7 +492,7 @@ export class AgentServerService {
     const targetDbPath = electronDbPath();
     await this.#bounded(mkdir(dirname(targetDbPath), { recursive: true }), 'creating the data folder');
     const legacyDb = legacyFlutterDbPath();
-    if (!existsSync(targetDbPath) && process.env.RHYTHM_ELECTRON_MIGRATE_LEGACY === '1' && existsSync(legacyDb)) {
+    if (!qualificationFixture && !existsSync(targetDbPath) && process.env.RHYTHM_ELECTRON_MIGRATE_LEGACY === '1' && existsSync(legacyDb)) {
       const migrationScript = resolve(serverInfo.workingDir, 'scripts/migrate_desktop_db.mjs');
       await run(nodePath, [migrationScript, legacyDb, targetDbPath, resolve(dirname(targetDbPath), 'migration-receipt.json')], { cwd: serverInfo.workingDir, timeout: 120_000, maxBuffer: 256 * 1024 });
     }

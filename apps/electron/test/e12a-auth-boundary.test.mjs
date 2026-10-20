@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createContext, SourceTextModule, SyntheticModule, runInContext } from 'node:vm';
@@ -14,7 +14,7 @@ const tick = () => new Promise((r) => setImmediate(r));
 
 // Real main + config + preload; fake only Electron, OAuth browser interaction, signer and I/O.
 async function host(t, immediateLogin = false, Notification = { isSupported: () => false }, onInitialBridge, initialSession, options = {}) {
-  const directory = await mkdtemp(join(tmpdir(), 'rhythm-e12a-'));
+  const directory = await mkdtemp(options.syntheticActor ? '/private/tmp/rhythm-e12a-' : join(tmpdir(), 'rhythm-e12a-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const handlers = new Map(), listeners = new Map(), protocols = new Map();
   const windows = [], logins = [], requests = [], signed = [], opened = [];
@@ -65,32 +65,44 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
     }
   }
   let agentServerOptions;
+  let hermesViewOptions;
   const starts = [];
   class Server {
     constructor(options) { this.options = options; agentServerOptions = options; }
-    status = { status: 'ready' };
+    status = { status: 'ready', owned: syntheticActor };
     onStatusChange() {}
-    async start() { starts.push(this.options?.relayConfigurationProvider?.()); }
+    async start() { starts.push(this.options?.relayConfigurationProvider?.()); return this.status; }
   }
   const safeStorage = options.safeStorage ?? { isEncryptionAvailable: () => true, encryptString: (value) => Buffer.from(value), decryptString: (value) => value.toString() };
   const signer = options.signer ?? { capability: async () => 'capability', signDecision: async (value) => { signed.push(value); return { signature: 'signature' }; } };
   const interactiveSmoke = options.interactiveSmoke === true;
+  const syntheticActor = options.syntheticActor === true;
   const context = createContext({ process: Object.assign(new EventEmitter(), {
     argv: interactiveSmoke ? ['--interactive-smoke'] : [],
-    env: { RHYTHM_PRODUCTION_API_URL: A, ...(interactiveSmoke ? { RHYTHM_SHELL_USER_DATA: directory } : {}) },
+    getuid: () => process.getuid(),
+    env: { RHYTHM_PRODUCTION_API_URL: A, ...(interactiveSmoke || syntheticActor ? { RHYTHM_SHELL_USER_DATA: directory } : {}),
+      ...(syntheticActor ? { RHYTHM_QUALIFICATION_FIXTURE_MANIFEST: join(directory, 'manifest.json') } : {}) },
     resourcesPath: join(directory, 'Resources'), cwd: () => directory, stderr: { write(message) { throw new Error(message); } },
   }), URL, Response, Headers, console,
-    fetch: async (url, init) => { requests.push({ url, bearer: new Headers(init?.headers).get('authorization') }); return new Response('<html></html>'); },
+    fetch: async (url, init) => { requests.push({ url, bearer: new Headers(init?.headers).get('authorization') });
+      if (syntheticActor && String(url) === 'http://127.0.0.1:4001/auth/me') return Response.json({ user: { id: 1, email: 'invented@example.invalid', name: 'Invented owner' } });
+      return new Response('<html></html>'); },
   });
   const file = new URL('../src/main.mjs', import.meta.url);
   const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.url = file.href; meta.dirname = directory; } });
   await module.link(async (name) => {
     let values;
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification, protocol: { registerSchemesAsPrivileged() {}, handle: (key, fn) => protocols.set(key, fn) }, safeStorage, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal(url) { opened.push(url); } }, dialog: { showErrorBox() {} } };
-    else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096, electronDbPath: () => join(directory, 'electron.db'), legacyFlutterDbPath: () => join(directory, 'legacy.db') };
+    else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096,
+      electronDbPath: () => join(directory, 'electron.db'), legacyFlutterDbPath: () => join(directory, 'legacy.db'),
+      loadQualificationSyntheticActor: () => syntheticActor ? { token: 'fixture-token', ownerUserId: 1, fixtureRoot: directory } : null };
     else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled', port: 9121, url: 'http://127.0.0.1:9121' }), onStatus() {}, async start() {}, async stop() {} }) };
     else if (name === './desktop-google-oauth.mjs') values = { runDesktopGoogleOAuth: (options) => new Promise((resolve) => { logins.push({ options, resolve }); if (immediateLogin) resolve({ sessionToken: 'unexpected', user: { id: 1 } }); }) };
     else if (name === './human-approval-main-signer.mjs') values = signer;
+    else if (name === './hermes-view.mjs') {
+      const actual = await import(new URL(name, file).href);
+      values = { ...actual, registerHermesView: (input) => { hermesViewOptions = input; return actual.registerHermesView(input); } };
+    }
     else { values = { ...await import(name.startsWith('.') ? new URL(name, file).href : name) }; if (name === 'node:fs') values.existsSync = () => true; }
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
@@ -98,6 +110,7 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
   await initialBridgeReady;
   return {
     windows, logins, requests, signed, opened, handlers, listeners, agentServerOptions, starts, quits: () => quits, exits: () => exits,
+    fixtureRoot: directory, hermesCredentialOptions: () => hermesViewOptions.getBackendCredentialOptions(),
     current: () => windows.at(-1),
     event: () => ({ sender: windows.at(-1).webContents, senderFrame: windows.at(-1).webContents.mainFrame }),
     artifact: () => protocols.get('rhythm-artifact')({ url: 'rhythm-artifact://app/00000000-0000-4000-8000-000000000801', method: 'GET' }),
@@ -175,6 +188,42 @@ test('secure-storage startup: a saved protected record retains encrypted restora
   assert.ok(encryptionAvailabilityCalls > 0);
   assert.ok(decryptCalls > 0);
   assert.equal(h.agentServerOptions.relayConfigurationProvider().token, 'protected-session');
+});
+
+test('qualification actor signs in through owned local auth without safeStorage, OAuth, relay or native approval signer', async (t) => {
+  let secureStoreCalls = 0, approvalCalls = 0;
+  const h = await host(t, false, undefined, undefined, undefined, {
+    syntheticActor: true,
+    safeStorage: { isEncryptionAvailable() { secureStoreCalls++; throw new Error('Keychain access forbidden'); },
+      encryptString() { secureStoreCalls++; throw new Error('Keychain access forbidden'); },
+      decryptString() { secureStoreCalls++; throw new Error('Keychain access forbidden'); } },
+    signer: { capability() { approvalCalls++; throw new Error('native signer forbidden'); },
+      signDecision() { approvalCalls++; throw new Error('native signer forbidden'); } },
+  });
+  assert.equal(h.current().bridge.gateway.productionApiBase, 'http://127.0.0.1:4001');
+  assert.equal((await h.current().bridge.auth.currentSession()).sessionToken, 'fixture-token');
+  assert.deepEqual(h.requests.filter((request) => String(request.url).endsWith('/auth/me')),
+    [{ url: 'http://127.0.0.1:4001/auth/me', bearer: 'Bearer fixture-token' }]);
+  assert.equal(h.agentServerOptions.relayConfigurationProvider(), undefined);
+  await assert.rejects(async () => h.current().bridge.auth.signInWithGoogle(), /external OAuth/);
+  await assert.rejects(async () => h.current().bridge.gateway.setProductionApiBase(B), /origin is fixed/);
+  await assert.rejects(async () => h.current().bridge.humanApproval.capability(), /signer unavailable/);
+  assert.equal(h.logins.length, 0);
+  assert.equal(secureStoreCalls, 0);
+  assert.equal(approvalCalls, 0);
+});
+
+test('qualification actor gives the embedded Hermes host only a private fixture home', async (t) => {
+  const h = await host(t, false, undefined, undefined, undefined, { syntheticActor: true });
+  const options = h.hermesCredentialOptions();
+  assert.equal(options.hermesHome, join(h.fixtureRoot, 'hermes-home'));
+  const owned = await stat(options.hermesHome);
+  assert.equal(owned.isDirectory(), true);
+  assert.equal(owned.mode & 0o777, 0o700);
+  assert.deepEqual(Object.keys(await options.backendEnv({ profile: 'default' })), []);
+  await rename(options.hermesHome, join(h.fixtureRoot, 'hermes-home-original'));
+  await symlink(h.fixtureRoot, options.hermesHome);
+  assert.throws(() => h.hermesCredentialOptions(), /private owned directory/);
 });
 
 test('human approval: an unowned interactive runtime rejects before native signer use', async (t) => {

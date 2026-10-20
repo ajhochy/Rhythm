@@ -2,9 +2,9 @@ import { readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { getDb } from '../database/db';
 import { AgentConfigsRepository, type AgentConfigInput } from '../repositories/agent_configs_repository';
-import { loadQualificationFixtureAuthority } from './qualification_fixture_authority';
+import { loadQualificationFixtureAuthority, qualificationSyntheticActorToken } from './qualification_fixture_authority';
 import { projectAgentProfileAfterWrite } from './agent_profile_projection_service';
-/** Public identity/profile configuration only. Never creates authentication sessions or signed decisions. */
+/** Public identity/profile configuration, plus an opt-in disposable ordinary auth session. */
 export function bootstrapQualificationFixture(phase:'seed'|'project'='seed'):void {
   const m=loadQualificationFixtureAuthority();if(!m)return;
   const db=getDb(),user=m.publicUserSeed;
@@ -26,6 +26,8 @@ export function bootstrapQualificationFixture(phase:'seed'|'project'='seed'):voi
   }
   const prior=db.prepare('SELECT id,email,google_sub FROM users WHERE id=?').get(m.ownerUserId) as {id:number;email:string;google_sub:string}|undefined;
   if(prior && (prior.email!==user.email || prior.google_sub!==user.googleSub))throw new Error('qualification public identity differs');
+  if(m.syntheticActor && db.prepare('SELECT 1 FROM users WHERE id<>? LIMIT 1').get(m.ownerUserId))
+    throw new Error('qualification synthetic actor found foreign user');
   db.prepare('INSERT OR IGNORE INTO users(id,name,email,google_sub,timezone) VALUES (?,?,?,?,?)').run(user.id,user.name,user.email,user.googleSub,user.timezone);
   chmodSync(m.dbPath,0o600);
   db.exec('CREATE TABLE IF NOT EXISTS qualification_fixture_bootstrap(source_revision TEXT PRIMARY KEY, profile_seed_digest TEXT)');
@@ -44,5 +46,13 @@ export function bootstrapQualificationFixture(phase:'seed'|'project'='seed'):voi
       }
     }
     db.prepare('INSERT INTO qualification_fixture_bootstrap(source_revision) VALUES (?)').run(m.sourceRevision);
+  }
+  if(m.syntheticActor){
+    const token=qualificationSyntheticActorToken(m);
+    const rows=db.prepare('SELECT token,user_id,expires_at FROM sessions').all() as Array<{token:string;user_id:number;expires_at:string|null}>;
+    if(rows.some(row=>row.token!==token || row.user_id!==m.ownerUserId || row.expires_at!==m.syntheticActor!.expiresAt))
+      throw new Error('qualification synthetic actor found foreign auth session');
+    if(rows.length===0)db.prepare('INSERT INTO sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)')
+      .run(token,m.ownerUserId,new Date().toISOString(),m.syntheticActor.expiresAt);
   }
 }

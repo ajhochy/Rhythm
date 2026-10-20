@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol, safeStorage, session, shell } from 'electron';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, lstatSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import { createRequire } from 'node:module';
@@ -9,6 +9,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AgentServerService, electronDbPath, legacyFlutterDbPath } from './agent-server.mjs';
+import * as agentServerFixture from './agent-server.mjs';
 import { injectArtifactFrameBridge, isAllowedArtifactFrameNavigation, parseArtifactFrameRequest } from './artifact-frame-protocol.mjs';
 import { GOOGLE_DESKTOP_CLIENT_ID, RHYTHM_AUTH_API_BASE } from './build-config.mjs';
 import { runDesktopGoogleOAuth } from './desktop-google-oauth.mjs';
@@ -46,6 +47,8 @@ for (const stream of [process.stdout, process.stderr]) {
 }
 const isSmoke = process.argv.includes('--smoke');
 const isInteractiveSmoke = process.argv.includes('--interactive-smoke');
+const qualificationSyntheticActor = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST ? agentServerFixture.loadQualificationSyntheticActor() : null;
+if (qualificationSyntheticActor && (isSmoke || isInteractiveSmoke)) throw new Error('qualification synthetic actor requires an ordinary packaged launch');
 const allowTestRuntimePorts = (isSmoke || isInteractiveSmoke) && process.argv.includes('--allow-test-runtime-ports');
 if (isInteractiveSmoke && (!process.env.RHYTHM_SHELL_USER_DATA || !isAbsolute(process.env.RHYTHM_SHELL_USER_DATA))) {
   throw new Error('--interactive-smoke requires an explicit absolute RHYTHM_SHELL_USER_DATA path');
@@ -60,7 +63,7 @@ if (smokeUserDataPath) app.on('will-quit', () => rmSync(smokeUserDataPath, { rec
 
 const productionApiConfigPath = resolve(app.getPath('userData'), 'server-config.json');
 const productionApiConfig = createProductionApiConfig({ configPath: productionApiConfigPath, defaultBase: RHYTHM_AUTH_API_BASE, env: process.env });
-let productionApiBase = productionApiConfig.load();
+let productionApiBase = qualificationSyntheticActor ? AGENT_SERVER_BASE_URL : productionApiConfig.load();
 const manualWorkstreamsPreferencePath = resolve(app.getPath('userData'), 'manual-workstreams-preference.json');
 const manualWorkstreamsPreference = createManualWorkstreamsPreference({ configPath: manualWorkstreamsPreferencePath });
 const authSessionPath = resolve(app.getPath('userData'), 'auth-session.bin');
@@ -127,7 +130,8 @@ if (hasSingleInstanceLock) {
     // Short physical root: it holds agent.sock (sockaddr_un ~104 bytes). Profiles living under long paths
     // (the current candidate profile is 125 bytes) would make the native view report unavailable, so an
     // absolute override may be supplied at launch; the host still refuses any root whose socket path is too long.
-    dataRoot: (process.env.RHYTHM_NATIVE_DAYFLOW_DATA_ROOT && isAbsolute(process.env.RHYTHM_NATIVE_DAYFLOW_DATA_ROOT))
+    dataRoot: qualificationSyntheticActor ? join(qualificationSyntheticActor.fixtureRoot, 'native-dayflow')
+      : (process.env.RHYTHM_NATIVE_DAYFLOW_DATA_ROOT && isAbsolute(process.env.RHYTHM_NATIVE_DAYFLOW_DATA_ROOT))
       ? process.env.RHYTHM_NATIVE_DAYFLOW_DATA_ROOT
       : join(app.getPath('userData'), 'df'),
     identity: { bundleIdentifier: RHYTHM_BUNDLE_IDENTIFIER, displayName: 'Rhythm', shortVersion: app.getVersion(), build: app.getVersion() },
@@ -154,7 +158,8 @@ if (hasSingleInstanceLock) {
     loadEncrypted: () => readFile(remoteAttachGrantPath),
     saveEncrypted: async (bytes) => { await mkdir(dirname(remoteAttachGrantPath), { recursive: true }); await writeFile(remoteAttachGrantPath, bytes, { mode: 0o600 }); },
     clearEncrypted: async () => { try { await rm(remoteAttachGrantPath, { force: true }); } catch {} },
-    safeStorage,
+    safeStorage: qualificationSyntheticActor ? { isEncryptionAvailable: () => false } : safeStorage,
+    env: qualificationSyntheticActor ? { ...process.env, RHYTHM_REMOTE_ATTACH: 'false' } : process.env,
   });
   /** @type {string | null} */
   let pendingDeepLink = deepLinkFromArgv(process.argv);
@@ -260,7 +265,8 @@ if (hasSingleInstanceLock) {
   let productionSessionUser;
   const clearStoredAuthentication = () => rm(authSessionPath, { force: true }).catch(() => undefined);
   const accountsAuth = createAccountsAuthState({
-    safeStorage, loadEncrypted: () => readFile(authSessionPath),
+    safeStorage: qualificationSyntheticActor ? { isEncryptionAvailable: () => false } : safeStorage,
+    loadEncrypted: () => readFile(authSessionPath),
     saveEncrypted: async (bytes) => { await mkdir(dirname(authSessionPath), { recursive: true }); await writeFile(authSessionPath, bytes, { mode: 0o600 }); },
     clearEncrypted: clearStoredAuthentication,
     // Reuse the existing main session policy: successful OAuth or a validated
@@ -305,6 +311,7 @@ if (hasSingleInstanceLock) {
     log: (entry) => process.stderr.write(`agent bridge: ${entry.code}\n`),
   });
   const getAccountsMain = () => {
+    if (qualificationSyntheticActor) return undefined; // Never discover the real account's Hermes home or credentials.
     if (accountsBlocked || !accountsAuth.getSnapshot().authenticated) return undefined;
     if (accountsMain) return accountsMain;
     try {
@@ -332,6 +339,16 @@ if (hasSingleInstanceLock) {
   };
   const credentialHostOptions = () => {
     if (accountsBlocked) throw new Error('Previous Hermes backend disposal has not completed');
+    if (qualificationSyntheticActor) {
+      const hermesHome = join(qualificationSyntheticActor.fixtureRoot, 'hermes-home');
+      try { mkdirSync(hermesHome, { mode: 0o700 }); }
+      catch (error) { if (error?.code !== 'EEXIST') throw error; }
+      const home = lstatSync(hermesHome);
+      if (realpathSync(hermesHome) !== hermesHome || !home.isDirectory() || home.isSymbolicLink() ||
+        home.uid !== process.getuid?.() || (home.mode & 0o777) !== 0o700)
+        throw new Error('qualification Hermes home must be private owned directory');
+      return { hermesHome, backendEnv: async () => ({}) };
+    }
     const adapter = getAccountsMain(), auth = accountsAuth.getSnapshot();
     if (!adapter || !auth.authenticated) return undefined;
     /** @type {ReturnType<typeof adapter.createBackendAttempt> | undefined} */
@@ -371,7 +388,7 @@ if (hasSingleInstanceLock) {
       envelope: { productionApiBase, sessionToken: productionSessionToken, user: productionSessionUser } });
   };
   const restoreAuthentication = async () => {
-    if (isSmoke) return;
+    if (isSmoke || qualificationSyntheticActor) return;
     let encryptedRecord;
     try {
       // A cold profile has no auth record. Read that fact before touching
@@ -831,6 +848,7 @@ if (hasSingleInstanceLock) {
   ipcMain.handle('rhythm:auth:google-sign-in', (event, ...args) => {
     requireOwnedDocument(event);
     requireNoPayload(args);
+    if (qualificationSyntheticActor) throw new Error('qualification synthetic actor cannot start external OAuth');
     // No account-replacement API yet: never silently replace an authenticated renderer's identity.
     if (accountsBlocked) throw new Error('Previous Hermes backend disposal has not completed');
     if (productionSessionToken) throw new Error('Account replacement denied; restart to sign in again');
@@ -887,6 +905,7 @@ if (hasSingleInstanceLock) {
   });
   ipcMain.handle('rhythm:production-api:set', (event, value, ...args) => {
     requireOwnedDocument(event);
+    if (qualificationSyntheticActor) throw new Error('qualification synthetic actor API origin is fixed');
     if (args.length || typeof value !== 'string' || value.length > 2048) throw new Error('Invalid production API URL payload');
     return setProductionApi(event, value);
   });
@@ -1006,7 +1025,7 @@ if (hasSingleInstanceLock) {
   // Alternate ports exist only behind an explicit smoke-only flag.
   // Interactive smoke renders normally, but the manager owns the external sandbox lifecycle.
   agentServer = isInteractiveSmoke ? undefined : new AgentServerService({
-    relayConfigurationProvider: () => ({ token: productionSessionToken, productionApiBase }),
+    relayConfigurationProvider: () => qualificationSyntheticActor ? undefined : ({ token: productionSessionToken, productionApiBase }),
     manualWorkstreamsPreferenceProvider: () => manualWorkstreamsPreference.load(),
   });
   const isHermesSelfTest = isSmoke || isMissingDistSmoke;
@@ -1083,6 +1102,7 @@ if (hasSingleInstanceLock) {
     requireOwnedDocument(event);
     requireNoPayload(args);
     requireOwnedApprovalRuntime();
+    if (qualificationSyntheticActor) throw new Error('qualification fixture approval signer unavailable');
     return humanApprovalSigner.capability();
   });
   ipcMain.handle('rhythm:human-approval:sign-decision', async (event, decision, ...args) => {
@@ -1097,6 +1117,7 @@ if (hasSingleInstanceLock) {
       throw new Error('Invalid signing payload');
     }
     requireOwnedApprovalRuntime();
+    if (qualificationSyntheticActor) throw new Error('qualification fixture approval signer unavailable');
     const generation = authGeneration;
     const signature = await humanApprovalSigner.signDecision(decision);
     if (generation !== authGeneration || !ownsDocument(event)) throw new Error('Signing context changed');
@@ -1159,19 +1180,35 @@ if (hasSingleInstanceLock) {
     if (isMissingDistSmoke || !existsSync(webDist)) throw new Error(`Rhythm Electron shell requires built web assets at ${webDist}`);
     await restoreAuthentication();
     colonyHost = registerColonyHost({ ipcMain, getWindow: () => mainWindow, userDataPath: app.getPath('userData'), resourcesPath: process.resourcesPath,
-      home: userInfo().homedir, isPackaged: app.isPackaged, environment: process.env, app, shell, dialog: modalDialog,
+      home: qualificationSyntheticActor ? join(qualificationSyntheticActor.fixtureRoot, 'home') : userInfo().homedir,
+      isPackaged: app.isPackaged, environment: process.env, app, shell, dialog: modalDialog,
       emitReset: () => mainWindow?.webContents.send('colony:host:reset') });
     registerAgentToolAdapter(agentToolAdapters, 'bot-crossing', colonyHost);
-    if (productionSessionUser) await colonyHost.activateProfile({ productionApiBase, userId: String(productionSessionUser.id) });
+    if (productionSessionUser && !qualificationSyntheticActor) await colonyHost.activateProfile({ productionApiBase, userId: String(productionSessionUser.id) });
     registerRemoteEnvironments({ ipcMain, getWindow: () => mainWindow, custody: remoteEnvironmentsCustody });
-    if (!isSmoke && agentServer && !existsSync(electronDbPath()) && existsSync(legacyFlutterDbPath())) {
+    if (!isSmoke && !qualificationSyntheticActor && agentServer && !existsSync(electronDbPath()) && existsSync(legacyFlutterDbPath())) {
       const choice = await modalDialog.showMessageBox({ type: 'question', title: 'Import existing Rhythm data?', message: 'Rhythm found data from the Flutter desktop app.', detail: 'Import copies the database into Electron using SQLite backup. The original remains untouched. Imported schedules start disabled for review.', buttons: ['Import existing data', 'Start fresh', 'Cancel'], defaultId: 0, cancelId: 2 });
       if (choice.response === 2) { app.quit(); return; }
       process.env.RHYTHM_ELECTRON_MIGRATE_LEGACY = choice.response === 0 ? '1' : '0';
     }
 
     // Initial workspace requests must not race local API startup and cache connection errors.
-    if (!isSmoke && agentServer) await agentServer.start().catch((error) => agentServer.reportStartupFailure(error));
+    if (!isSmoke && agentServer) {
+      const startup = await agentServer.start().catch((error) => { agentServer.reportStartupFailure(error); return agentServer.status; });
+      if (qualificationSyntheticActor) {
+        if (startup.status !== 'ready' || !startup.owned) throw new Error('qualification fixture requires its own local runtime');
+        const response = await globalThis.fetch(`${AGENT_SERVER_BASE_URL}/auth/me`, { headers: { Authorization: `Bearer ${qualificationSyntheticActor.token}` } });
+        if (!response.ok) throw new Error('qualification synthetic actor session unavailable');
+        const { user } = await response.json();
+        if (user?.id !== qualificationSyntheticActor.ownerUserId || typeof user.email !== 'string' || !user.email.endsWith('.invalid'))
+          throw new Error('qualification synthetic actor identity mismatch');
+        productionSessionToken = qualificationSyntheticActor.token;
+        productionSessionUser = user;
+        const signedIn = await accountsAuth.signIn({ serverOrigin: productionApiBase, userId: String(user.id), sessionToken: productionSessionToken,
+          envelope: { productionApiBase, sessionToken: productionSessionToken, user } });
+        if (!signedIn) throw new Error('qualification synthetic actor main session unavailable');
+      }
+    }
     // Hermes Desktop's embedded host owns compatible backend discovery and any
     // service it starts. Do not also launch the legacy dashboard supervisor.
 

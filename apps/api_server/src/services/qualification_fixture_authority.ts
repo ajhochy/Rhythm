@@ -7,13 +7,32 @@ export interface QualificationFixtureAuthority {
   dbPath: string; sourceRevision: string; tokenSha256: string;
   publicUserSeed: {id:number;name:string;email:string;googleSub:string;timezone:string};
   profileSeedPath?: string;
+  syntheticActor?: { tokenPath: string; expiresAt: string };
 }
 export const qualificationApiBootId=randomUUID();
 let cached: QualificationFixtureAuthority | null | undefined;
 let authorityBytes:string|undefined;
+let actorTokenBytes:string|undefined;
+/** A private disposable bearer is accepted only with the exact-build fixture authority. */
+export function qualificationSyntheticActorToken(m:QualificationFixtureAuthority):string {
+  if(!m.syntheticActor)throw new Error('qualification synthetic actor absent');
+  const {tokenPath,expiresAt}=m.syntheticActor;
+  const expiry=Date.parse(expiresAt);
+  if(!Number.isFinite(expiry) || expiry<=Date.now() ||
+    tokenPath!==join(m.fixtureRoot,'actor-token') || !tokenPath.startsWith('/private/tmp/') || resolve(tokenPath)!==tokenPath)
+    throw new Error('qualification synthetic actor scope invalid');
+  const st=lstatSync(tokenPath);
+  if(realpathSync(tokenPath)!==tokenPath || !st.isFile() || st.isSymbolicLink() || st.nlink!==1 ||
+    st.uid!==process.getuid?.() || (st.mode&0o777)!==0o600)
+    throw new Error('qualification synthetic actor token ownership invalid');
+  const token=readFileSync(tokenPath,'utf8');
+  if(!/^[a-f0-9]{64}$/.test(token) || createHash('sha256').update(token).digest('hex')!==m.tokenSha256)
+    throw new Error('qualification synthetic actor token invalid');
+  return token;
+}
 /** Explicit private startup authority, never an HTTP-selected filesystem path. */
 export function loadQualificationFixtureAuthority(): QualificationFixtureAuthority | null {
-  if(cached!==undefined){if(cached){const file=process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST!;const st=lstatSync(file);if(realpathSync(file)!==file || !st.isFile() || st.isSymbolicLink() || st.nlink!==1 || st.uid!==process.getuid?.() || (st.mode&0o777)!==0o600 || readFileSync(file,'utf8')!==authorityBytes)throw new Error('qualification startup authority changed');}return cached;}
+  if(cached!==undefined){if(cached){const file=process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST!;const st=lstatSync(file);if(realpathSync(file)!==file || !st.isFile() || st.isSymbolicLink() || st.nlink!==1 || st.uid!==process.getuid?.() || (st.mode&0o777)!==0o600 || readFileSync(file,'utf8')!==authorityBytes)throw new Error('qualification startup authority changed');if(cached.syntheticActor && qualificationSyntheticActorToken(cached)!==actorTokenBytes)throw new Error('qualification synthetic actor changed');}return cached;}
   const manifest=process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
   if(!manifest)return cached=null;
   const owned=(p:string,mode:number,directory=false)=>{
@@ -34,6 +53,15 @@ export function loadQualificationFixtureAuthority(): QualificationFixtureAuthori
   if(process.env.DB_CLIENT && process.env.DB_CLIENT!=='sqlite')throw new Error('qualification requires SQLite');
   try { const db=lstatSync(m.dbPath);if(!db.isFile() || db.isSymbolicLink() || realpathSync(m.dbPath)!==m.dbPath || db.uid!==process.getuid?.() || db.nlink!==1 || (db.mode&0o077)!==0)throw new Error('qualification database must be private owned regular bytes'); } catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
   if(m.profileSeedPath){if(!m.profileSeedPath.startsWith(m.fixtureRoot+'/'))throw new Error('qualification profile seed out of scope');owned(m.profileSeedPath,0o600);}
+  if(m.syntheticActor){
+    const actor=m.syntheticActor,expiry=Date.parse(actor.expiresAt);
+    if(actor.tokenPath!==join(m.fixtureRoot,'actor-token') || !/^qualification-fixture:[A-Za-z0-9_-]{1,128}$/.test(m.publicUserSeed.googleSub) ||
+      !/^[^@\s]+@[^@\s]+\.invalid$/.test(m.publicUserSeed.email) || !Number.isFinite(expiry) || expiry<=Date.now() || expiry>Date.now()+86_400_000)
+      throw new Error('qualification synthetic actor scope invalid');
+    owned(actor.tokenPath,0o600);
+    actorTokenBytes=qualificationSyntheticActorToken(m);
+    Object.freeze(actor);
+  }
   Object.freeze(m.publicUserSeed);cached=Object.freeze(m);return cached;
 }
 export function qualificationFixtureTokenValid(header: unknown): boolean {
