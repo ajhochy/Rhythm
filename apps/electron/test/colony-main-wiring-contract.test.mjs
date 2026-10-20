@@ -17,6 +17,17 @@ class MessageChannelMain {
   }
 }
 
+test('actual preload preserves coded lifecycle/capacity failures as handled promise rejections', async () => {
+  let bridge;
+  runInNewContext(await readFile(new URL('../src/preload.cjs', import.meta.url), 'utf8'), {
+    require: () => ({ contextBridge: { exposeInMainWorld(_key, value) { bridge = value; } },
+      ipcRenderer: { sendSync: () => null, on() {}, removeListener() {}, send() {},
+        invoke: async () => ({ kind: 'inventory-error', code: 'oversize' }) } }),
+    process: { argv: [], env: {}, platform: 'darwin' }, window: { addEventListener() {}, dispatchEvent() {} }, CustomEvent: class {},
+  });
+  await assert.rejects(() => bridge.colonyView.inventoryPage({ collection: 'threads' }), /^Error: \[colony:oversize\] Colony operation exceeds its size or capacity limit$/);
+});
+
 async function viewFixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rhythm-colony-main-wire-'))
   t.after(() => fs.rm(root, { recursive: true, force: true }))

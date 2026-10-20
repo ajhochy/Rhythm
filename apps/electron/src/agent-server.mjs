@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { normalizeRemoteProductionApiBase } from '../../shared/production-api-base.mjs';
 import { capabilityMaterial } from './human-approval-main-signer.mjs';
+import { createQualificationApprovalSigner } from './qualification-approval-signer.mjs';
 
 const run = promisify(execFile);
 const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -125,7 +126,13 @@ export function loadQualificationSyntheticActor(options = {}) {
     throw new Error('qualification synthetic actor userData ownership invalid');
   if(['auth-session.bin','remote-attach-grant.bin','server-config.json'].some(name=>existsSync(join(userDataPath,name))))
     throw new Error('qualification synthetic actor userData contains regular account state');
-  return Object.freeze({token:fixture.token,ownerUserId:fixture.manifest.ownerUserId,fixtureRoot:fixture.manifest.fixtureRoot});
+  const approvalSigner=fixture.manifest.syntheticActor.approvalSigner
+    ? createQualificationApprovalSigner({
+      manifestPath:options.manifestPath ?? process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST,
+      readAuthority:()=>readQualificationFixtureManifest(options),
+    }) : undefined;
+  return Object.freeze({token:fixture.token,ownerUserId:fixture.manifest.ownerUserId,fixtureRoot:fixture.manifest.fixtureRoot,
+    ...(approvalSigner?{approvalSigner}:{})});
 }
 
 export function electronDbPath() {
@@ -441,7 +448,8 @@ export class AgentServerService {
 
     const qualificationFixture=Boolean(process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST);
     if(qualificationFixture)electronDbPath(); // Validate the immutable exact-build authority before probing or adopting anything.
-    const syntheticActor=qualificationFixture && Boolean(loadQualificationSyntheticActor());
+    const actor=qualificationFixture ? loadQualificationSyntheticActor() : null;
+    const syntheticActor=Boolean(actor);
 
     const occupied = [];
     for (const port of [AGENT_SERVER_PORT, AGENT_SERVER_ENGINE_PORT]) {
@@ -467,7 +475,15 @@ export class AgentServerService {
     if (generation !== this.#generation) return this.status;
 
     let material={humanApprovalPublicKey:'',humanApprovalCapabilitySha256:''};
-    if(!syntheticActor){
+    if(actor?.approvalSigner){
+      try {
+        material=await this.#bounded(actor.approvalSigner.capabilityMaterial(), 'reading the qualification approval identity', this.#capabilityBudgetMs);
+      } catch(error){
+        this.#appendStderr(error instanceof Error ? error.message : String(error));
+        this.#setFailed('approvalCredentialsUnavailable','The private qualification approval identity is unavailable.');
+        return this.status;
+      }
+    }else if(!syntheticActor){
       try {
         material = await this.#bounded(capabilityMaterial(), 'reading the approval identity', this.#capabilityBudgetMs);
       } catch (error) {

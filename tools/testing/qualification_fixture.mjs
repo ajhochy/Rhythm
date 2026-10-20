@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -38,6 +38,20 @@ export function readQualificationFixture(manifestPath, expectedRevision) {
     if (m.profileSeedPath !== join(m.fixtureRoot, 'profiles.json')) throw new Error('Qualification profile seed escaped fixture');
     owned(m.profileSeedPath, 0o600);
   }
+  if (m.syntheticActor.approvalSigner) {
+    const signer = m.syntheticActor.approvalSigner;
+    const signerRoot = join(m.fixtureRoot, 'approval-signer');
+    if (signer.privateKeyPath !== join(signerRoot, 'key.pk8') || signer.capabilityPath !== join(signerRoot, 'capability'))
+      throw new Error('Qualification approval signer escaped fixture');
+    owned(signerRoot, 0o700, true); owned(signer.privateKeyPath, 0o600); owned(signer.capabilityPath, 0o600);
+    const key = readFileSync(signer.privateKeyPath), capability = readFileSync(signer.capabilityPath, 'utf8');
+    const jwk = createPublicKey(createPrivateKey({ key, format: 'der', type: 'pkcs8' })).export({ format: 'jwk' });
+    const publicKey = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64');
+    if (jwk.crv !== 'P-256' || publicKey !== signer.publicKey || !/^[A-Za-z0-9_-]{43}$/.test(capability)
+      || createHash('sha256').update(key).digest('hex') !== signer.privateKeySha256
+      || createHash('sha256').update(capability).digest('hex') !== signer.capabilitySha256)
+      throw new Error('Qualification approval signer bytes differ');
+  }
   return { manifest: m, userDataPath };
 }
 
@@ -59,10 +73,22 @@ export function createQualificationFixture(sourceRevision) {
     sessionSelectable: true, schedulable: true, reasoningEffort: 'low', autoApproveActions: false,
   }));
   writeFileSync(profileSeedPath, JSON.stringify({ profiles }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  const signerRoot = join(fixtureRoot, 'approval-signer'); mkdirSync(signerRoot, { mode: 0o700 });
+  const pair = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const privateKey = pair.privateKey.export({ format: 'der', type: 'pkcs8' });
+  const jwk = pair.publicKey.export({ format: 'jwk' });
+  const publicKey = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64');
+  const privateKeyPath = join(signerRoot, 'key.pk8'), capabilityPath = join(signerRoot, 'capability');
+  const capability = randomBytes(32).toString('base64url');
+  writeFileSync(privateKeyPath, privateKey, { mode: 0o600, flag: 'wx' });
+  writeFileSync(capabilityPath, capability, { mode: 0o600, flag: 'wx' });
+  const approvalSigner = { privateKeyPath, capabilityPath, publicKey,
+    privateKeySha256: createHash('sha256').update(privateKey).digest('hex'),
+    capabilitySha256: createHash('sha256').update(capability).digest('hex') };
   const manifest = { schemaVersion: 1, sourceRevision, fixtureRoot, dbPath: join(fixtureRoot, 'rhythm.db'), ownerId, ownerUserId,
     tokenSha256: createHash('sha256').update(token).digest('hex'), profileSeedPath,
     publicUserSeed: { id: ownerUserId, name: `[smoke] ${ownerId}`, email: `${ownerId}@qualification.invalid`, googleSub: `qualification-fixture:${ownerId}`, timezone: 'UTC' },
-    syntheticActor: { tokenPath, expiresAt: new Date(Date.now() + 23 * 3_600_000).toISOString() } };
+    syntheticActor: { tokenPath, expiresAt: new Date(Date.now() + 23 * 3_600_000).toISOString(), approvalSigner } };
   const manifestPath = join(fixtureRoot, 'manifest.json');
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
   readQualificationFixture(manifestPath, sourceRevision);

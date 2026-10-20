@@ -95,7 +95,8 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification, protocol: { registerSchemesAsPrivileged() {}, handle: (key, fn) => protocols.set(key, fn) }, safeStorage, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal(url) { opened.push(url); } }, dialog: { showErrorBox() {} } };
     else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096,
       electronDbPath: () => join(directory, 'electron.db'), legacyFlutterDbPath: () => join(directory, 'legacy.db'),
-      loadQualificationSyntheticActor: () => syntheticActor ? { token: 'fixture-token', ownerUserId: 1, fixtureRoot: directory } : null };
+      loadQualificationSyntheticActor: () => syntheticActor ? { token: 'fixture-token', ownerUserId: 1, fixtureRoot: directory,
+        ...(options.syntheticSigner ? { approvalSigner: options.syntheticSigner } : {}) } : null };
     else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled', port: 9121, url: 'http://127.0.0.1:9121' }), onStatus() {}, async start() {}, async stop() {} }) };
     else if (name === './desktop-google-oauth.mjs') values = { runDesktopGoogleOAuth: (options) => new Promise((resolve) => { logins.push({ options, resolve }); if (immediateLogin) resolve({ sessionToken: 'unexpected', user: { id: 1 } }); }) };
     else if (name === './human-approval-main-signer.mjs') values = signer;
@@ -203,6 +204,11 @@ test('qualification actor signs in through owned local auth without safeStorage,
   assert.equal(h.current().bridge.gateway.productionApiBase, 'http://127.0.0.1:4001');
   assert.equal(h.current().bridge.gateway.qualificationLocalProductionApiBase, 'http://127.0.0.1:4001');
   const grant = h.listeners.get('rhythm:qualification-local-production-api:get');
+  const firstReply = h.event();
+  const writes = [];
+  Object.defineProperty(firstReply, 'returnValue', { get: () => writes[0], set: (value) => writes.push(value) });
+  grant(firstReply);
+  assert.deepEqual(writes, ['http://127.0.0.1:4001'], 'Electron sendSync emits the first assigned reply');
   const guest = { sender: {}, senderFrame: h.current().webContents.mainFrame };
   grant(guest);
   assert.equal(guest.returnValue, null);
@@ -237,6 +243,28 @@ test('ordinary native bridge never grants a fixture-local production origin', as
   assert.equal(ordinaryReply.returnValue, null);
   assert.equal(h.current().bridge.gateway.qualificationLocalProductionApiBase, undefined);
   assert.equal(h.current().bridge.gateway.productionApiBase, A);
+});
+
+test('qualification actor signs only an owned UI decision through its private signer, never the real Keychain helper', async (t) => {
+  let fixtureCalls = 0, realCalls = 0;
+  const h = await host(t, false, undefined, undefined, undefined, { syntheticActor: true,
+    syntheticSigner: {
+      async capability() { fixtureCalls++; return 'fixture-capability'; },
+      async signDecision(value) { fixtureCalls++; return { capability: 'fixture-capability', signature: `fixture:${value.approvalId}` }; },
+    },
+    signer: {
+      capability() { realCalls++; throw new Error('real Keychain forbidden'); },
+      signDecision() { realCalls++; throw new Error('real Keychain forbidden'); },
+    },
+  });
+  assert.equal(await h.current().bridge.humanApproval.capability(), 'fixture-capability');
+  assert.deepEqual(await h.current().bridge.humanApproval.signDecision('owned-card', 'rejected', 'owned-nonce', null),
+    { capability: 'fixture-capability', signature: 'fixture:owned-card' });
+  assert.equal(fixtureCalls, 2);
+  assert.equal(realCalls, 0);
+  const guest = { sender: {}, senderFrame: h.current().webContents.mainFrame };
+  await assert.rejects(h.handlers.get('rhythm:human-approval:sign-decision')(guest, decision), /Privileged IPC denied/);
+  assert.equal(fixtureCalls, 2);
 });
 
 test('qualification actor gives the embedded Hermes host only a private fixture home', async (t) => {

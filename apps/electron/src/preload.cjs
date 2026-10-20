@@ -158,7 +158,14 @@ const colonyView = Object.freeze({
   /** @param {{x:number,y:number,width:number,height:number}} bounds */
   setBounds: (bounds) => ipcRenderer.invoke('colony:view:bounds', { attachment: colonyViewAttachment, bounds }),
   /** @param {{generation?:string,cursor?:string,collection?:'threads'|'projects'|'warnings',limit?:number}} page */
-  inventoryPage: (page) => ipcRenderer.invoke('colony:inventory:page', { attachment: colonyViewAttachment, page }),
+  inventoryPage: async (page) => {
+    const result = await ipcRenderer.invoke('colony:inventory:page', { attachment: colonyViewAttachment, page });
+    if (result?.kind === 'inventory-error' && Object.keys(result).length === 2 && ['oversize', 'busy', 'revoked'].includes(result.code)) {
+      const detail = result.code === 'oversize' ? 'Colony operation exceeds its size or capacity limit' : result.code === 'busy' ? 'Colony inventory is busy' : 'Colony inventory document was revoked';
+      throw new Error(`[colony:${result.code}] ${detail}`);
+    }
+    return result;
+  },
   /** @param {string} generation */
   inventoryCancel: (generation) => ipcRenderer.invoke('colony:inventory:cancel', { attachment: colonyViewAttachment, generation }),
   /** @param {'open'|'showParent'|'reveal'|'copyPath'|'archive'|'restore'|'viewed'} kind @param {string} id */

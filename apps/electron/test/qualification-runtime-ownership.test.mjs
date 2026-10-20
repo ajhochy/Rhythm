@@ -42,6 +42,7 @@ test('a qualification launch refuses a healthy occupied runtime instead of adopt
     } };
     else if(name==='node:fs')values={...await import(name),existsSync:()=>false};
     else if (name === './human-approval-main-signer.mjs') values = { capabilityMaterial: async () => { nativeApprovalCalls++; throw new Error('real Keychain must not be touched'); } };
+    else if (name === './qualification-approval-signer.mjs') values = { createQualificationApprovalSigner: () => { throw new Error('fixture signer must not be used without a descriptor'); } };
     else if (name === '../../shared/production-api-base.mjs') values = { normalizeRemoteProductionApiBase: (value) => value };
     else values = { ...await import(name) };
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });

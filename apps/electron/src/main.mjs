@@ -882,10 +882,9 @@ if (hasSingleInstanceLock) {
   // Only a verified, private qualification actor may route cloud-domain UI requests to its
   // disposable local API. The ordinary production origin policy remains remote HTTPS.
   ipcMain.on('rhythm:qualification-local-production-api:get', (event, ...args) => {
-    // A sync IPC listener must always reply, including denials, so normal launches cannot hang.
-    event.returnValue = null;
-    if (!ownsDocument(event) || args.length || !qualificationSyntheticActor) return;
-    event.returnValue = AGENT_SERVER_BASE_URL;
+    // Electron sends the FIRST returnValue assignment immediately. Always reply exactly once.
+    event.returnValue = ownsDocument(event) && !args.length && qualificationSyntheticActor
+      ? AGENT_SERVER_BASE_URL : null;
   });
   const setProductionApi = createProductionApiSetHandler({
     allowedSender: () => mainWindow?.webContents,
@@ -1106,11 +1105,21 @@ if (hasSingleInstanceLock) {
       intentionalAgentServerRestart = false;
     }
   });
-  ipcMain.handle('rhythm:human-approval:capability', (event, ...args) => {
+  ipcMain.handle('rhythm:human-approval:capability', async (event, ...args) => {
     requireOwnedDocument(event);
     requireNoPayload(args);
     requireOwnedApprovalRuntime();
-    if (qualificationSyntheticActor) throw new Error('qualification fixture approval signer unavailable');
+    if (qualificationSyntheticActor) {
+      const signer = qualificationSyntheticActor.approvalSigner;
+      if (!signer || !productionSessionToken || productionSessionUser?.id !== qualificationSyntheticActor.ownerUserId
+        || agentServer.status?.status !== 'ready' || agentServer.status?.owned !== true) {
+        throw new Error('qualification fixture approval signer unavailable');
+      }
+      const generation = authGeneration;
+      const capability = await signer.capability();
+      if (generation !== authGeneration || !ownsDocument(event)) throw new Error('Signing context changed');
+      return capability;
+    }
     return humanApprovalSigner.capability();
   });
   ipcMain.handle('rhythm:human-approval:sign-decision', async (event, decision, ...args) => {
@@ -1125,9 +1134,15 @@ if (hasSingleInstanceLock) {
       throw new Error('Invalid signing payload');
     }
     requireOwnedApprovalRuntime();
-    if (qualificationSyntheticActor) throw new Error('qualification fixture approval signer unavailable');
+    if (qualificationSyntheticActor && (!qualificationSyntheticActor.approvalSigner
+      || !productionSessionToken || productionSessionUser?.id !== qualificationSyntheticActor.ownerUserId
+      || agentServer.status?.status !== 'ready' || agentServer.status?.owned !== true)) {
+      throw new Error('qualification fixture approval signer unavailable');
+    }
     const generation = authGeneration;
-    const signature = await humanApprovalSigner.signDecision(decision);
+    const signature = await (qualificationSyntheticActor
+      ? qualificationSyntheticActor.approvalSigner.signDecision(decision)
+      : humanApprovalSigner.signDecision(decision));
     if (generation !== authGeneration || !ownsDocument(event)) throw new Error('Signing context changed');
     cancelNativeNotification(decision.approvalId);
     return signature;

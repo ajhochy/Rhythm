@@ -32,6 +32,7 @@ async function fixture({ occupied = [], healthy = true, mkdirError = false, spaw
   await module.link(async (name) => {
     let exports;
     if (name === './human-approval-main-signer.mjs') exports = { capabilityMaterial: () => capabilityHang ? new Promise(() => {}) : Promise.resolve({ humanApprovalPublicKey: 'key', humanApprovalCapabilitySha256: 'hash' }) };
+    else if (name === './qualification-approval-signer.mjs') exports = { createQualificationApprovalSigner: () => { throw new Error('fixture signer must not be used by ordinary runtime tests'); } };
     else {
       exports = { ...await import(name) };
       if (name === 'node:child_process') Object.assign(exports, {
