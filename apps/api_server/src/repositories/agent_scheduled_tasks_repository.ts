@@ -47,6 +47,7 @@ export interface CreateAgentScheduledTaskInput {
   modelId?: string | null;
   allowedMcpsJson?: string;
   allowedSkillsJson?: string;
+  enabled?: boolean;
   createdByUserId?: number;
 }
 
@@ -99,6 +100,7 @@ export class AgentScheduledTasksRepository {
   async createAsync(input: CreateAgentScheduledTaskInput): Promise<AgentScheduledTask> {
     const id = randomUUID();
     const now = new Date().toISOString();
+    const enabled = input.enabled !== false;
 
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(
@@ -106,8 +108,8 @@ export class AgentScheduledTasksRepository {
            (id, name, description, schedule_type, scheduled_time, scheduled_day,
             cron_expression, run_at, timezone, next_run_at, prompt, agent_kind,
             agent_config_id, model_provider, model_id,
-            allowed_mcps_json, allowed_skills_json, created_by_user_id, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+            allowed_mcps_json, allowed_skills_json, enabled, created_by_user_id, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
          RETURNING *`,
         [
           id, input.name, input.description ?? null,
@@ -119,6 +121,7 @@ export class AgentScheduledTasksRepository {
           input.agentConfigId ?? null,
           input.modelProvider ?? null, input.modelId ?? null,
           input.allowedMcpsJson ?? null, input.allowedSkillsJson ?? null,
+          enabled,
           input.createdByUserId ?? null, now, now,
         ],
       );
@@ -130,8 +133,8 @@ export class AgentScheduledTasksRepository {
         (id, name, description, schedule_type, scheduled_time, scheduled_day,
          cron_expression, run_at, timezone, next_run_at, prompt, agent_kind,
          agent_config_id, model_provider, model_id,
-         allowed_mcps_json, allowed_skills_json, created_by_user_id, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         allowed_mcps_json, allowed_skills_json, enabled, created_by_user_id, created_at, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       id, input.name, input.description ?? null,
       input.scheduleType, input.scheduledTime ?? null,
@@ -142,6 +145,7 @@ export class AgentScheduledTasksRepository {
       input.agentConfigId ?? null,
       input.modelProvider ?? null, input.modelId ?? null,
       input.allowedMcpsJson ?? null, input.allowedSkillsJson ?? null,
+      Number(enabled),
       input.createdByUserId ?? null, now, now,
     );
 

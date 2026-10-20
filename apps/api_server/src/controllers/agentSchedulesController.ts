@@ -92,12 +92,13 @@ export class AgentSchedulesController {
       const {
         name, description, scheduleType, scheduledTime, scheduledDay,
         cronExpression, runAt, timezone, prompt, agentKind, agentConfigId,
-        allowedMcps, allowedSkills, modelProvider, modelId,
+        allowedMcps, allowedSkills, modelProvider, modelId, enabled,
       } = req.body as Record<string, unknown>;
 
       if (!name || typeof name !== 'string') throw AppError.badRequest('name is required');
       if (!scheduleType || typeof scheduleType !== 'string') throw AppError.badRequest('scheduleType is required');
       if (!prompt || typeof prompt !== 'string') throw AppError.badRequest('prompt is required');
+      if (enabled != null && typeof enabled !== 'boolean') throw AppError.badRequest('enabled must be a boolean');
 
       // model-override — per-task model override. Both must be strings when present, and
       // they go together (a provider without a model id, or vice versa, can't
@@ -163,6 +164,7 @@ export class AgentSchedulesController {
         allowedSkillsJson: allowedSkills != null ? JSON.stringify(allowedSkills) : undefined,
         modelProvider: typeof modelProvider === 'string' ? modelProvider : undefined,
         modelId: typeof modelId === 'string' ? modelId : undefined,
+        enabled: typeof enabled === 'boolean' ? enabled : undefined,
         createdByUserId: req.auth?.user.id,
       });
 
