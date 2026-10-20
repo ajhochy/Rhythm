@@ -227,6 +227,15 @@ already paid for:
 - More than one Rhythm bundle can be installed. `open -a <path>` resolves via
   LaunchServices by bundle ID and may launch a DIFFERENT copy than the path you
   gave it. `lsof` the running engine to learn which binary is actually serving.
+- Vault note IDs and local search-index IDs are different identities. A memory
+  POST returns the note's frontmatter ULID; the mirrored `agent_memory.id` can
+  be a separate UUID. Engraph references use `memory:<indexMemoryId>`, with a
+  version derived from canonical note bytes. Join through the exact `source_id`
+  path and owned content before comparing IDs or hashes. Comparing a reference
+  directly to the POST ID produced false failures in the 2026-10-20 private
+  memory and Engraph probes. See
+  `docs/testing/results/2026-10-20-synthetic-memory-skills-cwd-dayflow-recon.json`
+  and `agentMemoryService.searchReferences`.
 
 ## 7. Guards that do not run, and tests that pass without testing
 

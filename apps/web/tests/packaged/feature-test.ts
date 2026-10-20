@@ -15,6 +15,7 @@ export const ENGINE = 'http://127.0.0.1:4096';
 // These precise 404s are the deletion proof, not a service outage. Never allow arbitrary ERROR lines.
 const deletedOwnSessions = new Set<string>();
 const expiredOwnedApprovalIds = new Set<string>();
+const absentPrivateArtifactIds = new Map<string, number>();
 export const expectedRevision = process.env.RHYTHM_FEATURE_EXPECTED_REVISION
   ?? execFileSync('git', ['rev-parse', 'mega/2026-09-29-consolidation'], { encoding: 'utf8' }).trim();
 process.env.RHYTHM_FEATURE_EXPECTED_REVISION ??= expectedRevision;
@@ -214,6 +215,17 @@ export function expectExpiredOwnedApprovalDenial(id: string, action: string, dec
   expiredOwnedApprovalIds.add(id);
 }
 
+/** Declare an exact nonexistent UUID before exercising the private artifact's unavailable state. */
+export function expectAbsentPrivateArtifact(id: string) {
+  const manifestPath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
+  expect(manifestPath, 'negative artifact check requires a disposable actor').toBeTruthy();
+  const manifest = readQualificationFixture(manifestPath!, expectedRevision).manifest;
+  expect(manifest.syntheticActor).toBeDefined();
+  expect(id).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
+  expect(localRows('SELECT id FROM live_artifacts WHERE id=?', id)).toEqual([]);
+  absentPrivateArtifactIds.set(id, manifest.ownerUserId);
+}
+
 export const test = packagedTest.extend<{ tasks: OwnedRecords; sessions: OwnedRecords; audit: void }>({
   tasks: async ({ page }, use) => { const records = new OwnedRecords(page, 'tasks'); try { await use(records); } finally { await records.cleanup(); } },
   sessions: async ({ page }, use) => { const records = new OwnedRecords(page, 'sessions'); try { await use(records); } finally { await records.cleanup(); } },
@@ -229,6 +241,7 @@ export const test = packagedTest.extend<{ tasks: OwnedRecords; sessions: OwnedRe
     packaged.pageErrors.length = 0;
     deletedOwnSessions.clear();
     expiredOwnedApprovalIds.clear();
+    absentPrivateArtifactIds.clear();
     try { await use(); } finally {
       await page.unrouteAll({ behavior: 'wait' });
       // Private per-case evidence survives the next worker truncating the shared app log.
@@ -242,7 +255,9 @@ export const test = packagedTest.extend<{ tasks: OwnedRecords; sessions: OwnedRe
         || line.includes(`Handled NOT_FOUND GET /agent-sessions/${id}/model-provenance — AgentSession not found`)));
       const unplanned = unexpected.filter(line => ![...expiredOwnedApprovalIds].some(id =>
         line.includes(`Handled FORBIDDEN PATCH /agent-approvals/${id} — This approval expired; ask for a new proposal`)));
-      expect(unplanned, 'unexpected app errors in this test window').toEqual([]);
+      const errors = unplanned.filter(line => ![...absentPrivateArtifactIds].some(([id, owner]) =>
+        line === `[api_server] [ERROR] Handled NOT_FOUND GET /live-artifacts/${id} — Live artifact not found { authUserId: ${owner} }`));
+      expect(errors, 'unexpected app errors in this test window').toEqual([]);
     }
   }, { auto: true }],
 });
