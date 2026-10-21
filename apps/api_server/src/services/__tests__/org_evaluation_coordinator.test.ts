@@ -37,7 +37,12 @@ beforeEach(() => {
 afterEach(() => { setDb(previous); db.close(); });
 
 function harness(options: { finalScore?: number; mutateDuring?: boolean; unknownUsage?: boolean;
-  publishFailure?: boolean; singletonPublication?: boolean } = {}) {
+  publishFailure?: boolean; singletonPublication?: boolean;
+  fencedStage?: 'diagnosis' | 'alternatives' | 'composition' } = {}) {
+  const modelReply = (stage: 'diagnosis' | 'alternatives' | 'composition', value: unknown) => {
+    const json = JSON.stringify(value);
+    return options.fencedStage === stage ? `\n\`\`\`${stage === 'composition' ? '' : 'json'}\n${json}\n\`\`\`\n` : json;
+  };
   const calls: Array<{ type: string; phase?: string; role?: string; prompt?: string }> = [];
   const selectedDiagnosis: OrgEvaluationDiagnosis = options.singletonPublication ? {
     ...diagnosis, kind: 'publish-skill-to-org', targetRef: 'skill:reviewed-skill', targetRevision: '1',
@@ -94,10 +99,10 @@ function harness(options: { finalScore?: number; mutateDuring?: boolean; unknown
       await repository.reserveTokensAsync({ jobId: input.jobId, stage: input.stage, reservationKey: `model-${calls.length}`, maxTokens: 20 });
       await repository.settleTokensAsync({ jobId: input.jobId, reservationKey: `model-${calls.length}`,
         usage: { totalTokens: 8, inputTokens: 5, outputTokens: 3, cacheReadTokens: null, reasoningTokens: null } });
-      if (!generated) { generated = true; return JSON.stringify({ diagnoses: [selectedDiagnosis] }); }
-      if (input.stage === 'generator') return JSON.stringify({ candidates: [patch('Use Actions heading'), patch('Always show Actions heading')] });
+      if (!generated) { generated = true; return modelReply('diagnosis', { diagnoses: [selectedDiagnosis] }); }
+      if (input.stage === 'generator') return modelReply('alternatives', { candidates: [patch('Use Actions heading'), patch('Always show Actions heading')] });
       const data = JSON.parse(input.prompt.split('Untrusted frozen data: ')[1]);
-      return JSON.stringify({ change: patch('Use Actions heading; preserve facts'), parts: data.variants.map((candidate: { id: string }, index: number) => ({
+      return modelReply('composition', { change: patch('Use Actions heading; preserve facts'), parts: data.variants.map((candidate: { id: string }, index: number) => ({
         sourceCandidateId: candidate.id, changePath: '/configPatch/value', sourceFragment: index === 0 ? 'Use Actions heading' : 'Always show Actions heading', retained: index === 0,
         reason: index === 0 ? 'Passed the task case' : 'No additional supported benefit',
         evidenceResultIds: data.observations.filter((result: { candidateId: string }) => result.candidateId === candidate.id)
@@ -115,6 +120,17 @@ function harness(options: { finalScore?: number; mutateDuring?: boolean; unknown
 }
 
 describe('pre-review coordinator sequencing and queue boundary', () => {
+  it.each(['diagnosis', 'alternatives', 'composition'] as const)(
+    'accepts one whole fenced JSON response at the %s model stage', async (fencedStage) => {
+      const { coordinator } = harness({ fencedStage });
+      const result = await coordinator.run({ ownerUserId: null,
+        settings: { tokenLimit: 10000, candidateCount: 2 }, context: { trusted: 'fixture' } });
+      expect(result.cycle.status, result.cycle.failureReason ?? '').toBe('qualified');
+      expect(result.proposals).toHaveLength(1);
+      expect((await repository.listCandidatesAsync(result.evaluations[0].id)).map(candidate => candidate.role))
+        .toEqual(['original', 'variant', 'variant', 'composition', 'final']);
+    },
+  );
   it('tests one code-owned publication action without fabricating variants or composition', async () => {
     const { coordinator, calls } = harness({ singletonPublication: true });
     const result = await coordinator.run({ ownerUserId: null,

@@ -22,6 +22,7 @@ import type { OrgEvaluationTargetSnapshot } from './org_evaluation_fixture';
 import { publicationReceiverInput } from './org_evaluation_publication_state';
 import { startOrgEvaluationPublishReceiverAsync } from './org_evaluation_publish_receiver';
 import { verifyScopeDelegationEffects } from './org_evaluation_scope_effects';
+import { unpublishedOrgSkillEvent } from './org_evaluation_skill_absence';
 import { externalSkillReceiverInput, startExternalSkillReceiverAsync } from './org_evaluation_external_source';
 import type {
   EvaluationExecuteRequest,
@@ -668,6 +669,10 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
             publicationEvents.push({ kind: 'org-skill-fetch', source: 'loopback-receiver',
               subject: publication.name, evidenceHash: engineFetch.contentHash! });
           }
+          const unavailable = unpublishedOrgSkillEvent({ name: publication.name,
+            action: publication.action, publishedBody: publicationObservations.publishedBody,
+            requests: publicationObservations.requests });
+          if (unavailable) publicationEvents.push(unavailable);
         }
         execution.observedEffects.push(...publicationEvents);
         if (externalSource && externalObservations?.some((entry) =>

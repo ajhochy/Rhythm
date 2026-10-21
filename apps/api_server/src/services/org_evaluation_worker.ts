@@ -8,6 +8,7 @@ import { appendFileSync, existsSync, lstatSync, readFileSync, readdirSync } from
 import { join, relative, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import type { OrgEvaluationProposalKind } from '../models/org_evaluation';
+import { retiredSkillUnavailableEvent, skillNotFoundEvent } from './org_evaluation_skill_absence';
 
 export interface EvaluationMaterializeRequest {
   candidateId: string;
@@ -498,6 +499,12 @@ export async function executeOrgEvaluationTaskAsync(request: EvaluationExecuteRe
         }
       }
     }
+    if (request.kind === 'consolidate-skill' && !request.baseline) {
+      const { readManagedSkillBytes } = await import('./rhythm_managed_skills');
+      const retired = retiredSkillUnavailableEvent({ db, targetRef: request.targetRef,
+        changeJson: request.changeJson, historyParts, readManagedBytes: readManagedSkillBytes });
+      if (retired) observedEffects.push(retired);
+    }
     if (request.kind === 'external-adoption' && !request.baseline) {
       const change = JSON.parse(request.changeJson!) as { candidateKind?: string; skillName?: string };
       const sourceName = change.candidateKind === 'skill' ? change.skillName : undefined;
@@ -524,8 +531,8 @@ export async function executeOrgEvaluationTaskAsync(request: EvaluationExecuteRe
           evidenceHash: sha256(JSON.stringify(toolEvents)) });
       }
       if (!publicationBefore.published) {
-        observedEffects.push({ kind: 'org-skill-unavailable', source: 'engine-session', subject: name,
-          evidenceHash: publicationBefore.stateHash });
+        const unavailable = skillNotFoundEvent(historyParts, name);
+        if (unavailable) observedEffects.push(unavailable);
       }
     }
     const publicationAfterPrompt = request.kind === 'publish-skill-to-org'

@@ -16,6 +16,7 @@ import { orgEvaluationSchemaHints } from './org_evaluation_schema_hints';
 import { assertOrgEvaluationTargetBinding } from './org_evaluation_target_binding';
 import { normalizeToolInstallDiagnosisAsync, normalizeToolInstallCandidateChange } from './org_evaluation_tool_inputs';
 import { deriveSingletonPublicationAction } from './org_evaluation_singleton_action';
+import { parseEvaluationModelJson } from './org_evaluation_model_json';
 
 /** Fixed before alternatives are authored. No executable commands come from a model-written test. */
 export interface OrgEvaluationTask {
@@ -99,7 +100,7 @@ export function evaluationContextBatches(context: unknown): string[] {
 }
 
 export function parseEvaluationDiagnoses(raw: string): OrgEvaluationDiagnosis[] {
-  const parsed: unknown = JSON.parse(raw);
+  const parsed: unknown = parseEvaluationModelJson(raw);
   if (!record(parsed) || Object.keys(parsed).join(',') !== 'diagnoses' || !Array.isArray(parsed.diagnoses)
     || parsed.diagnoses.length > 3) throw new Error('Expected at most three bounded diagnoses');
   return parsed.diagnoses.map((value) => {
@@ -284,7 +285,7 @@ ${batch}` }));
         if (evaluationCanonicalJson(fresh) !== evaluationCanonicalJson(snapshot)) throw new Error('Target changed while testing');
         return await this.transition(job, { status: 'qualified', finalCandidateId: final.id });
       }
-      const alternatives: unknown = JSON.parse(await this.deps.model({ jobId: job.id, stage: 'generator', prompt:
+      const alternatives: unknown = parseEvaluationModelJson(await this.deps.model({ jobId: job.id, stage: 'generator', prompt:
         `Return ONLY {"candidates":[changeObject,...]}. Write exactly ${settings.candidateCount} distinct general improvements.
 Use the existing proposal change schema and kind; change only the diagnosed target.
 Trusted schema: ${orgEvaluationSchemaHints(diagnosis.kind)}
@@ -302,7 +303,7 @@ ${evaluationCanonicalJson({ problem, snapshot, probes, observedOriginal: baselin
         variants.push(candidate);
         observations.push(...await this.execute(job, candidate, snapshot, probes, 'probe'));
       }
-      const composition: unknown = JSON.parse(await this.deps.model({ jobId: job.id, stage: 'composition', prompt:
+      const composition: unknown = parseEvaluationModelJson(await this.deps.model({ jobId: job.id, stage: 'composition', prompt:
         `Return ONLY {"change":changeObject,"parts":[{"sourceCandidateId":"...","changePath":"/configPatch/value","sourceFragment":"exact meaningful source text portion","retained":true,
 "reason":"...","evidenceResultIds":["..."]}]}. Compose only portions supported by actual execution receipts.
 Record retained and rejected portions with result IDs; do not invent success. Do not alter the kind/target/test requirements.
