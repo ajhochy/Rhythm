@@ -193,7 +193,7 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       delegation: createLiveDelegationGateway(apiBase, config.taskToken, localFetcher),
       mcp: createLiveMcpGateway(apiBase, config.taskToken, localFetcher, config.mcpReady),
       skills: createLiveSkillGateway(apiBase, config.taskToken, localFetcher),
-      schedules: createLiveScheduleGateway(apiBase, config.taskToken, localFetcher),
+      schedules: createLiveScheduleGateway(apiBase, config.taskToken, localFetcher, config.mcpReady),
       mobileAccess: createLiveMobileAccessGateway(apiBase, config.taskToken, localFetcher),
       commands: createLiveCommandGateway(apiBase, config.taskToken, localFetcher),
       runQuality: createLiveRunQualityGateway(apiBase, config.taskToken, localFetcher),

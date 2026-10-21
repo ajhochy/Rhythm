@@ -113,7 +113,21 @@ export function createFixtureScheduleGateway(): ScheduleGateway {
   return { mode: 'fixture', list: unsupported, create: unsupported, update: unsupported, remove: unsupported, triggerNow: unsupported, runs: unsupported, rootSession: unsupported };
 }
 
-export function createLiveScheduleGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): ScheduleGateway {
+function grantsRhythmTools(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.includes('rhythm');
+    if (parsed && typeof parsed === 'object') {
+      const tools = (parsed as Record<string, unknown>).rhythm;
+      return Array.isArray(tools) && tools.length > 0;
+    }
+  } catch { /* The API validates malformed scope. */ }
+  return false;
+}
+
+export function createLiveScheduleGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch,
+  mcpReady?: () => Promise<void>): ScheduleGateway {
   if (!token?.trim()) throw new Error('Live configuration error: a schedules token is required');
   const request = (path: string, init: RequestInit = {}) =>
     fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
@@ -123,7 +137,20 @@ export function createLiveScheduleGateway(apiBase: string, token: string | undef
     create: (input) => response<ScheduledTask>('Create scheduled task', request('/agent-schedules', { method: 'POST', body: JSON.stringify(input) })),
     update: (id, patch) => response<ScheduledTask>('Update scheduled task', request(`/agent-schedules/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) })),
     remove: (id) => response<void>('Delete scheduled task', request(`/agent-schedules/${encodeURIComponent(id)}`, { method: 'DELETE' })),
-    triggerNow: (id) => response<ScheduledTask>('Trigger scheduled task', request(`/agent-schedules/${encodeURIComponent(id)}/trigger-now`, { method: 'POST' })),
+    triggerNow: async (id) => {
+      if (mcpReady) {
+        const task = await response<Pick<ScheduledTask, 'allowedMcpsJson' | 'agentConfigId'>>(
+          'Load scheduled task', request(`/agent-schedules/${encodeURIComponent(id)}`));
+        let scope = task.allowedMcpsJson;
+        if (scope == null && task.agentConfigId) {
+          const profileResponse = await request(`/agent-configs/${encodeURIComponent(task.agentConfigId)}`);
+          if (profileResponse.status === 404) scope = null; // CLI kinds have no profile row.
+          else scope = (await response<{ allowedMcpsJson: string | null }>('Load scheduled profile', Promise.resolve(profileResponse))).allowedMcpsJson;
+        }
+        if (grantsRhythmTools(scope)) await mcpReady();
+      }
+      return response<ScheduledTask>('Trigger scheduled task', request(`/agent-schedules/${encodeURIComponent(id)}/trigger-now`, { method: 'POST' }));
+    },
     runs: (id) => response<ScheduledTaskRun[]>('Load scheduled task runs', request(`/agent-schedules/${encodeURIComponent(id)}/runs`)),
     // apps/api_server/src/controllers/agent_sessions_controller.ts:594-623 responds
     // {session, messages}; unwrap defensively so the owned-navigation contract only
