@@ -1,7 +1,5 @@
 import { randomInt } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { OrgEvaluationRepository } from '../repositories/org_evaluation_repository';
@@ -18,6 +16,11 @@ import { recordTerminalOutcome } from './run_outcome_service';
 import { resolveEvaluationEngineBinary } from './org_evaluation_engine_binary';
 
 let activeReviewerRun = false;
+
+/** The runtime admits only private temporary roots, regardless of inherited TMPDIR. */
+export function createOrgEvaluationWorkerRoot(): string {
+  return mkdtempSync('/private/tmp/rhythm-org-evaluation-');
+}
 
 /** Exact-profile AgentRunner branch. A real Rhythm background session records
  * this work, but the unbounded OpenCode parent turn is never started. */
@@ -75,7 +78,7 @@ export async function runOrgEvaluationReview(opts: AgentRunOptions): Promise<Age
     }
     const relay = getOrgEvaluationProviderRelay();
     const engineBinary = resolveEvaluationEngineBinary();
-    workerBaseRoot = mkdtempSync(join(tmpdir(), 'rhythm-org-evaluation-'));
+    workerBaseRoot = createOrgEvaluationWorkerRoot();
     const { createOrgEvaluationRuntimeAdapter } = await import('./org_evaluation_runtime');
     const runtime = createOrgEvaluationRuntimeAdapter({
       engineBinary, workerBaseRoot,
