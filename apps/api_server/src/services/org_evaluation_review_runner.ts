@@ -15,6 +15,7 @@ import { getOrgEvaluationSettingsAsync } from './org_evaluation_settings';
 import { OrgReviewerService } from './org_reviewer_service';
 import { ORG_REVIEWER_PROFILE_ID } from './org_reviewer_seed';
 import { recordTerminalOutcome } from './run_outcome_service';
+import { resolveEvaluationEngineBinary } from './org_evaluation_engine_binary';
 
 let activeReviewerRun = false;
 
@@ -73,9 +74,7 @@ export async function runOrgEvaluationReview(opts: AgentRunOptions): Promise<Age
       }
     }
     const relay = getOrgEvaluationProviderRelay();
-    const engineBinary = process.env.RHYTHM_OPENCODE_BIN ??
-      (process.env.RHYTHM_OPENCODE_BIN_DIR ? join(process.env.RHYTHM_OPENCODE_BIN_DIR, 'opencode') : '');
-    if (!engineBinary) throw new Error('Bounded evaluation requires a pinned OpenCode fork binary');
+    const engineBinary = resolveEvaluationEngineBinary();
     workerBaseRoot = mkdtempSync(join(tmpdir(), 'rhythm-org-evaluation-'));
     const { createOrgEvaluationRuntimeAdapter } = await import('./org_evaluation_runtime');
     const runtime = createOrgEvaluationRuntimeAdapter({

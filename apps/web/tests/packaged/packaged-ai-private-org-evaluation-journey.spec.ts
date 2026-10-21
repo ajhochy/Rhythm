@@ -5,6 +5,8 @@ import { test as unverified } from '@playwright/test';
 import { test, expect, API, ENGINE, ObservedApi, expectedRevision, localRows,
   responseFor, assertResponse, OwnedRecords } from './feature-test';
 import { readQualificationFixture } from '../../../../tools/testing/qualification_fixture.mjs';
+import { assertOwnedReviewerSchedule, terminalReviewerScheduleError,
+  type ReviewerScheduleState, type ReviewerScheduleRun } from './org-evaluation-schedule-terminal';
 
 type Profile = { id: string; label: string; revision: number; systemPrompt: string | null };
 type Job = { id: string; status: string; budgetRootId: string | null; targetRef: string;
@@ -50,8 +52,10 @@ if (!manifestPath || process.env.RHYTHM_FEATURE_MODEL !== '1') {
   const settingsBefore = await api.json<{ tokenLimit: number; candidateCount: 2 | 3 }>('/agent-org-proposals/evaluations/settings');
   const jobsBefore = new Set((await api.json<{ jobs: Job[] }>('/agent-org-proposals/evaluations')).jobs.map(job => job.id));
   const catalog = await api.json<Array<{ provider: string; modelId: string; authorized: boolean }>>('/agents/models/catalog/full');
+  await testInfo.attach('evaluation-model-catalog', { body: JSON.stringify(catalog.map(({ provider, modelId, authorized }) =>
+    ({ provider, modelId, authorized })), null, 2), contentType: 'application/json' });
   expect(catalog.some(row => row.provider === 'anthropic' && row.modelId === 'claude-sonnet-4-5' && row.authorized),
-    'UNVERIFIED: the exact Anthropic evaluation model must be authorized').toBe(true);
+    `UNVERIFIED: the exact Anthropic evaluation model must be authorized; Anthropic catalog: ${JSON.stringify(catalog.filter(row => row.provider === 'anthropic').map(({modelId,authorized}) => ({modelId,authorized})))}`).toBe(true);
   const scheduleRows = await api.json<Array<{ id: string; name: string; prompt: string; agentConfigId: string;
     agentKind: string; allowedMcpsJson: string | null; allowedSkillsJson: string | null }>>('/agent-schedules');
   const seededReviewer = scheduleRows.find(row => row.name === 'Org Reviewer' && row.agentConfigId === 'org-reviewer');
@@ -134,6 +138,18 @@ if (!manifestPath || process.env.RHYTHM_FEATURE_MODEL !== '1') {
         'no candidate may enter human review while the whole-run budget is active').toEqual([]);
       }
       if (cycle && ['qualified', 'inconclusive', 'failed'].includes(cycle.status)) break;
+      if (!cycle) {
+        const schedule = await api.json<ReviewerScheduleState>(`/agent-schedules/${reviewerTaskId}`);
+        if (assertOwnedReviewerSchedule(schedule, {
+          id: reviewerTaskId!, name: `[smoke] Org Reviewer ${nonce}`, ownerUserId: manifest.ownerUserId,
+        })) {
+          const runs = await api.json<ReviewerScheduleRun[]>(`/agent-schedules/${reviewerTaskId}/runs?limit=1`);
+          evidence.reviewerSchedule = schedule;
+          evidence.reviewerRuns = runs;
+          evidence.jobs = observedJobs;
+          throw terminalReviewerScheduleError(schedule, runs);
+        }
+      }
       await delay(2_000);
     }
     evidence.cycle = cycle;
@@ -146,6 +162,7 @@ if (!manifestPath || process.env.RHYTHM_FEATURE_MODEL !== '1') {
     expect(cycle!.status, cycle!.failureReason ?? 'cycle did not qualify').toBe('qualified');
     expect(child!.status, child!.failureReason ?? 'child did not qualify').toBe('qualified');
     const detail = await api.json<Detail>(`/agent-org-proposals/evaluations/${child!.id}`);
+    evidence.evaluationDetails = [detail];
     expect(detail.budget.maxTokens).toBe(100_000);
     expect(detail.budget.settledTokens).toBeGreaterThan(0);
     expect(detail.budget.settledTokens).toBeLessThanOrEqual(100_000);
@@ -239,7 +256,17 @@ if (!manifestPath || process.env.RHYTHM_FEATURE_MODEL !== '1') {
     evidence.realUseSessionId = fresh.id;
     evidence.originalValidationSessions = originalSessions;
     evidence.finalValidationSessions = finalSessions;
-  } catch (error) { primaryError = error; throw error; }
+  } catch (error) {
+    primaryError = error;
+    // Preserve real receipts before the owned finally cleanup removes rows.
+    const details: unknown[] = [];
+    for (const id of evaluationIds) {
+      try { details.push(await api.json<Detail>(`/agent-org-proposals/evaluations/${id}`)); }
+      catch { details.push({ id, unavailable: true }); }
+    }
+    evidence.evaluationDetails = details;
+    throw error;
+  }
   finally {
     const cleanupErrors: string[] = [];
     try { await afterUse.cleanup(); } catch (error) { cleanupErrors.push(`fresh session: ${String(error)}`); }
