@@ -4,6 +4,7 @@ import { useGateway } from '../gateway/context';
 import type { AgentMemory } from '../gateway/memory';
 import type { OrgProposal } from '../gateway/org-proposals';
 import { ScheduleGatewayError, type ScheduledTask, type ScheduledTaskInput, type ScheduledTaskRun } from '../gateway/schedules';
+import { formatLocalDateTime, localDateTimeToIso, scheduleTimeZones, validateScheduleTiming } from '../scheduleTiming.mjs';
 import type { AgentRunQuality } from '../gateway/run-quality';
 import type { CommandEntry, ManagedCommandContent } from '../gateway/commands';
 import type { CookbookRecipe } from '../gateway/cookbook';
@@ -838,6 +839,8 @@ function LiveSchedulesTool() {
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const tasksLoaded = useRef(false);
   const [editing, setEditing] = useState<ScheduledTask | 'new' | null>(null);
+  const [editorType, setEditorType] = useState('daily');
+  const [timingError, setTimingError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<ScheduledTask | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-schedules', detail: 'Loading live schedules' });
@@ -907,6 +910,15 @@ function LiveSchedulesTool() {
   };
 
   const toggleEnabled = async (task: ScheduledTask) => {
+    if (!task.enabled) {
+      const timingError = validateScheduleTiming({ ...task, enabled: true });
+      if (timingError) {
+        setEditorType(task.scheduleType);
+        setTimingError(timingError);
+        setEditing({ ...task, enabled: true });
+        return;
+      }
+    }
     try {
       const next = await gateway.domains.schedules!.update(task.id, { enabled: !task.enabled });
       setTasks((current) => current.map((item) => (item.id === next.id ? next : item)));
@@ -966,7 +978,36 @@ function LiveSchedulesTool() {
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    const input: ScheduledTaskInput = { name: String(data.get('name')), prompt: String(data.get('prompt')), scheduleType: String(data.get('type')), enabled: data.get('enabled') === 'on' };
+    const scheduleType = String(data.get('type'));
+    const enabled = data.get('enabled') === 'on';
+    const input: ScheduledTaskInput = { name: String(data.get('name')), prompt: String(data.get('prompt')), scheduleType, enabled };
+    if (scheduleType === 'once') {
+      const localValue = String(data.get('runAt') ?? '');
+      const originalValue = event.currentTarget.dataset.originalRunAtInput ?? '';
+      const originalIso = editing && editing !== 'new' ? editing.runAt : null;
+      if (localValue) {
+        const runAt = localDateTimeToIso(localValue, originalValue, originalIso);
+        if (runAt) input.runAt = runAt;
+      }
+    } else {
+      const timeZone = String(data.get('timezone') ?? '');
+      input.timezone = timeZone;
+      if (scheduleType === 'cron') {
+        const expression = String(data.get('cronExpression') ?? '').trim();
+        if (expression) input.cronExpression = expression;
+      } else {
+        const scheduledTime = String(data.get('scheduledTime') ?? '');
+        if (scheduledTime) input.scheduledTime = scheduledTime;
+        if (scheduleType === 'weekly' || scheduleType === 'monthly') {
+          const rawDay = String(data.get('scheduledDay') ?? '');
+          const day = Number(rawDay);
+          if (rawDay !== '') input.scheduledDay = day;
+        }
+      }
+    }
+    const validationError = validateScheduleTiming(input);
+    if (validationError) { setTimingError(validationError); return; }
+    setTimingError(null);
     try {
       if (editing === 'new') {
         const created = await gateway.domains.schedules!.create(input);
@@ -977,11 +1018,15 @@ function LiveSchedulesTool() {
         setTasks((current) => current.map((item) => (item.id === updated.id ? updated : item)));
         setTrace({ method: 'PATCH', route: `/agent-schedules/${editing.id}`, detail: 'Schedule updated' });
       }
-    } catch (err) { notify(err instanceof Error ? err.message : 'Save failed'); }
+    } catch (err) { setTimingError(err instanceof Error ? err.message : 'Save failed'); return; }
     setEditing(null);
   };
 
-  return <ToolFrame slug="tasks" title="Agent Schedules" description="Create and operate recurring or one-time agent jobs, with linked session history." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => void loadTasks()} data-testid="schedules-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => setEditing('new')} data-testid="schedule-new"><Icon name="plus" size={14} />New Schedule</button></>}>
+  const openNew = () => { setError(null); setTimingError(null); setEditorType('daily'); setEditing('new'); };
+  const openEdit = (task: ScheduledTask) => { setError(null); setTimingError(null); setEditorType(task.scheduleType); setEditing(task); };
+  const zoneChoices = scheduleTimeZones(editing && editing !== 'new' ? editing.timezone : Intl.DateTimeFormat().resolvedOptions().timeZone);
+
+  return <ToolFrame slug="tasks" title="Agent Schedules" description="Create and operate recurring or one-time agent jobs, with linked session history." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => void loadTasks()} data-testid="schedules-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={openNew} data-testid="schedule-new"><Icon name="plus" size={14} />New Schedule</button></>}>
     <ListInspector
       label="Scheduled agent jobs"
       toolbar={refreshError ? <p role="status" data-testid="schedule-refresh-error">Progress may be stale; retrying. Use Refresh to check again. {refreshError}</p> : undefined}
@@ -996,7 +1041,7 @@ function LiveSchedulesTool() {
           <div><span className={`state-badge ${selected.enabled ? 'completed' : ''}`}>{selected.enabled ? 'Enabled' : 'Disabled'}</span><p>{selected.prompt}</p></div>
           <div className="row-actions">
             <button className="secondary-button compact" type="button" onClick={() => void toggleEnabled(selected)} data-testid="schedule-toggle">{selected.enabled ? 'Disable' : 'Enable'}</button>
-            <button className="secondary-button compact" type="button" onClick={() => setEditing(selected)} data-testid="schedule-edit"><Icon name="rename" size={13} />Edit</button>
+            <button className="secondary-button compact" type="button" onClick={() => openEdit(selected)} data-testid="schedule-edit"><Icon name="rename" size={13} />Edit</button>
             <button className="text-danger-button" type="button" onClick={() => setDeleting(selected)} data-testid="schedule-delete"><Icon name="delete" size={13} />Delete</button>
           </div>
         </header>
@@ -1005,6 +1050,7 @@ function LiveSchedulesTool() {
           <div><dt>Timezone</dt><dd>{selected.timezone}</dd></div>
           <div><dt>Last run</dt><dd>{selected.lastRunAt ? <Timestamp value={selected.lastRunAt} /> : 'Never'}</dd></div>
         </dl>
+        {selected.enabled && !selected.nextRunAt && <p role="alert" data-testid="schedule-timing-warning">This schedule is enabled, but no next run is scheduled. Edit its timing before relying on it.</p>}
         <div className="run-history">
           <header data-testid="schedule-run-context" aria-busy={Boolean(triggerStates[selected.id])}><h3>Run history</h3><button className="primary-button" type="button" aria-disabled={Boolean(triggerStates[selected.id]) || ['queued', 'running'].includes(selected.lastRunStatus ?? '')} onClick={() => void triggerNow()} data-testid="schedule-trigger"><Icon name="resume" size={13} />{triggerStates[selected.id] === 'queueing' ? 'Queueing…' : 'Trigger now'}</button></header>
           <p role="status" aria-live="polite" aria-atomic="true" data-testid="schedule-progress">{triggerStates[selected.id] === 'queueing' ? 'Queueing…' : triggerStates[selected.id] === 'reconciling' ? 'Checking whether the run was accepted…' : selected.lastRunStatus ? `Run ${selected.lastRunStatus}${selected.lastError ? ` · ${selected.lastError}` : ''}` : ''}</p>
@@ -1016,7 +1062,24 @@ function LiveSchedulesTool() {
         </div>
       </> : <p>Select a schedule to inspect its details.</p>}
     />
-    <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title={editing === 'new' ? 'New Schedule' : 'Edit Schedule'} description="Schedule times use the task's own timezone." testId="schedule-editor" wide><form className="form-grid" onSubmit={save}><label className="field">Name<input name="name" required data-autofocus defaultValue={editing && editing !== 'new' ? editing.name : ''} /></label><label className="field">Schedule Type<select name="type" defaultValue={editing && editing !== 'new' ? editing.scheduleType : 'daily'}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="cron">Cron Expression</option><option value="once">Once</option></select></label><label className="field span-2">Instructions / Prompt<textarea name="prompt" required rows={4} defaultValue={editing && editing !== 'new' ? editing.prompt : ''} /></label><label className="check-label span-2"><input type="checkbox" name="enabled" defaultChecked={editing && editing !== 'new' ? editing.enabled : true} />Enabled</label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid="schedule-save">Save</button></footer></form></FocusDialog>
+    <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title={editing === 'new' ? 'New Schedule' : 'Edit Schedule'} description="Recurring times use the selected timezone; one-time dates use this Mac's local time." testId="schedule-editor" wide>
+      <form className="form-grid" onSubmit={save} data-original-run-at-input={formatLocalDateTime(editing && editing !== 'new' ? editing.runAt : null)}>
+        <label className="field">Name<input name="name" required data-autofocus defaultValue={editing && editing !== 'new' ? editing.name : ''} /></label>
+        <label className="field">Schedule Type<select name="type" value={editorType} onChange={(event) => { setEditorType(event.target.value); setTimingError(null); }}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="cron">Cron Expression</option><option value="once">Once</option></select></label>
+        <label className="field span-2">Instructions / Prompt<textarea name="prompt" required rows={4} defaultValue={editing && editing !== 'new' ? editing.prompt : ''} /></label>
+        {editorType === 'once' ? <label className="field span-2">Run at (this Mac's local time)<input type="datetime-local" name="runAt" step="0.001" defaultValue={formatLocalDateTime(editing && editing !== 'new' ? editing.runAt : null)} /></label> : <>
+          {editorType === 'cron' ? <label className="field span-2">Cron expression<input name="cronExpression" defaultValue={editing && editing !== 'new' ? editing.cronExpression ?? '' : ''} /></label> : <>
+            <label className="field">Time<input type="time" name="scheduledTime" defaultValue={editing && editing !== 'new' ? editing.scheduledTime ?? '' : ''} /></label>
+            {editorType === 'weekly' && <label className="field">Weekday<select name="scheduledDay" defaultValue={editing && editing !== 'new' ? String(editing.scheduledDay ?? '') : ''}><option value="">Choose a day</option>{['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((day, index) => <option key={day} value={index}>{day}</option>)}</select></label>}
+            {editorType === 'monthly' && <label className="field">Day of month<select name="scheduledDay" defaultValue={editing && editing !== 'new' ? String(editing.scheduledDay ?? '') : ''}><option value="">Choose a day</option>{Array.from({ length: 31 }, (_, index) => index + 1).map(day => <option key={day} value={day}>{day}</option>)}</select></label>}
+          </>}
+          <label className="field">Timezone<select name="timezone" defaultValue={editing && editing !== 'new' ? editing.timezone : Intl.DateTimeFormat().resolvedOptions().timeZone}>{zoneChoices.map(zone => <option key={zone} value={zone}>{zone}</option>)}</select></label>
+        </>}
+        <label className="check-label span-2"><input type="checkbox" name="enabled" defaultChecked={editing && editing !== 'new' ? editing.enabled : true} />Enabled</label>
+        {timingError && <p role="alert" className="span-2" data-testid="schedule-timing-error">{timingError}</p>}
+        <footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid="schedule-save">Save</button></footer>
+      </form>
+    </FocusDialog>
     <ConfirmDialog open={Boolean(deleting)} title="Delete scheduled task?" description={deleting ? `Delete “${deleting.name}”? This cannot be undone.` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (deleting) void removeTask(deleting); }} testId="schedule-delete-dialog" />
   </ToolFrame>;
 }
