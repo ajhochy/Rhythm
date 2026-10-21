@@ -5,8 +5,12 @@ import type { OpencodeClient } from '@opencode-ai/sdk';
 
 const providerSnapshot = vi.fn();
 const listAuthedProviders = vi.fn();
+const engineReady = vi.hoisted(() => ({ value: true }));
+const engineGeneration = vi.hoisted(() => ({ value: 0 }));
 vi.mock('../opencode_engine', () => ({
   opencodeClient: {
+    get isReady() { return engineReady.value; },
+    get catalogGeneration() { return engineGeneration.value; },
     providerSnapshot: (...a: unknown[]) => providerSnapshot(...a),
     listAuthedProviders: (...a: unknown[]) => listAuthedProviders(...a),
   },
@@ -61,6 +65,8 @@ const ids = (models: RoutableModel[]) => models.map((m) => `${m.providerID}/${m.
 const byId = (models: RoutableModel[], id: string) => models.find((m) => m.modelID === id)!;
 
 beforeEach(() => {
+  engineReady.value = true;
+  engineGeneration.value = 0;
   providerSnapshot.mockReset();
   panelRows.mockReset().mockResolvedValue([]);
   listAuthedProviders.mockReset().mockResolvedValue([]);
@@ -68,6 +74,37 @@ beforeEach(() => {
 });
 
 describe('providerSnapshot pass-through', () => {
+  it('does not issue any config.providers read while startup owns the SDK client', async () => {
+    const service = new OpencodeClientService();
+    service.__setTestAuthedProviders(['openai']);
+    const providers = vi.fn().mockResolvedValue({ data: { providers: [] } });
+    service.__setTestClient({ config: { providers } } as unknown as OpencodeClient);
+    (service as unknown as { status: string }).status = 'initializing';
+    await expect(service.providerSnapshot()).rejects.toThrow('engine_unverified');
+    expect(await service.listAuthedProviders()).toEqual(['openai']);
+    expect(await service.listModels('openai')).toEqual([]);
+    expect(await service.listProviders()).toEqual([]);
+    expect(await service.getDefaultModel('openai')).toBeUndefined();
+    expect(providers).not.toHaveBeenCalled();
+  });
+
+  it('withholds an in-flight provider snapshot when readiness or generation changes', async () => {
+    const service = new OpencodeClientService();
+    service.__setTestAuthedProviders([]);
+    let release!: (value: { data: { providers: [] } }) => void;
+    const providers = vi.fn(() => new Promise<{ data: { providers: [] } }>((resolve) => { release = resolve; }));
+    service.__setTestClient({ config: { providers } } as unknown as OpencodeClient);
+    const pending = service.providerSnapshot();
+    const rejected = expect(pending).rejects.toThrow('engine_unverified');
+    (service as unknown as { status: string }).status = 'reloading';
+    const next = service.providerSnapshot();
+    const rejectedNext = expect(next).rejects.toThrow('engine_unverified');
+    release({ data: { providers: [] } });
+    await Promise.all([rejected, rejectedNext]);
+    expect(next).not.toBe(pending);
+    expect(providers).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps cost, releaseDate, family and reasoning next to the existing fields', async () => {
     const service = new OpencodeClientService();
     service.__setTestAuthedProviders([]);
@@ -459,6 +496,49 @@ describe('static fallback', () => {
 });
 
 describe('cache', () => {
+  it('does not serve a warm live catalog from an earlier engine generation', async () => {
+    const vis = curated('acme/old', 'acme/new');
+    providerSnapshot.mockResolvedValueOnce(snap(provider('acme', [model('old', { out: 10 })])));
+    expect(ids((await getRoutableModelsRaw({ settings: settings(), visibility: vis })).models)).toEqual(['acme/old']);
+    engineReady.value = false;
+    engineGeneration.value++;
+    providerSnapshot.mockRejectedValueOnce(new Error('engine_unverified'));
+    expect((await getRoutableModelsRaw({ settings: settings(), visibility: vis })).source).toBe('static');
+    engineReady.value = true;
+    providerSnapshot.mockResolvedValue(snap(provider('acme', [model('new', { out: 10 })])));
+    const next = await getRoutableModelsRaw({ settings: settings(), visibility: vis });
+    expect(next.source).toBe('live');
+    expect(ids(next.models)).toEqual(['acme/new']);
+  });
+
+  it('does not keep an unready static fallback after the engine first becomes ready', async () => {
+    engineReady.value = false;
+    providerSnapshot.mockRejectedValueOnce(new Error('engine_unverified'));
+    const vis = curated('acme/m');
+    const fallback = await getRoutableModelsRaw({ settings: settings(), visibility: vis });
+    expect(fallback.source).toBe('static');
+    engineReady.value = true;
+    providerSnapshot.mockResolvedValue(snap(provider('acme', [model('m', { out: 10 })])));
+    const live = await getRoutableModelsRaw({ settings: settings(), visibility: vis });
+    expect(live.source).toBe('live');
+    expect(ids(live.models)).toEqual(['acme/m']);
+  });
+
+  it('does not cache an unready request that finishes after the engine becomes ready', async () => {
+    engineReady.value = false;
+    let release!: (value: ProviderSnapshot) => void;
+    providerSnapshot.mockImplementationOnce(() => new Promise<ProviderSnapshot>((resolve) => { release = resolve; }));
+    const vis = curated('acme/m');
+    const first = getRoutableModelsRaw({ settings: settings(), visibility: vis });
+    await vi.waitFor(() => expect(providerSnapshot).toHaveBeenCalledTimes(1));
+    engineReady.value = true;
+    release(snap());
+    expect((await first).source).toBe('static');
+    providerSnapshot.mockResolvedValue(snap(provider('acme', [model('m', { out: 10 })])));
+    const live = await getRoutableModelsRaw({ settings: settings(), visibility: vis });
+    expect(live.source).toBe('live');
+  });
+
   it('serves 60s from memory and is invalidated when the settings change', async () => {
     providerSnapshot.mockResolvedValue(snap(provider('acme', [model('m', { out: 10 })])));
     const vis = curated('acme/m');

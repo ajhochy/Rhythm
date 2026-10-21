@@ -340,6 +340,19 @@ validate_copied_data_inputs() {
   local optimizer_mode="${RHYTHM_OPTIMIZER_MODE:-shadow}"
   [[ "$optimizer_mode" == "shadow" ]] || fail "sandbox copied-data mode requires RHYTHM_OPTIMIZER_MODE=shadow, got '$optimizer_mode'"
 
+  case "${RHYTHM_SANDBOX_SYNTHETIC_OPENAI_CATALOG:-}" in
+    '') ;;
+    1)
+      # This opt-in must prove the API's first-boot account seed. A copied
+      # engine auth entry would exercise restoreAuth instead and could carry
+      # credentials from the source fixture.
+      if [[ -e "$config_path/auth.json" || -L "$config_path/auth.json" ]]; then
+        fail 'synthetic OpenAI catalog requires fixture without auth.json'
+      fi
+      ;;
+    *) fail 'RHYTHM_SANDBOX_SYNTHETIC_OPENAI_CATALOG must be 1 when set' ;;
+  esac
+
   validate_sanitized_config "$config_path"
 }
 
@@ -439,6 +452,25 @@ copy_runtime_files() {
   if [[ -d "$config_src" && -d "$config_src/skills" ]]; then
     cp -R "$config_src/skills" "$sandbox_home/.config/opencode/"
   fi
+}
+
+seed_synthetic_openai_catalog_account() {
+  [[ "${RHYTHM_SANDBOX_SYNTHETIC_OPENAI_CATALOG:-}" == 1 ]] || return 0
+  [[ -d "$SB" && ! -L "$SB" && -O "$SB" ]] || fail 'synthetic catalog requires an owned sandbox'
+  local sandbox_home="$SB/home"
+  local engine_auth="$sandbox_home/.local/share/opencode/auth.json"
+  [[ ! -e "$engine_auth" && ! -L "$engine_auth" ]] || fail 'synthetic catalog requires no copied engine auth'
+  local account_dir="$sandbox_home/Library/Application Support/Rhythm"
+  mkdir -p -m 700 "$account_dir"
+  local account_file="$account_dir/openai-accounts.json"
+  [[ ! -e "$account_file" && ! -L "$account_file" ]] || fail 'synthetic catalog account destination already exists'
+  # Deliberately inert: the test reads catalog metadata only. Refresh is empty
+  # and expiry is in 2100, so the normal startup refresher makes no request.
+  ( umask 077; set -o noclobber; cat >"$account_file" <<'JSON'
+{"version":1,"accounts":[{"id":"synthetic-catalog-only","label":"Synthetic catalog only","access":"synthetic-catalog-only-do-not-use","refresh":"","expires":4102444800000,"status":"ok","chatgptAccountId":"synthetic-catalog-only"}],"defaultAccountId":"synthetic-catalog-only","routing":{},"pinned":{}}
+JSON
+  )
+  chmod 600 "$account_file"
 }
 
 copy_relay_runtime_files() {
@@ -683,6 +715,7 @@ up() {
   mkdir -m 700 "$SB"
   prepare_security_shim
   copy_runtime_files
+  seed_synthetic_openai_catalog_account
   if preservation_enabled; then
     if [[ -n "${RHYTHM_SANDBOX_PREBUILT_INTAKE:-}" ]]; then
       python3 -I "$ROOT/tools/dev/sandbox_copy_fixture.py" "$RHYTHM_LIVE_DB_PATH" "$SB/rhythm.db" --wal-bootstrap

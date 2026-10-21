@@ -126,7 +126,7 @@ export function isLongContextModelId(modelID: string): boolean {
   return LONG_CONTEXT_RE.test(modelID);
 }
 
-let cache: { key: string; at: number; value: BaseCatalog } | null = null;
+let cache: { key: string; generation: number; at: number; value: BaseCatalog } | null = null;
 
 export function resetModelCatalogCache(): void {
   cache = null;
@@ -398,17 +398,24 @@ async function computeBase(opts: RoutableModelOptions): Promise<BaseCatalog> {
   const cacheable = !opts.snapshot && !opts.authed && !opts.entitled;
   const visibility = opts.visibility ?? loadModelVisibility();
   const key = settingsKey(settings, visibility);
-  if (cacheable && cache && cache.key === key && Date.now() - cache.at < CACHE_TTL_MS) {
-    return cache.value;
-  }
   let snapshot: ProviderSnapshot | null = opts.snapshot ?? null;
+  let engine: (typeof import('../opencode_engine'))['opencodeClient'] | undefined;
   if (!snapshot) {
     try {
       const { opencodeClient } = await import('../opencode_engine');
-      snapshot = await opencodeClient.providerSnapshot();
+      engine = opencodeClient;
     } catch {
-      snapshot = null;
+      // The explicit static fallback below still reports unavailable engine state.
     }
+  }
+  const engineReadyAtAttempt = engine?.isReady === true;
+  const generationAtAttempt = engine?.catalogGeneration;
+  if (cacheable && engineReadyAtAttempt && cache && cache.key === key &&
+      cache.generation === generationAtAttempt && Date.now() - cache.at < CACHE_TTL_MS) {
+    return cache.value;
+  }
+  if (!snapshot && engine) {
+    try { snapshot = await engine.providerSnapshot(); } catch { snapshot = null; }
   }
   let value: BaseCatalog;
   if (snapshot && Array.isArray(snapshot.providers) && snapshot.providers.length > 0) {
@@ -430,7 +437,13 @@ async function computeBase(opts: RoutableModelOptions): Promise<BaseCatalog> {
       curatedCount: 0,
     };
   }
-  if (cacheable) cache = { key, at: Date.now(), value };
+  // Static fallback can be a transient startup/error result. A request that
+  // began while the engine was unready must not warm the cache even if it
+  // finishes after readiness changes.
+  if (cacheable && value.source === 'live' && engineReadyAtAttempt &&
+      generationAtAttempt !== undefined && engine?.isReady && engine.catalogGeneration === generationAtAttempt) {
+    cache = { key, generation: generationAtAttempt, at: Date.now(), value };
+  }
   return value;
 }
 

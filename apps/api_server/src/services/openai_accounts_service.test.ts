@@ -59,6 +59,29 @@ describe('identityFromTokens', () => {
 });
 
 describe('OpenAIAccountsService', () => {
+  it('seeds a healthy default through the SDK before the engine is publicly ready', async () => {
+    const { store, service, engine, readEngine } = setup();
+    store.upsertAccount(acct('a'));
+    (engine as { isReady: boolean }).isReady = false;
+    expect(await service.seedDefaultBeforeReady(engine)).toBe('seeded');
+    expect(engine.setOAuthCredentials).toHaveBeenCalledTimes(1);
+    expect(readEngine()).toMatchObject({ accountId: 'ws-a' });
+  });
+
+  it('distinguishes absent defaults from failed startup writes and preserves an existing engine entry', async () => {
+    const { store, service, engine, writeEngine } = setup();
+    (engine as { isReady: boolean }).isReady = false;
+    expect(await service.seedDefaultBeforeReady(engine)).toBe('absent');
+    store.upsertAccount(acct('a'));
+    engine.setOAuthCredentials.mockResolvedValueOnce(false);
+    expect(await service.seedDefaultBeforeReady(engine)).toBe('failed');
+    engine.setOAuthCredentials.mockRejectedValueOnce(new Error('synthetic SDK failure'));
+    expect(await service.seedDefaultBeforeReady(engine)).toBe('failed');
+    writeEngine({ access: 'existing', refresh: 'existing', expires: 1, accountId: 'existing' });
+    expect(await service.seedDefaultBeforeReady(engine)).toBe('present');
+    expect(engine.setOAuthCredentials).toHaveBeenCalledTimes(2);
+  });
+
   it('migrates the existing engine login as account #1, once', () => {
     const { service, writeEngine } = setup();
     writeEngine({ access: jwt({ email: 'me@example.test' }), refresh: 'r0', expires: 5, accountId: 'ws-0' });

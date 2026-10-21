@@ -1559,6 +1559,11 @@ export class OpencodeClientService {
     return this.status === 'ready';
   }
 
+  /** Monotonic engine lifetime for catalogs that must not survive a bounce. */
+  get catalogGeneration(): number {
+    return this.lifecycleGeneration;
+  }
+
   /**
    * A coordinator may use only the engine process this service actually owns.
    * `isReady` intentionally remains a broad SDK status for existing callers
@@ -1872,8 +1877,6 @@ export class OpencodeClientService {
       this.client = client;
       this.server = server;
       this.attachedEngineUrl = attachment;
-      this.status = 'ready';
-      this.error = null;
       logger.info('[OpencodeClientService] SDK initialized');
       const trustedMcpVerifierReady = await initializeTrustedMcpVerifier().catch(() => false);
       if (!trustedMcpVerifierReady) {
@@ -1890,7 +1893,17 @@ export class OpencodeClientService {
       if (generation !== this.lifecycleGeneration) throw new Error('Engine initialization was disposed');
       logger.info(`[Opencode][timing] restoreAuth took ${Date.now() - t6}ms`);
 
+      // The provider catalog is initialized on its first read in the fork.
+      // Seed the existing healthy default through the SDK before publishing
+      // readiness, so the first public provider read sees the Codex models.
+      const { openaiAccountsService } = await import('./openai_accounts_service');
+      const openaiSeed = await openaiAccountsService.seedDefaultBeforeReady(this);
+      if (generation !== this.lifecycleGeneration) throw new Error('Engine initialization was disposed');
+      if (openaiSeed === 'failed') throw new Error('OpenAI default account could not be seeded during engine startup');
+
       this._engineReadyAt = Date.now();
+      this.status = 'ready';
+      this.error = null;
       logger.info(`[Opencode][timing] total _initializeImpl took ${Date.now() - t0}ms`);
     } catch (err) {
       this.attachedEngineUrl = null;
@@ -1946,8 +1959,8 @@ export class OpencodeClientService {
       if (restored > 0) {
         logger.info(`[OpencodeClientService] restored auth for ${restored} provider(s)`);
       }
-    } catch (err) {
-      logger.error('[OpencodeClientService] restoreAuth failed:', err);
+    } catch {
+      logger.error('[OpencodeClientService] restoreAuth failed (credential details withheld)');
     }
   }
 
@@ -1984,7 +1997,7 @@ export class OpencodeClientService {
   /** Returns provider IDs that are actually authed (per auth.json). */
   async listAuthedProviders(): Promise<string[]> {
     const connected = new Set(this.authStore.listAuthedProviders());
-    if (!this.client) return [...connected];
+    if (!this.client || !this.isReady) return [...connected];
 
     try {
       const raw = await this.client.config.providers();
@@ -2009,16 +2022,18 @@ export class OpencodeClientService {
 
   /** One bounded engine read per concurrent catalog/status request; never retain failures. */
   providerSnapshot(): Promise<ProviderSnapshot> {
+    if (!this.client || !this.isReady) return Promise.reject(new Error('engine_unverified'));
     if (this.providerSnapshotPending) return this.providerSnapshotPending;
-    if (!this.client) return Promise.reject(new Error('engine_unverified'));
     const client = this.client;
+    const generation = this.lifecycleGeneration;
     const controller = new AbortController();
     // Wall-clock budget on this process's timer: a startup request burst stalled the event
     // loop ~1.1s, so 750ms aborted a 15ms engine read and the picker catalog came back [].
     const timeout = setTimeout(() => controller.abort(), 2_500);
     const read = async (): Promise<ProviderSnapshot> => {
       const raw = await client.config.providers({ signal: controller.signal });
-      if (controller.signal.aborted || raw.error || !raw.data || !Array.isArray(raw.data.providers)) {
+      if (controller.signal.aborted || !this.isReady || client !== this.client || generation !== this.lifecycleGeneration ||
+          raw.error || !raw.data || !Array.isArray(raw.data.providers)) {
         throw new Error('engine_unverified');
       }
       const connected = new Set(this.authStore.listAuthedProviders());
@@ -2147,7 +2162,7 @@ export class OpencodeClientService {
   async listModels(
     providerId: string,
   ): Promise<Array<{ id: string; name?: string; contextLimit?: number }>> {
-    if (!this.client) return [];
+    if (!this.client || !this.isReady) return [];
     try {
       const raw = await this.client.config.providers();
       const providers = raw.data?.providers ?? [];
@@ -2185,7 +2200,7 @@ export class OpencodeClientService {
   async listProviders(): Promise<
     Array<{ id: string; models: Array<{ id: string; name?: string; contextLimit?: number }> }>
   > {
-    if (!this.client) return [];
+    if (!this.client || !this.isReady) return [];
     try {
       const raw = await this.client.config.providers();
       const providers = raw.data?.providers ?? [];
@@ -2215,7 +2230,7 @@ export class OpencodeClientService {
 
   /** Engine's default model for a provider (the `default` map of config.providers()). */
   async getDefaultModel(providerId: string): Promise<string | undefined> {
-    if (!this.client) return undefined;
+    if (!this.client || !this.isReady) return undefined;
     try {
       const raw = await this.client.config.providers();
       // The engine returns { providers, default: {[providerId]: modelId} };
@@ -3737,8 +3752,8 @@ function validFiniteExecutionPermissionRules(
         } as { type: 'oauth'; access: string; refresh: string; expires: number },
       });
       return raw.data === true;
-    } catch (err) {
-      logger.error(`[OpencodeClientService] setOAuthCredentials failed for ${providerId}:`, err);
+    } catch {
+      logger.error(`[OpencodeClientService] setOAuthCredentials failed for ${providerId} (credential details withheld)`);
       return false;
     }
   }

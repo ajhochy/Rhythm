@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const providerSnapshot = vi.fn();
 vi.mock('../opencode_engine', () => ({
   opencodeClient: {
+    isReady: true,
+    catalogGeneration: 0,
     listAuthedProviders: vi.fn().mockResolvedValue(['anthropic', 'openai']),
     isProviderInAuthStore: () => true,
     providerSnapshot: (...a: unknown[]) => providerSnapshot(...a),

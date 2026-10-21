@@ -360,5 +360,47 @@ else
   printf 'FAIL (missing prebuilt engine rejected): exit %s:\n%s\n' "$status" "$out" >&2
 fi
 
+# Catalog bootstrap is an opt-in, inert account created only inside a new
+# sandbox HOME. It must never borrow credentials from the approved fixture.
+assert_case 'invalid synthetic catalog flag rejected' fail 'must be 1' \
+  "${BASE_ENV[@]}" 'RHYTHM_SANDBOX_SYNTHETIC_OPENAI_CATALOG=bad'
+SYNTHETIC_SANDBOX_DIR="$WORK/synthetic-sandbox"
+mkdir -m 700 "$SYNTHETIC_SANDBOX_DIR"
+out="$(env -i PATH="$PATH" HOME="$HOME" \
+  "RHYTHM_APPROVED_FIXTURE_ROOT=$FIXTURE_ROOT" "RHYTHM_LIVE_DB_PATH=$DB" \
+  "RHYTHM_SANDBOX_OPENCODE_CONFIG=$CONFIG_DIR" "RHYTHM_SANDBOX_DIR=$SYNTHETIC_SANDBOX_DIR" \
+  'RHYTHM_SANDBOX_SYNTHETIC_OPENAI_CATALOG=1' \
+  bash -c 'source "$1"; validate_copied_data_inputs; copy_runtime_files; seed_synthetic_openai_catalog_account' \
+  bash "$SANDBOX_SH" 2>&1)"
+status=$?
+SYNTHETIC_ACCOUNT="$SYNTHETIC_SANDBOX_DIR/home/Library/Application Support/Rhythm/openai-accounts.json"
+if [[ "$status" -eq 0 ]] && SYNTHETIC_ACCOUNT="$SYNTHETIC_ACCOUNT" python3 - <<'PY'
+import json, os, pathlib, stat
+p = pathlib.Path(os.environ['SYNTHETIC_ACCOUNT'])
+data = json.loads(p.read_text())
+assert stat.S_IMODE(p.stat().st_mode) == 0o600
+assert data['defaultAccountId'] == 'synthetic-catalog-only'
+assert len(data['accounts']) == 1
+assert data['accounts'][0]['refresh'] == ''
+assert data['accounts'][0]['expires'] > 4000000000000
+assert data['accounts'][0]['access'] == 'synthetic-catalog-only-do-not-use'
+PY
+then
+  pass=$((pass + 1))
+else
+  fail_count=$((fail_count + 1))
+  printf 'FAIL (inert synthetic catalog account): exit %s: %s\n' "$status" "$out" >&2
+fi
+
+CONFLICT_CONFIG_DIR="$WORK/catalog-conflict-config"
+mkdir -p "$CONFLICT_CONFIG_DIR"
+cp "$CONFIG_DIR/opencode.json" "$CONFLICT_CONFIG_DIR/opencode.json"
+printf '%s\n' '{"openai":{"type":"oauth","access":"synthetic-existing","refresh":""}}' >"$CONFLICT_CONFIG_DIR/auth.json"
+chmod 400 "$CONFLICT_CONFIG_DIR/opencode.json" "$CONFLICT_CONFIG_DIR/auth.json"
+assert_case 'synthetic catalog rejects a fixture auth file' fail 'requires fixture without auth.json' \
+  "RHYTHM_APPROVED_FIXTURE_ROOT=$WORK" "RHYTHM_LIVE_DB_PATH=$DB" \
+  "RHYTHM_SANDBOX_OPENCODE_CONFIG=$CONFLICT_CONFIG_DIR" "RHYTHM_SANDBOX_DIR=$WORK/catalog-conflict-sandbox" \
+  'RHYTHM_SANDBOX_SYNTHETIC_OPENAI_CATALOG=1'
+
 printf '\nsandbox_guard_test: %d passed, %d failed\n' "$pass" "$fail_count"
 [[ "$fail_count" -eq 0 ]]
