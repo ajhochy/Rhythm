@@ -1,0 +1,141 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
+import { runMigrations } from '../../database/migrations';
+import { setDb } from '../../database/db';
+import { OrgEvaluationRepository } from '../../repositories/org_evaluation_repository';
+import { AgentOrgProposalsRepository } from '../../repositories/agent_org_proposals_repository';
+import { OrgEvaluationCoordinator, parseEvaluationDiagnoses, type OrgEvaluationDiagnosis,
+  type OrgEvaluationRuntimePort } from '../org_evaluation_coordinator';
+import { evaluationCanonicalJson, evaluationDigest } from '../org_evaluation_integrity';
+import { registerAllProposalAppliers } from '../org_proposal_appliers_wiring';
+import { captureOrgEvaluationTargetAsync } from '../org_evaluation_fixture';
+
+// These tests exercise durable orchestration with a controlled executor.
+// Packaged qualification separately has to prove real engine/tool execution.
+let db: Database.Database;
+let previous: Database.Database | null;
+let repository: OrgEvaluationRepository;
+const patch = (value: string) => ({ configPatch: { agentConfigId: 'evaluation-target', field: 'system_prompt', value } });
+const diagnosis: OrgEvaluationDiagnosis = {
+  kind: 'refine-config', targetRef: 'agent_config:evaluation-target', targetRevision: '0',
+  title: '[smoke] use requested output headings', rationale: 'Two tasks omitted the requested headings.',
+  evidence: [{ sessionId: 'evidence-one', messageId: 'm1', quote: 'missing heading' },
+    { sessionId: 'evidence-two', messageId: 'm2', quote: 'still missing heading' }],
+  change: patch('Use required headings'), cases: [
+    { key: 'service-summary', prompt: 'Summarize service items.', outputIncludes: ['Actions'], outputExcludes: [] },
+    { key: 'meeting-summary', prompt: 'Summarize meeting items.', outputIncludes: ['Actions'], outputExcludes: [] },
+  ],
+};
+
+beforeEach(() => {
+  db = new Database(':memory:'); runMigrations(db); previous = setDb(db);
+  repository = new OrgEvaluationRepository(db);
+  db.prepare(`INSERT INTO agent_configs (id,label,icon,command,system_prompt,allowed_skills_json)
+    VALUES ('evaluation-target','[smoke] Evaluation target','test','opencode','Original instruction','[]')`).run();
+  registerAllProposalAppliers();
+});
+afterEach(() => { setDb(previous); db.close(); });
+
+function harness(options: { finalScore?: number; mutateDuring?: boolean; unknownUsage?: boolean; publishFailure?: boolean } = {}) {
+  const calls: Array<{ type: string; phase?: string; role?: string; prompt?: string }> = [];
+  const runtime: OrgEvaluationRuntimePort = {
+    async prepare(input) {
+      const manifestJson = evaluationCanonicalJson({ snapshot: input.snapshot, change: JSON.parse(input.changeJson) });
+      return { manifestJson, manifestHash: evaluationDigest(manifestJson) };
+    },
+    async execute(input) {
+      calls.push({ type: 'execute', phase: input.phase, role: input.candidate.role, prompt: input.task.prompt });
+      if (options.mutateDuring && input.phase === 'validation') db.prepare("UPDATE agent_configs SET system_prompt='Human edit'").run();
+      const usage = { totalTokens: 5, inputTokens: 3, outputTokens: 2, cacheReadTokens: null, reasoningTokens: null };
+      await repository.reserveTokensAsync({ jobId: input.jobId, stage: input.stage, reservationKey: `${input.candidate.id}:${input.task.key}`, maxTokens: 10 });
+      await repository.settleTokensAsync({ jobId: input.jobId, reservationKey: `${input.candidate.id}:${input.task.key}`,
+        usage: options.unknownUsage ? null : usage });
+      return { status: 'pass', score: input.candidate.role === 'original' ? .25 : options.finalScore ?? 1,
+        tokenUsage: usage, failureReason: null, receiptJson: evaluationCanonicalJson({
+          sessionId: `controlled-${input.candidate.id}-${input.task.key}`, engineVersion: 'controlled-test-executor',
+          taskFixtureHash: evaluationDigest(evaluationCanonicalJson(input.task)), effectiveConfigHash: input.candidate.configHash,
+          toolEvents: [], effectProof: { manifestHash: input.candidate.configHash, negativeGuardsPassed: true,
+            workerId: 'controlled-worker', workerRootHash: 'a'.repeat(64), engineBootId: 'controlled-engine',
+            events: [{ kind: 'profile-projected', source: 'worker-file', subject: input.candidate.targetRef,
+              evidenceHash: 'b'.repeat(64), observedAt: new Date().toISOString() },
+            { kind: 'agent-output', source: 'engine-session', subject: 'controlled-output',
+              evidenceHash: 'c'.repeat(64), observedAt: new Date().toISOString() }] },
+        }) };
+    },
+  };
+  let generated = false;
+  const coordinator = new OrgEvaluationCoordinator({ repository, runtime,
+    capture: (item, ownerUserId) => captureOrgEvaluationTargetAsync({
+      kind: item.kind, targetRef: item.targetRef, expectedRevision: item.targetRevision, ownerUserId,
+    }),
+    // Evidence authorization has its own real-session route tests. This
+    // controlled fixture supplies two known evidence references above.
+    verifyEvidence: async () => {},
+    async model(input) {
+      calls.push({ type: input.stage, prompt: input.prompt });
+      await repository.reserveTokensAsync({ jobId: input.jobId, stage: input.stage, reservationKey: `model-${calls.length}`, maxTokens: 20 });
+      await repository.settleTokensAsync({ jobId: input.jobId, reservationKey: `model-${calls.length}`,
+        usage: { totalTokens: 8, inputTokens: 5, outputTokens: 3, cacheReadTokens: null, reasoningTokens: null } });
+      if (!generated) { generated = true; return JSON.stringify({ diagnoses: [diagnosis] }); }
+      if (input.stage === 'generator') return JSON.stringify({ candidates: [patch('Use Actions heading'), patch('Always show Actions heading')] });
+      const data = JSON.parse(input.prompt.split('Untrusted frozen data: ')[1]);
+      return JSON.stringify({ change: patch('Use Actions heading; preserve facts'), parts: data.variants.map((candidate: { id: string }, index: number) => ({
+        sourceCandidateId: candidate.id, changePath: '/configPatch/value', sourceFragment: index === 0 ? 'Use Actions heading' : 'Always show Actions heading', retained: index === 0,
+        reason: index === 0 ? 'Passed the task case' : 'No additional supported benefit',
+        evidenceResultIds: data.observations.filter((result: { candidateId: string }) => result.candidateId === candidate.id)
+          .map((result: { id: string }) => result.id),
+      })) });
+    },
+    async publish(input) {
+      calls.push({ type: 'publish' });
+      expect((await repository.getJobAsync(input.auditRunId!))?.status).toBe('qualified');
+      if (options.publishFailure) throw Error('Controlled proposal insert failure');
+      return new AgentOrgProposalsRepository().createAsync(input);
+    },
+  });
+  return { coordinator, calls };
+}
+
+describe('pre-review coordinator sequencing and queue boundary', () => {
+  it('stores two tested alternatives and composition, withholds a case, then queues exactly the qualified final', async () => {
+    const { coordinator, calls } = harness();
+    const result = await coordinator.run({ ownerUserId: null, settings: { tokenLimit: 10000, candidateCount: 2 }, context: { trusted: 'fixture' } });
+    expect(result.cycle.status, result.cycle.failureReason ?? '').toBe('qualified');
+    expect(result.proposals, JSON.stringify(result.evaluations.map(job => ({ status: job.status, reason: job.failureReason })))).toHaveLength(1);
+    const job = result.evaluations[0];
+    const candidates = await repository.listCandidatesAsync(job.id);
+    expect(candidates.map(candidate => candidate.role)).toEqual(['original', 'variant', 'variant', 'composition', 'final']);
+    const results = await repository.listResultsAsync(job.id);
+    expect(results.filter(row => row.phase === 'validation').map(row => row.taskKey)).toHaveLength(2);
+    const held = JSON.parse(job.inputJson).validation[0];
+    const generation = calls.find((call, index) => call.type === 'generator' && index > 0)!;
+    expect(generation.prompt).not.toContain(held.prompt);
+    expect(calls.at(-1)?.type).toBe('publish');
+    expect(db.prepare('SELECT system_prompt FROM agent_configs WHERE id=?').get('evaluation-target'))
+      .toEqual({ system_prompt: 'Original instruction' });
+    expect(JSON.parse(result.proposals[0].provenanceJson!).evaluation.finalCandidateHash)
+      .toBe(candidates.find(candidate => candidate.role === 'final')?.configHash);
+  });
+
+  it.each([{ finalScore: .25 }, { finalScore: .75 }, { mutateDuring: true }, { unknownUsage: true }])('does not queue an unproved or stale result: %j', async options => {
+    const { coordinator, calls } = harness(options);
+    const result = await coordinator.run({ ownerUserId: null, settings: { tokenLimit: 10000, candidateCount: 2 }, context: {} });
+    expect(result.proposals).toEqual([]);
+    expect(calls.some(call => call.type === 'publish')).toBe(false);
+    expect(await new AgentOrgProposalsRepository().listByStatusAsync('proposed')).toEqual([]);
+  });
+
+  it('accepts every supported kind for diagnosis but rejects evidence-free and instruction-only tests', () => {
+    expect(parseEvaluationDiagnoses(JSON.stringify({ diagnoses: [diagnosis] }))).toHaveLength(1);
+    expect(() => parseEvaluationDiagnoses(JSON.stringify({ diagnoses: [{ ...diagnosis, evidence: [] }] }))).toThrow();
+    expect(() => parseEvaluationDiagnoses(JSON.stringify({ diagnoses: [{ ...diagnosis, cases: [{ ...diagnosis.cases[0], outputIncludes: [] }] }] }))).toThrow();
+  });
+  it('reports publication failure after tests as inconclusive instead of a successful review', async () => {
+    const { coordinator } = harness({ publishFailure: true });
+    const result = await coordinator.run({ ownerUserId: null, settings: { tokenLimit: 10000, candidateCount: 2 }, context: {} });
+    expect(result.cycle.status).toBe('inconclusive');
+    expect(result.cycle.failureReason).toContain('proposal insert failure');
+    expect(result.proposals).toEqual([]);
+    expect((await repository.getBudgetAsync(result.cycle.id)).outstandingTokens).toBe(0);
+  });
+});

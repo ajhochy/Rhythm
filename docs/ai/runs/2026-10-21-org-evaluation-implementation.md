@@ -1,0 +1,62 @@
+---
+date: 2026-10-21
+repo: Rhythm
+branch: test/feature-playwright-2026-10-19
+pr: null
+issues: []
+status: repairing
+tags: [run, rhythm]
+---
+
+# Pre-review improvement evaluation implementation
+
+User authorized implementation after the Harness² research checkpoint: every existing improvement type, including tools and permissions; one configurable whole-run token cap; actual tests before human proposals; local mega rebuild and packaged Playwright qualification. This run supersedes the research-only hold, but does not establish completion of the feature or the earlier AI inventory campaign.
+
+## Files
+
+- New additive SQLite/Postgres evaluation jobs, immutable candidates/results, and shared-root token reservations.
+- New settings API and Review workspace controls, evaluation activity, and exact-version approval proof.
+- New coordinator for bounded diagnosis, two/three alternatives, original/candidate probes, evidence-backed composition, and withheld original-versus-final validation before queue publication.
+- New confined copied-database worker/runtime, target fixtures, provider request gate and ephemeral loopback relay; runtime integration is still in progress.
+- Exact frozen body appliers for recipe refinement and skill consolidation, shared by disposable workers and human approval. Recipe writes use compare-and-swap; consolidation writes both source rows together, projects managed bytes, removes the retired file, and records exact rollback bytes. Rollback preserves later edits.
+- AgentRunner/Reviewer integration is being changed so diagnosis is included in the same budget and signed legacy submit cannot mint an untested proposal.
+
+## Checks
+
+All commands ran in `/private/tmp/rhythm-feature-playwright-2026-10-19`, HEAD `136e5511b407aa82e22eaa48ababc1224671b8a2` plus uncommitted implementation. Source/controlled-executor contracts and real-engine observations are distinguished below; no updated packaged qualification has run.
+
+- `npm run build:guard -- npm --prefix apps/api_server exec -- vitest run src/__tests__/org_evaluation_routes.test.ts src/services/__tests__/org_evaluation_budget.test.ts --fileParallelism=false`: **15/15**, receipt `/private/tmp/rhythm-org-evaluation-routes-storage-green-20261021.log`.
+- Shared budget/provider contracts: **19/19** at that checkpoint, receipt `/private/tmp/rhythm-org-evaluation-shared-budget-green-20261021.log`. Later relay/storage checkpoint **26/26**, agent receipt `/private/tmp/rhythm-org-evaluation-focused-green-20261021.log`.
+- Evaluated approval + legacy proposal/tool-install suites: **35/35** at the UI agent checkpoint. RED first demonstrated missing proof and a stale target could both apply; GREEN rejects both.
+- Coordinator RED: missing `finishReviewCycleAsync`; receipt `/private/tmp/rhythm-org-evaluation-coordinator-red-20261021.log`. Subsequent run caught a fixture using unsupported `systemPrompt` rather than production `system_prompt`; corrected the fixture to the real schema without changing the expected behavior. Coordinator **5/5**, receipt `/private/tmp/rhythm-org-evaluation-coordinator-green-v3-20261021.log`.
+- `npm run build:guard -- npm --prefix apps/api_server exec -- vitest run src/services/__tests__/org_evaluation_body_appliers.test.ts src/services/__tests__/org_evaluation_coordinator.test.ts --fileParallelism=false`: **8/8**, receipt `/private/tmp/rhythm-org-evaluation-body-coordinator-20261021.log`.
+- `npm run build:guard -- node apps/api_server/node_modules/typescript/bin/tsc --noEmit -p apps/api_server/tsconfig.json`: exit0 at the recorded checkpoint, `/private/tmp/rhythm-org-evaluation-integration-tsc-v2-20261021.log`; later concurrent edits require a fresh final check.
+- Rendered Playwright source/UI contracts: **4/4**, gateway **6/6**, per `2026-10-21-org-evaluation-ui.md`. Private packaged spec is authored but unrun.
+- Later composition/storage integration: **22/22**, including JSON Pointer paths, exact retained/rejected text fragments, and a retained fragment requiring a source probe that beat the same original task. Receipt `/private/tmp/rhythm-org-evaluation-composition-integration-20261021.log`.
+- Existing apply/rollback integration: **129/129**, `/private/tmp/rhythm-org-evaluation-body-legacy-20261021.log`. Scoped evidence, not the full backend suite.
+- Recipe-target webhooks: two new RED checks exposed that approved recipe identity was discarded. Additive SQLite/Postgres columns now preserve recipe identity and bound profile through HMAC ingress and pending dispatch. New HTTP/SQLite checks plus existing webhook approval/fencing contracts: **30/30**, recorded by the UI integration agent. No production DB writes.
+- Real model/private worker: original system prompt produced the wrong heading (score 0); the actual production refine-config applier changed the prompt and a fresh private engine produced the required heading (score 1). The paired live test passed with settled bounded Anthropic usage, exact manifests and OS denial probes. This proves the config effect, not the full evaluation workflow or all 18 kinds.
+- Actual controlled MCP `read_fixture` invocation completed through the private engine after narrow Anthropic tool-history metadata compatibility repairs. Strict full history and fixture ledger are captured; permission/delegation effect qualification remains in progress.
+- Existing/creation target fixture checks: **9/9**, `/private/tmp/rhythm-org-evaluation-baseline-fixture-v5-20261021.log`. Initial new test attempts had incomplete synthetic session rows (required cwd/name/owner foreign keys) and omitted the managed-skill temp-root test guard; those were harness defects, not application regressions, and no real skill-library access occurred.
+- Pre-build focused integration: **113/113 across 21 evaluation files**, using the API package's real safe test configuration, `/private/tmp/rhythm-org-evaluation-focused-checkpoint-20261021.log`. Command: `npm run build:guard -- python3 /private/tmp/rhythm-org-evaluation-focused-checkpoint.py`. Live model/Docker files were deliberately separate, not counted as these source passes.
+- Exact evaluated scope revision race reproduced RED (unsafe `measuring` after intervening prompt/model edit), then GREEN **10/10** with frozen revision inside the pair transaction; `/private/tmp/rhythm-org-eval-scope-frozen-red-20261021.log` and `...-green-20261021.log`.
+- Actual scoped MCP grant/deny pair passed with production `resolveProfileScope`: granted dispatch completed with matching private ledger hash; denied dispatch returned an error with zero fixture effects. The first unrestricted-session observation is superseded for scope proof, not erased.
+- Fixture credentials: backward-compatible selected-account Anthropic loan support added to Electron/API authority and reviewed private runner. Electron **6/6**, API authority **2/2**, API typecheck and runner syntax pass. One private account, no refresh token, exact source/projection hashes, short stop deadline, and scrub checks; no loan issued at this checkpoint.
+
+## Notes
+
+- GitNexus original index is 324 commits stale and the task checkout is unindexed. Exact method lookup sometimes returns UNKNOWN; class/registration/revert lookups report LOW/zero. Manual integration blast radius is HIGH for AgentRunner routing, approval and permissions. Index results do not establish low runtime risk.
+- Public OpenAI and Anthropic API keys are absent from this process environment (presence only inspected). Normal account-service refresh restored the existing Anthropic sessions; a bounded tiny Anthropic request settled 29 tokens. The existing Codex OAuth transport accepted a list-input request with explicit output ceiling and settled 24 tokens. These tiny transport observations do not establish every model's compatibility.
+- Private HOME is insufficient isolation. Worker sandbox-exec now denies actual parent sentinel reads/writes and ungranted loopback connections; live denial probes pass. An early design used the main API's provider route port, which would have exposed broader local API authority. It was replaced before production worker probes with a dedicated loopback listener accepting only lease provider POSTs. HTTP checks prove settings/evaluation/profile mutation routes unavailable on that listener.
+- All 18 types are registered in the evaluation contract. This is a catalog guarantee, not proof that all 18 have executable effect adapters. Missing isolated effects remain inconclusive and cannot produce a qualified proposal.
+- Generic evaluated approval now arms a synchronous snapshot fence at narrow applier entry and uses the frozen profile revision for compare-and-swap. A race regression preserves an intervening human edit. Cross-process managed-file/DB atomicity is not established by that check.
+- Skill and unbound recipe/task snapshots previously had no actual execution profile. Capture now resolves the profile from two verified owner-scoped conversations, rejects ambiguous/disallowed skill bindings, and freezes its other declared skill dependencies. Freshness recapture includes this profile state.
+- Worker recipe/schedule/webhook effects initially discarded routed child output while the generic prompt output was scored. Integration is being corrected to score the actual routed behavior for both original and candidate; effect presence alone is insufficient.
+- Frozen skills now preserve lifecycle/confidence and extracted steps/tags; schedules preserve timing/timezone/enabled/model overrides. Effective model capture follows the actual profile/task/MRU/default cascade with model metadata only. An unrelated profile's owned transcripts cannot evidence a config diagnosis. Focused evidence-binding matrix **22/22**, `/private/tmp/rhythm-org-evaluation-evidence-binding-20261021.log`.
+- Sandbox policy uses an allow-default platform base with explicit host file/write/network, signal, process-info, AppleEvent and Mach-lookup restrictions. Real file/network/parent-signal denial probes and private engine boot pass. This is not blanket hostile IPC isolation; task-port/IOKit restrictions remain under review. Do not describe it as deny-default.
+- Model-authored task cases are literal checks, not an independent semantic oracle. The packaged journey independently asserts the actual source user's nonce heading in a fresh ordinary post-approval session; until that runs, no full semantic workflow proof exists.
+- Pre-commit GitNexus `detect-changes --scope all --repo Rhythm --limit 50` found the expected tracked controller/repository/scheduler/approval families and returned low risk/zero indexed flows, but explicitly warned the index is 324 commits stale. New evaluation modules are unindexed; manual blast radius remains HIGH for permission/approval/auth boundaries.
+- This is a local work-in-progress checkpoint for exact-source build qualification. All 18 kinds are not yet live-qualified. No native rebuild/new packaged journey has run yet; the old signed136e bundle is not new feature evidence.
+- No full backend suite is run for each build. Use focused changed-path checks during repairs, then final integration checks once stable.
+- No new app package has yet been built for this implementation, no new packaged evaluation journey has run, and no real-model full evaluation has passed. Do not qualify the old 136e app as containing these dirty-source changes.
+- No push, PR, merge, release, install, credential export, or checkout copy was performed for this feature. Preserve unrelated original-checkout dirt.

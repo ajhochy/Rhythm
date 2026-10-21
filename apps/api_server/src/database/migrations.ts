@@ -1,3 +1,4 @@
+import { SQLITE_ORG_EVALUATION_SCHEMA } from './org_evaluation_schema';
 import type Database from 'better-sqlite3';
 
 import { convertLegacyNumberedCorePermissions } from './core_permissions_repair';
@@ -1904,6 +1905,7 @@ export function runMigrations(db: Database.Database): void {
       secret TEXT NOT NULL,                             -- HMAC secret (SHA-256)
       target_scheduled_task_id TEXT
         REFERENCES agent_scheduled_tasks(id) ON DELETE SET NULL,
+      target_recipe_id TEXT,
       target_prompt TEXT,           -- override prompt on webhook fire
       enabled INTEGER NOT NULL DEFAULT 1,
       last_triggered_at TEXT,
@@ -1915,6 +1917,10 @@ export function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_webhook_endpoints_enabled
       ON agent_webhook_endpoints(enabled);
   `);
+  const webhookTargetCols = (db.pragma('table_info(agent_webhook_endpoints)') as { name: string }[]).map((c) => c.name);
+  if (!webhookTargetCols.includes('target_recipe_id')) {
+    db.exec(`ALTER TABLE agent_webhook_endpoints ADD COLUMN target_recipe_id TEXT`);
+  }
 
   // #1288 — named research-project persistence. Project runs are immutable
   // configuration snapshots; mutable execution state lives on their pass jobs.
@@ -2102,6 +2108,9 @@ export function runMigrations(db: Database.Database): void {
   if (!pctColsExt.includes('webhook_endpoint_id')) {
     db.exec(`ALTER TABLE pending_claude_triggers ADD COLUMN webhook_endpoint_id TEXT`);
   }
+  if (!pctColsExt.includes('recipe_id')) {
+    db.exec(`ALTER TABLE pending_claude_triggers ADD COLUMN recipe_id TEXT`);
+  }
 
   // Make pending_claude_triggers.task_id NULLABLE on EXISTING databases.
   // Scheduler/webhook/research triggers are taskless (task_id=NULL); the
@@ -2138,6 +2147,7 @@ export function runMigrations(db: Database.Database): void {
           model_provider TEXT,
           model_id TEXT,
           webhook_endpoint_id TEXT,
+          recipe_id TEXT,
           UNIQUE(task_id)
         )
       `);
@@ -4941,4 +4951,5 @@ If someone asks for creative work that needs a local capability:
   // server composes an enabled coordinator service.
   installCoordinatorConversationSchema(db);
   installCodingResultSchema(db);
+  db.exec(SQLITE_ORG_EVALUATION_SCHEMA);
 }

@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import { createQualificationFixture, provisionQualificationFixtureModelLoan, readQualificationFixture } from '../../../tools/testing/qualification_fixture.mjs';
+import { createQualificationFixture, provisionQualificationFixtureModelLoan,
+  provisionQualificationFixtureAnthropicModelLoan, readQualificationFixture } from '../../../tools/testing/qualification_fixture.mjs';
 import {
   inspectQualificationModelAccounts,
+  inspectQualificationAnthropicAccounts,
   provisionQualificationModelLoan,
   assertQualificationModelLoan,
   armQualificationModelLoanDeadline,
@@ -66,6 +68,63 @@ test('model loan is opt-in, selects one account, and never copies refresh or unr
   assert.ok(loan.stopAt > Date.now() && loan.stopAt <= Date.now() + 10 * 60_000);
   assert.deepEqual([f.accountsPath, f.decisionsPath, f.gridPath].map((p) => hash(readFileSync(p))), f.sourceHashes);
   assert.doesNotMatch(readFileSync(f.manifestPath, 'utf8'), /operator-refresh-never-copy|private-test-key|chosen/);
+});
+
+test('Anthropic loan pins one selected owned account without refresh or unrelated secrets', (t) => {
+  const sourceRoot = mkdtempSync('/private/tmp/rhythm-anthropic-loan-source-');
+  const manifestPath = createQualificationFixture(revision, { hermesRuntimeRoot: null });
+  const fixtureRoot = dirname(manifestPath);
+  t.after(() => { rmSync(sourceRoot, { recursive: true, force: true }); rmSync(fixtureRoot, { recursive: true, force: true }); });
+  const sourceAccountsPath = join(sourceRoot, 'anthropic-accounts.json');
+  const expires = Date.now() + 45 * 60_000;
+  const accounts = { version: 1, accounts: [
+    { id: 'selected', label: 'Selected', access: 'selected-access', refresh: 'never-copy', expires, status: 'ok', subscriptionType: 'pro' },
+    { id: 'other', label: 'Other', access: 'other-access', refresh: 'other-refresh', expires, status: 'ok' },
+  ], defaultAccountId: 'other', routing: { previous: 'other' }, pinned: { previous: true } };
+  writeFileSync(sourceAccountsPath, JSON.stringify(accounts), { mode: 0o600, flag: 'wx' });
+  const sourceHash = hash(readFileSync(sourceAccountsPath));
+  assert.deepEqual(inspectQualificationAnthropicAccounts(sourceAccountsPath), { accounts: [
+    { id: 'selected', label: 'Selected', status: 'ok', expires },
+    { id: 'other', label: 'Other', status: 'ok', expires },
+  ], defaultAccountId: 'other' });
+  const options = { manifestPath, expectedRevision: revision, sourceAccountsPath, selectedAccountId: 'selected' };
+  assert.throws(() => provisionQualificationFixtureAnthropicModelLoan({ ...options, selectedAccountId: 'missing' }), /unavailable/);
+  const issued = provisionQualificationFixtureAnthropicModelLoan(options);
+  const manifest = readQualificationFixture(manifestPath, revision).manifest;
+  assert.equal(manifest.syntheticActor.modelLoan.provider, 'anthropic');
+  assert.ok(issued.stopAt > Date.now() && issued.stopAt <= Date.now() + 10 * 60_000);
+  assert.equal(hash(readFileSync(sourceAccountsPath)), sourceHash);
+  const privatePath = join(fixtureRoot, 'anthropic-accounts.json');
+  const privateFile = JSON.parse(readFileSync(privatePath, 'utf8'));
+  assert.deepEqual(privateFile.accounts, [{ id: 'qualification-model', label: '[smoke] selected model',
+    access: 'selected-access', refresh: '', expires, status: 'ok' }]);
+  assert.doesNotMatch(readFileSync(manifestPath, 'utf8'), /selected-access|never-copy|other-access/);
+  privateFile.accounts[0].refresh = 'forbidden';
+  writeFileSync(privatePath, JSON.stringify(privateFile), { mode: 0o600 });
+  assert.throws(() => readQualificationFixture(manifestPath, revision), /unavailable/);
+  privateFile.accounts[0].refresh = '';
+  writeFileSync(privatePath, JSON.stringify(privateFile), { mode: 0o600 });
+  assert.throws(() => assertQualificationModelLoan(manifest, { now: issued.stopAt }), /unavailable/);
+  rmSync(privatePath);
+  symlinkSync(sourceAccountsPath, privatePath);
+  assert.throws(() => assertQualificationModelLoan(manifest), /unavailable/);
+});
+
+test('Anthropic loan rejects expiring source and a source inside its fixture', (t) => {
+  const sourceRoot = mkdtempSync('/private/tmp/rhythm-anthropic-loan-source-');
+  const manifestPath = createQualificationFixture(revision, { hermesRuntimeRoot: null });
+  const fixtureRoot = dirname(manifestPath);
+  t.after(() => { rmSync(sourceRoot, { recursive: true, force: true }); rmSync(fixtureRoot, { recursive: true, force: true }); });
+  const sourceAccountsPath = join(sourceRoot, 'anthropic-accounts.json');
+  writeFileSync(sourceAccountsPath, JSON.stringify({ version: 1, accounts: [
+    { id: 'selected', label: 'Selected', access: 'access', refresh: 'source-refresh',
+      expires: Date.now() + 20 * 60_000, status: 'ok' } ], defaultAccountId: 'selected', routing: {} }), { mode: 0o600 });
+  const options = { manifestPath, expectedRevision: revision, sourceAccountsPath, selectedAccountId: 'selected' };
+  assert.throws(() => provisionQualificationFixtureAnthropicModelLoan(options), /unavailable/);
+  assert.equal(readQualificationFixture(manifestPath, revision).manifest.syntheticActor.modelLoan, undefined);
+  const inside = join(fixtureRoot, 'source-accounts.json');
+  writeFileSync(inside, readFileSync(sourceAccountsPath), { mode: 0o600 });
+  assert.throws(() => provisionQualificationFixtureAnthropicModelLoan({ ...options, sourceAccountsPath: inside }), /unavailable/);
 });
 
 test('model loan fails closed for selector, expiry, key, tampering, and scope drift', (t) => {

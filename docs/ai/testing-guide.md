@@ -17,7 +17,14 @@ All commands delegate to `scripts/run_ai_workflow.py` in this repo.
 ### Major-checkpoint isolation and web configuration routing
 
 Run full affected-package suites only at major checkpoints; repair loops run the
-failed files/criteria, not the full API or web suite. Unit checks must not inherit
+failed files/criteria and affected callers, not the full API or web suite. An app
+rebuild alone is not a major checkpoint. For each repair, select the changed
+behavior's source tests, relevant type checks, and live/API or packaged Playwright
+checks that exercise its affected paths. Expand that selection when a new failure
+or a shared dependency justifies it. Run the full backend suite once at the final
+integration checkpoint rather than after every local build.
+
+Unit checks must not inherit
 live-test port overrides: issue655 and Tailscale contracts intentionally expect
 engine4096/gateway4002. The September11 checkpoint's seven such failures passed
 unchanged after removing `RHYTHM_OPENCODE_ENGINE_PORT` and

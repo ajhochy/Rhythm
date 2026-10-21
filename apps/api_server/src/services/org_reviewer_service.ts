@@ -83,6 +83,7 @@ export interface AuthorizedOrgReviewer {
   ownerUserId: number | null;
 }
 
+
 interface CurrentTarget {
   targetRef: string;
   targetRevision: number | string;
@@ -722,6 +723,103 @@ export class OrgReviewerService {
   private readonly configs = new AgentConfigsRepository();
   private readonly schedules = new AgentScheduledTasksRepository();
 
+  /** Server-only context for the bounded evaluation path. It uses the same
+   * owner filters and paged readers as the signed reviewer MCP tools. */
+  async evaluationContext(ownerUserId: number | null): Promise<JsonRecord> {
+    const viewer = { ownerUserId };
+    const overview = await this.context({}, viewer);
+    const indexed = (overview.sessions as JsonRecord[]).filter((entry) => typeof entry.sessionId === 'string');
+    const ordered = [...indexed].sort((a, b) => Number(b.toolErrors ?? 0) - Number(a.toolErrors ?? 0));
+    const selected: JsonRecord[] = [];
+    for (const item of ordered) {
+      const sessionId = item.sessionId as string;
+      const chunks = new Map<string, JsonRecord>();
+      let cursor: string | null = null;
+      let pageCount = 0;
+      do {
+        if (++pageCount > 100) throw AppError.conflict('Reviewer transcript exceeds bounded evaluation scan');
+        const page = await this.session({ sessionId, ...(cursor ? { cursor } : {}) }, viewer);
+        for (const part of page.messages as JsonRecord[]) {
+          const messageId = String(part.messageId);
+          const prior = chunks.get(messageId);
+          const text = String(part.text ?? '');
+          chunks.set(messageId, { messageId, role: part.role, createdAt: part.createdAt,
+            totalChars: part.totalChars, text: String(prior?.text ?? '') + text });
+        }
+        cursor = typeof page.nextCursor === 'string' ? page.nextCursor : null;
+      } while (cursor);
+      const recent = [...chunks.values()].filter((message) =>
+        String(message.text).length === Number(message.totalChars) && Number(message.totalChars) <= 4_000).slice(-2);
+      selected.push({ sessionId, profileId: item.profileId, messages: recent,
+        omittedMessages: Number(item.messageCount ?? 0) - recent.length });
+    }
+    const batches: JsonRecord[] = [];
+    for (let index = 0; index < selected.length; index += 2) {
+      const pair = selected.slice(index, index + 2);
+      if (pair.length === 1 && selected.length > 1) pair.push(selected[0]);
+      const profileIds = new Set(pair.map((entry) => String(entry.profileId ?? '')));
+      const batch: JsonRecord = {
+        sessionEvidence: pair,
+        profiles: (overview.profiles as JsonRecord[]).filter((entry) => profileIds.has(String(entry.id))),
+        schedules: (overview.schedules as JsonRecord[]).filter((entry) => profileIds.has(String(entry.agentConfigId))),
+        skills: overview.skills,
+        liveCapabilityCatalog: overview.liveCapabilityCatalog,
+        targetRefShapes: ['agent_config:<id>', 'skill:<id-or-name>', 'scheduled_task:<id>'],
+        omission: 'Only two complete recent messages per session are supplied; see omittedMessages',
+      };
+      if (jsonBytes(batch) > 23_000) {
+        batch.liveCapabilityCatalog = { omitted: true, reason: 'Batch byte bound',
+          summary: (overview.liveCapabilityCatalog as JsonRecord | undefined)?.mcpToolCount };
+      }
+      if (jsonBytes(batch) > 23_000) batch.skills = { omitted: true, reason: 'Batch byte bound' };
+      if (jsonBytes(batch) > 23_000) {
+        // Keep exact evidence bytes and omit oversized configuration summaries.
+        batch.profiles = [];
+        batch.schedules = [];
+        batch.omittedConfigurationSummaries = true;
+      }
+      if (jsonBytes(batch) > 23_000) throw AppError.conflict('Reviewer evidence pair exceeds bounded model request');
+      batches.push(batch);
+    }
+    if (!batches.length) batches.push({ sessionEvidence: [],
+      omission: 'No owner-readable recent sessions with citable messages; return no diagnoses' });
+    const context: JsonRecord = {
+      metadata: { windowDays: overview.windowDays, sessionLimit: overview.sessionLimit,
+        collectionStats: overview.collectionStats, inventoryCount: indexed.length,
+        omittedMessagePolicy: 'Full messages above 4,000 characters and older messages are omitted explicitly',
+        omittedCatalogCollections: ['mcpTools', 'liveSkills', 'queue', 'skills'] },
+      batches,
+    };
+    if (jsonBytes(context) > 512_000) throw AppError.conflict('Reviewer context exceeds bounded scan window');
+    return context;
+  }
+
+  verifyEvaluationEvidence(evidence: EvidenceInput[], ownerUserId: number | null): void {
+    this.verifyEvidence(evidence, ownerUserId);
+  }
+
+  async evaluationTarget(targetRef: string, ownerUserId: number | null): Promise<CurrentTarget> {
+    return this.resolveCurrentTarget(targetRef, ownerUserId);
+  }
+
+  assertServerEvaluationProfile(): void {
+    const profile = this.configs.getById(ORG_REVIEWER_PROFILE_ID);
+    if (!profile || !profile.enabled || !profile.isAgent || profile.isManager || profile.locked ||
+      profile.imageGenerationEnabled || profile.autoApproveActions || !profile.schedulable ||
+      !hasNoReviewerDelegates(profile) || !exactReviewerScopes(profile)) {
+      throw AppError.forbidden('Org Reviewer profile is not in its least-privilege configuration');
+    }
+  }
+
+  async assertServerEvaluationTask(taskId: string | null | undefined, ownerUserId: number | null): Promise<void> {
+    if (!taskId) return;
+    const task = await this.schedules.findByIdAsync(taskId);
+    if (!task || task.agentConfigId !== ORG_REVIEWER_PROFILE_ID || task.agentKind !== 'opencode' ||
+      task.createdByUserId !== ownerUserId || task.enabled === false) {
+      throw AppError.forbidden('Scheduled evaluation is not bound to the Org Reviewer');
+    }
+  }
+
   async authorize(identity: TrustedMcpCallIdentity): Promise<AuthorizedOrgReviewer> {
     const session = this.sessions.findBySdkSessionId(identity.sdkSessionId);
     if (!session) throw AppError.forbidden('Trusted reviewer session is not registered');
@@ -842,7 +940,7 @@ export class OrgReviewerService {
     args: ContextArguments,
     target: CurrentTarget,
     canonicalState: string,
-    reviewer: AuthorizedOrgReviewer,
+    reviewer: Pick<AuthorizedOrgReviewer, 'ownerUserId'>,
   ): void {
     if (
       !args.targetRef ||
@@ -879,7 +977,7 @@ export class OrgReviewerService {
     target: CurrentTarget,
     canonicalState: string,
     offset: number,
-    reviewer: AuthorizedOrgReviewer,
+    reviewer: Pick<AuthorizedOrgReviewer, 'ownerUserId'>,
   ): JsonRecord {
     const legacyScan = scanContextContent(JSON.stringify(target.state), 'Org Reviewer current target state');
     const canonicalScan = scanContextContent(canonicalState, 'Org Reviewer canonical current target state');
@@ -943,7 +1041,7 @@ export class OrgReviewerService {
     return page;
   }
 
-  async context(argumentsValue: JsonRecord, reviewer: AuthorizedOrgReviewer): Promise<JsonRecord> {
+  async context(argumentsValue: JsonRecord, reviewer: Pick<AuthorizedOrgReviewer, 'ownerUserId'>): Promise<JsonRecord> {
     const args = parseContextArguments(argumentsValue);
     if (args.targetCursor) {
       // A continuation never recomputes/returns overview data. It re-resolves
@@ -1066,7 +1164,7 @@ export class OrgReviewerService {
    * byte budget. Same owner scope and window as the overview with the same
    * windowDays/sessionLimit; whole entries only, in the overview's order.
    */
-  async catalog(argumentsValue: JsonRecord, reviewer: AuthorizedOrgReviewer): Promise<JsonRecord> {
+  async catalog(argumentsValue: JsonRecord, reviewer: Pick<AuthorizedOrgReviewer, 'ownerUserId'>): Promise<JsonRecord> {
     const extras = Object.keys(argumentsValue).filter((key) => !['kind', 'cursor', 'windowDays', 'sessionLimit'].includes(key));
     if (extras.length > 0) throw AppError.badRequest('Reviewer catalog request contains unsupported fields');
     const kind = exactString(argumentsValue.kind, 'kind', 40);
@@ -1114,7 +1212,7 @@ export class OrgReviewerService {
    * clipped. A message larger than a page continues on the next page from the
    * character offset carried by nextCursor.
    */
-  async session(argumentsValue: JsonRecord, reviewer: AuthorizedOrgReviewer): Promise<JsonRecord> {
+  async session(argumentsValue: JsonRecord, reviewer: Pick<AuthorizedOrgReviewer, 'ownerUserId'>): Promise<JsonRecord> {
     const args = parseSessionArguments(argumentsValue);
     // Same scope as the widest index the reviewer can request.
     const session = this.reviewableSessions(MAX_WINDOW_DAYS, MAX_SESSION_LIMIT, reviewer.ownerUserId)

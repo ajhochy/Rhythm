@@ -3,10 +3,17 @@ import { requireAuth } from '../middleware/auth_middleware';
 import { env } from '../config/env';
 import { OrgProposalsController } from '../controllers/org_proposals_controller';
 import { OrgReviewerController } from '../controllers/org_reviewer_controller';
+import { OrgEvaluationsController } from '../controllers/org_evaluations_controller';
 
 const router = Router();
 const controller = new OrgProposalsController();
 const reviewerController = new OrgReviewerController();
+const evaluationsController = new OrgEvaluationsController();
+
+// Engine children use an ephemeral loopback lease, not operator auth. The
+// handler validates peer, bearer, job, stage, and model independently.
+router.post('/evaluations/provider/:leaseId/v1/responses', (req, res, next) => evaluationsController.provider(req, res, next));
+router.post('/evaluations/provider/:leaseId/v1/messages', (req, res, next) => evaluationsController.provider(req, res, next));
 
 /**
  * Local agent-server auth posture — same as agent-webhooks/agent-cookbook:
@@ -16,6 +23,10 @@ const reviewerController = new OrgReviewerController();
 if (!env.agentLocal) router.use(requireAuth);
 
 router.get('/', (req, res, next) => controller.list(req, res, next));
+router.get('/evaluations/settings', (req, res, next) => evaluationsController.settings(req, res, next));
+router.patch('/evaluations/settings', (req, res, next) => evaluationsController.saveSettings(req, res, next));
+router.get('/evaluations', (req, res, next) => evaluationsController.list(req, res, next));
+router.get('/evaluations/:id', (req, res, next) => evaluationsController.detail(req, res, next));
 // Signed reviewer endpoints authenticate independently of the local operator
 // bypass above. They accept only the engine-signed trustedCall envelope.
 router.post('/reviewer/context', (req, res, next) => reviewerController.context(req, res, next));

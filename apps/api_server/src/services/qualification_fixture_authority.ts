@@ -9,10 +9,12 @@ export interface QualificationFixtureAuthority {
   profileSeedPath?: string;
   syntheticActor?: { tokenPath: string; expiresAt: string; modelLoan?: QualificationModelLoan };
 }
-interface QualificationModelLoan {
-  accountPath: string; accountProjectionSha256: string; decisionPath: string; decisionSha256: string;
-  gridPath: string; gridSha256: string; selectorSha256: string; issuedAt: number; expires: number; stopAt: number;
-}
+type QualificationModelLoan = {
+  accountPath: string; accountProjectionSha256: string; selectorSha256: string;
+  issuedAt: number; expires: number; stopAt: number;
+} & ({ provider: 'anthropic' } | {
+  provider?: never; decisionPath: string; decisionSha256: string; gridPath: string; gridSha256: string;
+});
 const loanUnavailable = () => new Error('Qualification model loan unavailable');
 const loanHash = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
 const canonicalLoan = (value: unknown): string => JSON.stringify(value, (_key, item) =>
@@ -42,6 +44,34 @@ export function assertQualificationModelLoan(m: Pick<QualificationFixtureAuthori
   now = Date.now()): QualificationModelLoan | null {
   const loan = m.syntheticActor?.modelLoan;
   if (!loan) return null;
+  if (loan.provider === 'anthropic') {
+    if (loan.accountPath !== join(m.fixtureRoot, 'anthropic-accounts.json')
+      || Object.keys(loan).some(key => !['provider', 'accountPath', 'accountProjectionSha256',
+        'selectorSha256', 'issuedAt', 'expires', 'stopAt'].includes(key))
+      || ![loan.accountProjectionSha256, loan.selectorSha256].every(v => /^[a-f0-9]{64}$/.test(v))
+      || !Number.isSafeInteger(loan.issuedAt) || !Number.isSafeInteger(loan.expires)
+      || !Number.isSafeInteger(loan.stopAt) || loan.issuedAt > now || loan.stopAt <= loan.issuedAt
+      || loan.stopAt > loan.issuedAt + 10 * 60_000 || loan.stopAt > loan.expires - 20 * 60_000
+      || now >= loan.stopAt) throw loanUnavailable();
+    let file: Record<string, unknown>;
+    try { file = JSON.parse(privateLoanBytes(loan.accountPath).toString('utf8')) as Record<string, unknown>; }
+    catch { throw loanUnavailable(); }
+    if (file.version !== 1 || !Array.isArray(file.accounts) || file.accounts.length !== 1
+      || file.defaultAccountId !== 'qualification-model'
+      || Object.keys(file).some(key => !['version', 'accounts', 'defaultAccountId', 'routing', 'pinned'].includes(key))
+      || !file.routing || typeof file.routing !== 'object' || Array.isArray(file.routing)
+      || !file.pinned || typeof file.pinned !== 'object' || Array.isArray(file.pinned)
+      || Object.values(file.routing).some(id => id !== 'qualification-model')
+      || Object.values(file.pinned).some(pinned => pinned !== true)) throw loanUnavailable();
+    const account = file.accounts[0] as Record<string, unknown>;
+    if (!account || Object.keys(account).some(key => !['id', 'label', 'access', 'refresh', 'expires', 'status'].includes(key))
+      || account.id !== 'qualification-model' || account.label !== '[smoke] selected model'
+      || typeof account.access !== 'string' || !account.access || account.refresh !== ''
+      || account.status !== 'ok' || account.expires !== loan.expires
+      || loanHash(canonicalLoan(account)) !== loan.accountProjectionSha256) throw loanUnavailable();
+    return loan;
+  }
+  if (loan.provider !== undefined) throw loanUnavailable();
   if (loan.accountPath !== join(m.fixtureRoot, 'openai-accounts.json')
     || loan.decisionPath !== join(m.fixtureRoot, 'decision-router.json')
     || loan.gridPath !== join(m.fixtureRoot, 'router-grid.json')

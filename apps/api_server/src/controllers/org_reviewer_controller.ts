@@ -66,8 +66,8 @@ export class OrgReviewerController {
   async submit(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const verified = await authenticate(req.body, ORG_REVIEWER_SUBMIT_TOOL);
-      const reviewer = await this.service.authorize(verified.context);
-      res.status(201).json(await this.service.submit(verified.arguments, reviewer));
+      await this.service.authorize(verified.context);
+      throw AppError.conflict('Direct reviewer proposal submission is closed; run the Org Reviewer evaluation');
     } catch (error) {
       next(error);
     }

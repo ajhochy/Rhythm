@@ -1,3 +1,4 @@
+import { POSTGRES_ORG_EVALUATION_SCHEMA } from './org_evaluation_schema';
 import type { Pool } from 'pg';
 
 import { env } from '../config/env';
@@ -621,6 +622,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS model_provider TEXT;
     ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS model_id TEXT;
     ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS webhook_endpoint_id TEXT;
+    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS recipe_id TEXT;
     -- Drop the legacy NOT NULL on task_id for EXISTING deployments so taskless
     -- (scheduler/webhook/research) triggers can insert task_id=NULL. Idempotent:
     -- DROP NOT NULL is a no-op when the column is already nullable.
@@ -1001,6 +1003,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       event_types_json TEXT NOT NULL DEFAULT '["*"]',
       secret TEXT NOT NULL,
       target_scheduled_task_id TEXT REFERENCES agent_scheduled_tasks(id) ON DELETE SET NULL,
+      target_recipe_id TEXT,
       target_prompt TEXT,
       enabled BOOLEAN NOT NULL DEFAULT TRUE,
       last_triggered_at TIMESTAMPTZ,
@@ -1010,6 +1013,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE agent_webhook_endpoints ADD COLUMN IF NOT EXISTS target_recipe_id TEXT`);
 
   // #1288 — named research-project persistence. Runs retain an immutable
   // configuration snapshot while jobs record mutable pass execution state.
@@ -2575,4 +2579,6 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       PRIMARY KEY (run_id, loop_id, item_key, item_id)
     )
   `);
+  await pool.query(POSTGRES_ORG_EVALUATION_SCHEMA);
+
 }

@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { createHash } from 'crypto';
-import { lstatSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'fs';
+import { lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { assertQualificationModelLoan } from './qualification_fixture_authority';
 
@@ -41,4 +41,35 @@ it('API authority revalidates the private credential projection and deadline eve
   expect(() => assertQualificationModelLoan(fixture, stopAt)).toThrow(/unavailable/);
   fixture.syntheticActor.modelLoan.issuedAt = now + 1000;
   expect(() => assertQualificationModelLoan(fixture, now)).toThrow(/unavailable/);
+});
+
+it('API authority accepts only the bound private Anthropic account until the hard stop', () => {
+  const root = mkdtempSync('/private/tmp/qualification-anthropic-loan-authority-');
+  const accountPath = join(root, 'anthropic-accounts.json');
+  const account = { id: 'qualification-model', label: '[smoke] selected model', access: 'synthetic-access',
+    refresh: '', expires: Date.now() + 45 * 60_000, status: 'ok' };
+  const accounts = { version: 1, accounts: [account], defaultAccountId: 'qualification-model',
+    routing: {} as Record<string, string>, pinned: {} as Record<string, true> };
+  writeFileSync(accountPath, JSON.stringify(accounts), { mode: 0o600 });
+  const now = Date.now(), stopAt = now + 10 * 60_000;
+  const fixture = { fixtureRoot: root, syntheticActor: { tokenPath: join(root, 'actor-token'),
+    expiresAt: new Date(now + 60_000).toISOString(), modelLoan: {
+      provider: 'anthropic' as const, accountPath, accountProjectionSha256: hash(canonical(account)),
+      selectorSha256: hash('selected-account-id'), issuedAt: now, expires: account.expires, stopAt,
+    } } };
+  try {
+    expect(() => assertQualificationModelLoan(fixture, now)).not.toThrow();
+    accounts.routing.session = 'qualification-model';
+    writeFileSync(accountPath, JSON.stringify(accounts), { mode: 0o600 });
+    expect(() => assertQualificationModelLoan(fixture, now)).not.toThrow();
+    account.refresh = 'forbidden';
+    writeFileSync(accountPath, JSON.stringify(accounts), { mode: 0o600 });
+    expect(() => assertQualificationModelLoan(fixture, now)).toThrow(/unavailable/);
+    account.refresh = '';
+    writeFileSync(accountPath, JSON.stringify(accounts), { mode: 0o600 });
+    expect(() => assertQualificationModelLoan(fixture, stopAt)).toThrow(/unavailable/);
+    rmSync(accountPath);
+    symlinkSync(join(root, 'not-an-account'), accountPath);
+    expect(() => assertQualificationModelLoan(fixture, now)).toThrow(/unavailable/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

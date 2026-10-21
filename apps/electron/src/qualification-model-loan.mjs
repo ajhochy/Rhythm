@@ -102,6 +102,15 @@ export function inspectQualificationModelAccounts(sourceAccountsPath) {
     status: account.status, expires: account.expires })), defaultAccountId: source.defaultAccountId };
 }
 
+/** Metadata-only Anthropic selection; no access or refresh token leaves this function. */
+/** @param {string} sourceAccountsPath */
+export function inspectQualificationAnthropicAccounts(sourceAccountsPath) {
+  const source = parse(safeRead(sourceAccountsPath));
+  if (source.version !== 1 || !Array.isArray(source.accounts) || typeof source.defaultAccountId !== 'string') throw unavailable();
+  return { accounts: source.accounts.map((account) => ({ id: account.id, label: account.label,
+    status: account.status, expires: account.expires })), defaultAccountId: source.defaultAccountId };
+}
+
 /** @param {JsonObject} file */
 function accountProjection(file) {
   if (file.version !== 1 || !Array.isArray(file.accounts) || file.accounts.length !== 1
@@ -192,12 +201,86 @@ export function provisionQualificationModelLoan({ manifestPath, expectedRevision
   }
 }
 
+/** One explicitly selected Anthropic account, frozen without its refresh token. */
+/** @param {{manifestPath: string, expectedRevision: string, readFixture: (path: string, revision: string) => {manifest: JsonObject},
+ * sourceAccountsPath: string, selectedAccountId: string, now?: number}} options */
+export function provisionQualificationAnthropicModelLoan({ manifestPath, expectedRevision, readFixture,
+  sourceAccountsPath, selectedAccountId, now = Date.now() }) {
+  if (typeof readFixture !== 'function') throw unavailable();
+  const originalManifestBytes = safeRead(manifestPath);
+  const manifest = readFixture(manifestPath, expectedRevision)?.manifest;
+  const root = manifest?.fixtureRoot;
+  ownedRoot(root);
+  if (canonical(parse(originalManifestBytes)) !== canonical(manifest)
+    || manifest.sourceRevision !== expectedRevision || manifestPath !== join(root, 'manifest.json')
+    || manifest.syntheticActor?.modelLoan || typeof selectedAccountId !== 'string' || !selectedAccountId) throw unavailable();
+  sourceOutsideFixture(sourceAccountsPath, root);
+  const source = parse(safeRead(sourceAccountsPath));
+  if (source.version !== 1 || !Array.isArray(source.accounts)) throw unavailable();
+  const matches = source.accounts.filter((account) => account.id === selectedAccountId);
+  if (matches.length !== 1) throw unavailable();
+  const selected = matches[0];
+  if (selected.status !== 'ok' || typeof selected.access !== 'string' || !selected.access
+    || !Number.isSafeInteger(selected.expires) || selected.expires <= now + 30 * 60_000) throw unavailable();
+  const privateAccount = { id: 'qualification-model', label: '[smoke] selected model', access: selected.access,
+    refresh: '', expires: selected.expires, status: 'ok' };
+  const accountFile = { version: 1, accounts: [privateAccount], defaultAccountId: 'qualification-model',
+    routing: {}, pinned: {} };
+  const accountPath = join(root, 'anthropic-accounts.json');
+  const accountBytes = JSON.stringify(accountFile, null, 2) + '\n';
+  const stopAt = Math.min(now + 10 * 60_000, selected.expires - 20 * 60_000);
+  const loan = { provider: 'anthropic', accountPath, accountProjectionSha256: digest(canonical(privateAccount)),
+    selectorSha256: digest(selectedAccountId), issuedAt: now, expires: selected.expires, stopAt };
+  const next = { ...manifest, syntheticActor: { ...manifest.syntheticActor, modelLoan: loan } };
+  const tempManifestPath = `${manifestPath}.loan-${process.pid}`;
+  let createdAccount = false, createdTemp = false;
+  try {
+    writeFileSync(accountPath, accountBytes, { mode: 0o600, flag: 'wx' });
+    createdAccount = true;
+    writeFileSync(tempManifestPath, JSON.stringify(next, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+    createdTemp = true;
+    assertQualificationModelLoan(next, { now });
+    renameSync(tempManifestPath, manifestPath);
+    return { stopAt, expires: selected.expires };
+  } catch {
+    if (createdAccount) rmSync(accountPath, { force: true });
+    if (createdTemp) rmSync(tempManifestPath, { force: true });
+    throw unavailable();
+  }
+}
+
 /** Validate the immutable loan binding and the account's credential projection on every attach/read. */
 /** @param {JsonObject} manifest @param {{now?: number}} [options] */
 export function assertQualificationModelLoan(manifest, { now = Date.now() } = {}) {
   const loan = manifest?.syntheticActor?.modelLoan;
   if (!loan) return null;
   const root = manifest.fixtureRoot;
+  if (loan.provider === 'anthropic') {
+    if (loan.accountPath !== join(root, 'anthropic-accounts.json')
+      || Object.keys(loan).some((key) => !['provider', 'accountPath', 'accountProjectionSha256',
+        'selectorSha256', 'issuedAt', 'expires', 'stopAt'].includes(key))
+      || !SHA256.test(loan.selectorSha256) || !SHA256.test(loan.accountProjectionSha256)
+      || !Number.isSafeInteger(loan.issuedAt) || !Number.isSafeInteger(loan.expires)
+      || !Number.isSafeInteger(loan.stopAt) || loan.issuedAt > now || loan.stopAt <= loan.issuedAt
+      || loan.stopAt > loan.issuedAt + 10 * 60_000 || loan.stopAt > loan.expires - 20 * 60_000
+      || now >= loan.stopAt) throw unavailable();
+    const file = parse(safeRead(loan.accountPath));
+    if (file.version !== 1 || !Array.isArray(file.accounts) || file.accounts.length !== 1
+      || file.defaultAccountId !== 'qualification-model'
+      || Object.keys(file).some((key) => !['version', 'accounts', 'defaultAccountId', 'routing', 'pinned'].includes(key))
+      || !file.routing || typeof file.routing !== 'object' || Array.isArray(file.routing)
+      || !file.pinned || typeof file.pinned !== 'object' || Array.isArray(file.pinned)
+      || Object.values(file.routing).some((id) => id !== 'qualification-model')
+      || Object.values(file.pinned).some((pinned) => pinned !== true)) throw unavailable();
+    const account = file.accounts[0];
+    if (!account || Object.keys(account).some((key) => !['id', 'label', 'access', 'refresh', 'expires', 'status'].includes(key))
+      || account.id !== 'qualification-model' || account.label !== '[smoke] selected model'
+      || typeof account.access !== 'string' || !account.access || account.refresh !== ''
+      || account.status !== 'ok' || account.expires !== loan.expires
+      || digest(canonical(account)) !== loan.accountProjectionSha256) throw unavailable();
+    return loan;
+  }
+  if (loan.provider !== undefined) throw unavailable();
   if (loan.accountPath !== join(root, 'openai-accounts.json') || loan.decisionPath !== join(root, 'decision-router.json')
     || loan.gridPath !== join(root, 'router-grid.json') || !SHA256.test(loan.selectorSha256)
     || !SHA256.test(loan.accountProjectionSha256) || !SHA256.test(loan.decisionSha256) || !SHA256.test(loan.gridSha256)

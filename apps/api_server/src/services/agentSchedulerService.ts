@@ -980,6 +980,14 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
   }
 }
 
+/** Run one production due-task selection inside the isolated evaluation worker. */
+export async function checkDueTasksForOrgEvaluationAsync(): Promise<void> {
+  if (process.env.RHYTHM_EVALUATION_WORKER !== '1' || env.dbClient !== 'sqlite' || env.agentLocal) {
+    throw new Error('Evaluation scheduler tick requires the private SQLite trigger worker');
+  }
+  await checkDueTasks();
+}
+
 export interface AgentSchedulerJob {
   stop: () => void;
   boot: Promise<void>;

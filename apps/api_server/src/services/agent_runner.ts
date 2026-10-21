@@ -872,6 +872,10 @@ function resolveRunModelLabel(configId?: string | null): string {
 // ── Main run function ─────────────────────────────────────────────────────────
 
 export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
+  if ((opts.agentConfigId ?? opts.agentKind) === ORG_REVIEWER_PROFILE_ID) {
+    const { runOrgEvaluationReview } = await import('./org_evaluation_review_runner');
+    return runOrgEvaluationReview(opts);
+  }
   const result = await _runOnce(opts);
   const classifiedResult =
     result.status === 'error'

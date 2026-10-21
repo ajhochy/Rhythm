@@ -6,7 +6,8 @@ import { snapshotQualificationHermesRuntime } from '../../apps/electron/src/qual
 import { resolveHermesBackendArtifact } from '../../apps/electron/src/hermes-backend-artifact.mjs';
 import { seedQualificationHermesHistory } from './qualification_hermes_history.mjs';
 import { profileKeyFor } from '../../apps/electron/src/colony-preferences.mjs';
-import { assertQualificationModelLoan, provisionQualificationModelLoan } from '../../apps/electron/src/qualification-model-loan.mjs';
+import { assertQualificationModelLoan, provisionQualificationModelLoan,
+  provisionQualificationAnthropicModelLoan } from '../../apps/electron/src/qualification-model-loan.mjs';
 
 function owned(file, mode, directory = false) {
   const st = lstatSync(file);
@@ -135,6 +136,10 @@ export function createQualificationFixture(sourceRevision, {
 /** The only creator-side loan entry point: reuse the full fixture authority before any credential read or write. */
 export function provisionQualificationFixtureModelLoan(options) {
   return provisionQualificationModelLoan({ ...options, readFixture: readQualificationFixture });
+}
+
+export function provisionQualificationFixtureAnthropicModelLoan(options) {
+  return provisionQualificationAnthropicModelLoan({ ...options, readFixture: readQualificationFixture });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href)
