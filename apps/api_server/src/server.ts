@@ -439,10 +439,11 @@ async function main() {
         },
       },
       rootInitializer: {
-        initialize: async ({ actor, localSessionId, projectId, profileId }) => {
+        initialize: async ({ actor, localSessionId, projectId, profileId, workspaceCurrent }) => {
           const before = conversationSessions.findById(localSessionId);
           const profile = conversationConfigs.getById(profileId);
           if (
+            !workspaceCurrent() ||
             !before || before.ownerUserId !== actor.user.id || before.projectId !== projectId ||
             before.parentSessionId !== null || before.isSystem || before.category !== 'chat' ||
             before.profileId !== profileId || before.sdkSessionId || !before.cwd || !profile ||
@@ -456,6 +457,7 @@ async function main() {
             return { kind: 'unavailable' as const };
           }
           if (
+            !workspaceCurrent() ||
             resolved.model.providerID !== profile.modelProvider || resolved.model.modelID !== profile.modelId
           ) return { kind: 'unavailable' as const };
           const created = await opencodeClient.createSession(
@@ -475,6 +477,7 @@ async function main() {
           const after = conversationSessions.findById(localSessionId);
           const afterProfile = conversationConfigs.getById(profileId);
           if (
+            !workspaceCurrent() ||
             !after || after.id !== before.id || after.ownerUserId !== actor.user.id || after.projectId !== projectId ||
             after.parentSessionId !== null || after.isSystem || after.category !== 'chat' || after.profileId !== profileId ||
             after.sdkSessionId || !afterProfile || afterProfile.revision !== profile.revision ||

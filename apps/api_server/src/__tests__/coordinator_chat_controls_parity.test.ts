@@ -16,7 +16,9 @@
  * model/tier.
  */
 import Database from 'better-sqlite3';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { lstatSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync } from 'node:fs';
+import path from 'node:path';
 
 import type { CoordinatorContextRead } from '../contracts/coordinator_conversation_contract';
 import type { AuthContext } from '../middleware/auth_middleware';
@@ -55,6 +57,10 @@ const NOW = new Date('2026-10-06T12:00:00.000Z');
 const NATIVE = 'msg_native_c2_1';
 const auth = { sessionToken: 'desktop-auth', user: { id: OWNER } } as AuthContext;
 const MCP = { role: 'secretary', mcpServers: { rhythm: { allowedTools: ['rhythm_get_coordinator_status'] } }, allowedToolsJson: '[]' };
+const workspaceParent = realpathSync(mkdtempSync('/private/tmp/rhythm-coord-foreground-'));
+const workspace = path.join(workspaceParent, 'primary');
+mkdirSync(workspace);
+afterAll(() => rmSync(workspaceParent, { recursive: true, force: true }));
 
 const available = <T>(items: T[]): CoordinatorContextRead<T> => ({
   availability: 'available', reason: null, complete: true, authoritative: true,
@@ -69,6 +75,8 @@ describe('coordinator foreground honors the session model, reasoning and Fast', 
   let hooks: { allowlist?: () => void; mint?: () => void; stream?: () => void };
   let scopeModel: { providerID: string; modelID: string };
   let autoRoute: ((input: { selection: any; prompt: string; current(): boolean }) => Promise<any>) | null;
+  let initializeRoot: ((input: { workspaceCurrent(): boolean }) => Promise<{ kind: 'ready'; session: any } | { kind: 'unavailable' }>) | null;
+  let contextFailure: boolean;
   let sequence = 0;
 
   const bodyOf = (call = 0) => (sdkPromptAsync.mock.calls[call][0] as { body: Record<string, unknown> }).body;
@@ -101,10 +109,12 @@ describe('coordinator foreground honors the session model, reasoning and Fast', 
     hooks = {};
     scopeModel = { providerID: 'provider-default', modelID: 'model-default' };
     autoRoute = null;
+    initializeRoot = null;
+    contextFailure = false;
     db.prepare(`INSERT OR IGNORE INTO agent_configs (id, label, icon, command, enabled, is_agent)
       VALUES ('secretary', 'Secretary', 'x', 'synthetic', 1, 1)`).run();
     setProfile({ oc_agent: 'secretary', session_selectable: 1, model_provider: 'provider-default', model_id: 'model-default', system_prompt: 'You are the Secretary.' });
-    new AgentSessionsRepository().insert({ agentKind: 'librarian', taskId: null, cwd: '/tmp', name: 'primary', profileId: 'secretary' } as never);
+    new AgentSessionsRepository().insert({ agentKind: 'librarian', taskId: null, cwd: workspace, name: 'primary', profileId: 'secretary' } as never);
     const created = db.prepare('SELECT id FROM agent_sessions ORDER BY rowid DESC LIMIT 1').get() as { id: string };
     db.prepare('UPDATE agent_sessions SET id=? WHERE id=?').run('primary', created.id);
     setSession({
@@ -131,11 +141,16 @@ describe('coordinator foreground honors the session model, reasoning and Fast', 
     const configs = new AgentConfigsRepository();
     service = new CoordinatorConversationService({
       repository: repo,
-      context: { assemble: async (input: Parameters<typeof assembler.assemble>[0]) => assembler.assemble(input) } as never,
+      context: { assemble: async (input: Parameters<typeof assembler.assemble>[0]) => {
+        if (contextFailure) throw new Error('optional context unavailable');
+        return assembler.assemble(input);
+      } } as never,
       sessions,
       configs,
-      projects: { findById: () => ({ id: PROJECT, archivedAt: null }) } as never,
+      projects: { findById: () => ({ id: PROJECT, cwd: workspace, archivedAt: null }) } as never,
       projectAccess: { canAccess: () => access.value, canOwnerAccess: () => access.value },
+      rootInitializer: { initialize: async (input: { workspaceCurrent(): boolean }) => initializeRoot
+        ? initializeRoot(input) : { kind: 'unavailable' as const } },
       foreground: {
         send: createCoordinatorForegroundSender({
           sessions,
@@ -164,6 +179,76 @@ describe('coordinator foreground honors the session model, reasoning and Fast', 
       enabled: () => true,
       now: () => NOW,
     } as never);
+  });
+
+  it('refuses a missing primary workspace before reserving or routing any foreground turn', async () => {
+    setSession({ model_mode: 'auto' });
+    const route = vi.fn(async () => { throw new Error('missing workspace must not classify'); });
+    autoRoute = route;
+    const journal = (db.prepare('SELECT coordinator_conversation_json FROM agent_sessions WHERE id=?').get('primary') as
+      { coordinator_conversation_json: string }).coordinator_conversation_json;
+    const backup = path.join(workspaceParent, 'primary-missing');
+    const original = lstatSync(workspace);
+    expect(lstatSync(backup, { throwIfNoEntry: false })).toBeUndefined();
+    renameSync(workspace, backup);
+    try {
+      expect(await send()).toMatchObject({ kind: 'context_unavailable' });
+      expect(route).not.toHaveBeenCalled();
+      expect(sdkPromptAsync).not.toHaveBeenCalled();
+      expect(allowlist).not.toHaveBeenCalled();
+      expect((db.prepare('SELECT coordinator_conversation_json FROM agent_sessions WHERE id=?').get('primary') as
+        { coordinator_conversation_json: string }).coordinator_conversation_json).toBe(journal);
+    } finally {
+      const moved = lstatSync(backup);
+      expect(moved.dev).toBe(original.dev);
+      expect(moved.ino).toBe(original.ino);
+      expect(lstatSync(workspace, { throwIfNoEntry: false })).toBeUndefined();
+      renameSync(backup, workspace);
+    }
+  });
+
+  it('rechecks the owned workspace after held profile resolution before any SDK session creation', async () => {
+    setSession({ sdk_session_id: null });
+    const createSession = vi.fn();
+    let resumeProfile!: () => void;
+    let reachedProfile!: () => void;
+    let sawTrustedProof = false;
+    const held = new Promise<void>((resolve) => { resumeProfile = resolve; });
+    const reached = new Promise<void>((resolve) => { reachedProfile = resolve; });
+    initializeRoot = async ({ workspaceCurrent }) => {
+      sawTrustedProof = typeof workspaceCurrent === 'function' && workspaceCurrent();
+      reachedProfile();
+      await held; // Stand-in for server.ts resolveProfileScope await.
+      if (!workspaceCurrent()) return { kind: 'unavailable' };
+      createSession();
+      return { kind: 'unavailable' };
+    };
+    const backup = path.join(workspaceParent, 'primary-held-profile');
+    const original = lstatSync(workspace);
+    const pending = send();
+    await reached;
+    expect(sawTrustedProof).toBe(true);
+    expect(lstatSync(backup, { throwIfNoEntry: false })).toBeUndefined();
+    renameSync(workspace, backup);
+    try {
+      resumeProfile();
+      expect(await pending).toMatchObject({ kind: 'foreground_uncertain' });
+      expect(createSession).not.toHaveBeenCalled();
+      expect(sdkPromptAsync).not.toHaveBeenCalled();
+    } finally {
+      const moved = lstatSync(backup);
+      expect(moved.dev).toBe(original.dev);
+      expect(moved.ino).toBe(original.ino);
+      expect(lstatSync(workspace, { throwIfNoEntry: false })).toBeUndefined();
+      renameSync(backup, workspace);
+    }
+  });
+
+  it('keeps ordinary chat available when optional context fails but the primary workspace is present', async () => {
+    contextFailure = true;
+    expect(await send()).toMatchObject({ kind: 'foreground_accepted' });
+    expect(sdkPromptAsync).toHaveBeenCalledTimes(1);
+    expect(String(bodyOf().system)).toContain('projection is unavailable');
   });
 
   it('sends a fixed session model that differs from the profile default, with the profile scope intact', async () => {

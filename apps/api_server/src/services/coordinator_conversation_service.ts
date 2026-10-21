@@ -227,6 +227,8 @@ export interface CoordinatorConversationServiceDependencies {
       localSessionId: string;
       projectId: string;
       profileId: string;
+      /** Server-owned current workspace proof, checked again after async profile resolution. */
+      workspaceCurrent(): boolean;
     }): Promise<{ kind: 'ready'; session: AgentSession } | { kind: 'unavailable' }>;
   };
   /**
@@ -929,6 +931,9 @@ export class CoordinatorConversationService {
       if (!isAuthenticatedActor(actor) || !current.conversation.primaryOwnerRoot || !this.currentRootSelection(actor, request, true)) {
         return { kind: 'model_integration_unavailable', conversation: current.conversation };
       }
+      if (!this.safePrimaryWorkspaceProof(actor, request, current.conversation)) {
+        return { kind: 'context_unavailable' };
+      }
       const captured = this.repository.addGoal({
         ...requestScope,
         expectedControlRevision: request.expectedControlRevision,
@@ -973,6 +978,10 @@ export class CoordinatorConversationService {
     }
     const selected = this.currentRootSelection(actor, request, true);
     if (!selected) return { kind: 'model_integration_unavailable', conversation };
+    const primaryProof = this.safePrimaryWorkspaceProof(actor, request, conversation);
+    if (!primaryProof) return { kind: 'context_unavailable' };
+    const workspaceCurrent = (): boolean => this.primaryWorkspaceProofCurrent(actor, request, primaryProof);
+    if (!workspaceCurrent()) return { kind: 'context_unavailable' };
     const reserved = this.repository.reserveForegroundMessage({
       ...scope(actor.user.id, request),
       expectedControlRevision: request.expectedControlRevision,
@@ -999,6 +1008,7 @@ export class CoordinatorConversationService {
       : null;
     if (
       !initialized || latest.kind !== 'found' || !beforeRoute || !beforeRoute.session.sdkSessionId ||
+      !workspaceCurrent() ||
       !this.sameSelection(initialized, beforeRoute) ||
       initialized.session.anthropicAccountId !== beforeRoute.session.anthropicAccountId ||
       initialized.session.anthropicAccountSource !== beforeRoute.session.anthropicAccountSource ||
@@ -1026,6 +1036,7 @@ export class CoordinatorConversationService {
       const command = current.kind === 'found'
         ? current.conversation.commandDedupe.find((candidate) => candidate.key === request.commandKey) : null;
       return current.kind === 'found' && current.conversation.primaryOwnerRoot === true &&
+        workspaceCurrent() &&
         current.conversation.controlRevision === foregroundEpoch &&
         command?.kind === 'foreground' && command.state === 'reserved' &&
         Boolean(selection && this.sameSelection(beforeRoute, selection) && sameAccounts(beforeRoute, selection));
@@ -1058,7 +1069,7 @@ export class CoordinatorConversationService {
       },
       requestedModel: { ...beforeRoute.requestedModel, providerId: routed.route.providerID, modelId: routed.route.modelID },
     } : beforeRoute;
-    if (!finalSelection || !this.sameSelection(expectedAfterRoute, finalSelection) ||
+    if (!finalSelection || !workspaceCurrent() || !this.sameSelection(expectedAfterRoute, finalSelection) ||
       !sameAccounts(expectedAfterRoute, finalSelection)) {
       return this.foregroundSettledResult(this.repository.settleForegroundMessage({
         ...scope(actor.user.id, request), commandKey: request.commandKey, message: request.message, outcome: 'uncertain',
@@ -1071,6 +1082,7 @@ export class CoordinatorConversationService {
         ? current.conversation.commandDedupe.find((candidate) => candidate.key === request.commandKey)
         : null;
       return current.kind === 'found' &&
+        workspaceCurrent() &&
         current.conversation.primaryOwnerRoot === true &&
         current.conversation.controlRevision === foregroundEpoch &&
         command?.kind === 'foreground' && command.state === 'reserved' &&
@@ -1082,7 +1094,7 @@ export class CoordinatorConversationService {
       finalSelection,
       foregroundEpoch,
     );
-    if (!contract) {
+    if (!contract || !workspaceCurrent()) {
       return this.foregroundSettledResult(this.repository.settleForegroundMessage({
         ...scope(actor.user.id, request),
         commandKey: request.commandKey,
@@ -1118,7 +1130,7 @@ export class CoordinatorConversationService {
           foregroundEpoch,
           contract.fingerprint,
           contract.contextQualified,
-        ),
+        ).then((current) => current && workspaceCurrent()),
       });
       return this.foregroundSettledResult(this.repository.settleForegroundMessage({
         ...scope(actor.user.id, request),
@@ -3111,14 +3123,22 @@ export class CoordinatorConversationService {
   ): Promise<ManagedSelection | null> {
     if (prior.session.sdkSessionId) return this.currentManagedSelection(actor, request, allowSessionModel);
     if (!this.dependencies.rootInitializer) return null;
+    const existing = this.repository.get(scope(actor.user.id, request));
+    const proof = existing.kind === 'found'
+      ? this.safePrimaryWorkspaceProof(actor, request, existing.conversation) : null;
+    if (!proof) return null;
+    const workspaceCurrent = (): boolean => this.primaryWorkspaceProofCurrent(actor, request, proof);
+    if (!workspaceCurrent()) return null;
     try {
       const initialized = await this.dependencies.rootInitializer.initialize({
         actor,
         localSessionId: prior.session.id,
         projectId: request.projectId,
         profileId: prior.profile.id,
+        workspaceCurrent,
       });
-      if (initialized.kind !== 'ready' || initialized.session.id !== prior.session.id || !initialized.session.sdkSessionId) {
+      if (initialized.kind !== 'ready' || initialized.session.id !== prior.session.id ||
+        !initialized.session.sdkSessionId || !workspaceCurrent()) {
         return null;
       }
     } catch {
@@ -3187,7 +3207,7 @@ export class CoordinatorConversationService {
   /** A designated primary can retain its journal after its working directory disappears. */
   private primaryWorkspaceProof(
     actor: ConversationActor,
-    requestScope: CoordinatorConversationScope,
+    requestScope: CoordinatorConversationOpenRequest,
     conversation: CoordinatorConversation,
   ): string | null {
     if (!conversation.primaryOwnerRoot || !isAuthenticatedActor(actor)) return null;
@@ -3220,6 +3240,26 @@ export class CoordinatorConversationService {
       provenance: project.coordinatorSetupProvenance, generation: project.coordinatorWorkspaceGeneration,
       device: stat.dev, inode: stat.ino,
     });
+  }
+
+  private safePrimaryWorkspaceProof(
+    actor: ConversationActor,
+    request: CoordinatorConversationOpenRequest,
+    conversation: CoordinatorConversation,
+  ): string | null {
+    try { return this.primaryWorkspaceProof(actor, request, conversation); }
+    catch { return null; }
+  }
+
+  private primaryWorkspaceProofCurrent(
+    actor: AuthContext,
+    request: CoordinatorConversationOpenRequest,
+    expected: string,
+  ): boolean {
+    try {
+      const current = this.repository.get(scope(actor.user.id, request));
+      return current.kind === 'found' && this.safePrimaryWorkspaceProof(actor, request, current.conversation) === expected;
+    } catch { return false; }
   }
 
   private async statusForConversation(

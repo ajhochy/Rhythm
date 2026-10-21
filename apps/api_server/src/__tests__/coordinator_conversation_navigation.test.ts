@@ -450,6 +450,32 @@ describe('dedicated primary Rhythm conversation resolution', () => {
     expect(calls).toBe(1);
   });
 
+  it('does not capture a natural foreground goal when the designated workspace has disappeared', async () => {
+    db = database();
+    const repository = new CoordinatorConversationsRepository(db, () => now);
+    expect(repository.designatePrimaryOwnerRoot({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' }))
+      .toMatchObject({ kind: 'found' });
+    let calls = 0;
+    const coordinator = service(repository, db, new Map([[7, new Set(['project-a'])]]), {
+      foreground: { send: async () => { calls += 1; return { kind: 'accepted' }; } },
+    });
+    const request = { sessionId: 'chat-a', projectId: 'project-a', expectedControlRevision: 1,
+      commandKey: 'missing-natural-goal', message: 'Could you draft a weekly update from the current work?' };
+    const original = repository.get({ ownerUserId: 7, sessionId: 'chat-a', projectId: 'project-a' });
+    const cwd = workspaceCwd('project-a');
+    const backup = path.join(workspaceRoot, 'project-a-natural-goal-missing');
+    expect(lstatSync(backup, { throwIfNoEntry: false })).toBeUndefined();
+    renameSync(cwd, backup);
+    try {
+      expect(await coordinator.receiveMessage(auth, request)).toEqual({ kind: 'context_unavailable' });
+      expect(repository.get({ ownerUserId: 7, sessionId: 'chat-a', projectId: 'project-a' })).toEqual(original);
+      expect(calls).toBe(0);
+    } finally {
+      expect(lstatSync(cwd, { throwIfNoEntry: false })).toBeUndefined();
+      renameSync(backup, cwd);
+    }
+  });
+
   it('starts one captured goal through the existing Coding Workflow, replays no child, and admits only its exact completion callback for status', async () => {
     db = database();
     const allowed = new Map([[7, new Set(['project-a'])]]);
