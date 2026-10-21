@@ -99,6 +99,16 @@ const ENGINE = 'http://127.0.0.1:4097';
       const history = await post('history', { ...request, limit: 50 });
       expect(history).toMatchObject({ status: 200, body: { kind: 'history', messages: [] } });
       const journal = roots()[0].coordinator_conversation_json;
+      const controlRevision = (JSON.parse(String(journal)) as { controlRevision: number }).controlRevision;
+      const count = (sql: string, id: string) => (db.prepare(sql).get(id) as { n: number }).n;
+      const counts = () => ({
+        children: count('SELECT count(*) n FROM agent_sessions WHERE parent_session_id=?', sessionId),
+        commands: count('SELECT count(*) n FROM coordinator_conversation_commands WHERE root_session_id=?', sessionId),
+        routeAttempts: count('SELECT count(*) n FROM agent_router_grid_attempts WHERE session_id=?', sessionId),
+        dispatches: count('SELECT count(*) n FROM agent_turn_dispatches WHERE session_id=?', sessionId),
+      });
+      const inert = { children: 0, commands: 0, routeAttempts: 0, dispatches: 0 };
+      expect(counts()).toEqual(inert);
       const backup = path.join(parent, `.smoke-primary-cwd-${randomUUID()}`);
       expect(lstatSync(backup, { throwIfNoEntry: false })).toBeUndefined();
       let renamed = false;
@@ -109,9 +119,14 @@ const ENGINE = 'http://127.0.0.1:4097';
         renamed = true;
         expect(lstatSync(cwd, { throwIfNoEntry: false })).toBeUndefined();
         expect(await post('status', request)).toEqual({ status: 503, body: { kind: 'context_unavailable' } });
+        expect(await post('message', { ...request, expectedControlRevision: controlRevision,
+          commandKey: `smoke-missing-foreground-${randomUUID()}`, message: 'What is two plus two?' }))
+          .toEqual({ status: 503, body: { kind: 'context_unavailable' } });
         expect(await post('open', request)).toMatchObject({ status: 200,
           body: { kind: 'replay', conversation: { sessionId, projectId } } });
         expect(await post('history', { ...request, limit: 50 })).toEqual(history);
+        expect(counts()).toEqual(inert);
+        expect(roots()[0].sdk_session_id).toBeNull();
         expect(roots()[0].coordinator_conversation_json).toBe(journal);
         expect(await engineSessions()).toEqual([]);
       } finally {
@@ -123,6 +138,7 @@ const ENGINE = 'http://127.0.0.1:4097';
         }
       }
       expect(await post('status', request)).toMatchObject({ status: 200, body: { kind: 'status' } });
+      expect(counts()).toEqual(inert);
       expect(roots()[0].coordinator_conversation_json).toBe(journal);
     } finally { db.close(); }
   }, 90_000);
