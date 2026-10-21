@@ -3,8 +3,6 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-const gatewayModulePath = '../../src/gateway/index.ts';
-
 test('slice-2-c19: renderer CSP permits only production local services and the exact artifact bridge', async () => {
   // Regression caught: shipping CSP keeps sandbox ports or the content-addressed bridge hash drifts.
   const html = await readFile(path.resolve(import.meta.dirname, '../../index.html'), 'utf8');
@@ -18,11 +16,10 @@ test('slice-2-c19: renderer CSP permits only production local services and the e
 });
 
 async function loadGateway(): Promise<any> {
-  try {
-    return await import(gatewayModulePath);
-  } catch {
-    return null;
-  }
+  // Keep the specifier literal so Playwright transforms its TypeScript imports.
+  // A computed import escapes that loader and Node cannot resolve extensionless
+  // gateway dependencies; surfacing the original import error avoids false nulls.
+  return import('../../src/gateway/index.ts');
 }
 
 test('slice-2-c1: gateway exposes explicit mode, health, and unsupported domain boundary', async () => {
@@ -85,7 +82,7 @@ test('production gateway receipt exposes Flutter runtime ports instead of sandbo
     productionApiBase: 'https://api.vcrcapps.com',
     taskToken: 'disposable-receipt-token',
   });
-  expect(gateway.environment).toEqual({ apiPort: '4001', enginePort: '4096' });
+  expect(gateway.environment).toEqual({ apiBase: 'http://127.0.0.1:4001', apiPort: '4001', enginePort: '4096' });
 });
 
 test('credentialed production base rejects plaintext and every loopback spelling', async () => {

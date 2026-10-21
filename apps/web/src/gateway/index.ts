@@ -70,6 +70,7 @@ export interface LiveGatewayConfig {
   expectedApiBase?: string;
   expectedEngineBase?: string;
   taskToken?: string;
+  mcpReady?: () => Promise<void>;
 }
 
 export interface GatewayEnvironment {
@@ -81,6 +82,7 @@ export interface GatewayEnvironment {
   expectedApiBase?: string;
   expectedEngineBase?: string;
   taskToken?: string;
+  mcpReady?: () => Promise<void>;
 }
 
 type Fetcher = typeof fetch;
@@ -189,7 +191,7 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       // Human approval surfaces skip the AGENT_LOCAL bypass and require the cloud bearer (agent_approvals_routes.ts).
       approvals: createLiveApprovalGateway(apiBase, config.taskToken, fetcher),
       delegation: createLiveDelegationGateway(apiBase, config.taskToken, localFetcher),
-      mcp: createLiveMcpGateway(apiBase, config.taskToken, localFetcher),
+      mcp: createLiveMcpGateway(apiBase, config.taskToken, localFetcher, config.mcpReady),
       skills: createLiveSkillGateway(apiBase, config.taskToken, localFetcher),
       schedules: createLiveScheduleGateway(apiBase, config.taskToken, localFetcher),
       mobileAccess: createLiveMobileAccessGateway(apiBase, config.taskToken, localFetcher),
@@ -243,6 +245,7 @@ export function composeGateway(environment: GatewayEnvironment): RendererGateway
     expectedApiBase: environment.expectedApiBase,
     expectedEngineBase: environment.expectedEngineBase,
     taskToken: environment.taskToken,
+    mcpReady: environment.mcpReady,
   });
 }
 import { createLiveTasksGateway, type TaskGateway } from './tasks';

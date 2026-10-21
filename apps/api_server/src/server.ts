@@ -1313,6 +1313,15 @@ async function main() {
     opencodeClient
       .initialize()
       .then(async () => {
+      // The pre-spawn pass cannot see the live model catalog. Reconcile only
+      // after engine readiness so a missing/hidden managed small_model is
+      // removed and a verified cheap route can be installed for title work.
+      try {
+        const { ensureManagedDefaults } = await import('./services/opencode_plugin_config');
+        if (await ensureManagedDefaults()) await opencodeClient.reloadConfig();
+      } catch (e) {
+        logger.warn(`[server] post-ready managed defaults refresh failed (non-fatal): ${String(e)}`);
+      }
       // #1572 — preserve the engine-loaded provider options so the first
       // refresh after an on-disk edit can report restart_required accurately.
       try {

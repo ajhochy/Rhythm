@@ -5,7 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Page, Response } from '@playwright/test';
+import type { Frame, Page, Request, Response } from '@playwright/test';
 import { test as packagedTest, expect, waitForSignedIn } from './packaged-app';
 import { readQualificationFixture } from '../../../../tools/testing/qualification_fixture.mjs';
 
@@ -57,6 +57,33 @@ export function responseFor(page: Page, method: string, pathname: string) {
   // An action can fail before its response is awaited; retain the rejection for the caller without an orphan rejection.
   void pending.catch(() => {});
   return pending;
+}
+
+/** Match a catalog request made by the new document, then consume its CDP body before another navigation. */
+export async function reloadJsonFor<T>(page: Page, pathname: string): Promise<{ response: Response; body: T }> {
+  const currentDocumentRequests = new Set<Request>();
+  let committed = false;
+  const markDocument = (frame: Frame) => {
+    if (frame === page.mainFrame()) committed = true;
+  };
+  const captureRequest = (request: Request) => {
+    if (!committed || request.method() !== 'GET') return;
+    const url = new URL(request.url());
+    if (url.origin === API && url.pathname === pathname) currentDocumentRequests.add(request);
+  };
+  page.on('framenavigated', markDocument);
+  page.on('request', captureRequest);
+  try {
+    const pending = page.waitForResponse(response => currentDocumentRequests.has(response.request()), { timeout: 20_000 });
+    void pending.catch(() => {});
+    await page.reload();
+    const response = await pending;
+    const body = await response.json() as T;
+    return { response, body };
+  } finally {
+    page.off('framenavigated', markDocument);
+    page.off('request', captureRequest);
+  }
 }
 
 export async function selectSessionProfile(page: Page) {

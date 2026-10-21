@@ -28,7 +28,7 @@ export interface AddMcpServerInput {
 export interface McpGateway {
   readonly mode: GatewayMode;
   // GET /opencode/mcp — apps/api_server/src/routes/opencode_mcp_routes.ts:80-159.
-  list(): Promise<McpServer[]>;
+  list(signal?: AbortSignal): Promise<McpServer[]>;
   // POST /opencode/mcp — apps/api_server/src/routes/opencode_mcp_routes.ts:163-213.
   add(input: AddMcpServerInput): Promise<McpServer>;
   // POST /opencode/mcp/:name/credentials — apps/api_server/src/routes/opencode_mcp_routes.ts:274-343.
@@ -68,13 +68,20 @@ export function createFixtureMcpGateway(): McpGateway {
   return { mode: 'fixture', list: unsupported, add: unsupported, setCredentials: unsupported, startOAuth: unsupported, oauthStatus: unsupported, connect: unsupported, disconnect: unsupported, remove: unsupported };
 }
 
-export function createLiveMcpGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): McpGateway {
+export function createLiveMcpGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch, ready?: () => Promise<void>): McpGateway {
   if (!token?.trim()) throw new Error('Live configuration error: an MCP token is required');
   const request = (path: string, init: RequestInit = {}) =>
     fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   return {
     mode: 'live',
-    list: () => response<McpServer[]>('Load MCP servers', request('/opencode/mcp')),
+    list: async (signal) => {
+      if (signal?.aborted) throw new DOMException('MCP catalog request cancelled', 'AbortError');
+      // No catalog GET until this authenticated document's core server install
+      // has settled. The API's explicit 503 remains intact for other callers.
+      await ready?.();
+      if (signal?.aborted) throw new DOMException('MCP catalog request cancelled', 'AbortError');
+      return response<McpServer[]>('Load MCP servers', request('/opencode/mcp', { signal }));
+    },
     add: (input) => response<McpServer>('Add MCP server', request('/opencode/mcp', { method: 'POST', body: JSON.stringify(input) })),
     setCredentials: (name, environment) => response<McpServer>('Set MCP credentials', request(`/opencode/mcp/${encodeURIComponent(name)}/credentials`, { method: 'POST', body: JSON.stringify({ environment }) })),
     startOAuth: (name) => response<{ authorizationUrl: string }>('Start MCP OAuth', request(`/opencode/mcp/${encodeURIComponent(name)}/oauth/start`, { method: 'POST' })),

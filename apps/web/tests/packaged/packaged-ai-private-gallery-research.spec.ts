@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { lstatSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync, type Stats } from 'node:fs';
 import { join } from 'node:path';
 import { test as unverified } from '@playwright/test';
-import { test, expect, ObservedApi, assertResponse, responseFor, localRows, expectedRevision, API } from './feature-test';
+import { test, expect, ObservedApi, assertResponse, responseFor, reloadJsonFor, localRows, expectedRevision, API } from './feature-test';
 import { readQualificationFixture } from '../../../../tools/testing/qualification_fixture.mjs';
 import { OwnedMissingGalleryFixture } from './private-gallery-fixture';
 
@@ -25,11 +25,8 @@ function privateManifest() {
 async function observedApi(page: import('@playwright/test').Page, route: string, collection: string) {
   await page.goto(`rhythm://app/index.html#/tools/${route}`);
   await page.getByTestId(`tool-page-${route}`).waitFor({ state: 'visible' });
-  const pending = responseFor(page, 'GET', collection);
-  await page.reload();
-  const response = await pending;
+  const { response } = await reloadJsonFor<unknown>(page, collection);
   await assertResponse(response, 'GET', collection, 200);
-  await response.json(); // Consume while this document still owns the CDP response body.
   const manifest = privateManifest();
   expect(new URL(response.url()).origin).toBe(API);
   expect(response.request().headers().authorization).toBe(`Bearer ${readFileSync(manifest.syntheticActor.tokenPath, 'utf8')}`);
@@ -206,11 +203,8 @@ if (!manifestPath) {
       await page.getByTestId('gallery-viewer-close').click();
       await expect(image).toBeHidden();
 
-      const catalogPending = responseFor(page, 'GET', '/agent-designs');
-      await page.reload();
-      const catalog = await catalogPending;
+      const { response: catalog, body: rows } = await reloadJsonFor<Design[]>(page, '/agent-designs');
       await assertResponse(catalog, 'GET', '/agent-designs', 200);
-      const rows = await catalog.json() as Design[];
       expect(rows.find(row => row.id === missing.id)).toMatchObject({ artifactUrl: null, thumbnailUrl: null });
       await page.getByTestId(`design-${missing.id}`).click();
       await expect(page.getByTestId('gallery-detail')).toBeVisible();
@@ -243,11 +237,9 @@ if (!manifestPath) {
         headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: renamedName }) });
       expect(renamed.status).toBe(200);
       expect(await renamed.json()).toMatchObject({ id: folder.id, name: renamedName });
-      const folderPending = responseFor(page, 'GET', '/agent-designs/folders');
-      await page.reload();
-      const folders = await folderPending;
+      const { response: folders, body: folderRows } = await reloadJsonFor<Folder[]>(page, '/agent-designs/folders');
       await assertResponse(folders, 'GET', '/agent-designs/folders', 200);
-      expect(await folders.json()).toEqual(expect.arrayContaining([expect.objectContaining({ id: folder.id, name: renamedName })]));
+      expect(folderRows).toEqual(expect.arrayContaining([expect.objectContaining({ id: folder.id, name: renamedName })]));
       await expect(page.getByTestId(`gallery-folder-${folder.id}`)).toBeVisible();
 
       let injected = false;
@@ -259,19 +251,14 @@ if (!manifestPath) {
       };
       await page.route('**/agent-designs', handler);
       try {
-        const failedPending = responseFor(page, 'GET', '/agent-designs');
-        await page.reload();
-        const failed = await failedPending;
+        const { response: failed } = await reloadJsonFor<unknown>(page, '/agent-designs');
         await assertResponse(failed, 'GET', '/agent-designs', 503);
-        await failed.json();
         expect(injected).toBe(true);
         await expect(page.getByTestId('gallery-error')).toBeVisible();
       } finally { await page.unroute('**/agent-designs', handler); }
-      const recoveredPending = responseFor(page, 'GET', '/agent-designs');
-      await page.reload();
-      const recovered = await recoveredPending;
+      const { response: recovered, body: recoveredRows } = await reloadJsonFor<Design[]>(page, '/agent-designs');
       await assertResponse(recovered, 'GET', '/agent-designs', 200);
-      expect((await recovered.json() as Design[]).some(row => row.id === design.id)).toBe(true);
+      expect(recoveredRows.some(row => row.id === design.id)).toBe(true);
       await expect(page.getByTestId(`design-${design.id}`)).toBeVisible();
     } finally { await owned.cleanup(); }
   });
@@ -321,19 +308,14 @@ if (!manifestPath) {
       };
       await page.route('**/agent-research/projects', handler);
       try {
-        const failedPending = responseFor(page, 'GET', '/agent-research/projects');
-        await page.reload();
-        const failed = await failedPending;
+        const { response: failed } = await reloadJsonFor<unknown>(page, '/agent-research/projects');
         await assertResponse(failed, 'GET', '/agent-research/projects', 503);
-        await failed.json();
         expect(injected).toBe(true);
         await expect(page.getByTestId('research-error')).toBeVisible();
       } finally { await page.unroute('**/agent-research/projects', handler); }
-      const recoveredPending = responseFor(page, 'GET', '/agent-research/projects');
-      await page.reload();
-      const recovered = await recoveredPending;
+      const { response: recovered, body: recoveredRows } = await reloadJsonFor<Project[]>(page, '/agent-research/projects');
       await assertResponse(recovered, 'GET', '/agent-research/projects', 200);
-      expect((await recovered.json() as Project[]).some(row => row.id === id)).toBe(false);
+      expect(recoveredRows.some(row => row.id === id)).toBe(false);
       expect((await api.json<Project[]>('/agent-research/projects')).some(row => row.id === id)).toBe(false);
     } finally {
       const candidates = localRows('SELECT id,owner_user_id,name,question FROM agent_research_projects WHERE owner_user_id=? AND name=? AND question=?',

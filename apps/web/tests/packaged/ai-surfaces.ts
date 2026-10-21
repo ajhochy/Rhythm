@@ -22,6 +22,7 @@ export type AiRow = Record<string, unknown>;
 export async function openAiSurface(page: Page, surface: AiSurface): Promise<Response> {
   // Leave first so a repeated hash route cannot reuse its old collection silently.
   await page.goto('rhythm://app/index.html#/tools/agent-tools');
+  await expect(page.getByTestId('agent-tools-catalog')).toBeVisible();
   const response = page.waitForResponse(r => new URL(r.url()).pathname === surface.endpoint && r.request().method() === 'GET', { timeout: 60_000 });
   void response.catch(() => {});
   await page.goto(`rhythm://app/index.html#/tools/${surface.slug}`);

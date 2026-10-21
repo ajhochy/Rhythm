@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test as unverified } from '@playwright/test';
-import { test, expect, API, ObservedApi, assertResponse, expectedRevision, localRows, responseFor } from './feature-test';
+import { test, expect, API, ObservedApi, assertResponse, expectedRevision, localRows, reloadJsonFor, responseFor } from './feature-test';
 import { readQualificationFixture } from '../../../../tools/testing/qualification_fixture.mjs';
 
 type Schedule = {
@@ -49,13 +49,11 @@ if (!manifestPath) {
     // workspace and emit no GET. Consume the CDP body before later navigation.
     await page.goto('rhythm://app/index.html#/tools/tasks');
     await expect(page.getByTestId('schedule-new')).toBeVisible();
-    const initialWait = responseFor(page, 'GET', '/agent-schedules');
-    await page.reload();
-    const initialResponse = await initialWait;
+    const { response: initialResponse, body: initialBody } = await reloadJsonFor<Schedule[]>(page, '/agent-schedules');
     await assertResponse(initialResponse, 'GET', '/agent-schedules', 200);
     expect(new URL(initialResponse.url()).origin).toBe(API);
     expect(initialResponse.request().headers().authorization).toBe(`Bearer ${token}`);
-    expect(Array.isArray(await initialResponse.json())).toBe(true);
+    expect(Array.isArray(initialBody)).toBe(true);
     await expect(page.getByTestId('schedule-new')).toBeVisible();
 
     await page.getByTestId('schedule-new').click();
@@ -94,11 +92,8 @@ if (!manifestPath) {
     expect(ownedRows()).toMatchObject([durable()]);
     expect(runRows(createdId!)).toEqual([]);
 
-    const reloadWait = responseFor(page, 'GET', '/agent-schedules');
-    await page.reload();
-    const reloaded = await reloadWait;
+    const { response: reloaded, body: listed } = await reloadJsonFor<Schedule[]>(page, '/agent-schedules');
     await assertResponse(reloaded, 'GET', '/agent-schedules', 200);
-    const listed = await reloaded.json() as Schedule[];
     expect(listed.find(item => item.id === createdId)).toMatchObject({
       id: createdId, name, prompt, enabled: false, createdByUserId: manifest.ownerUserId,
     });
@@ -130,11 +125,9 @@ if (!manifestPath) {
       createdByUserId: manifest.ownerUserId });
     expect(ownedRows()).toMatchObject([{ ...durable(), prompt: editedPrompt }]);
 
-    const finalWait = responseFor(page, 'GET', '/agent-schedules');
-    await page.reload();
-    const finalResponse = await finalWait;
+    const { response: finalResponse, body: finalBody } = await reloadJsonFor<Schedule[]>(page, '/agent-schedules');
     await assertResponse(finalResponse, 'GET', '/agent-schedules', 200);
-    expect((await finalResponse.json() as Schedule[]).find(item => item.id === createdId))
+    expect(finalBody.find(item => item.id === createdId))
       .toMatchObject({ id: createdId, prompt: editedPrompt, enabled: false,
         runAt: futureRunAt, nextRunAt: futureRunAt, createdByUserId: manifest.ownerUserId });
     await expect(page.getByTestId(`schedule-${createdId}`)).toContainText('once · Disabled');

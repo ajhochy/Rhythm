@@ -1,4 +1,4 @@
-import { test, expect } from './feature-test';
+import { test, expect, reloadJsonFor } from './feature-test';
 import { aiSurfaces, openAiSurface, readAiCollection, assertAiRows } from './ai-surfaces';
 
 for (const surface of aiSurfaces) {
@@ -6,10 +6,13 @@ for (const surface of aiSurfaces) {
     // Catches fixture/demo rows replacing the real collection, or a reload losing persisted data.
     const response = await openAiSurface(page, surface);
     await assertAiRows(page, surface, await readAiCollection(response, surface), response);
-    const pending = page.waitForResponse(r => new URL(r.url()).pathname === surface.endpoint && r.request().method() === 'GET', { timeout: 60_000 });
-    await page.reload();
-    const reloaded = await pending;
-    await assertAiRows(page, surface, await readAiCollection(reloaded, surface), reloaded);
+    const { response: reloaded, body } = await reloadJsonFor<unknown>(page, surface.endpoint);
+    expect(reloaded.request().method()).toBe('GET');
+    expect(new URL(reloaded.url()).pathname).toBe(surface.endpoint);
+    expect(reloaded.status(), `${surface.slug} collection failed after reload`).toBe(200);
+    const rows = surface.collection ? (body as Record<string, unknown>)[surface.collection] : body;
+    expect(Array.isArray(rows), `${surface.slug} response schema drift after reload`).toBe(true);
+    await assertAiRows(page, surface, rows as import('./ai-surfaces').AiRow[], reloaded);
   });
 
   test(`[AI catalog:${surface.slug}] unavailable backend is visible and a real reload recovers`, async ({ page }) => {

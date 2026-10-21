@@ -52,7 +52,7 @@ const productionApiBase = runtimeGateway?.gateway?.productionApiBase ?? environm
 const expectedApiBase = runtimeGateway ? apiBase : environment.VITE_RHYTHM_EXPECTED_API_BASE;
 const expectedEngineBase = runtimeGateway ? engineBase : environment.VITE_RHYTHM_EXPECTED_ENGINE_BASE;
 
-const renderGateway = (taskToken?: string, user?: AuthUser) => {
+const renderGateway = (taskToken?: string, user?: AuthUser, mcpReady?: () => Promise<void>) => {
   const gateway = composeGateway({
     mode: gatewayMode,
     apiBase,
@@ -63,6 +63,7 @@ const renderGateway = (taskToken?: string, user?: AuthUser) => {
     expectedApiBase,
     expectedEngineBase,
     taskToken,
+    mcpReady,
   });
   const app = <FixtureProvider><App /></FixtureProvider>;
   root.render(
@@ -101,9 +102,18 @@ try {
       ));
     } else {
       const onAuthenticated = (login: AuthLoginResponse) => {
-        try { renderGateway(login.sessionToken, login.user); } catch (error) { renderStartupError(error); return; }
-        void ensureRhythmMcp(apiBase, productionApiBase, login.sessionToken)
-          .catch((error) => console.warn('[rhythm-mcp] ensure failed', error));
+        // Share one installation per authenticated document. A failed attempt
+        // remains retryable through the MCP inspector's existing Retry action.
+        let pending: Promise<void> | null = null;
+        let ready = false;
+        const mcpReady = () => {
+          if (ready) return Promise.resolve();
+          if (!pending) pending = ensureRhythmMcp(apiBase, productionApiBase, login.sessionToken)
+            .then(() => { ready = true; }, (error) => { pending = null; throw error; });
+          return pending;
+        };
+        void mcpReady().catch((error) => console.warn('[rhythm-mcp] ensure failed', error));
+        try { renderGateway(login.sessionToken, login.user, mcpReady); } catch (error) { renderStartupError(error); }
       };
       const renderSignIn = () => root.render(<React.StrictMode><GoogleSignIn auth={runtimeGateway?.auth} onAuthenticated={onAuthenticated} /></React.StrictMode>);
       const restore = runtimeGateway?.auth?.currentSession;

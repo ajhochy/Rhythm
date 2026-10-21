@@ -3824,8 +3824,8 @@
     }
   ],
   "qualification": {
-    "latestLocallySignedProductRevision": "5dfffb5d9978795935becfe4723c8196bb2f883d",
-    "scope": "Current signed5dff independent scopes: no-model native60/60; checked paid router/MCP/main Auto19/19; fresh hidden-candidate router prerequisite1/1; natural Once checked1/1 after private Recon1/1. Earlier visibility and pre-write test-authoring REDs remain preserved. Coordinator action-first private Recon observed two children but stopped on an invalid worktree-location assertion and did not prove concurrency/completion. Overall 78 active markers incomplete. Newer completed-Once warning checked native RED1/1 is a separate exact5dff run; top-level 60/60 counts still describe only the earlier broad selection.",
+    "latestLocallySignedProductRevision": "b7d5db0af960196a3ca3ed0291877f7e7d2e0771",
+    "scope": "Latest signed b7d5 separate scopes: broad54/6; router/main/MCP19/19; checked Hermes1/1; natural Once1/1; focused reload10/10. Coordinator core finished but audit failed on background unavailable-model route. Auto-name diagnostic passed after earlier unexplained placeholder failure. Post-b7d5 MCP/model-eligibility candidates await fresh local build and native/live proof. All78 active markers remain incomplete.",
     "passed": 60,
     "failedExplicitCoverageGap": 0,
     "latestRunFailed": 0,
@@ -3874,7 +3874,7 @@
       "scope": "Selected regression excludes explicit UNVERIFIED markers; not full inventory qualification",
       "log": "/private/tmp/rhythm-private-4fda-broad-native-confirm-20261020.log"
     },
-    "latestProductRevision": "0b3b1803938383385b376cfbd7571b584e658f2c",
+    "latestProductRevision": "b7d5db0af960196a3ca3ed0291877f7e7d2e0771",
     "currentRouterMcpAttempt": {
       "productRevision": "5dfffb5d9978795935becfe4723c8196bb2f883d",
       "cases": 18,
@@ -4013,6 +4013,26 @@
       "loanScrubSourceHashesUnchanged": true,
       "checkedC1Suite": "UNRUN"
     },
-    "sessionAutonamingObserver": "Prepared private exact-build bounded observer; UNRUN."
+    "sessionAutonamingObserver": "b7d5 private Recon passed1/1: durable generated title matched engine/API/DB/history/rail before and after reload; Luna answer42, zero tools, exact cleanup and whole loan scrubbed with unchanged source hashes. Checked Codify/Confirm pending; active marker remains open.",
+    "latestB7d5Checkpoint": {
+      "revision": "b7d5db0af960196a3ca3ed0291877f7e7d2e0771",
+      "buildAndSign": "guarded local build/sign exit0; Developer ID deep strict codesign passed; unnotarized; Dayflow281-file native inventory; Hermes source pin2ad39a4cdb",
+      "prior5dffScopes": "native no-model60/60, paid router/MCP/main19/19, natural Once checked1/1 stay historical and independent; no b7d5 transfer",
+      "onceWarning": "5dff strengthened checked RED after successful natural run; b7d5 repair built/signed, native GREEN pending",
+      "coordinatorTwoGoal": "b7d5 private Recon observed two actual fixture-owned commits, two15-second checks, finished/reported children and overlapping persisted intervals; final observer transcript substring count failed2versus1; roles/async wake under review, no C1 GREEN",
+      "hermes": "b7d5 picker includes Luna; normal authorized key save/readback and auxiliary title disable passed; two private selector failures before Send, zero model turns, whole loans scrubbed/source hashes unchanged; corrected main-row Recon running, no provider completion",
+      "frozenSourcePreflight": "first Hermes launcher refused untracked live test under product tree before app/model start; exact file SHA-staged outside checkout; guard unchanged",
+      "autonaming": "private Recon passed1/1, test6.7s/total42.3s exit0; Luna answer42 zero tools, durable title engine/API/DB/history/rail before/after reload, exact cleanup, whole L8ZRWL scrub/source hashes unchanged; checked Confirm pending",
+      "autonamingReceipt": "/private/tmp/rhythm-session-autoname-recon-20261020/output-j1yAGu/observation.json",
+      "liveMcpTransport": "scripted-provider gated API/engine/MCP contract staged outside source and UNRUN; real-model native C1 remains separate",
+      "allActiveRemainingMarkers": 78
+    },
+    "latestCheckpointRun": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md",
+    "preparedExpandedSyntheticSelection": {
+      "tests": 86,
+      "files": 32,
+      "status": "discovered, not executed",
+      "scope": "broad60 + catalogs18 + navigation3 + tasks5; explicit gap markers excluded and remain open"
+    }
   }
 }

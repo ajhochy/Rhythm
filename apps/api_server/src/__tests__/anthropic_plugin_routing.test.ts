@@ -6,7 +6,7 @@
  * These import the REAL vendored dist module (the exact code the engine
  * executes under Bun) — no SDK-shape mocks (the false-green lesson). Only
  * the network is stubbed, with local node:http servers:
- *   - stubA plays the Anthropic API (captures authorization/path/body;
+ *   - stubA plays the Anthropic API (captures fixture account label/path/body;
  *     configurable to 429 with a huge retry-after for a specific bearer)
  *   - stubB plays api_server's POST /opencode/spillover intake
  *
@@ -25,6 +25,7 @@ import {
   vi,
 } from 'vitest';
 import { createServer, Server, IncomingMessage, ServerResponse } from 'http';
+import { randomUUID } from 'node:crypto';
 import { AddressInfo } from 'net';
 import {
   mkdtempSync,
@@ -56,7 +57,7 @@ const PLUGIN_INDEX = join(PLUGIN_DIR, 'dist', 'index.js');
 // ---------------------------------------------------------------------------
 
 interface CapturedRequest {
-  auth: string | null;
+  accountId: string | null;
   path: string;
   body: string;
 }
@@ -67,8 +68,10 @@ let portA = 0;
 let portB = 0;
 let anthropicRequests: CapturedRequest[] = [];
 let spilloverBodies: Record<string, unknown>[] = [];
-/** Bearers that should return an immediate quota-exhaustion response. */
-let rateLimitedBearers = new Map<string, 429 | 529>();
+let sessionA = '';
+let sessionB = '';
+/** Fixture account labels that should return immediate quota exhaustion. */
+let rateLimitedAccountIds = new Map<string, 429 | 529>();
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve) => {
@@ -98,8 +101,15 @@ beforeAll(async () => {
   stubA = createServer((req: IncomingMessage, res: ServerResponse) => {
     void readBody(req).then((body) => {
       const auth = (req.headers['authorization'] as string | undefined) ?? null;
-      anthropicRequests.push({ auth, path: req.url ?? '', body });
-      const rateLimitStatus = rateLimitedBearers.get(auth?.replace(/^Bearer /, '') ?? '');
+      const accountId = auth === `Bearer ${TEAM_TOKEN}`
+        ? 'team'
+        : auth === `Bearer ${PERSONAL_TOKEN}`
+          ? 'personal'
+          : auth === `Bearer ${THIRD_TOKEN}`
+            ? 'third'
+            : null;
+      anthropicRequests.push({ accountId, path: req.url ?? '', body });
+      const rateLimitStatus = rateLimitedAccountIds.get(accountId ?? '');
       if (rateLimitStatus) {
         res.writeHead(rateLimitStatus, {
           'content-type': 'application/json',
@@ -121,7 +131,10 @@ beforeAll(async () => {
   stubB = createServer((req: IncomingMessage, res: ServerResponse) => {
     void readBody(req).then((body) => {
       if (req.method === 'POST' && req.url === '/opencode/spillover') {
-        spilloverBodies.push(JSON.parse(body) as Record<string, unknown>);
+        const event = JSON.parse(body) as Record<string, unknown>;
+        // Fire-and-forget notifications may arrive after the previous test
+        // ended; only this test's unique SDK identities belong to its ledger.
+        if (event.sdkSessionId === sessionA || event.sdkSessionId === sessionB) spilloverBodies.push(event);
       }
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end('{}');
@@ -142,37 +155,21 @@ afterAll(async () => {
 
 const TEAM_TOKEN = 'team-access-token';
 const PERSONAL_TOKEN = 'personal-access-token';
+const THIRD_TOKEN = 'third-access-token';
 
 let storeFile = '';
 
 function writeStoreFixture(
-  routing: Record<string, string> = { ses_b: 'personal' },
+  routing: Record<string, string> = { [sessionB]: 'personal' },
+  accounts = [
+    { id: 'team', label: 'Team', access: TEAM_TOKEN, refresh: 'r1', expires: Date.now() + 3600_000, status: 'ok' },
+    { id: 'personal', label: 'Personal', access: PERSONAL_TOKEN, refresh: 'r2', expires: Date.now() + 3600_000, status: 'ok' },
+  ],
+  pinned: Record<string, boolean> = {},
 ): void {
   writeFileSync(
     storeFile,
-    JSON.stringify({
-      version: 1,
-      accounts: [
-        {
-          id: 'team',
-          label: 'Team',
-          access: TEAM_TOKEN,
-          refresh: 'r1',
-          expires: Date.now() + 3600_000,
-          status: 'ok',
-        },
-        {
-          id: 'personal',
-          label: 'Personal',
-          access: PERSONAL_TOKEN,
-          refresh: 'r2',
-          expires: Date.now() + 3600_000,
-          status: 'ok',
-        },
-      ],
-      defaultAccountId: 'team',
-      routing,
-    }),
+    JSON.stringify({ version: 1, accounts, defaultAccountId: 'team', routing, pinned }),
   );
 }
 
@@ -219,9 +216,11 @@ function requestInit(sessionId?: string): RequestInit {
 }
 
 beforeEach(() => {
+  sessionA = `ses_fixture_a_${randomUUID()}`;
+  sessionB = `ses_fixture_b_${randomUUID()}`;
   anthropicRequests = [];
   spilloverBodies = [];
-  rateLimitedBearers = new Map();
+  rateLimitedAccountIds = new Map();
   storeFile = join(mkdtempSync(join(tmpdir(), 'plugin-routing-')), 'accounts.json');
   writeStoreFixture();
   process.env.RHYTHM_ACCOUNTS_FILE = storeFile;
@@ -250,37 +249,70 @@ describe('rhythm-anthropic-accounts plugin routing', () => {
 
   it('routes an unrouted session to the default account (team)', async () => {
     const opts = await loadPluginFetch();
-    const res = await opts.fetch(messagesUrl(), requestInit('ses_a'));
+    const res = await opts.fetch(messagesUrl(), requestInit(sessionA));
     expect(res.status).toBe(200);
     expect(anthropicRequests).toHaveLength(1);
-    expect(anthropicRequests[0].auth).toBe(`Bearer ${TEAM_TOKEN}`);
+    expect(anthropicRequests[0].accountId).toBe('team');
     expect(anthropicRequests[0].path).toContain('/v1/messages');
   });
 
   it('routes a session with a file routing entry to that account (personal)', async () => {
     const opts = await loadPluginFetch();
-    const res = await opts.fetch(messagesUrl(), requestInit('ses_b'));
+    const res = await opts.fetch(messagesUrl(), requestInit(sessionB));
     expect(res.status).toBe(200);
     expect(anthropicRequests).toHaveLength(1);
-    expect(anthropicRequests[0].auth).toBe(`Bearer ${PERSONAL_TOKEN}`);
+    expect(anthropicRequests[0].accountId).toBe('personal');
+  });
+
+  it('skips needs_relogin and missing-access accounts when selecting a fallback', async () => {
+    writeStoreFixture({ [sessionB]: 'personal' }, [
+      { id: 'team', label: 'Team', access: TEAM_TOKEN, refresh: 'r1', expires: Date.now() + 3600_000, status: 'ok' },
+      { id: 'needs-relogin', label: 'Needs relogin', access: 'unusable-needs-relogin', refresh: 'r3', expires: Date.now() + 3600_000, status: 'needs_relogin' },
+      { id: 'missing-access', label: 'Missing access', access: '', refresh: 'r4', expires: Date.now() + 3600_000, status: 'ok' },
+      { id: 'personal', label: 'Personal', access: PERSONAL_TOKEN, refresh: 'r2', expires: Date.now() + 3600_000, status: 'ok' },
+    ]);
+    rateLimitedAccountIds.set('team', 429);
+    const opts = await loadPluginFetch();
+    const res = await opts.fetch(messagesUrl(), requestInit(sessionA));
+
+    expect(res.status).toBe(200);
+    expect(anthropicRequests.map((request) => request.accountId)).toEqual(['team', 'personal']);
+  });
+
+  it('does not try another account when the selected account is explicitly pinned', async () => {
+    writeStoreFixture({ [sessionB]: 'personal' }, undefined, { [sessionA]: true });
+    rateLimitedAccountIds.set('team', 429);
+    const opts = await loadPluginFetch();
+    const res = await opts.fetch(messagesUrl(), requestInit(sessionA));
+
+    expect(res.status).toBe(429);
+    expect(anthropicRequests.map((request) => request.accountId)).toEqual(['team']);
+    await waitFor(() => spilloverBodies.length >= 1);
+    expect(spilloverBodies).toContainEqual(expect.objectContaining({
+      sdkSessionId: sessionA,
+      fromAccountId: 'team',
+      exhausted: true,
+      reason: 'rate_limited',
+    }));
+    expect(spilloverBodies.some((body) => body.toAccountId)).toBe(false);
   });
 
   it('fails over to the fallback account on quota-exhaustion 429 and reports spillover', async () => {
-    rateLimitedBearers.set(TEAM_TOKEN, 429);
+    rateLimitedAccountIds.set('team', 429);
     const opts = await loadPluginFetch();
-    const res = await opts.fetch(messagesUrl(), requestInit('ses_a'));
+    const res = await opts.fetch(messagesUrl(), requestInit(sessionA));
 
     // Original send with team (429 immediately — retry-after over cap), then
     // exactly one retry with personal.
     expect(res.status).toBe(200);
     expect(anthropicRequests).toHaveLength(2);
-    expect(anthropicRequests[0].auth).toBe(`Bearer ${TEAM_TOKEN}`);
-    expect(anthropicRequests[1].auth).toBe(`Bearer ${PERSONAL_TOKEN}`);
+    expect(anthropicRequests[0].accountId).toBe('team');
+    expect(anthropicRequests[1].accountId).toBe('personal');
 
     // markSpillover is fire-and-forget → poll the api_server stub.
     await waitFor(() => spilloverBodies.length >= 1);
     expect(spilloverBodies[0]).toMatchObject({
-      sdkSessionId: 'ses_a',
+      sdkSessionId: sessionA,
       fromAccountId: 'team',
       toAccountId: 'personal',
       reason: 'rate_limited',
@@ -288,31 +320,38 @@ describe('rhythm-anthropic-accounts plugin routing', () => {
 
     // Session affinity: the next request for ses_a goes straight to personal
     // via the in-memory override (no second 429 round-trip).
-    const res2 = await opts.fetch(messagesUrl(), requestInit('ses_a'));
+    const res2 = await opts.fetch(messagesUrl(), requestInit(sessionA));
     expect(res2.status).toBe(200);
     expect(anthropicRequests).toHaveLength(3);
-    expect(anthropicRequests[2].auth).toBe(`Bearer ${PERSONAL_TOKEN}`);
+    expect(anthropicRequests[2].accountId).toBe('personal');
   });
 
   it.each([429, 529] as const)(
     'reports total exhaustion when both accounts return %i',
     async (status) => {
-      rateLimitedBearers.set(TEAM_TOKEN, status);
-      rateLimitedBearers.set(PERSONAL_TOKEN, status);
+      writeStoreFixture({ [sessionB]: 'personal' }, [
+        { id: 'team', label: 'Team', access: TEAM_TOKEN, refresh: 'r1', expires: Date.now() + 3600_000, status: 'ok' },
+        { id: 'personal', label: 'Personal', access: PERSONAL_TOKEN, refresh: 'r2', expires: Date.now() + 3600_000, status: 'ok' },
+        { id: 'third', label: 'Third', access: THIRD_TOKEN, refresh: 'r3', expires: Date.now() + 3600_000, status: 'needs_relogin' },
+      ]);
+      rateLimitedAccountIds.set('team', status);
+      rateLimitedAccountIds.set('personal', status);
       const opts = await loadPluginFetch();
-      const res = await opts.fetch(messagesUrl(), requestInit('ses_a'));
+      const res = await opts.fetch(messagesUrl(), requestInit(sessionA));
 
-      // The plugin retries once with personal, then keeps the original
-      // response while reporting that no Anthropic account remains usable.
+      // Only team and personal are usable. The plugin retries once with
+      // personal, then keeps the original response and reports exhaustion;
+      // the ineligible third account must never be attempted.
       expect(res.status).toBe(status);
       expect(anthropicRequests).toHaveLength(2);
-      expect(anthropicRequests[0].auth).toBe(`Bearer ${TEAM_TOKEN}`);
-      expect(anthropicRequests[1].auth).toBe(`Bearer ${PERSONAL_TOKEN}`);
+      expect(anthropicRequests[0].accountId).toBe('team');
+      expect(anthropicRequests[1].accountId).toBe('personal');
+      expect(anthropicRequests.map((request) => request.accountId)).toEqual(['team', 'personal']);
 
-      await waitFor(() => spilloverBodies.length >= 1);
+      await waitFor(() => spilloverBodies.some(body => body.sdkSessionId === sessionA && body.exhausted === true));
       expect(spilloverBodies).toContainEqual(
         expect.objectContaining({
-          sdkSessionId: 'ses_a',
+          sdkSessionId: sessionA,
           fromAccountId: 'personal',
           exhausted: true,
           reason: 'rate_limited',
@@ -324,16 +363,16 @@ describe('rhythm-anthropic-accounts plugin routing', () => {
   it('RHYTHM_FORCE_SPILLOVER deterministically routes to the fallback before sending', async () => {
     process.env.RHYTHM_FORCE_SPILLOVER = 'team';
     const opts = await loadPluginFetch();
-    const res = await opts.fetch(messagesUrl(), requestInit('ses_a'));
+    const res = await opts.fetch(messagesUrl(), requestInit(sessionA));
 
     // Switched BEFORE sending: only one request, already on personal.
     expect(res.status).toBe(200);
     expect(anthropicRequests).toHaveLength(1);
-    expect(anthropicRequests[0].auth).toBe(`Bearer ${PERSONAL_TOKEN}`);
+    expect(anthropicRequests[0].accountId).toBe('personal');
 
     await waitFor(() => spilloverBodies.length >= 1);
     expect(spilloverBodies[0]).toMatchObject({
-      sdkSessionId: 'ses_a',
+      sdkSessionId: sessionA,
       fromAccountId: 'team',
       toAccountId: 'personal',
       reason: 'rate_limited',
@@ -342,27 +381,25 @@ describe('rhythm-anthropic-accounts plugin routing', () => {
 
   it('a fresh store write beats a stale spillover override', async () => {
     // Spill ses_a from team → personal (records the in-memory override).
-    rateLimitedBearers.set(TEAM_TOKEN, 429);
+    rateLimitedAccountIds.set('team', 429);
     const opts = await loadPluginFetch();
-    const res = await opts.fetch(messagesUrl(), requestInit('ses_a'));
+    const res = await opts.fetch(messagesUrl(), requestInit(sessionA));
     expect(res.status).toBe(200);
-    expect(anthropicRequests[anthropicRequests.length - 1].auth).toBe(
-      `Bearer ${PERSONAL_TOKEN}`,
-    );
+    expect(anthropicRequests[anthropicRequests.length - 1].accountId).toBe('personal');
 
     // api_server rewrites the store routing ses_a back to team. Force the
     // mtime strictly forward — same-ms rewrites must still win.
-    rateLimitedBearers = new Map();
-    writeStoreFixture({ ses_a: 'team' });
+    rateLimitedAccountIds = new Map();
+    writeStoreFixture({ [sessionA]: 'team' });
     const bumped = new Date(statSync(storeFile).mtimeMs + 2000);
     utimesSync(storeFile, bumped, bumped);
 
     // The newer file routing wins; the stale override is discarded.
     anthropicRequests = [];
-    const res2 = await opts.fetch(messagesUrl(), requestInit('ses_a'));
+    const res2 = await opts.fetch(messagesUrl(), requestInit(sessionA));
     expect(res2.status).toBe(200);
     expect(anthropicRequests).toHaveLength(1);
-    expect(anthropicRequests[0].auth).toBe(`Bearer ${TEAM_TOKEN}`);
+    expect(anthropicRequests[0].accountId).toBe('team');
   });
 
   it('falls back to the legacy Claude Code path when the store file disappears', async () => {
@@ -371,7 +408,7 @@ describe('rhythm-anthropic-accounts plugin routing', () => {
     rmSync(storeFile);
     // hasAccounts() is now false → legacy getCachedCredentials() path, which
     // has no accounts loaded in this process → the classic Claude Code error.
-    await expect(opts.fetch(messagesUrl(), requestInit('ses_a'))).rejects.toThrow(
+    await expect(opts.fetch(messagesUrl(), requestInit(sessionA))).rejects.toThrow(
       /Claude Code credentials are unavailable or expired/,
     );
     expect(anthropicRequests).toHaveLength(0);

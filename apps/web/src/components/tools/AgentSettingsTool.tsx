@@ -485,6 +485,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const [retrying, setRetrying] = useState<Partial<Record<LoadSection, boolean>>>({});
   const [retryStatus, setRetryStatus] = useState<Partial<Record<LoadSection, string>>>({});
   const retryInFlight = useRef(new Set<LoadSection>());
+  const mcpController = useRef<AbortController | null>(null);
   const statusRefs = useRef<Partial<Record<LoadSection, HTMLParagraphElement | null>>>({});
   const sectionGeneration = useRef<Record<LoadSection, number>>({ accounts: 0, openai: 0, mcp: 0, providers: 0 });
   const loadGeneration = useRef(0);
@@ -557,7 +558,8 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const routes: Record<LoadSection, string> = { accounts: '/opencode/auth/accounts', openai: '/opencode/auth/openai/accounts', mcp: '/opencode/mcp', providers: '/opencode/auth' };
   const readSection = async (section: LoadSection, kind: 'load' | 'retry' | 'action' = 'load') => {
     const generation = ++sectionGeneration.current[section];
-    const current = () => generation === sectionGeneration.current[section];
+    const current = () => generation === sectionGeneration.current[section]
+      && (section !== 'mcp' || !mcpController.current?.signal.aborted);
     const retry = kind === 'retry';
     // ponytail: one owner per section also owns its pending indicator and announcement.
     if (retry) retryInFlight.current.add(section); else retryInFlight.current.delete(section);
@@ -573,7 +575,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
         const value = await (sessions.openaiAccounts?.() ?? Promise.resolve([]));
         if (current()) { setOpenaiAccounts(value); setOpenaiError(''); }
       } else if (section === 'mcp') {
-        const value = await mcp.list();
+        const value = await mcp.list(mcpController.current?.signal);
         if (current()) { setMcpServers(value); setMcpError(''); }
       } else {
         const value = await (sessions.authProviders?.() ?? Promise.resolve([]));
@@ -613,7 +615,16 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     }
     setLoading(false);
   };
-  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const controller = new AbortController();
+    mcpController.current = controller;
+    void load();
+    return () => {
+      controller.abort();
+      sectionGeneration.current.mcp += 1;
+      if (mcpController.current === controller) mcpController.current = null;
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const retrySection = async (section: LoadSection, origin: HTMLElement) => {
     if (retryInFlight.current.has(section)) return;

@@ -1008,6 +1008,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
           | 'frontier'
           | null,
         modelOverride: modelOverride ?? null,
+        baseRoute: resolvedModel,
       });
       resolvedModel = decision.route;
       requestedTier = decision.tier;

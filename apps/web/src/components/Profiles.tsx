@@ -98,9 +98,18 @@ export function Profiles() {
   const [skillCatalog, setSkillCatalog] = useState<SkillEntry[]>([]);
   const [skillCatalogError, setSkillCatalogError] = useState<string | null>(null);
   const skillCatalogRequest = useRef(0);
+  const mcpCatalogRequest = useRef(0);
+  const mcpCatalogController = useRef(new AbortController());
   const loadMcpCatalog = () => {
+    const request = ++mcpCatalogRequest.current;
+    const controller = mcpCatalogController.current;
     setMcpCatalogError(null);
-    gateway.domains.mcp!.list().then(setMcpCatalog).catch((err) => setMcpCatalogError(err instanceof Error ? err.message : 'MCP catalog failed to load'));
+    gateway.domains.mcp!.list(controller.signal).then((servers) => {
+      if (request === mcpCatalogRequest.current && !controller.signal.aborted) setMcpCatalog(servers);
+    }).catch((err) => {
+      if (request === mcpCatalogRequest.current && !controller.signal.aborted)
+        setMcpCatalogError(err instanceof Error ? err.message : 'MCP catalog failed to load');
+    });
   };
   const loadSkillCatalog = async () => {
     const request = ++skillCatalogRequest.current;
@@ -114,7 +123,16 @@ export function Profiles() {
   };
   // Fired independently (not Promise.all): one catalog failing must never blank the other's
   // already-fetched rows.
-  useEffect(() => { if (live) loadMcpCatalog(); }, [live]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!live) return;
+    const controller = mcpCatalogController.current;
+    loadMcpCatalog();
+    return () => {
+      controller.abort();
+      mcpCatalogRequest.current += 1;
+      mcpCatalogController.current = new AbortController();
+    };
+  }, [live]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (live) loadSkillCatalog(); }, [live]); // eslint-disable-line react-hooks/exhaustive-deps
   const requestedProfileId = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('profile');
   const [selectedId, setSelectedId] = useState(profiles.find((profile) => profile.id === requestedProfileId)?.id || profiles.find((profile) => profile.isDefault)?.id || profiles[0]?.id || '');
