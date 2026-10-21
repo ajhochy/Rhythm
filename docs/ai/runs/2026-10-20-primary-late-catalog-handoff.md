@@ -4,7 +4,7 @@ repo: rhythm
 branch: test/feature-playwright-2026-10-19
 pr: null
 issues: []
-status: repairing
+status: pass
 tags: [run, rhythm, coordinator, playwright]
 ---
 
@@ -22,7 +22,7 @@ tags: [run, rhythm, coordinator, playwright]
 - The other two broad failures were test bugs, not additional product repairs: ambiguous Cron selector and a Skills catalog response from an old document. Their repairs retain real full-page reload and real API/engine assertions. Focused timing passed all five types, but exposed late history reads during API cleanup; cleanup now unmounts and drains those reads before deletion. These test repairs require a new independent native run.
 - Component RED: `npm run build:guard -- node --test --test-name-pattern='completed primary open stays Ready' apps/web/tests/rhythm-primary-entry.test.mjs` — 0/1, expected Ready but observed stale failure after the successful delayed catalog completion. Earlier rejected-catalog diagnostic was superseded; the final regression does not invent a catalog rejection.
 - After identity guard: `npm run build:guard -- /bin/sh -c 'node --test apps/web/tests/rhythm-primary-entry.test.mjs && ./apps/web/node_modules/.bin/tsc -p apps/web/tsconfig.app.json --noEmit'` — 14/14, TypeScript exit0. Log `/private/tmp/rhythm-primary-late-catalog-identity-green-20261020.log`.
-- Fresh local rebuilt native Confirm remains pending; this note does not report overall qualification complete.
+- Exact rebuilt local bundle `5dfffb5d9978795935becfe4723c8196bb2f883d`: the independent 60-case synthetic packaged selection passed **60/60**, 0 skipped/unexpected/flaky, 152.939s; model gate off and `UNVERIFIED` cases excluded. The primary missing-cwd recovery case passed in 5.4s. Report `/private/tmp/rhythm-private-5dff-broad-green-evidence-20261020/report.json`; log `/private/tmp/rhythm-private-5dff-broad-discard-confirm-20261020.log`. This is scoped native confirmation, not completion of the wider AI behavior inventory.
 
 ## Notes
 
@@ -30,4 +30,4 @@ tags: [run, rhythm, coordinator, playwright]
 
 GitNexus upstream impact for `navigateRhythmRoot` and `AgentsWorkspace`: LOW, 0 indexed direct callers/processes; index 316 commits stale. Manual risk is HIGH because this is shared chat navigation. The production diff is limited to request identity ownership across the existing await; no backend, journal, routing, ordinary session mutation or prompt dispatch changes. Staged detect_changes and surrounding selection/rendered checks are required before commit.
 
-Rendered follow-up: `npm run build:guard -- ./apps/web/node_modules/.bin/playwright test --config /private/tmp/rhythm-primary-entry-existing-vite-20261020.config.mjs` against a guarded standalone Vite on4194 — **11/11**,1.1m; focused new case1/1,8.2s. The new case holds the second entry's real fixture account-catalog GET, allows a model-catalog update to render the already-selected root, proves scoped open/status/history Ready before releasing the successful catalog, then checks Ready, exact root/ordinary navigation and zero SDK/message dispatch. Vite stopped. These are browser-fixture checks; native GREEN still requires a rebuilt bundle.
+Rendered follow-up: `npm run build:guard -- ./apps/web/node_modules/.bin/playwright test --config /private/tmp/rhythm-primary-entry-existing-vite-20261020.config.mjs` against a guarded standalone Vite on4194 — **11/11**,1.1m; focused new case1/1,8.2s. The new case holds the second entry's real fixture account-catalog GET, allows a model-catalog update to render the already-selected root, proves scoped open/status/history Ready before releasing the successful catalog, then checks Ready, exact root/ordinary navigation and zero SDK/message dispatch. Vite stopped. The later native 5dff selection above confirms the packaged missing-cwd recovery case; it does not exercise every remaining AI inventory contract.

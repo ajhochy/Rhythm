@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
-import { test as base, expect, ENGINE, OwnedRecords, localRows, responseFor, assertResponse, type Row } from './feature-test';
+import { test as base, expect, ENGINE, OwnedRecords, localRows, responseFor, assertResponse, expectedRevision, type ObservedApi, type Row } from './feature-test';
 import { routerCalibrationCases } from './router-calibration-cases';
 import { readQualificationFixture } from '../../../../tools/testing/qualification_fixture.mjs';
 
@@ -13,6 +13,48 @@ type RouterConfig = { routing: { engine: string; scope: string }; features: { mo
 type RouterGridView = { invalidReason: string | null; classifier: { model: string }; routing: Record<string, Record<number, Array<{ model: string; effort: string }>>> };
 type RouterGridDecision = { served: { requestModelId: string; servedModelId: string } | null };
 type Attempt = { classification: { tier: number; category: string; source: string; reason: string }; result: { applied: boolean; model: string; accountId: string; effortRequested: string; effortApplied: string; tierUsed: number; trace: Array<{ action: string; reason?: string; model?: string }> } };
+type CatalogModel = { provider: string; modelId: string; authorized: boolean; visible: boolean };
+type DecisionCatalog = { catalog?: { source?: string; models?: Array<{ providerID: string; modelID: string; enabled: boolean }> } };
+
+/** A real router turn needs all reviewed Grid candidates, not just tier-4 Luna. */
+async function requireRouterCandidates(api: ObservedApi) {
+  const required = ['gpt-6-luna', 'gpt-6-sol', 'gpt-6.1-sol'];
+  const manifestPath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
+  if (manifestPath) {
+    expect(process.env.RHYTHM_FEATURE_MODEL, 'UNVERIFIED: synthetic router model loan requires explicit model opt-in').toBe('1');
+    const { manifest } = readQualificationFixture(manifestPath, expectedRevision);
+    expect(manifest.syntheticActor?.modelLoan, 'UNVERIFIED: bounded synthetic model loan required').toBeDefined();
+    expect(manifest.publicUserSeed.email).toMatch(/\.invalid$/);
+    const me = await api.json<{ user: { id: number; email: string } }>('/auth/me');
+    expect(me.user).toMatchObject({ id: manifest.ownerUserId, email: manifest.publicUserSeed.email });
+  }
+  const catalog = await api.json<CatalogModel[]>('/agents/models/catalog/full');
+  for (const modelId of required) {
+    expect(catalog.find(row => row.provider === 'openai' && row.modelId === modelId)?.authorized,
+      `UNVERIFIED: live OpenAI ${modelId} authorization is a router prerequisite`).toBe(true);
+  }
+  if (manifestPath) {
+    const updates = required.filter(modelId => !catalog.some(row => row.provider === 'openai'
+      && row.modelId === modelId && row.visible)).map(modelId => ({ provider: 'openai', modelId, visible: true }));
+    if (updates.length) {
+      const response = await api.fetch('/agent-models/visibility', { method: 'PATCH',
+        headers: { 'content-type': 'application/json' }, body: JSON.stringify({ updates }) });
+      expect(response.status, 'UNVERIFIED: private router candidate visibility opt-in failed').toBe(200);
+      expect(await response.json()).toMatchObject({ updated: updates.length });
+    }
+  }
+  const visible = await api.json<CatalogModel[]>('/agents/models/catalog/full');
+  const decisions = await api.json<DecisionCatalog>('/agent-decisions/config');
+  expect(decisions.catalog?.source, 'UNVERIFIED: router needs a live Decisions catalog').toBe('live');
+  for (const modelId of required) {
+    expect(visible.find(row => row.provider === 'openai' && row.modelId === modelId),
+      `UNVERIFIED: live ${modelId} must be authorized and visible before a router turn`)
+      .toMatchObject({ authorized: true, visible: true });
+    expect(decisions.catalog?.models?.find(row => row.providerID === 'openai' && row.modelID === modelId),
+      `UNVERIFIED: Decisions must enable ${modelId} before a router turn`)
+      .toMatchObject({ enabled: true });
+  }
+}
 
 function routerAttempts(id: string): Attempt[] {
   return localRows('SELECT classification_json,result_json FROM agent_router_grid_attempts WHERE session_id=? ORDER BY id', id)
@@ -47,6 +89,7 @@ const test = base.extend<{ router: OwnedRecords }>({
     let initialPreferences: string | null = null;
     try {
       await records.open();
+      await requireRouterCandidates(records.api!);
       initialPreferences = await page.evaluate(() => localStorage.getItem('rhythm-agents-projects-open'));
       directory = await mkdtemp('/private/tmp/rhythm-router-');
       records.directory = directory;

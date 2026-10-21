@@ -54,9 +54,18 @@ test('[AI profiles] discarding a new smoke draft leaves the saved profile catalo
     await page.getByTestId('profiles-back').click();
     await expect(page.getByTestId('profile-unsaved-dialog')).toBeVisible();
     await page.getByTestId('profile-discard').click();
+    await expect(page).toHaveURL(/#\/agents(?:\?|$)/);
+    await expect(page.getByTestId('profiles-workspace')).toHaveCount(0);
+    await expect(page.getByTestId('rhythm-primary-entry')).toBeVisible();
 
-    // Force a fresh catalog read after dismissal; a hash-only route change can reuse cached data.
+    // The SPA back transition must unmount the dirty editor before a full
+    // reload. Re-entering Profiles also proves the draft did not survive.
     await page.goto('rhythm://app/index.html#/profiles');
+    await expect(page.getByTestId('profiles-workspace')).toBeVisible();
+    await expect(page.getByTestId('profile-save-status')).toHaveText('No unsaved changes');
+    await expect(page.getByTestId('profile-label')).not.toHaveValue(ownedDraftLabel);
+    await expect(page.getByTestId('profile-unsaved-dialog')).toHaveCount(0);
+    // Force a fresh catalog read after dismissal; a hash-only route change can reuse cached data.
     const afterRead = responseFor(page, 'GET', '/agent-configs');
     await page.reload();
     const afterResponse = await afterRead;

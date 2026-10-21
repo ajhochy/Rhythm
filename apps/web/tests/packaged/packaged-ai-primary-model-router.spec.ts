@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test as unverified } from '@playwright/test';
 import { test, expect, API, ENGINE, ObservedApi, expectedRevision, localRows, responseFor, assertResponse } from './feature-test';
-import { ensurePrimaryForPrivateActor } from './primary-read';
+import { ensurePrimaryForPrivateActor, openExistingPrimary } from './primary-read';
 import { readQualificationFixture } from '../../../../tools/testing/qualification_fixture.mjs';
 
 type ModelRow = { provider: string; modelId: string; visible: boolean; authorized: boolean };
@@ -11,7 +11,7 @@ type Profile = { id: string; label: string; revision: number; modelProvider: str
 type EngineMessage = { info: { id: string; role: string; parentID?: string; providerID?: string; modelID?: string;
   time?: { completed?: number } }; parts: Array<{ type: string; text?: string }> };
 const manifestPath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
-const title = '[AI primary] private main Auto serves the cheaper same-tier Grid model below its profile baseline';
+const title = '[AI primary] private main Auto serves a routine same-tier Grid model and retains it after reload';
 const baselineModel = 'gpt-6.1-sol';
 const lunaModel = 'gpt-6-luna';
 const solModel = 'gpt-6-sol';
@@ -106,7 +106,6 @@ if (!manifestPath) {
     const accepted = await sent;
     await assertResponse(accepted, 'POST', '/coordinator-conversations/message', 200);
     expect(await accepted.json()).toMatchObject({ kind: 'foreground_accepted' });
-  } finally { page.off('request', onRequest); }
   expect(commands).toHaveLength(1);
   expect(commands[0]).toMatchObject({ sessionId: root.id, projectId: root.project_id,
     expectedControlRevision: 1, message: prompt });
@@ -191,6 +190,68 @@ if (!manifestPath) {
   const card = page.getByTestId('model-provenance');
   await card.getByRole('button', { name: 'Refresh served models' }).click();
   await expect(card.locator('li')).toHaveText([servedModel]);
+
+  const rootSnapshot = (row: Record<string, unknown>) => ({ id: row.id, project_id: row.project_id,
+    owner_user_id: row.owner_user_id, profile_id: row.profile_id, sdk_session_id: row.sdk_session_id,
+    provider_id: row.provider_id, model_id: row.model_id, model_mode: row.model_mode });
+  const journal = () => localRows(`SELECT command_key,kind,intent_hash,journal_ordinal,acceptance
+    FROM coordinator_conversation_commands WHERE root_session_id=? ORDER BY journal_ordinal`, root.id);
+  const gridRows = () => localRows('SELECT classification_json,result_json FROM agent_router_grid_attempts WHERE session_id=? ORDER BY id', root.id);
+  const servedSteps = () => localRows(`SELECT sdk_message_id AS sdkMessageId,request_model_id AS requestedModelId,
+    served_model_id AS servedModelId FROM agent_served_steps WHERE session_id=? ORDER BY sdk_message_id`, root.id);
+  const beforeReload = { root: rootSnapshot(after[0]), journal: journal(), grid: gridRows(), servedSteps: servedSteps() };
+  expect(beforeReload.journal).toHaveLength(1);
+  expect(beforeReload.journal[0]).toMatchObject({ kind: 'foreground', command_key: commands[0].commandKey });
+  expect(beforeReload.grid).toHaveLength(2);
+  expect(beforeReload.servedSteps).toEqual([{ sdkMessageId: assistant!.info.id,
+    requestedModelId: servedModel, servedModelId: servedModel }]);
+
+  // Reload and reopen the existing primary. Neither action may post a second
+  // command, create a new root, or recompute the already applied Grid choice.
+  await page.reload();
+  const reopened = await openExistingPrimary(page);
+  expect(reopened.root).toMatchObject({ id: root.id, project_id: root.project_id });
+  await expect(page.getByTestId('rhythm-primary-status')).toHaveText('Rhythm is ready.');
+  await expect(page.getByTestId('composer-input')).toBeEnabled();
+  await expect(page.getByTestId(`session-${root.id}`)).toHaveAttribute('aria-current', 'true');
+  expect(roots()).toHaveLength(1);
+  expect(rootSnapshot(roots()[0])).toEqual(beforeReload.root);
+
+  const reloadHistoryResponse = await api.fetch('/coordinator-conversations/history', { method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sessionId: root.id, projectId: root.project_id, limit: 50 }) });
+  expect(reloadHistoryResponse.status).toBe(200);
+  const reloadHistory = await reloadHistoryResponse.json() as typeof history;
+  expect(reloadHistory.messages).toEqual(history.messages);
+  expect(reloadHistory.messages.map(item => [item.role, item.sdkMessageId, item.rawText])).toEqual([
+    ['input', user!.info.id, prompt], ['output', assistant!.info.id, '19'],
+  ]);
+
+  const sdkAfterResponse = await fetch(`${ENGINE}/session/${encodeURIComponent(sdkId)}/message?directory=${encodeURIComponent(String(project[0].cwd))}&limit=50`,
+    { signal: AbortSignal.timeout(10_000) });
+  expect(sdkAfterResponse.status).toBe(200);
+  const sdkAfter = await sdkAfterResponse.json() as EngineMessage[];
+  const messageView = (items: EngineMessage[]) => items.filter(item => item.info.role === 'user' || item.info.role === 'assistant')
+    .map(item => ({ id: item.info.id, role: item.info.role, parentID: item.info.parentID,
+      text: item.parts.filter(part => part.type === 'text').map(part => part.text).join(''),
+      completed: item.info.time?.completed }));
+  expect(messageView(sdkAfter)).toEqual(messageView(engineMessages));
+  expect(messageView(sdkAfter)).toHaveLength(2);
+  expect(gridRows()).toEqual(beforeReload.grid);
+  expect(servedSteps()).toEqual(beforeReload.servedSteps);
+  expect(journal()).toEqual(beforeReload.journal);
+  expect(commands).toHaveLength(1);
+  expect(await api.json<typeof provenance>(`/agent-sessions/${encodeURIComponent(root.id)}/model-provenance`)).toEqual(provenance);
+  expect((await api.json<typeof last>('/agent-decisions/grid/last-decision')).decision).toEqual(last.decision);
+  await expect(page.getByTestId('transcript').getByText(prompt, { exact: true })).toBeVisible();
+  await expect(page.getByTestId('transcript').getByText('19', { exact: true })).toBeVisible();
+  const reloadDetails = page.getByTestId('session-details');
+  if (await reloadDetails.getAttribute('aria-expanded') !== 'true') await reloadDetails.click();
+  await page.getByTestId('inspector-context').click();
+  const reloadCard = page.getByTestId('model-provenance');
+  await reloadCard.getByRole('button', { name: 'Refresh served models' }).click();
+  await expect(reloadCard.locator('li')).toHaveText([servedModel]);
   // This canonical primary root is intentionally durable. The caller must scrub
   // the entire exact private fixture after the app stops; do not hard-delete it.
+  } finally { page.off('request', onRequest); }
 });
