@@ -72,7 +72,7 @@ if (!manifestPath) {
       await expect(desktop.getByText(label, { exact: true }), `${label} setup card is hidden`).toBeVisible();
     }
     await expect(desktop.getByPlaceholder(/AWS region/i)).toBeVisible();
-    await expect(desktop.getByPlaceholder(/service account JSON path/i)).toBeVisible();
+    await expect(desktop.getByRole('textbox', { name: /^Path to a Google Cloud service account JSON for Vertex AI/ })).toBeVisible();
     await expect(desktop.getByText('No provider API keys available.', { exact: true })).toBeHidden();
   });
 }

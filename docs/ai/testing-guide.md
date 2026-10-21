@@ -934,7 +934,7 @@ Do not substitute an older installed app for this source-build gate.
 
 ```sh
 cd apps/web
-npx tsc --noEmit --strict --module esnext --moduleResolution bundler --target es2022 --skipLibCheck --types node tests/packaged/*.ts
+npx tsc --noEmit --strict --allowJs --module esnext --moduleResolution bundler --target es2022 --skipLibCheck --types node tests/packaged/*.ts
 RHYTHM_PACKAGED_APP=/private/tmp/rhythm-feature-playwright-2026-10-19/apps/electron/dist/Rhythm.app \
   RHYTHM_FEATURE_MODEL=1 npm run test:packaged -- --grep '\[P0\]'
 # Each feature can also run alone:

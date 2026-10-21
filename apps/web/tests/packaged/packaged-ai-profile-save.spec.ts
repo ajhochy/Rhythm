@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { test as unverified } from '@playwright/test';
-import { test, expect, ObservedApi, assertResponse, responseFor, localRows, expectedRevision } from './feature-test';
+import { test, expect, ObservedApi, assertResponse, responseFor, localRows, expectedRevision, expectStalePrivateProfileConflict } from './feature-test';
 import { readQualificationFixture } from '../../../../tools/testing/qualification_fixture.mjs';
 
 type Profile = { id: string; label: string; revision: number; updatedAt: string };
@@ -133,6 +133,7 @@ if (!manifestPath) {
     });
     expect(advanced.status).toBe(200);
     expect(await advanced.json()).toMatchObject({ id: row.id, label: apiWinner, revision: 1 });
+    expectStalePrivateProfileConflict(row.id, apiWinner, 1);
 
     onPatch = request => {
       if (request.method() === 'PATCH' && new URL(request.url()).pathname === `/agent-configs/${row.id}`)

@@ -16,6 +16,7 @@ export const ENGINE = 'http://127.0.0.1:4096';
 const deletedOwnSessions = new Set<string>();
 const expiredOwnedApprovalIds = new Set<string>();
 const absentPrivateArtifactIds = new Map<string, number>();
+const stalePrivateProfileIds = new Set<string>();
 export const expectedRevision = process.env.RHYTHM_FEATURE_EXPECTED_REVISION
   ?? execFileSync('git', ['rev-parse', 'mega/2026-09-29-consolidation'], { encoding: 'utf8' }).trim();
 process.env.RHYTHM_FEATURE_EXPECTED_REVISION ??= expectedRevision;
@@ -226,6 +227,19 @@ export function expectAbsentPrivateArtifact(id: string) {
   absentPrivateArtifactIds.set(id, manifest.ownerUserId);
 }
 
+/** Permit only the observed CAS rejection of a nonce-created private profile. */
+export function expectStalePrivateProfileConflict(id: string, winnerLabel: string, revision: number) {
+  const manifestPath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
+  expect(manifestPath, 'negative profile check requires a disposable actor').toBeTruthy();
+  expect(readQualificationFixture(manifestPath!, expectedRevision).manifest.syntheticActor).toBeDefined();
+  expect(id).toMatch(/^smoke-[a-z0-9-]+$/);
+  expect(winnerLabel).toMatch(/^\[smoke\] profile revision [a-f0-9-]+ API winner$/);
+  expect(revision).toBe(1);
+  expect(localRows('SELECT id,label,revision FROM agent_configs WHERE id=?', id))
+    .toEqual([{ id, label: winnerLabel, revision }]);
+  stalePrivateProfileIds.add(id);
+}
+
 export const test = packagedTest.extend<{ tasks: OwnedRecords; sessions: OwnedRecords; audit: void }>({
   tasks: async ({ page }, use) => { const records = new OwnedRecords(page, 'tasks'); try { await use(records); } finally { await records.cleanup(); } },
   sessions: async ({ page }, use) => { const records = new OwnedRecords(page, 'sessions'); try { await use(records); } finally { await records.cleanup(); } },
@@ -242,6 +256,7 @@ export const test = packagedTest.extend<{ tasks: OwnedRecords; sessions: OwnedRe
     deletedOwnSessions.clear();
     expiredOwnedApprovalIds.clear();
     absentPrivateArtifactIds.clear();
+    stalePrivateProfileIds.clear();
     try { await use(); } finally {
       await page.unrouteAll({ behavior: 'wait' });
       // Private per-case evidence survives the next worker truncating the shared app log.
@@ -255,8 +270,15 @@ export const test = packagedTest.extend<{ tasks: OwnedRecords; sessions: OwnedRe
         || line.includes(`Handled NOT_FOUND GET /agent-sessions/${id}/model-provenance — AgentSession not found`)));
       const unplanned = unexpected.filter(line => ![...expiredOwnedApprovalIds].some(id =>
         line.includes(`Handled FORBIDDEN PATCH /agent-approvals/${id} — This approval expired; ask for a new proposal`)));
-      const errors = unplanned.filter(line => ![...absentPrivateArtifactIds].some(([id, owner]) =>
-        line === `[api_server] [ERROR] Handled NOT_FOUND GET /live-artifacts/${id} — Live artifact not found { authUserId: ${owner} }`));
+      // FORCE_COLOR under Playwright adds SGR around numbers/null. Normalize
+      // only those presentation bytes, retaining exact route, actor and text.
+      const errors = unplanned.filter(raw => {
+        const line = raw.replace(/\u001b\[[0-9;]*m/g, '');
+        return ![...absentPrivateArtifactIds].some(([id, owner]) =>
+          line === `[api_server] [ERROR] Handled NOT_FOUND GET /live-artifacts/${id} — Live artifact not found { authUserId: ${owner} }`)
+          && ![...stalePrivateProfileIds].some(id =>
+            line === `[api_server] [ERROR] Handled CONFLICT PATCH /agent-configs/${id} — Agent config changed; reload before saving { authUserId: null }`);
+      });
       expect(errors, 'unexpected app errors in this test window').toEqual([]);
     }
   }, { auto: true }],

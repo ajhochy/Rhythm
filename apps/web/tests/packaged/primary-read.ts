@@ -33,7 +33,7 @@ export async function ensurePrimaryForPrivateActor(page: Page, api: ObservedApi)
     const choiceResponse = await choice;
     await assertResponse(choiceResponse, 'POST', '/coordinator-conversations/setup', 200);
     expect(await choiceResponse.json()).toMatchObject({ kind: 'setup_profile_choice_required',
-      profileChoices: expect.arrayContaining([{ id: 'coding-agent' }]) });
+      profileChoices: expect.arrayContaining([expect.objectContaining({ id: 'coding-agent' })]) });
     await expect(page.getByTestId('rhythm-setup-profile-coding-agent')).toBeVisible();
     const setup = responseFor(page, 'POST', '/coordinator-conversations/setup');
     await page.getByTestId('rhythm-setup-profile-coding-agent').click();

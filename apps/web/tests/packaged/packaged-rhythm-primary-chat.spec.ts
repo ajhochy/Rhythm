@@ -24,7 +24,9 @@ test('[P0] primary: failed resolve preserves the ordinary session and visibly re
   await sessions.open();
   const root = await ensurePrimaryForPrivateActor(page, sessions.api!);
   const own = await sessions.create(' primary fallback');
-  const fail = async (route: import('@playwright/test').Route) => route.fulfill({ status: 503, json: { kind: 'setup_unavailable' } });
+  // setup_unavailable is a valid first-use acknowledgement, not a failed
+  // transport. Use an invalid acknowledgement to exercise failure/retry.
+  const fail = async (route: import('@playwright/test').Route) => route.fulfill({ status: 503, json: { error: 'temporary service failure' } });
   await page.route('**/coordinator-conversations/resolve', fail);
   const failed = responseFor(page, 'POST', '/coordinator-conversations/resolve');
   await page.getByTestId('rhythm-primary-entry').click();
