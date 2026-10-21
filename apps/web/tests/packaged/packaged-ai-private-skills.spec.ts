@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { test as unverified } from '@playwright/test';
+import { test as unverified, type Frame, type Request } from '@playwright/test';
 import { test, expect, ObservedApi, responseFor, assertResponse, expectedRevision, API, ENGINE } from './feature-test';
 import { readQualificationFixture } from '../../../../tools/testing/qualification_fixture.mjs';
 
@@ -106,16 +106,38 @@ if (!manifestPath) {
 
     await page.goto('rhythm://app/index.html#/tools/agent-tools');
     await page.getByRole('heading', { name: 'Choose a workspace', exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
+    const currentCatalog = responseFor(page, 'GET', '/opencode/skills');
     await page.goto('rhythm://app/index.html#/tools/skills');
     await page.getByTestId('skills-new').waitFor({ state: 'visible', timeout: 10_000 });
-    const reload = responseFor(page, 'GET', '/opencode/skills');
-    await page.reload();
-    const reloaded = await reload;
-    await assertResponse(reloaded, 'GET', '/opencode/skills', 200);
-    expect((await reloaded.json() as Skill[]).some(item => item.name === name)).toBe(true);
-    await page.getByTestId(`skills-item-${name}`).click();
-    await expect(page.getByTestId('list-inspector-detail').locator('pre.managed-body')).toContainText(edited);
-    expect(await content()).toMatchObject({ name, content: expect.stringContaining(edited) });
+    const currentResponse = await currentCatalog;
+    await assertResponse(currentResponse, 'GET', '/opencode/skills', 200);
+    await currentResponse.json();
+
+    const reloadRequests = new Set<Request>();
+    let reloadDocumentCommitted = false;
+    const markReloadDocument = (frame: Frame) => {
+      if (frame === page.mainFrame()) reloadDocumentCommitted = true;
+    };
+    const captureReloadCatalog = (request: Request) => {
+      if (!reloadDocumentCommitted || request.method() !== 'GET') return;
+      const url = new URL(request.url());
+      if (url.origin === API && url.pathname === '/opencode/skills') reloadRequests.add(request);
+    };
+    page.on('framenavigated', markReloadDocument);
+    page.on('request', captureReloadCatalog);
+    try {
+      const reload = page.waitForResponse(response => reloadRequests.has(response.request()));
+      await page.reload();
+      const reloaded = await reload;
+      await assertResponse(reloaded, 'GET', '/opencode/skills', 200);
+      expect((await reloaded.json() as Skill[]).some(item => item.name === name)).toBe(true);
+      await page.getByTestId(`skills-item-${name}`).click();
+      await expect(page.getByTestId('list-inspector-detail').locator('pre.managed-body')).toContainText(edited);
+      expect(await content()).toMatchObject({ name, content: expect.stringContaining(edited) });
+    } finally {
+      page.off('framenavigated', markReloadDocument);
+      page.off('request', captureReloadCatalog);
+    }
 
     await page.getByTestId('skills-delete').click();
     const deleted = responseFor(page, 'DELETE', `/opencode/skills/${name}`);

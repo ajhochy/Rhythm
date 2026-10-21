@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { test as unverified } from '@playwright/test';
+import { test as unverified, type Request } from '@playwright/test';
 import { test, expect, API, ObservedApi, assertResponse, expectedRevision,
   localRows, responseFor } from './feature-test';
 import { readQualificationFixture } from '../../../../tools/testing/qualification_fixture.mjs';
@@ -34,6 +34,16 @@ if (!manifestPath) {
   const prompts = Object.fromEntries(allKeys.map(key => [key, `[smoke] inert timing ${key} ${nonce}; never trigger`])) as Record<Key, string>;
   const ids = new Map<Key, string>();
   const cleanupErrors: string[] = [];
+  const pendingRunHistory = new Set<Request>();
+  const trackRunHistory = (request: Request) => {
+    if (request.method() !== 'GET') return;
+    const url = new URL(request.url());
+    if (url.origin === API && /^\/agent-schedules\/[^/]+\/runs$/.test(url.pathname)) pendingRunHistory.add(request);
+  };
+  const finishRunHistory = (request: Request) => { pendingRunHistory.delete(request); };
+  page.on('request', trackRunHistory);
+  page.on('requestfinished', finishRunHistory);
+  page.on('requestfailed', finishRunHistory);
   const ownedRows = () => localRows(`SELECT id,name,prompt,schedule_type,enabled,run_at,scheduled_time,
     scheduled_day,cron_expression,timezone,next_run_at,created_by_user_id,last_run_at,last_run_status
     FROM agent_scheduled_tasks WHERE name LIKE ?`, `[smoke] schedule timing % ${nonce}`);
@@ -138,7 +148,7 @@ if (!manifestPath) {
       if (kind === 'once') await editor.getByLabel("Run at (this Mac's local time)").fill(onceLocal);
       if (kind !== 'once') {
         await editor.getByLabel('Timezone').selectOption('UTC');
-        if (kind === 'cron') await editor.getByLabel('Cron expression').fill(cron);
+        if (kind === 'cron') await editor.locator('input[name="cronExpression"]').fill(cron);
         else await editor.getByLabel('Time', { exact: true }).fill(time);
         if (kind === 'weekly') await editor.getByLabel('Weekday').selectOption(weekday);
         if (kind === 'monthly') await editor.getByLabel('Day of month').selectOption(monthday);
@@ -209,7 +219,7 @@ if (!manifestPath) {
       if (kind === 'once') await expect(editor.getByLabel("Run at (this Mac's local time)")).toHaveValue(onceLocal);
       else {
         await expect(editor.getByLabel('Timezone')).toHaveValue('UTC');
-        if (kind === 'cron') await expect(editor.getByLabel('Cron expression')).toHaveValue(cron);
+        if (kind === 'cron') await expect(editor.locator('input[name="cronExpression"]')).toHaveValue(cron);
         else await expect(editor.getByLabel('Time', { exact: true })).toHaveValue(time);
         if (kind === 'weekly') await expect(editor.getByLabel('Weekday')).toHaveValue(weekday);
         if (kind === 'monthly') await expect(editor.getByLabel('Day of month')).toHaveValue(monthday);
@@ -254,7 +264,20 @@ if (!manifestPath) {
     // delete only owner-bound rows with no dispatch, history, or root.
     const rows = ownedRows();
     if (rows.length > allKeys.length) cleanupErrors.push('multiple nonce rows; refusing cleanup');
-    for (const key of allKeys) {
+    let cleanupUiQuiescent = false;
+    try {
+      await page.goto('rhythm://app/index.html#/tools/agent-tools');
+      await page.getByRole('heading', { name: 'Choose a workspace', exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
+      await expect.poll(() => pendingRunHistory.size, { timeout: 10_000 }).toBe(0);
+      cleanupUiQuiescent = true;
+    } catch (error) {
+      cleanupErrors.push(`could not unmount schedule UI and settle run-history reads: ${String(error)}`);
+    } finally {
+      page.off('request', trackRunHistory);
+      page.off('requestfinished', finishRunHistory);
+      page.off('requestfailed', finishRunHistory);
+    }
+    for (const key of cleanupUiQuiescent ? allKeys : []) {
       const matches = rows.filter(row => row.name === names[key] && row.prompt === prompts[key]);
       if (matches.length > 1) { cleanupErrors.push(`${key}: duplicate exact rows`); continue; }
       const row = matches[0];
@@ -281,7 +304,7 @@ if (!manifestPath) {
           throw new Error('deleted row still in SQLite');
       } catch (error) { cleanupErrors.push(`${key}: ${String(error)}`); }
     }
-    expect(ownedRows(), 'exact nonce schedules must be removed').toEqual([]);
+    if (cleanupUiQuiescent) expect(ownedRows(), 'exact nonce schedules must be removed').toEqual([]);
     expect(cleanupErrors).toEqual([]);
   }
 });
