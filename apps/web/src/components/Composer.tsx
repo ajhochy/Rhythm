@@ -87,6 +87,7 @@ export function Composer({ renderSecondaryChatActions, coordinator }: {
   renderSecondaryChatActions?: (closeConfigurationThen: (action: () => void) => void) => ReactNode;
   coordinator?: {
     active: boolean;
+    disabledReason?: string;
     onSend: (message: string) => Promise<{ accepted: boolean } | boolean>;
   };
 }) {
@@ -245,7 +246,7 @@ export function Composer({ renderSecondaryChatActions, coordinator }: {
   // lifecycle reason for profile/model controls, attachments, and all
   // non-coordinator chats; only the coordinator's own send path can bypass it.
   const coordinatorOwnsComposition = coordinatorActive && !liveChildView && selected.group !== 'archived';
-  const composerDisabledReason = coordinatorOwnsComposition ? '' : disabledReason;
+  const composerDisabledReason = coordinatorOwnsComposition ? coordinator?.disabledReason ?? '' : disabledReason;
   const attachmentDisabledReason = coordinatorOwnsComposition
     ? 'Coordinator messages are plaintext. Remove attachments before sending.'
     : disabledReason;

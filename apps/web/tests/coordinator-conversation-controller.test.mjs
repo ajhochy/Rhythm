@@ -174,6 +174,41 @@ test('a deferred status acknowledgement never acknowledges an unsent desktop mes
   assert.equal(controller.get(scope).pendingCommand, undefined);
 });
 
+test('unavailable status rejects oversized and normal new messages until a successful refresh', async () => {
+  const journal = createMemoryCoordinatorConversationJournal();
+  let unavailable = false;
+  let messageCalls = 0;
+  const gateway = {
+    open: async () => ({ kind: 'replay', conversation: conversation() }),
+    status: async () => unavailable ? { kind: 'context_unavailable' } : contextResult(),
+    message: async () => {
+      messageCalls += 1;
+      return { kind: 'created', conversation: conversation(2) };
+    },
+  };
+  const controller = new CoordinatorConversationController(() => gateway, journal);
+  assert.equal(await controller.open(scope), true);
+  assert.equal(controller.get(scope).phase, 'ready');
+
+  unavailable = true;
+  assert.equal(await controller.refresh(scope), false);
+  assert.equal(controller.get(scope).phase, 'unavailable');
+  assert.equal((await controller.send(scope, 'x'.repeat(8_001))).accepted, false);
+  assert.equal(controller.get(scope).phase, 'unavailable');
+  assert.equal((await controller.send(scope, 'A safe new message')).accepted, false);
+  assert.equal(controller.get(scope).phase, 'unavailable');
+  assert.equal(controller.get(scope).pendingCommand, undefined);
+  assert.equal(journal.load(scope).pendingCommand, undefined);
+  assert.equal(messageCalls, 0);
+
+  unavailable = false;
+  assert.equal(await controller.refresh(scope), true);
+  assert.equal(controller.get(scope).phase, 'ready');
+  assert.equal((await controller.send(scope, 'A safe new message')).accepted, true);
+  assert.equal(messageCalls, 1);
+  assert.equal(journal.load(scope).pendingCommand, undefined);
+});
+
 test('a repeated current-root open joins status and history reconciliation before reporting ready', async () => {
   const pendingStatus = deferred();
   const pendingHistory = deferred();

@@ -85,6 +85,9 @@ type FixtureState = {
   rootPermissionReads: number;
   ordinaryPermissionReads: number;
   retryFailed: boolean;
+  failNextStatus: boolean;
+  statusCalls: number;
+  messageCalls: number;
   setupRelease?: () => void;
 };
 
@@ -108,6 +111,9 @@ async function openRhythmFixture(page: Page, options: {
     rootPermissionReads: 0,
     ordinaryPermissionReads: 0,
     retryFailed: false,
+    failNextStatus: false,
+    statusCalls: 0,
+    messageCalls: 0,
   };
   const origin = { ...session('ordinary-root', 'project-ordinary', 'Ordinary chat'), status: options.ordinaryStatus ?? 'idle', ...(options.ordinarySdkMapping ? { sdkSessionId: 'sdk-ordinary-root' } : {}) };
   const alternateOrigin = session('ordinary-other-root', 'project-other', 'Another ordinary chat');
@@ -170,7 +176,16 @@ async function openRhythmFixture(page: Page, options: {
         return respond({ kind: 'replay', conversation: rootConversation() });
       }
       if (url.pathname.endsWith('/status')) {
+        state.statusCalls += 1;
+        if (state.failNextStatus) {
+          state.failNextStatus = false;
+          return respond({ kind: 'context_unavailable' }, 503);
+        }
         return respond({ kind: 'status', conversation: rootConversation(), context: context() });
+      }
+      if (url.pathname.endsWith('/message')) {
+        state.messageCalls += 1;
+        return respond({ kind: 'context_unavailable' }, 503);
       }
       if (url.pathname.endsWith('/history')) {
         state.historyCalls += 1;
@@ -426,4 +441,68 @@ test('ready inert coordinator accepts composition after restart while ordinary e
   await expect(page.getByTestId('composer-input')).not.toHaveAttribute('placeholder', /this project/);
   expect(state.setupBodies).toHaveLength(0);
   expect(state.sessionInputFrames).toHaveLength(0);
+});
+
+test('a previously ready primary fails closed on unavailable context and recovers after a fresh status', async ({ page }) => {
+  const state = await openRhythmFixture(page, { existingRoot: true, rootStatus: 'error' });
+  const pendingCommands = () => page.evaluate(() => {
+    const raw = window.localStorage.getItem('rhythm.coordinator-conversation-journal.v1');
+    if (!raw) return 0;
+    const entries = JSON.parse(raw) as Record<string, { pendingCommand?: unknown }>;
+    return Object.values(entries).filter(entry => entry.pendingCommand !== undefined).length;
+  });
+  await page.getByTestId('rhythm-primary-entry').click();
+  await expectRhythmRoot(page, state);
+  await expect(page.getByTestId('rhythm-primary-status')).toHaveText('Rhythm is ready.');
+  await expect(page.locator('.conversation-pane .status-label')).toHaveText('Ready');
+  await expect(page.getByTestId('composer-input')).toBeEnabled();
+  expect(await pendingCommands()).toBe(0);
+  const draft = 'Fixture draft remains here while current context is unavailable';
+  await page.getByTestId('composer-input').fill(draft);
+
+  const unavailableStatus = page.waitForResponse(response =>
+    new URL(response.url()).pathname === '/coordinator-conversations/status'
+    && response.request().method() === 'POST', { timeout: 10_000 });
+  state.failNextStatus = true;
+  await page.getByTestId('rhythm-primary-entry').click();
+  const unavailable = await unavailableStatus;
+  expect(unavailable.status()).toBe(503);
+  expect(await unavailable.json()).toEqual({ kind: 'context_unavailable' });
+  await expect(page.getByTestId('rhythm-primary-status')).toHaveText('Rhythm could not be opened. Your ordinary chats are unchanged.');
+  await expect(page.locator('.conversation-pane .status-label')).toHaveText('Error');
+  await expect(page.getByTestId('coordinator-conversation-card')).toContainText('Rhythm could not load current coordination context. Your draft is still here.');
+  await expect(page.getByTestId('composer-input')).toHaveValue(draft);
+  await expect(page.getByTestId('composer-input')).toBeDisabled();
+  await expect(page.getByTestId('composer-send')).toBeDisabled();
+  await expect(page.locator('.composer-disabled-reason')).toContainText('Rhythm could not load current coordination context');
+  // Even a programmatic form submit cannot admit a pending command when the
+  // current server status withdrew coordinator context.
+  await page.getByTestId('composer-input').evaluate(input => input.closest('form')?.requestSubmit());
+  await page.waitForTimeout(100);
+  expect(state.messageCalls).toBe(0);
+  expect(state.sessionInputFrames).toEqual([]);
+  expect(await pendingCommands()).toBe(0);
+
+  const recoveredStatus = page.waitForResponse(response =>
+    new URL(response.url()).pathname === '/coordinator-conversations/status'
+    && response.request().method() === 'POST', { timeout: 10_000 });
+  await page.getByTestId('coordinator-refresh').click();
+  const recovered = await recoveredStatus;
+  expect(recovered.status()).toBe(200);
+  expect(await recovered.json()).toMatchObject({ kind: 'status', conversation: rootConversation() });
+  await expect(page.locator('.conversation-pane .status-label')).toHaveText('Ready');
+  await expect(page.getByTestId('rhythm-primary-status')).toHaveText('Rhythm is ready.');
+  await expect(page.getByTestId('coordinator-conversation-card')).not.toContainText('could not load current coordination context');
+  await expect(page.getByTestId('composer-input')).toBeEnabled();
+  await expect(page.getByTestId('composer-send')).toBeEnabled();
+  await expect(page.getByTestId('composer-input')).toHaveValue(draft);
+  expect(await pendingCommands()).toBe(0);
+  expect(state.messageCalls).toBe(0);
+  expect(state.setupBodies).toEqual([]);
+
+  await page.getByTestId('group-project-project-ordinary').click();
+  await page.getByTestId('session-ordinary-root').click();
+  await expect(page.getByTestId('session-ordinary-root')).toHaveAttribute('aria-current', 'true');
+  await expect(page.locator('.conversation-pane h1')).toHaveText('Ordinary chat');
+  expect(state.sessionInputFrames).toEqual([]);
 });

@@ -283,6 +283,16 @@ export function AgentsWorkspace() {
   const dayflowConsentAbort = useRef<AbortController | null>(null);
   const [dayflowConsentNotice, setDayflowConsentNotice] = useState<string>();
   const [rhythmEntry, setRhythmEntry] = useState<RhythmEntry>({ opening: false });
+  useEffect(() => {
+    if (!coordinatorReadyForSelectedRoot || rhythmPrimaryRef.current) return;
+    // A successful Details refresh is a fresh server status for this exact
+    // selected root. Clear only this entry failure; setup, selection, and
+    // newer in-flight entry notices keep their own lifecycle.
+    setRhythmEntry((current) => current.opening || current.setup ||
+      current.notice !== 'Rhythm could not be opened. Your ordinary chats are unchanged.'
+      ? current
+      : { opening: false, notice: 'Rhythm is ready.' });
+  }, [coordinatorReadyForSelectedRoot]);
   // Selecting an already-active server root does not change the ordinary
   // selection dependencies below. Keep a small local navigation revision so
   // the primary handoff still starts its existing coordinator open path.
@@ -813,7 +823,13 @@ export function AgentsWorkspace() {
         </header>
         <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="agent-activity-status">{activityAnnouncement}</span>
         <div className="transcript-reader"><Transcript coordinatorTranscript={coordinatorTranscript} /></div>
-        {!liveChildView && <Composer renderSecondaryChatActions={secondaryChatActions} coordinator={coordinatorScope ? { active: coordinator.state.enabled, onSend: coordinator.send } : undefined} />}
+        {!liveChildView && <Composer renderSecondaryChatActions={secondaryChatActions} coordinator={coordinatorScope ? {
+          active: coordinator.state.enabled,
+          disabledReason: coordinator.state.phase === 'unavailable' && !coordinator.state.pendingCommand
+            ? coordinator.state.notice?.message ?? 'Coordination is unavailable. Refresh before sending.'
+            : undefined,
+          onSend: coordinator.send,
+        } : undefined} />}
         </>}
       </section>
       {!inspectorCollapsed && <Splitter orientation="vertical" storageKey="layout.agents.inspector" min={286} max={470} defaultSize={336} onResize={resizeInspector} ariaLabel="Resize Inspector" resizeEdge="end" className="inspector-resize" testId="inspector-resizer" />}

@@ -881,6 +881,10 @@ export class CoordinatorConversationController {
       return { accepted: false };
     }
     if (!message.trim()) return { accepted: false };
+    // An unavailable status withdraws admission for a new command. Check
+    // before validation that can change the phase, while keeping the exact
+    // pending command retry path intact after an uncertain send.
+    if (record.phase === 'unavailable' && !record.pendingCommand) return { accepted: false };
     if (message.length > 8_000) {
       this.update(key, (next) => {
         next.enabled = true;
