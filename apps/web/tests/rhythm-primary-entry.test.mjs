@@ -415,6 +415,52 @@ test('an SDK-less current error or starting root stays Opening through reconcili
   }
 });
 
+test('a completed primary open stays Ready when its earlier catalog refresh resolves later', async () => {
+  const { calls, rhythm } = setup('existing');
+  rhythm.status = 'starting';
+  rhythm.sdkSessionId = undefined;
+  coordinatorInitialState = coordinatorView({ sessionId: rhythm.id, projectId: rhythm.projectId }, true, 'unavailable');
+  let releaseOpen;
+  let completedOpens = 0;
+  const open = new Promise((resolve) => { releaseOpen = resolve; });
+  coordinatorOpenOverride = async ({ scope, setState }) => {
+    await open;
+    setState(coordinatorView(scope, true, 'ready'));
+    completedOpens += 1;
+    return true;
+  };
+  let releaseCatalog;
+  let catalogCalls = 0;
+  const catalog = new Promise((resolve) => { releaseCatalog = resolve; });
+  fixtureState.refreshCatalog = () => { catalogCalls += 1; return catalog; };
+  let tree;
+  await act(async () => { tree = create(React.createElement(workspaceModule.exports.AgentsWorkspace)); });
+  await act(async () => { entry(tree).props.onClick(); await settle(); });
+  assert.equal(calls.resolve, 1);
+  assert.match(String(tree.root.findByProps({ 'data-testid': 'rhythm-primary-status' }).children.join('')), /Opening Rhythm/);
+  assert.equal(gateway.__coordinatorOpenCalls, 1);
+  assert.equal(catalogCalls, 1);
+  // A matching server status finishes while the entry's earlier catalog
+  // refresh is still pending. The exact root is now authoritatively Ready.
+  await act(async () => { releaseOpen(); await settle(); });
+  const header = tree.root.findAll((node) => typeof node.props.className === 'string' && node.props.className.includes('status-label'))[0];
+  assert.match(String(header.children.join('')), /Ready/);
+  assert.equal(completedOpens, 1);
+  assert.match(String(tree.root.findByProps({ 'data-testid': 'rhythm-primary-status' }).children.join('')), /Rhythm is ready/);
+  // The older catalog refresh succeeds after the scoped open has already
+  // cleared its pending primary pointer; no stale continuation may replace Ready.
+  await act(async () => { releaseCatalog(); await settle(); });
+  assert.equal(catalogCalls, 1);
+  assert.equal(completedOpens, 1);
+  assert.equal(fixtureState.selected.id, rhythm.id);
+  assert.equal(fixtureState.sessions.find(item => item.id === 'ordinary-root')?.name, 'Ordinary chat');
+  assert.equal(gateway.__coordinatorOpenCalls, 1);
+  assert.equal(calls.ordinaryPrompt, 0);
+  assert.equal(tree.root.findByProps({ 'data-testid': 'composer-input' }).props['data-coordinator-active'], 'true');
+  assert.match(String(tree.root.findByProps({ 'data-testid': 'rhythm-primary-status' }).children.join('')), /Rhythm is ready/);
+  await act(async () => { tree.unmount(); });
+});
+
 test('an offline starting root keeps its connection warning despite a retained ready coordinator snapshot', async () => {
   const { rhythm } = setup('existing');
   rhythm.status = 'starting';

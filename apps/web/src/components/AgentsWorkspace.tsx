@@ -320,6 +320,7 @@ export function AgentsWorkspace() {
       originSessionId: input.requestSelection.sessionId,
       originProjectId: input.requestSelection.projectId,
     };
+    const pendingPrimary = rhythmPrimaryRef.current;
     // Refresh then open only the server-returned root. No client-created
     // session, SDK prompt, or project rewriting occurs here.
     await refreshCatalog({ force: true });
@@ -330,13 +331,20 @@ export function AgentsWorkspace() {
     ) return false;
     const currentSelection = rhythmSelectionRef.current;
     const rootAlreadySelected = currentSelection.sessionId === resolved.sessionId && currentSelection.projectId === resolved.projectId;
+    // Catalog reads can publish a render while this root is already selected.
+    // Its scoped open can finish and release the handoff before these reads
+    // settle. That completed handoff owns its notice; do not restart it or
+    // dereference the cleared pointer when this older continuation resumes.
+    if (rhythmPrimaryRef.current !== pendingPrimary) {
+      return rootAlreadySelected && coordinatorReadyForSelectedRootRef.current;
+    }
     const originStillSelected = currentSelection.sessionId === input.requestSelection.sessionId && currentSelection.projectId === input.requestSelection.projectId;
     if (!rootAlreadySelected && !originStillSelected && currentSelection.sessionId !== '') {
       rhythmPrimaryRef.current = null;
       setRhythmEntry({ opening: false, notice: 'Rhythm selection changed. Your ordinary chats are unchanged.' });
       return false;
     }
-    rhythmPrimaryRef.current.selectionRequested = true;
+    pendingPrimary.selectionRequested = true;
     // Selecting an already-current server root needlessly starts a second
     // detail handoff. That handoff can briefly publish its empty placeholder
     // and make the original primary-entry continuation look like a user

@@ -89,6 +89,10 @@ type FixtureState = {
   statusCalls: number;
   messageCalls: number;
   setupRelease?: () => void;
+  holdNextAccountCatalog: boolean;
+  accountCatalogHeld: boolean;
+  accountCatalogRelease?: () => void;
+  modelCatalogRows: Record<string, unknown>[];
 };
 
 async function openRhythmFixture(page: Page, options: {
@@ -114,6 +118,9 @@ async function openRhythmFixture(page: Page, options: {
     failNextStatus: false,
     statusCalls: 0,
     messageCalls: 0,
+    holdNextAccountCatalog: false,
+    accountCatalogHeld: false,
+    modelCatalogRows: [],
   };
   const origin = { ...session('ordinary-root', 'project-ordinary', 'Ordinary chat'), status: options.ordinaryStatus ?? 'idle', ...(options.ordinarySdkMapping ? { sdkSessionId: 'sdk-ordinary-root' } : {}) };
   const alternateOrigin = session('ordinary-other-root', 'project-other', 'Another ordinary chat');
@@ -121,6 +128,9 @@ async function openRhythmFixture(page: Page, options: {
   let releaseSetup = () => {};
   const heldSetup = new Promise<void>((resolve) => { releaseSetup = resolve; });
   state.setupRelease = releaseSetup;
+  let releaseAccountCatalog = () => {};
+  const heldAccountCatalog = new Promise<void>((resolve) => { releaseAccountCatalog = resolve; });
+  state.accountCatalogRelease = releaseAccountCatalog;
 
   await page.routeWebSocket(/\/ws\/agents$/, (socket) => {
     socket.onMessage((frame) => {
@@ -237,10 +247,16 @@ async function openRhythmFixture(page: Page, options: {
     if (request.method() === 'GET' && url.pathname === '/agent-configs') {
       return respond([{ id: 'profile-a', label: 'Current profile', enabled: true, sessionSelectable: true, isDefault: true }]);
     }
+    if (request.method() === 'GET' && url.pathname === '/opencode/auth/accounts' && state.holdNextAccountCatalog) {
+      state.holdNextAccountCatalog = false;
+      state.accountCatalogHeld = true;
+      await heldAccountCatalog;
+      return respond({ accounts: [] });
+    }
     if (request.method() === 'GET' && (url.pathname === '/opencode/auth/accounts' || url.pathname === '/opencode/auth/openai/accounts')) {
       return respond({ accounts: [] });
     }
-    if (request.method() === 'GET' && url.pathname === '/agents/models/catalog') return respond([]);
+    if (request.method() === 'GET' && url.pathname === '/agents/models/catalog') return respond(state.modelCatalogRows);
     if (request.method() === 'GET' && url.pathname === '/projects') return respond([]);
     if (request.method() === 'GET' && url.pathname.includes('health')) return respond({ healthy: true, status: 'ready' });
     if (request.method() === 'GET') return respond([]);
@@ -400,6 +416,52 @@ test('an existing server root reopens after navigation and repeated entry clicks
   await expectRhythmRoot(page, state);
   expect(state.setupBodies).toEqual([]);
   expect(state.resolveCalls).toBe(2);
+});
+
+test('a late successful catalog refresh preserves the Ready primary handoff', async ({ page }) => {
+  const state = await openRhythmFixture(page, { existingRoot: true, rootStatus: 'starting' });
+  await page.getByTestId('rhythm-primary-entry').click();
+  await expect(page.getByTestId('rhythm-primary-status')).toHaveText('Rhythm is ready.');
+  await expect(page.locator('.conversation-pane .status-label')).toHaveText('Ready');
+  const firstOpenCalls = state.coordinatorOpenCalls;
+  const firstStatusCalls = state.statusCalls;
+  const firstHistoryCalls = state.historyCalls;
+
+  // The second entry refreshes actual account/model catalog routes. A model
+  // state update renders the already-selected root while one account read is
+  // still held, so its scoped coordinator open may finish first.
+  state.modelCatalogRows = [{ provider: 'openai', modelId: 'fixture-model', authorized: true, available: true }];
+  state.holdNextAccountCatalog = true;
+  const catalogResponse = page.waitForResponse(response =>
+    response.request().method() === 'GET' && new URL(response.url()).pathname === '/opencode/auth/accounts', { timeout: 10_000 });
+  try {
+    await page.getByTestId('rhythm-primary-entry').click();
+    await expect.poll(() => state.accountCatalogHeld).toBe(true);
+    await expect.poll(() => state.coordinatorOpenCalls).toBe(firstOpenCalls + 1);
+    await expect.poll(() => state.statusCalls).toBeGreaterThan(firstStatusCalls);
+    await expect.poll(() => state.historyCalls).toBeGreaterThan(firstHistoryCalls);
+    await expect(page.locator('.conversation-pane .status-label')).toHaveText('Ready');
+    await expect(page.getByTestId('rhythm-primary-status')).toHaveText('Rhythm is ready.');
+
+    state.accountCatalogRelease?.();
+    const completedCatalog = await catalogResponse;
+    expect(completedCatalog.status()).toBe(200);
+    expect(await completedCatalog.json()).toEqual({ accounts: [] });
+    await completedCatalog.finished();
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(page.getByTestId('session-rhythm-root')).toHaveAttribute('aria-current', 'true');
+    await expect(page.locator('.conversation-pane .status-label')).toHaveText('Ready');
+    await expect(page.getByTestId('rhythm-primary-status')).toHaveText('Rhythm is ready.');
+    expect(state.resolveCalls).toBe(2);
+    expect(state.setupBodies).toEqual([]);
+    expect(state.sessionInputFrames).toEqual([]);
+    expect(state.messageCalls).toBe(0);
+    await page.getByTestId('group-project-project-ordinary').click();
+    await page.getByTestId('session-ordinary-root').click();
+    await expect(page.locator('.conversation-pane h1')).toHaveText('Ordinary chat');
+  } finally {
+    state.accountCatalogRelease?.();
+  }
 });
 
 test('an SDK-less Coordinator root never reads ordinary permissions while an SDK-backed chat does', async ({ page }) => {
