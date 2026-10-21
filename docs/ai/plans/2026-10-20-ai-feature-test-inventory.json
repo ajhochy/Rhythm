@@ -246,15 +246,19 @@
         "apps/web/tests/packaged/packaged-model-router.spec.ts",
         "apps/web/tests/packaged/router-calibration-cases.ts"
       ],
-      "coverage": "KEEP: focused 17/17 packaged confirmation is recorded at d7fb554735 after the calibration change e7fa976251.",
+      "coverage": "KEEP: ordinary router remains scoped to the historical 17/17 packaged confirmation at d7fb554735. The focused Coordinator main-Auto source contract selection at cb383e77b5 passed 94/94; a later related source suite passed 137/137. The subsequent full serial API aggregate exited 1 with 8,827 passed tests and one shared-agent registrar auth-error timeout/unhandled rejection. These source checks do not qualify main-chat UI routing. The observed private main turn classified tier 4, found no usable Grid route, and served baseline `gpt-6.1-sol`; this is not a cheap-route success.",
       "gapReason": "Held-out classifier quality, exhaustion recovery, explicit account pin, child provenance and failed-application remain unqualified.",
       "requires": [
         "Exact identity-matched packaged app, API/engine, authorized real provider model and eligible account."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Held-out classifier quality, exhaustion recovery, explicit account pin, child provenance and failed-application remain unqualified.",
-      "newTests": [],
+      "remaining": "Actual main-chat Grid/Luna attempt and served UI/engine model remain unqualified; held-out classifier quality, exhaustion recovery, explicit account pin, child provenance, and failed-application remain separate gaps.",
+      "newTests": [
+        "apps/api_server/src/__tests__/coordinator_chat_controls_parity.test.ts",
+        "apps/api_server/src/__tests__/coordinator_auto_grid_live_e2e.test.ts",
+        "apps/api_server/src/services/decision/router_grid_turn.test.ts"
+      ],
       "primaryIssueTracking": [
         {
           "issue": "#1588",
@@ -333,16 +337,17 @@
         "apps/web/tests/contract/issue-1580-model-curation.spec.ts",
         "apps/web/tests/contract/issue-1580-provider-connect-card.test.mjs"
       ],
-      "coverage": "KEEP source tests plus new real packaged read-only checks; remaining mutation/execution boundaries stay explicit.",
-      "gapReason": "No installed UI readback against real catalog/provider state.",
+      "coverage": "CONFIRMED SCOPED at the API/fork boundary: fresh guarded sandbox `b` first-boot OpenAI catalog test passed 1/1 (combined sandbox confirmation 2/2 with the separate primary denial case). The first catalog read returned authorized OpenAI rows from the sandbox 5.x model fixture and the Grid API reported `catalog.source: live`. This fixture intentionally omits GPT-6 IDs; the result does not prove GPT-6 hook availability, native picker refresh, or a paid served route.",
+      "gapReason": "The real API/fork cold-start catalog is covered, but it does not establish current packaged native UI refresh, GPT-6 authorization/entitlement, or actual model execution.",
       "requires": [
         "Packaged app and real API model catalog; provider auth optional for read-only catalog case."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Actual full model catalog visibility agrees with rendered switches; no-match/clear restores a real row. Save, empty/disconnected recovery and process restart remain unqualified.",
+      "remaining": "GPT-6 model-hook and entitlement visibility, native picker refresh after first boot, provider auth/re-auth, catalog failure recovery, and actual served-model routing remain unqualified.",
       "newTests": [
-        "apps/web/tests/packaged/packaged-ai-settings.spec.ts"
+        "apps/web/tests/packaged/packaged-ai-settings.spec.ts",
+        "apps/api_server/src/__tests__/openai_catalog_first_boot_live_e2e.test.ts"
       ],
       "primaryIssueTracking": [
         {
@@ -692,18 +697,19 @@
         "apps/web/tests/inspector-profiles.spec.ts",
         "apps/web/tests/post-m1-phase-2-profiles.redspec.ts"
       ],
-      "coverage": "CONFIRMED SCOPED on exact signed private build 28bcc2aa44: nonce-owned profile create, controlled failed label PATCH with draft retained, revisioned retry, reload, API/SQLite readback, and exact cleanup passed.",
-      "gapReason": "Inherited/explicit MCP and skill scope, broader changed-field matrices, and actual session runtime capabilities remain unqualified; the passed mutation changed only a nonce-owned label.",
+      "coverage": "CONFIRMED SCOPED on exact signed private build 194: nonce-owned profile failed-save retained the draft and succeeded on retry; a stale 409 preserved the draft while the API winner remained at revision 1. The corrected native focused cases passed. Rendered profile CAS/revisioned retry also passed 2/2; the complete rendered profile file passed 37 with one existing skip, and the earlier skill-filter fixture failure is resolved.",
+      "gapReason": "The confirmed profile cases cover controlled 503 retry and stale-revision conflict; broad profile capabilities and profile-to-session runtime propagation remain distinct.",
       "requires": [
         "Disposable profile with reversible settings and packaged app; no mutation to user profile."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Inherited/explicit MCP and skill scope, provider/model choices, dirty-switch cases, and real session capabilities remain; the passed mutation changed one owned label.",
+      "remaining": "Dirty profile switching, broader changed-field/policy preservation, inherited/explicit MCP and skill scope, provider/model choices, and actual session runtime capabilities remain unqualified.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-settings.spec.ts",
         "apps/web/tests/packaged/packaged-ai-followon.spec.ts",
-        "apps/web/tests/packaged/packaged-ai-profile-save.spec.ts"
+        "apps/web/tests/packaged/packaged-ai-profile-save.spec.ts",
+        "apps/web/tests/profiles-editor-redesign.spec.ts"
       ],
       "primaryIssueTracking": [
         {
@@ -2444,8 +2450,8 @@
         "apps/api_server/src/__tests__/issue_739_scheduler_agent_runner.test.ts",
         "apps/api_server/src/__tests__/agent_schedules_trigger_now_contract.test.ts"
       ],
-      "coverage": "REDO/ABSENT for end-user scheduled AI execution. E13 is Playwright but intercepts every API route with fixture data, and it tests automation-rule editing rather than Agent Schedules. MCP/API tests check route/contract and are not UI execution evidence. No packaged Playwright test currently exercises a schedule through run history and real agent output.",
-      "gapReason": "Test-name overlap ('automations' vs 'agent schedules') creates false confidence; scheduler's true user-visible path is local Electron scheduler plus API/engine.",
+      "coverage": "CONFIRMED SCOPED on exact signed private build 194: real UI created a nonce-owned disabled schedule and verified owner, disabled state, edit/reload persistence, API/SQLite readback, and empty run history. Separate API storage contract evidence covers `enabled:false` vs default-enabled and malformed input (3/3); local Bearer attribution/mobile schedule cluster passes 18/18 and the real API/fork owner test passes 1/1. These checks do not execute a schedule.",
+      "gapReason": "Create/edit and disabled-state persistence are now covered in the packaged UI plus backend storage/auth contracts. Manual trigger and actual scheduler-to-agent output remain distinct execution claims.",
       "requires": [
         "disposable scheduled task and profile",
         "real local scheduler/engine",
@@ -2454,10 +2460,14 @@
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Real list/history selection, reload, read-error recovery and cancel/blank no-write are exercised. Create/edit/manual trigger, durable model result, dedupe and restart still require disposable execution fixtures.",
+      "remaining": "UI delete is not covered (the packaged case uses API DELETE for owned cleanup). Manual trigger to actual agent output, durable result/history linkage, dedupe, restart/sleep-wake, and hosted-schedule quarantine remain unqualified.",
       "newTests": [
+        "apps/web/tests/packaged/packaged-ai-private-disabled-schedule.spec.ts",
         "apps/web/tests/packaged/packaged-ai-schedules.spec.ts",
-        "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts"
+        "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "apps/api_server/src/__tests__/agent_schedules_enabled_create_contract.test.ts",
+        "apps/api_server/src/__tests__/agent_schedules_local_auth_attribution.test.ts",
+        "apps/api_server/src/__tests__/agent_schedules_local_auth_live_e2e.test.ts"
       ],
       "primaryIssueTracking": [
         {
@@ -3642,18 +3652,23 @@
         "apps/web/tests/packaged/packaged-rhythm-primary-chat.spec.ts",
         "apps/web/tests/rhythm-primary-entry.spec.ts"
       ],
-      "coverage": "CONFIRMED SCOPED on exact signed private build 28bcc2aa44: normal synthetic-owner first-use waited for profile choice, allocated one canonical owner root/project, kept an empty null-SDK journal, and selected a ready UI under strict audit.",
-      "gapReason": "First-use empty journal is qualified only in the disposable actor. Existing-root reuse/retry, missing historical cwd, busy child reservations, and populated prompt/history/composer behavior remain unqualified.",
+      "coverage": "CONFIRMED SCOPED: exact signed private build 194 primary-entry/history/recovery/rapid-repeat suite passed 3/3, including existing-root reuse/retry and reload. First-use also passed separately in the initial 56-case native run. The initial native run exposed missing-cwd false Ready. After the source repair, a fresh guarded API/fork sandbox confirmation passed 2/2 combined tests: the primary live case observed status 503 and actual foreground-message 503 with no SDK/Grid/dispatch/command/journal effects; the other case was cold OpenAI catalog. No fixed-cwd native confirmation exists yet.",
+      "gapReason": "The repaired missing-cwd status and foreground denial are confirmed through the real API/fork boundary, but the exact locally signed native build still showed false Ready and has not been rebuilt to confirm the UI repair.",
       "requires": [
         "disposable primary/journal and signing identity",
         "identity-matched packaged backend/engine"
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked source preserves primary wording",
-      "remaining": "Existing-root reuse/retry, missing historical cwd, busy child reservation, and populated real-model journal/composer behavior remain unqualified.",
+      "remaining": "Rebuilt native confirmation of missing-cwd unavailable status and foreground denial, busy-child reservation, populated historical journal/composer behavior, and an actual main-chat cheap Grid/Luna served-model result remain unqualified.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-000-primary-first-use.spec.ts",
-        "apps/web/tests/packaged/packaged-ai-owner-identity.spec.ts"
+        "apps/web/tests/packaged/packaged-ai-owner-identity.spec.ts",
+        "apps/web/tests/packaged/packaged-ai-001-primary-missing-cwd.spec.ts",
+        "apps/web/tests/packaged/packaged-rhythm-primary-chat.spec.ts",
+        "apps/api_server/src/__tests__/live_e2e_primary_missing_cwd.test.ts",
+        "apps/api_server/src/__tests__/coordinator_conversation_navigation.test.ts",
+        "apps/api_server/src/__tests__/coordinator_chat_controls_parity.test.ts"
       ],
       "priority": "P0",
       "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Entry opens the designated durable primary chat without sending a prompt; first-use setup persists exactly once; child reservations do not freeze ordinary primary conversation."
@@ -3778,8 +3793,8 @@
         "apps/api_server/src/__tests__/live_e2e_engraph_manager.test.ts",
         "apps/desktop_flutter/test/contract/issue_1096_semantic_memory_test.dart"
       ],
-      "coverage": "INCOMPLETE: guarded focused ownership checks passed 19/19 and a related source cluster passed 99/99; the current full serial API gate also passed the 19-case ownership file but is still running. Historical 2026-07-24 signed Flutter and real Engraph sandbox smoke belongs to an older source/build. No current signed Flutter or current-source real Engraph index/reference search has been qualified.",
-      "gapReason": "The ownership aggregate tests use controlled fixtures, and the installed Electron prototype has no Engraph settings UI. They cannot prove the person-visible Flutter control, actual installed CLI, semantic reference retrieval, FTS fallback, or exact real-process shutdown at this source revision. Issue #1574 c2 explicitly remains UNVERIFIED for real API/engine/native behavior.",
+      "coverage": "CONFIRMED SCOPED at the real API/CLI boundary: current-source isolated Engraph CLI 1.7.2 sandbox `d` live reference lifecycle passed 1/1; the real native reference matched the owned SQLite index UUID, canonical source path and file-byte hash, then disable removed the owned process and preserved FTS fallback. Ownership checks pass 19/19 and the related manager/route/degradation/lifecycle cluster passes 106/106. Earlier failed sandbox `c` remains a separate failed attempt; `d2` is the successful fresh confirmation. No signed Flutter Settings UI confirmation.",
+      "gapReason": "Backend lifecycle, canonical reference mapping, disable and FTS fallback have current real-CLI/API evidence. The person-visible Settings flow is Flutter-specific and remains unqualified on a current signed build.",
       "requires": [
         "Fresh approved synthetic read-only SQLite/config fixture; private sandbox HOME, manager config, vault, model/cache outputs and API 4098/engine 4097/gateway 4099; no operator store or credentials.",
         "Verified installed arm64 Engraph executable chosen only inside that sandbox; optional model download must remain disabled and shared output monitored under the 10 GiB guard.",
@@ -3787,19 +3802,28 @@
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; #1574 contract and historical run logs preserve primary acceptance wording",
-      "remaining": "Run a current-source real CLI HTTP lifecycle and synthetic note reference search in a fresh isolated sandbox; prove owner/canonical mapping, disabled fallback and exact child cleanup. Then qualify the person-visible Flutter Settings path in a current signed disposable build. Do not infer either from 19 ownership tests or an older signed smoke.",
-      "newTests": [],
+      "remaining": "Current signed Flutter Settings UI selection/enable/status/disable, missing or invalid CLI states, foreign-process reporting, health/retry/rebuild/restart edges and macOS permission diagnostics remain unqualified.",
+      "newTests": [
+        "apps/api_server/src/__tests__/issue_1574_engraph_ownership.test.ts",
+        "apps/api_server/src/__tests__/live_e2e_engraph_real_references.test.ts"
+      ],
       "priority": "P1",
       "backendProofRequired": "Actual installed Engraph process and private index, /engraph-manager status/health/ownership, canonical /agent-memory reference result and SQLite/vault mapping must agree for a nonce-owned synthetic note; disable must leave no owned process, preserve foreign processes, and FTS must remain usable. Current signed Flutter Settings UI state and actions require a separate native-client receipt."
     }
   ],
   "qualification": {
-    "latestLocallySignedProductRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
-    "scope": "38 selected private native cases; broader inventory and model cases remain unqualified",
-    "passed": 37,
-    "failedExplicitCoverageGap": 1,
+    "latestLocallySignedProductRevision": "19421753e05a7a1b2d0f09fcbd04063650e8390c",
+    "scope": "Exact local sign-only 194 initial integrated native selection: 56 cases, 51 passed / 5 failed / 0 skipped / 0 flaky. One confirmed product defect is missing-cwd false Ready; four failures were test/recon errors. Later focused corrections passed five cases; a separate primary entry/history/recovery/rapid-repeat suite passed 3/3. There was no fresh integrated rerun combining those corrections, so the results must not be combined into a 55/1 total. Fresh API/fork sandbox `b` separately passed cold catalog plus primary status/foreground denial 2/2. Overall inventory remains incomplete.",
+    "passed": 51,
+    "failedExplicitCoverageGap": 0,
+    "latestRunFailed": 5,
+    "correctedTestAuthoringFailures": 4,
     "skipped": 0,
     "flaky": 0,
-    "newerSourceRepairsAwaitLocalRebuild": true
+    "targetedCorrectedNativeCases": "A focused eight-case rerun passed five and failed three primary cases on a first-use helper assertion; after correcting that helper, the separate primary entry/history/recovery/rapid-repeat suite passed 3/3. No integrated full rerun followed.",
+    "backendSandboxConfirmation": "2/2: one cold OpenAI catalog test and one primary test asserting status 503 plus foreground denial 503 with no SDK/Grid/dispatch/command/journal effects",
+    "newerSourceRepairsAwaitLocalNativeRebuild": true,
+    "confirmedProductFailures": 1,
+    "remainingCoverageMarkers": 78
   }
 }
