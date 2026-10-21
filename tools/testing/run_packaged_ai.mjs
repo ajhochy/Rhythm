@@ -4,6 +4,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createQualificationFixture } from './qualification_fixture.mjs';
+import { captureCreatedFixture, cleanupCreatedFixture } from './qualification_fixture_cleanup.mjs';
 import { resolveOptionalHermesBackendArtifact } from '../../apps/electron/src/hermes-backend-artifact.mjs';
 
 const root = realpathSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../..'));
@@ -34,6 +35,7 @@ if (untracked.trim()) throw new Error('Untracked product sources require a fresh
 const args = process.argv.slice(2);
 const syntheticIndex = args.indexOf('--synthetic');
 let manifestPath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
+let createdFixture;
 if (syntheticIndex >= 0) {
   args.splice(syntheticIndex, 1);
   if (manifestPath) throw new Error('Use either a new --synthetic actor or an explicit fixture manifest');
@@ -43,6 +45,7 @@ if (syntheticIndex >= 0) {
   manifestPath = bundledBackend
     ? createQualificationFixture(revision, { hermesRuntimeRoot: null, hermesBackendArtifactRoot: bundledBackend.root })
     : createQualificationFixture(revision);
+  createdFixture = captureCreatedFixture(manifestPath, revision);
   console.log(`Private qualification fixture and evidence: ${path.dirname(manifestPath)}`);
 }
 console.log(`AI behavior qualification: local bundle source ${revision}; model gate=${process.env.RHYTHM_FEATURE_MODEL ?? 'off'}`);
@@ -56,4 +59,15 @@ const result = spawnSync(process.execPath, [
       RHYTHM_WORKSTREAMS_ENABLED: 'true', RHYTHM_MANAGED_CONTEXT_EXPORTS: '1' } : {}) },
 });
 if (result.error) throw result.error;
+if (createdFixture && result.status === 0 && !result.signal) {
+  try {
+    await cleanupCreatedFixture(createdFixture, { synthetic: true, status: result.status, signal: result.signal });
+    console.log(`Removed successful synthetic qualification fixture: ${createdFixture.root}`);
+  } catch (error) {
+    console.error(`Synthetic qualification fixture retained; cleanup refused: ${error.message}`);
+    process.exit(1);
+  }
+}
+if (createdFixture && (result.status !== 0 || result.signal))
+  console.error(`Synthetic qualification fixture retained after unsuccessful Playwright run: ${createdFixture.root}`);
 process.exit(result.status ?? 1);
