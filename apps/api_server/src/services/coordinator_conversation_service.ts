@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 import { Buffer } from 'node:buffer';
+import { lstatSync, realpathSync, statSync } from 'node:fs';
+import path from 'node:path';
+import { resolveLiveArtifactStorageDir } from '../config/env';
 import { goalRepoPath } from './coordinator_goal_repo';
 import { cancelCoordinatorGoalRun, listCoordinatorGoalRuns, liveGitBranch, type CoordinatorGoalRun } from './coordinator_goal_runs';
 
@@ -3181,6 +3184,44 @@ export class CoordinatorConversationService {
     }));
   }
 
+  /** A designated primary can retain its journal after its working directory disappears. */
+  private primaryWorkspaceProof(
+    actor: ConversationActor,
+    requestScope: CoordinatorConversationScope,
+    conversation: CoordinatorConversation,
+  ): string | null {
+    if (!conversation.primaryOwnerRoot || !isAuthenticatedActor(actor)) return null;
+    if (conversation.ownerUserId !== actor.user.id || conversation.sessionId !== requestScope.sessionId ||
+      conversation.projectId !== requestScope.projectId) return null;
+    const selected = this.currentRootSelection(actor, requestScope, true);
+    const project = this.dependencies.projects?.findById(requestScope.projectId);
+    if (!selected || !project || project.archivedAt !== null ||
+      selected.session.id !== conversation.sessionId || selected.session.projectId !== project.id ||
+      selected.session.ownerUserId !== actor.user.id || selected.session.cwd !== project.cwd ||
+      !path.isAbsolute(project.cwd)) return null;
+    const fresh = project.coordinatorSetupProvenance === 'c2_fresh_owned_workspace_v1';
+    if (fresh) {
+      if (path.normalize(project.cwd) !== project.cwd) return null;
+      if (!this.isCurrentSetupProject(actor.user.id, project.coordinatorSetupKey ?? '', project) ||
+        !project.coordinatorSetupKey || project.coordinatorProfileId !== selected.profile.id) return null;
+      const parent = path.resolve(resolveLiveArtifactStorageDir(), 'coordinator-workspaces');
+      if (path.dirname(project.cwd) !== parent || !/^rhythm-[a-f0-9-]{36}$/.test(path.basename(project.cwd))) return null;
+      const parentStat = lstatSync(parent);
+      if (!parentStat.isDirectory() || parentStat.isSymbolicLink() || parentStat.uid !== process.getuid?.() ||
+        realpathSync.native(parent) !== parent) return null;
+    }
+    const stat = fresh ? lstatSync(project.cwd) : statSync(project.cwd);
+    if (!stat.isDirectory() || (fresh && (stat.isSymbolicLink() || stat.uid !== process.getuid?.() ||
+      realpathSync.native(project.cwd) !== project.cwd))) return null;
+    return JSON.stringify({
+      ownerUserId: actor.user.id, projectId: project.id, sessionId: selected.session.id,
+      profileId: selected.profile.id, profileRevision: selected.profile.revision,
+      cwd: project.cwd, setupKey: project.coordinatorSetupKey,
+      provenance: project.coordinatorSetupProvenance, generation: project.coordinatorWorkspaceGeneration,
+      device: stat.dev, inode: stat.ino,
+    });
+  }
+
   private async statusForConversation(
     requestScope: CoordinatorConversationScope,
     conversation: CoordinatorConversation,
@@ -3193,6 +3234,9 @@ export class CoordinatorConversationService {
       ) {
         return { kind: 'not_found' };
       }
+      const primaryProof = conversation.primaryOwnerRoot
+        ? this.primaryWorkspaceProof(actor, requestScope, conversation) : null;
+      if (conversation.primaryOwnerRoot && !primaryProof) return { kind: 'context_unavailable' };
       await this.refreshLinkedWorkstreams(actor, conversation);
       // Linked status reconciliation and context assembly are await
       // boundaries. A project archive/revocation that lands between them wins
@@ -3200,10 +3244,14 @@ export class CoordinatorConversationService {
       if (isAuthenticatedActor(actor) && !this.currentProjectAuthorized(actor, requestScope.projectId)) return { kind: 'not_found' };
       const beforeContext = this.repository.get(requestScope);
       if (beforeContext.kind !== 'found') return beforeContext;
+      if (primaryProof && this.primaryWorkspaceProof(actor, requestScope, beforeContext.conversation) !== primaryProof)
+        return { kind: 'context_unavailable' };
       const context = await this.dependencies.context.assemble({ conversation: beforeContext.conversation, now: this.now() });
       if (isAuthenticatedActor(actor) && !this.currentProjectAuthorized(actor, requestScope.projectId)) return { kind: 'not_found' };
       const latest = this.repository.get(requestScope);
       if (latest.kind !== 'found') return latest;
+      if (primaryProof && this.primaryWorkspaceProof(actor, requestScope, latest.conversation) !== primaryProof)
+        return { kind: 'context_unavailable' };
       return { kind: 'status', conversation: latest.conversation, context };
     } catch {
       return { kind: 'context_unavailable' };

@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
-import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -18,6 +18,10 @@ const now = new Date('2026-10-05T12:00:00.000Z');
 /** A coordinator goal names the repo its run works in; any dir with `.git` qualifies. */
 const goalRepo = realpathSync(mkdtempSync(path.join(tmpdir(), 'coord-nav-repo-')));
 mkdirSync(path.join(goalRepo, '.git'));
+const workspaceRoot = realpathSync(mkdtempSync(path.join(tmpdir(), 'coord-nav-workspace-')));
+const workspaceCwd = (id: string) => path.join(workspaceRoot, id);
+for (const id of ['project-a', 'project-b', 'project-foreign']) mkdirSync(workspaceCwd(id));
+afterAll(() => rmSync(workspaceRoot, { recursive: true, force: true }));
 const codingGoal = `Could you fix the weekly update script in ${goalRepo}?`;
 const auth = { sessionToken: 'desktop-auth', user: { id: 7 } } as AuthContext;
 
@@ -49,9 +53,9 @@ function database(): Database.Database {
   const insert = db.prepare(`INSERT INTO agent_sessions
     (id, owner_user_id, project_id, parent_session_id, is_system, category, archived_at, sdk_session_id, profile_id, cwd, permission_mode, approval_bypass_explicit, created_at, updated_at)
     VALUES (?, ?, ?, NULL, 0, 'chat', NULL, ?, 'profile-a', ?, 'default', 0, ?, ?)`);
-  insert.run('chat-a', 7, 'project-a', 'sdk-a', '/safe/project-a', now.toISOString(), now.toISOString());
-  insert.run('chat-b', 7, 'project-b', 'sdk-b', '/safe/project-b', now.toISOString(), now.toISOString());
-  insert.run('chat-foreign', 8, 'project-foreign', 'sdk-foreign', '/safe/project-foreign', now.toISOString(), now.toISOString());
+  insert.run('chat-a', 7, 'project-a', 'sdk-a', workspaceCwd('project-a'), now.toISOString(), now.toISOString());
+  insert.run('chat-b', 7, 'project-b', 'sdk-b', workspaceCwd('project-b'), now.toISOString(), now.toISOString());
+  insert.run('chat-foreign', 8, 'project-foreign', 'sdk-foreign', workspaceCwd('project-foreign'), now.toISOString(), now.toISOString());
   db.exec(`CREATE TABLE agent_turn_dispatches (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
@@ -79,11 +83,13 @@ function service(
   db: Database.Database,
   allowed: Map<number, Set<string>>,
   extras: Partial<Pick<CoordinatorConversationServiceDependencies, 'foreground' | 'messages' | 'context' | 'projects' | 'projectSetup' | 'configs' | 'codingWorkflow'>> = {},
+  cwdOverrides: Record<string, string> = {},
 ) {
+  const currentCwd = (id: string) => cwdOverrides[id] ?? workspaceCwd(id);
   const sessions = new Map<string, Record<string, unknown>>([
-    ['chat-a', { id: 'chat-a', ownerUserId: 7, projectId: 'project-a', parentSessionId: null, isSystem: false, category: 'chat', sdkSessionId: 'sdk-a', profileId: 'profile-a', providerId: 'provider-a', modelId: 'model-a', modelMode: 'fixed', permissionMode: 'default', approvalBypassExplicit: false, cwd: '/safe/project-a' }],
-    ['chat-b', { id: 'chat-b', ownerUserId: 7, projectId: 'project-b', parentSessionId: null, isSystem: false, category: 'chat', sdkSessionId: 'sdk-b', profileId: 'profile-a', providerId: 'provider-a', modelId: 'model-a', modelMode: 'fixed', permissionMode: 'default', approvalBypassExplicit: false, cwd: '/safe/project-b' }],
-    ['chat-foreign', { id: 'chat-foreign', ownerUserId: 8, projectId: 'project-foreign', parentSessionId: null, isSystem: false, category: 'chat', sdkSessionId: 'sdk-foreign', profileId: 'profile-a', providerId: 'provider-a', modelId: 'model-a', modelMode: 'fixed', permissionMode: 'default', approvalBypassExplicit: false, cwd: '/safe/project-foreign' }],
+    ['chat-a', { id: 'chat-a', ownerUserId: 7, projectId: 'project-a', parentSessionId: null, isSystem: false, category: 'chat', sdkSessionId: 'sdk-a', profileId: 'profile-a', providerId: 'provider-a', modelId: 'model-a', modelMode: 'fixed', permissionMode: 'default', approvalBypassExplicit: false, cwd: currentCwd('project-a') }],
+    ['chat-b', { id: 'chat-b', ownerUserId: 7, projectId: 'project-b', parentSessionId: null, isSystem: false, category: 'chat', sdkSessionId: 'sdk-b', profileId: 'profile-a', providerId: 'provider-a', modelId: 'model-a', modelMode: 'fixed', permissionMode: 'default', approvalBypassExplicit: false, cwd: currentCwd('project-b') }],
+    ['chat-foreign', { id: 'chat-foreign', ownerUserId: 8, projectId: 'project-foreign', parentSessionId: null, isSystem: false, category: 'chat', sdkSessionId: 'sdk-foreign', profileId: 'profile-a', providerId: 'provider-a', modelId: 'model-a', modelMode: 'fixed', permissionMode: 'default', approvalBypassExplicit: false, cwd: currentCwd('project-foreign') }],
   ]);
   let sequence = 0;
   return new CoordinatorConversationService({
@@ -107,7 +113,7 @@ function service(
           isSystem: false,
           category: 'chat',
           sdkSessionId: null,
-          cwd: `/safe/${row.project_id}`,
+          cwd: currentCwd(String(row.project_id)),
           profileId: row.profile_id,
           providerId: null,
           modelId: null,
@@ -129,7 +135,7 @@ function service(
           isSystem: false,
           category: 'chat',
           sdkSessionId: null,
-          cwd: `/safe/${input.projectId}`,
+          cwd: currentCwd(String(input.projectId)),
           profileId: input.profileId,
           providerId: null,
           modelId: null,
@@ -141,7 +147,7 @@ function service(
         db.prepare(`INSERT INTO agent_sessions
           (id, owner_user_id, project_id, parent_session_id, is_system, category, archived_at, sdk_session_id, profile_id, cwd, permission_mode, approval_bypass_explicit, created_at, updated_at)
           VALUES (?, ?, ?, NULL, 0, 'chat', NULL, NULL, ?, ?, 'plan', 0, ?, ?)`)
-          .run(id, input.ownerUserId, input.projectId, input.profileId, `/safe/${input.projectId}`, now.toISOString(), now.toISOString());
+          .run(id, input.ownerUserId, input.projectId, input.profileId, currentCwd(String(input.projectId)), now.toISOString(), now.toISOString());
         return session as never;
       },
     },
@@ -155,7 +161,7 @@ function service(
     },
     projects: extras.projects ?? {
       findById: (id: string) => ['project-a', 'project-b', 'project-foreign'].includes(id)
-        ? { id, cwd: `/safe/${id}`, archivedAt: null }
+        ? { id, cwd: currentCwd(id), archivedAt: null }
         : null,
     } as never,
     projectAccess: {
@@ -806,6 +812,132 @@ describe('dedicated primary Rhythm conversation resolution', () => {
       .toEqual({ kind: 'not_found' });
   });
 
+  it('withholds primary readiness when its canonical working directory disappears without rewriting the root', async () => {
+    db = database();
+    const allowed = new Map([[7, new Set(['project-a', 'project-b'])]]);
+    const repository = new CoordinatorConversationsRepository(db, () => now);
+    expect(repository.designatePrimaryOwnerRoot({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' }))
+      .toMatchObject({ kind: 'found' });
+    const coordinator = service(repository, db, allowed, {
+      context: { assemble: async () => qualifiedContext() } as never,
+    });
+    const request = { sessionId: 'chat-a', projectId: 'project-a' };
+    const original = repository.get({ ownerUserId: 7, ...request });
+    expect(await coordinator.status(auth, request)).toMatchObject({ kind: 'status' });
+    const cwd = workspaceCwd('project-a');
+    const backup = path.join(workspaceRoot, 'project-a-missing');
+    const inode = lstatSync(cwd);
+    expect(lstatSync(backup, { throwIfNoEntry: false })).toBeUndefined();
+    renameSync(cwd, backup);
+    try {
+      expect(lstatSync(cwd, { throwIfNoEntry: false })).toBeUndefined();
+      expect(coordinator.open(auth, request)).toMatchObject({ kind: 'replay' });
+      expect(await coordinator.status(auth, request)).toEqual({ kind: 'context_unavailable' });
+      expect(repository.open({ ownerUserId: 7, sessionId: 'chat-b', projectId: 'project-b' }))
+        .toMatchObject({ kind: 'created', conversation: { primaryOwnerRoot: false } });
+      expect(await coordinator.status(auth, { sessionId: 'chat-b', projectId: 'project-b' }))
+        .toMatchObject({ kind: 'status' });
+      expect(repository.get({ ownerUserId: 7, ...request })).toEqual(original);
+    } finally {
+      const moved = lstatSync(backup);
+      expect(moved.dev).toBe(inode.dev);
+      expect(moved.ino).toBe(inode.ino);
+      expect(lstatSync(cwd, { throwIfNoEntry: false })).toBeUndefined();
+      renameSync(backup, cwd);
+    }
+    expect(await coordinator.status(auth, request)).toMatchObject({ kind: 'status' });
+  });
+
+  it('withholds primary status if the directory disappears across context assembly', async () => {
+    db = database();
+    const repository = new CoordinatorConversationsRepository(db, () => now);
+    expect(repository.designatePrimaryOwnerRoot({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' }))
+      .toMatchObject({ kind: 'found' });
+    const cwd = workspaceCwd('project-a');
+    const backup = path.join(workspaceRoot, 'project-a-assembly-missing');
+    let moved = false;
+    const coordinator = service(repository, db, new Map([[7, new Set(['project-a'])]]), {
+      context: { assemble: async () => {
+        renameSync(cwd, backup);
+        moved = true;
+        return qualifiedContext();
+      } } as never,
+    });
+    try {
+      expect(await coordinator.status(auth, { sessionId: 'chat-a', projectId: 'project-a' }))
+        .toEqual({ kind: 'context_unavailable' });
+    } finally {
+      if (moved) {
+        expect(lstatSync(cwd, { throwIfNoEntry: false })).toBeUndefined();
+        renameSync(backup, cwd);
+      }
+    }
+  });
+
+  it('preserves a designated legacy primary whose exact stored cwd is a symlink to a real directory', async () => {
+    db = database();
+    const repository = new CoordinatorConversationsRepository(db, () => now);
+    expect(repository.designatePrimaryOwnerRoot({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' }))
+      .toMatchObject({ kind: 'found' });
+    const cwd = workspaceCwd('project-a');
+    const backup = path.join(workspaceRoot, 'project-a-symlink-target');
+    renameSync(cwd, backup);
+    try {
+      symlinkSync(backup, cwd);
+      const coordinator = service(repository, db, new Map([[7, new Set(['project-a'])]]), {
+        context: { assemble: async () => qualifiedContext() } as never,
+      });
+      expect(await coordinator.status(auth, { sessionId: 'chat-a', projectId: 'project-a' }))
+        .toMatchObject({ kind: 'status' });
+    } finally {
+      if (lstatSync(cwd, { throwIfNoEntry: false })?.isSymbolicLink()) unlinkSync(cwd);
+      expect(lstatSync(cwd, { throwIfNoEntry: false })).toBeUndefined();
+      renameSync(backup, cwd);
+    }
+  });
+
+  it('requires fresh setup provenance and generation for an owned canonical workspace', async () => {
+    db = database();
+    const repository = new CoordinatorConversationsRepository(db, () => now);
+    expect(repository.designatePrimaryOwnerRoot({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' }))
+      .toMatchObject({ kind: 'found' });
+    const storage = path.join(workspaceRoot, 'fresh-storage');
+    const parent = path.join(storage, 'coordinator-workspaces');
+    const cwd = path.join(parent, 'rhythm-00000000-0000-4000-8000-000000000001');
+    mkdirSync(storage); mkdirSync(parent); mkdirSync(cwd);
+    const previousStorage = process.env.LIVE_ARTIFACT_STORAGE_DIR;
+    process.env.LIVE_ARTIFACT_STORAGE_DIR = storage;
+    let generation = 1;
+    try {
+      const coordinator = service(repository, db, new Map([[7, new Set(['project-a'])]]), {
+        context: { assemble: async () => qualifiedContext() } as never,
+        projects: { findById: (id: string) => id === 'project-a' ? {
+          id, cwd, archivedAt: null, coordinatorOwnerUserId: 7, coordinatorSetupKey: 'owned-setup',
+          coordinatorSetupProvenance: 'c2_fresh_owned_workspace_v1', coordinatorWorkspaceGeneration: generation,
+          coordinatorProfileId: 'profile-a',
+        } : null } as never,
+      }, { 'project-a': cwd });
+      const request = { sessionId: 'chat-a', projectId: 'project-a' };
+      expect(await coordinator.status(auth, request)).toMatchObject({ kind: 'status' });
+      generation = 0;
+      expect(await coordinator.status(auth, request)).toEqual({ kind: 'context_unavailable' });
+      generation = 1;
+      const directory = path.join(workspaceRoot, 'not-a-directory');
+      writeFileSync(directory, 'inert');
+      const invalid = service(repository, db, new Map([[7, new Set(['project-a'])]]), {
+        context: { assemble: async () => qualifiedContext() } as never,
+        projects: { findById: (id: string) => id === 'project-a' ? {
+          id, cwd: directory, archivedAt: null,
+        } : null } as never,
+      }, { 'project-a': directory });
+      expect(statSync(directory).isFile()).toBe(true);
+      expect(await invalid.status(auth, request)).toEqual({ kind: 'context_unavailable' });
+    } finally {
+      if (previousStorage === undefined) delete process.env.LIVE_ARTIFACT_STORAGE_DIR;
+      else process.env.LIVE_ARTIFACT_STORAGE_DIR = previousStorage;
+    }
+  });
+
   it('treats an archived known project as non-disclosing for open, status, message, and goals', async () => {
     db = database();
     const allowed = new Map([[7, new Set(['project-a'])]]);
@@ -816,7 +948,7 @@ describe('dedicated primary Rhythm conversation resolution', () => {
     const coordinator = service(repository, db, allowed, {
       projects: {
         findById: (id: string) => id === 'project-a'
-          ? { id, cwd: '/safe/project-a', archivedAt: archived ? now.toISOString() : null }
+          ? { id, cwd: workspaceCwd('project-a'), archivedAt: archived ? now.toISOString() : null }
           : null,
       } as never,
     });

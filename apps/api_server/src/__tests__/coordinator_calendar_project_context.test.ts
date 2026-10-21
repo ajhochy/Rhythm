@@ -4,8 +4,11 @@
  * runtime adapters/assembler and the real CoordinatorConversationService seams.
  * No provider, SDK, engine or network is contacted (fetch is asserted unused).
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import type { CoordinatorConversationContextScope } from '../contracts/coordinator_conversation_contract';
 import { getDb, setDb } from '../database/db';
@@ -23,6 +26,8 @@ import { CoordinatorConversationService } from '../services/coordinator_conversa
 const OWNER = 7;
 const NOW = new Date('2026-10-06T19:00:00.000Z'); // 12:00 PDT, Oct 6
 const SYNC = '2026-10-06T18:00:00.000Z';
+const rootWorkspace = realpathSync(mkdtempSync(path.join(tmpdir(), 'coord-calendar-root-')));
+afterAll(() => rmSync(rootWorkspace, { recursive: true, force: true }));
 let db: Database.Database;
 let denied: Set<string>;
 let clock: { value: Date };
@@ -332,7 +337,7 @@ describe('(5) actual service seams: freshness, fingerprint, byte bounds, no new 
     db.prepare(`INSERT OR IGNORE INTO agent_configs (id, label, icon, command, enabled, is_agent) VALUES ('librarian', 'Synthetic profile', 'x', 'c', 1, 1)`).run();
     access = { value: true };
     db.prepare(`INSERT INTO agent_sessions (id, name, agent_kind, status, cwd, category, is_system, owner_user_id, project_id, profile_id, sdk_session_id, permission_mode, model_mode)
-      VALUES ('root', 'Secretary', 'librarian', 'idle', '/tmp', 'chat', 0, ?, 'proj-main', 'librarian', ?, 'plan', 'auto')`).run(OWNER, SDK);
+      VALUES ('root', 'Secretary', 'librarian', 'idle', ?, 'chat', 0, ?, 'proj-main', 'librarian', ?, 'plan', 'auto')`).run(rootWorkspace, OWNER, SDK);
     repo = new CoordinatorConversationsRepository(db, () => NOW);
     expect(repo.designatePrimaryOwnerRoot({ ownerUserId: OWNER, projectId: 'proj-main', sessionId: 'root' }).kind).toBe('found');
     account();
@@ -356,7 +361,7 @@ describe('(5) actual service seams: freshness, fingerprint, byte bounds, no new 
       context: new CoordinatorConversationContextAssembler(composed),
       sessions: new AgentSessionsRepository(),
       configs: { getById: () => profile, listEnabled: () => [profile] } as never,
-      projects: { findById: (id: string) => ({ id, archivedAt: null }) } as never,
+      projects: { findById: (id: string) => ({ id, cwd: rootWorkspace, archivedAt: null }) } as never,
       projectAccess: { canAccess: () => access.value, canOwnerAccess: () => access.value },
       enabled: () => true,
       now: () => clock.value,
