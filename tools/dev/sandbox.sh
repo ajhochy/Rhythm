@@ -397,6 +397,26 @@ configure_bridge_fixture() {
   runtime_env+=("RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256=$digest")
 }
 
+configure_auth_fixture() {
+  local origin="${RHYTHM_SANDBOX_AUTH_FIXTURE_URL:-}"
+  [[ -n "$origin" ]] || return 0
+  [[ "${RHYTHM_SANDBOX_BRIDGE_FIXTURE:-0}" == 1 ]] ||
+    fail 'auth fixture requires RHYTHM_SANDBOX_BRIDGE_FIXTURE=1'
+  [[ "$origin" =~ ^http://127\.0\.0\.1:([1-9][0-9]{3,4})$ ]] ||
+    fail 'auth fixture must be a canonical loopback HTTP origin'
+  local port="${BASH_REMATCH[1]}"
+  validate_port RHYTHM_SANDBOX_AUTH_FIXTURE_URL "$port"
+  case "$port" in
+    4001|4002|4096) fail "auth fixture cannot use reserved live port :$port" ;;
+  esac
+  [[ "$port" != "$API_PORT" && "$port" != "$ENGINE_PORT" && "$port" != "$GATEWAY_PORT" &&
+     ( "$RELAY_ENABLED" != 1 || "$port" != "$RELAY_PORT" ) ]] ||
+    fail 'auth fixture port must differ from sandbox runtime ports'
+  # This overrides only Cloud identity verification; ordinary sandbox
+  # PROD_API_URL and all other provider/account wiring remain unchanged.
+  runtime_env+=("RHYTHM_CLOUD_API_URL=$origin")
+}
+
 validate_port() {
   local label="$1"
   local port="$2"
@@ -727,6 +747,7 @@ up() {
   fi
   configure_e1_public_approval_fixture
   configure_bridge_fixture
+  configure_auth_fixture
   if [[ "$RELAY_ENABLED" == 1 ]]; then
     copy_relay_runtime_files
     sqlite3 "$RHYTHM_LIVE_DB_PATH" ".backup '$SB/relay/rhythm.db'"

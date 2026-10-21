@@ -9,11 +9,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../app';
 import { env } from '../config/env';
+import { AppError } from '../errors/app_error';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { UsersRepository } from '../repositories/users_repository';
+import { MobileCloudIdentityService } from '../services/mobile_cloud_identity_service';
 import {
   grantForCapability,
   registerGrant,
@@ -408,6 +410,62 @@ describe('shared-agent HTTP catalog and projections', () => {
 });
 
 describe('shared-agent bridge authentication', () => {
+  it('returns a bounded 503 without a grant when cloud identity verification is unavailable', async () => {
+    const resolveBearer = vi.fn(async () => {
+      throw new AppError(503, 'AUTH_UNAVAILABLE', 'Cloud authentication is unavailable');
+    });
+    const unavailableApp = express();
+    unavailableApp.use('/agent-bridge/v1', createAgentBridgeRouter({
+      ...defaultBridgeDeps,
+      resolveBearer,
+      logError: vi.fn(),
+    }));
+    const server = await startTestServer(unavailableApp);
+    const capability = 'unavailable-cloud-identity-capability';
+    const existingCapability = 'existing-cloud-identity-capability';
+    registerGrant({
+      grantId: randomUUID(), capabilitySha256: sha256(existingCapability), localUserId: harness.userA.id,
+      hermesProfile: 'default', runtimeGeneration: randomUUID(), serverOrigin: server.baseUrl,
+      authGeneration: 'existing-auth-generation', scopes: ['catalog.read'], memoryVaultId: null,
+    });
+    const existingGrant = grantForCapability(existingCapability);
+    const postGrant = (requestedCapability: string) => fetch(`${server.baseUrl}/agent-bridge/v1/registrar/grants`, {
+      method: 'POST',
+      headers: registrarHeaders(),
+      signal: AbortSignal.timeout(3_000),
+      body: JSON.stringify({
+        grantId: randomUUID(),
+        capabilitySha256: sha256(requestedCapability),
+        sessionToken: 'synthetic-cloud-token',
+        hermesProfile: 'default',
+        runtimeGeneration: randomUUID(),
+        serverOrigin: server.baseUrl,
+        authGeneration: 'synthetic-auth-generation',
+        scopes: ['catalog.read'],
+      }),
+    });
+    try {
+      const response = await postGrant(capability);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ error: { code: 'bridge_unavailable' } });
+      expect(grantForCapability(capability)).toBeNull();
+      expect(grantForCapability(existingCapability)).toEqual(existingGrant);
+
+      resolveBearer.mockRejectedValueOnce(new Error('private resolver failure'));
+      const unexpectedCapability = 'unexpected-cloud-identity-capability';
+      const unexpected = await postGrant(unexpectedCapability);
+      expect(unexpected.status).toBe(500);
+      const unexpectedBody = await unexpected.json();
+      expect(unexpectedBody).toMatchObject({ error: { code: 'bridge_internal' } });
+      expect(JSON.stringify(unexpectedBody)).not.toContain('private resolver failure');
+      expect(grantForCapability(unexpectedCapability)).toBeNull();
+      expect(grantForCapability(existingCapability)).toEqual(existingGrant);
+      expect(resolveBearer).toHaveBeenCalledTimes(2);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('SA-AUTH-1 enforces registrar credentials and binds grants to the resolved local id', async () => {
     const missing = await fetch(`${harness.baseUrl}/agent-bridge/v1/registrar/revoke-all`, { method: 'POST', headers: jsonHeaders(), body: '{}' });
     expect(missing.status).toBe(403);
@@ -415,9 +473,11 @@ describe('shared-agent bridge authentication', () => {
     const unavailable = await fetch(`${harness.baseUrl}/agent-bridge/v1/registrar/revoke-all`, { method: 'POST', headers: registrarHeaders(), body: '{}' });
     expect(unavailable.status).toBe(503);
     env.agentBridgeRegistrarSha256 = sha256(registrarSecret);
+    const cloudVerification = vi.spyOn(MobileCloudIdentityService.prototype, 'authenticateBearerToken').mockResolvedValue(null);
     const unresolved = await registerCapability('unresolved', 'not-a-session');
     expect(unresolved.status).toBe(403);
     expect((await unresolved.json() as any).error.code).toBe('grant_identity_unresolved');
+    expect(cloudVerification).toHaveBeenCalledWith('not-a-session');
     const cloudIdentity = 9001;
     const cloudToken = `synthetic-cloud-user-${cloudIdentity}`;
     const localUser = new UsersRepository().findById(harness.userA.id);
