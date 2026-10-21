@@ -627,9 +627,10 @@ export function AgentsWorkspace() {
     });
   }, [auth?.user.id, coordinator, coordinatorScope, gateway, releaseRhythmOpening, rhythmPrimaryNavigationRevision, selected.id, selected.projectId]);
   const backToParent = () => { if (liveChildView) closeLiveChildView(); else if (parent) selectSession(parent.id); };
-  const presentation = selected.status === 'error' && coordinatorReadyForSelectedRoot
+  const inertPrimaryStatus = selected.status === 'error' || selected.status === 'starting';
+  const presentation = inertPrimaryStatus && coordinatorReadyForSelectedRoot
     ? { label: 'Ready', tone: 'idle' as const, waiting: false }
-    : selected.status === 'error' && coordinatorReconcilingSelectedRoot
+    : inertPrimaryStatus && coordinatorReconcilingSelectedRoot
       ? { label: 'Opening', tone: 'idle' as const, waiting: true }
       : sessionPresentation(selected);
   const recoverableConnection = Boolean(live && liveSessionError) || isSessionOffline(selected) || selected.connectionState === 'unavailable' || Boolean(selected.stuckSince);

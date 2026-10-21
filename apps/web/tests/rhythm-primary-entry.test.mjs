@@ -135,9 +135,11 @@ const imports = {
   '../icons': { Icon: () => null },
   '../sessionState': {
     isSessionOffline: () => false,
-    sessionPresentation: (item) => item.status === 'error'
-      ? { tone: 'error', label: 'Error', waiting: false }
-      : { tone: 'idle', label: 'Idle', waiting: false },
+    sessionPresentation: (item) => item.connectionState === 'offline'
+      ? { tone: 'offline', label: 'Offline', waiting: false }
+      : item.status === 'error'
+        ? { tone: 'error', label: 'Error', waiting: false }
+        : { tone: 'idle', label: 'Idle', waiting: false },
   },
   '../store': { emptyLiveProfile: () => ({ id: '', label: 'Profile', icon: 'AG' }), useFixtures },
   './Composer': { Composer },
@@ -380,35 +382,49 @@ test('a ready already-selected root does not start a stale detail navigation or 
   await act(async () => { tree.unmount(); });
 });
 
-test('an SDK-less current root stays Opening through reconciliation, then returns Ready without a failed entry notice', async () => {
+test('an SDK-less current error or starting root stays Opening through reconciliation, then returns Ready', async () => {
+  for (const status of ['error', 'starting']) {
+    const { rhythm } = setup('existing');
+    rhythm.status = status;
+    rhythm.sdkSessionId = undefined;
+    let releaseReconciliation;
+    const reconciliation = new Promise((resolve) => { releaseReconciliation = resolve; });
+    coordinatorInitialState = coordinatorView({ sessionId: rhythm.id, projectId: rhythm.projectId }, true, 'ready');
+    coordinatorOpenOverride = async ({ scope, setState }) => {
+      setState(coordinatorView(scope, true, 'refreshing'));
+      await reconciliation;
+      setState(coordinatorView(scope, true, 'ready'));
+      return true;
+    };
+    let tree;
+    await act(async () => { tree = create(React.createElement(workspaceModule.exports.AgentsWorkspace)); });
+    await act(async () => { entry(tree).props.onClick(); await settle(); });
+    const headerStatus = tree.root.findAll((node) => typeof node.props.className === 'string' && node.props.className.includes('status-label'))[0];
+    assert.match(headerStatus.props.className, /idle/, status);
+    assert.match(String(headerStatus.children.join('')), /Opening/, status);
+    const openingNotice = String(tree.root.findByProps({ 'data-testid': 'rhythm-primary-status' }).children.join(''));
+    assert.match(openingNotice, /Opening Rhythm/, status);
+    assert.doesNotMatch(openingNotice, /could not be opened|Rhythm is ready/, status);
+    await act(async () => { releaseReconciliation(); await settle(); });
+    const settledHeader = tree.root.findAll((node) => typeof node.props.className === 'string' && node.props.className.includes('status-label'))[0];
+    assert.match(String(settledHeader.children.join('')), /Ready/, status);
+    const settledNotice = String(tree.root.findByProps({ 'data-testid': 'rhythm-primary-status' }).children.join(''));
+    assert.match(settledNotice, /Rhythm is ready/, status);
+    assert.doesNotMatch(settledNotice, /could not be opened/, status);
+    await act(async () => { tree.unmount(); });
+  }
+});
+
+test('an offline starting root keeps its connection warning despite a retained ready coordinator snapshot', async () => {
   const { rhythm } = setup('existing');
-  rhythm.status = 'error';
+  rhythm.status = 'starting';
   rhythm.sdkSessionId = undefined;
-  let releaseReconciliation;
-  const reconciliation = new Promise((resolve) => { releaseReconciliation = resolve; });
+  rhythm.connectionState = 'offline';
   coordinatorInitialState = coordinatorView({ sessionId: rhythm.id, projectId: rhythm.projectId }, true, 'ready');
-  coordinatorOpenOverride = async ({ scope, setState }) => {
-    setState(coordinatorView(scope, true, 'refreshing'));
-    await reconciliation;
-    setState(coordinatorView(scope, true, 'ready'));
-    return true;
-  };
   let tree;
   await act(async () => { tree = create(React.createElement(workspaceModule.exports.AgentsWorkspace)); });
-  await act(async () => { entry(tree).props.onClick(); await settle(); });
-  const headerStatus = tree.root.findAll((node) => typeof node.props.className === 'string' && node.props.className.includes('status-label'))[0];
-  assert.match(headerStatus.props.className, /idle/);
-  assert.match(String(headerStatus.children.join('')), /Opening/);
-  assert.doesNotMatch(String(headerStatus.children.join('')), /Error/);
-  const openingNotice = String(tree.root.findByProps({ 'data-testid': 'rhythm-primary-status' }).children.join(''));
-  assert.match(openingNotice, /Opening Rhythm/);
-  assert.doesNotMatch(openingNotice, /could not be opened|Rhythm is ready/);
-  await act(async () => { releaseReconciliation(); await settle(); });
-  const settledHeader = tree.root.findAll((node) => typeof node.props.className === 'string' && node.props.className.includes('status-label'))[0];
-  assert.match(String(settledHeader.children.join('')), /Ready/);
-  const settledNotice = String(tree.root.findByProps({ 'data-testid': 'rhythm-primary-status' }).children.join(''));
-  assert.match(settledNotice, /Rhythm is ready/);
-  assert.doesNotMatch(settledNotice, /could not be opened/);
+  const header = tree.root.findAll((node) => typeof node.props.className === 'string' && node.props.className.includes('status-label'))[0];
+  assert.match(String(header.children.join('')), /Offline/);
   await act(async () => { tree.unmount(); });
 });
 

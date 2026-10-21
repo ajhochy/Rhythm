@@ -95,8 +95,8 @@ async function openRhythmFixture(page: Page, options: {
   mode?: SetupMode;
   existingRoot?: boolean;
   holdSetup?: boolean;
-  rootStatus?: 'idle' | 'error';
-  ordinaryStatus?: 'idle' | 'error';
+  rootStatus?: 'starting' | 'idle' | 'error';
+  ordinaryStatus?: 'starting' | 'idle' | 'error';
   rejectSdklessRootPermissions?: boolean;
   ordinarySdkMapping?: boolean;
 } = {}): Promise<FixtureState> {
@@ -403,15 +403,21 @@ test('an existing server root reopens after navigation and repeated entry clicks
 });
 
 test('an SDK-less Coordinator root never reads ordinary permissions while an SDK-backed chat does', async ({ page }) => {
-  const state = await openRhythmFixture(page, { existingRoot: true, rejectSdklessRootPermissions: true, ordinarySdkMapping: true });
+  const state = await openRhythmFixture(page, { existingRoot: true, rejectSdklessRootPermissions: true, ordinarySdkMapping: true, ordinaryStatus: 'error' });
+  const ordinaryGroup = page.getByTestId('group-project-project-ordinary');
+  if (await ordinaryGroup.getAttribute('aria-expanded') !== 'true') await ordinaryGroup.click();
+  await page.getByTestId('session-ordinary-root').click();
+  await expect(page.getByTestId('session-ordinary-root')).toHaveAttribute('aria-current', 'true');
+  await expect(page.locator('.conversation-pane .status-label')).toHaveText('Error');
   await page.getByTestId('rhythm-primary-entry').click();
   await expect(page.getByTestId('rhythm-primary-status')).toContainText('Rhythm is ready.');
   await expect(page.getByText('Persisted Rhythm history', { exact: true })).toBeVisible();
   expect(state.rootPermissionReads).toBe(0);
 
-  await page.getByTestId('group-project-project-ordinary').click();
+  if (await ordinaryGroup.getAttribute('aria-expanded') !== 'true') await ordinaryGroup.click();
   await page.getByTestId('session-ordinary-root').click();
   await expect(page.getByTestId('session-ordinary-root')).toHaveAttribute('aria-current', 'true');
+  await expect(page.locator('.conversation-pane .status-label')).toHaveText('Error');
   await expect.poll(() => state.ordinaryPermissionReads).toBeGreaterThan(0);
 
   await page.getByTestId('rhythm-primary-entry').click();
@@ -504,5 +510,46 @@ test('a previously ready primary fails closed on unavailable context and recover
   await page.getByTestId('session-ordinary-root').click();
   await expect(page.getByTestId('session-ordinary-root')).toHaveAttribute('aria-current', 'true');
   await expect(page.locator('.conversation-pane h1')).toHaveText('Ordinary chat');
+  expect(state.sessionInputFrames).toEqual([]);
+});
+
+test('a newly created SDK-less primary with a starting metadata row presents the ready coordinator state', async ({ page }) => {
+  const state = await openRhythmFixture(page, { existingRoot: true, rootStatus: 'starting', ordinaryStatus: 'starting' });
+  await expect(page.locator('.conversation-pane .status-label')).toHaveText('Starting');
+  await page.getByTestId('rhythm-primary-entry').click();
+  await expectRhythmRoot(page, state);
+  await expect(page.getByTestId('rhythm-primary-status')).toHaveText('Rhythm is ready.');
+  await expect(page.getByTestId('composer-input')).toBeEnabled();
+  await expect(page.locator('.conversation-pane .status-label')).toHaveText('Ready');
+  expect(state.sessionInputFrames).toEqual([]);
+});
+
+test('a starting metadata root clears its primary failure notice after the next authoritative status', async ({ page }) => {
+  const state = await openRhythmFixture(page, { existingRoot: true, rootStatus: 'starting' });
+  await page.getByTestId('rhythm-primary-entry').click();
+  await expectRhythmRoot(page, state);
+
+  state.failNextStatus = true;
+  const unavailableStatus = page.waitForResponse(response =>
+    new URL(response.url()).pathname === '/coordinator-conversations/status'
+    && response.request().method() === 'POST', { timeout: 10_000 });
+  await page.getByTestId('rhythm-primary-entry').click();
+  const unavailable = await unavailableStatus;
+  expect(unavailable.status()).toBe(503);
+  expect(await unavailable.json()).toEqual({ kind: 'context_unavailable' });
+  await expect(page.getByTestId('rhythm-primary-status')).toHaveText('Rhythm could not be opened. Your ordinary chats are unchanged.');
+  await expect(page.getByTestId('composer-input')).toBeDisabled();
+
+  const recoveredStatus = page.waitForResponse(response =>
+    new URL(response.url()).pathname === '/coordinator-conversations/status'
+    && response.request().method() === 'POST', { timeout: 10_000 });
+  await page.getByTestId('rhythm-primary-entry').click();
+  const recovered = await recoveredStatus;
+  expect(recovered.status()).toBe(200);
+  expect(await recovered.json()).toMatchObject({ kind: 'status', conversation: rootConversation() });
+  await expect(page.getByTestId('composer-input')).toBeEnabled();
+  await expect(page.getByTestId('rhythm-primary-status')).toHaveText('Rhythm is ready.');
+  await expect(page.locator('.conversation-pane .status-label')).toHaveText('Ready');
+  expect(state.messageCalls).toBe(0);
   expect(state.sessionInputFrames).toEqual([]);
 });
