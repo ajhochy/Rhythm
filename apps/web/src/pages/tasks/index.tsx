@@ -323,6 +323,7 @@ export function TasksPage({ route }: { route: string }) {
           appendReceipt(`POST /tasks/${created.id}/collaborators {userId:${collaborator.userId}} → 200`);
         }
         appendReceipt(`POST /tasks {title${notes ? ',notes' : ''}${scheduledDate ? ',scheduledDate' : ''}${dueDate ? ',dueDate' : ''},preferredAgent} → 201`);
+        setSurfaceState('ready');
         form.reset(); setCreateOpen(false); notify(`${title} added`);
       } catch (error) { recordError('POST', '/tasks', error); } finally { setMutationPending(false); }
       return;

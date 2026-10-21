@@ -8,6 +8,8 @@ tags: [plan, rhythm, playwright]
 
 # AI feature inventory and behavior coverage
 
+Latest checkpoint (supersedes older “latest” paragraphs below): exact locally built/signed825c expanded native selection **80 passed/6 failed**, zero skipped/flaky. Previousb7d5 six broad failures all pass. Tasks retry has a confirmed product defect; Dayflow readiness remains under investigation; four failures have narrow test-observer corrections. Current Coordinator stopped incorrectly during an intermediate MCP describe step; no current full Coordinator pass. Background positive and canonical live confirmations are running. Historical paid scopes remain separate. All78 active markers remain incomplete. See `docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md`.
+
 Scope: September 20 through October 20, 2026. All **489 commits** reachable in that window at test branch `8faf4e2156` are accounted for in `2026-10-20-ai-month-commits.json`. Three cheap `gpt-6-luna` agents traced core AI, companions, and workflows/coverage; the parent reviewed their ledgers, validated commit references, and integrated tests. All 40 initial merge-provenance ambiguities were reviewed through unique second-parent commits. Commit classification is a subject/path aid, not runtime proof.
 
 There are **83 behavior groups: 78 user-feature groups and five historical/audit boundaries**. Groups can share a UI surface while protecting different outcomes. This inventory includes partial and open work; an OPEN issue is not automatically absent implementation, and a merged PR is not proof it works in the app. Primary issue/PR bodies or verbatim excerpts are retained in sibling issue-evidence JSON files; the table uses source-backed summaries.

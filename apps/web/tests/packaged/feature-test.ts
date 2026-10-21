@@ -14,6 +14,7 @@ export const API = 'http://127.0.0.1:4001';
 export const ENGINE = 'http://127.0.0.1:4096';
 // These precise 404s are the deletion proof, not a service outage. Never allow arbitrary ERROR lines.
 const deletedOwnSessions = new Set<string>();
+const deletedOwnTasks = new Map<string, number>();
 const expiredOwnedApprovalIds = new Set<string>();
 const absentPrivateArtifactIds = new Map<string, number>();
 const stalePrivateProfileIds = new Set<string>();
@@ -108,6 +109,7 @@ export async function assertResponse(response: Response, method: string, pathnam
 export class OwnedRecords {
   readonly prefix: string;
   private ids = new Set<string>();
+  private taskOwners = new Map<string, number>();
   private pending = new Set<Promise<void>>();
   private listener: (response: Response) => void;
   private onRequest: (request: import('@playwright/test').Request) => void;
@@ -122,7 +124,13 @@ export class OwnedRecords {
     page.on('request', this.onRequest);
     const collection = kind === 'tasks' ? '/tasks' : '/agent-sessions';
     this.listener = response => {
-      if (new URL(response.url()).pathname !== collection) return;
+      const url = new URL(response.url());
+      if (kind === 'tasks' && url.origin === API && response.request().method() === 'DELETE' && response.status() === 204) {
+        const match = url.pathname.match(/^\/tasks\/([^/]+)$/);
+        const owner = match && this.ids.has(match[1]) ? this.taskOwners.get(match[1]) : undefined;
+        if (match && owner !== undefined) deletedOwnTasks.set(match[1], owner);
+      }
+      if (url.pathname !== collection) return;
       this.api = ObservedApi.from(response);
       if (response.request().method() !== 'POST' || !response.ok()) return;
       const input = response.request().postDataJSON() as Row | null;
@@ -134,7 +142,14 @@ export class OwnedRecords {
     page.on('response', this.listener);
   }
   owns(name: unknown) { return typeof name === 'string' && (name === this.prefix || name.startsWith(`${this.prefix} `)); }
-  remember(row: Row) { expect(this.owns(row.title ?? row.name), 'refuse to adopt a foreign record').toBe(true); this.ids.add(String(row.id)); }
+  remember(row: Row) {
+    expect(this.owns(row.title ?? row.name), 'refuse to adopt a foreign record').toBe(true);
+    this.ids.add(String(row.id));
+    if (this.kind === 'tasks') {
+      expect(Number.isSafeInteger(row.ownerId), 'owned task must have an exact actor').toBe(true);
+      this.taskOwners.set(String(row.id), Number(row.ownerId));
+    }
+  }
   async list(): Promise<Row[]> {
     expect(this.api, 'the real UI collection request must establish the API and auth').toBeDefined();
     if (this.kind === 'tasks') return this.api!.json<Row[]>('/tasks?status=all');
@@ -199,7 +214,7 @@ export class OwnedRecords {
     await Promise.all(this.pending);
     if (!this.api) { expect(this.ids.size, 'no API available for owned-record cleanup').toBe(0); return; }
     const collection = this.kind === 'tasks' ? '/tasks' : '/agent-sessions';
-    for (const row of await this.list()) if (this.owns(row.title ?? row.name)) this.ids.add(String(row.id));
+    for (const row of await this.list()) if (this.owns(row.title ?? row.name)) this.remember(row);
     for (const id of this.ids) {
       const detail = await this.api.fetch(`${collection}/${encodeURIComponent(id)}`);
       if (detail.status === 404) continue;
@@ -208,8 +223,13 @@ export class OwnedRecords {
       const row = ('session' in value ? value.session : value) as Row;
       expect(this.owns(row.title ?? row.name), 'refusing to delete a record without this test nonce').toBe(true);
       if (this.kind === 'sessions') deletedOwnSessions.add(id);
+      if (this.kind === 'tasks') {
+        expect(Number.isSafeInteger(row.ownerId), 'task cleanup owner must be exact').toBe(true);
+        expect(this.taskOwners.get(id), 'task owner changed before cleanup').toBe(Number(row.ownerId));
+      }
       const removed = await this.api.fetch(`${collection}/${encodeURIComponent(id)}${this.kind === 'sessions' ? '/hard' : ''}`, { method: 'DELETE' });
       expect(removed.status, 'owned-record deletion must succeed').toBe(204);
+      if (this.kind === 'tasks') deletedOwnTasks.set(id, Number(row.ownerId));
       expect((await this.api.fetch(`${collection}/${encodeURIComponent(id)}`)).status, 'deleted record still readable').toBe(404);
     }
     expect((await this.list()).filter(row => this.owns(row.title ?? row.name)), 'nonce-owned records leaked').toEqual([]);
@@ -281,6 +301,7 @@ export const test = packagedTest.extend<{ tasks: OwnedRecords; sessions: OwnedRe
     const offset = statSync(log).size;
     packaged.pageErrors.length = 0;
     deletedOwnSessions.clear();
+    deletedOwnTasks.clear();
     expiredOwnedApprovalIds.clear();
     absentPrivateArtifactIds.clear();
     stalePrivateProfileIds.clear();
@@ -299,8 +320,15 @@ export const test = packagedTest.extend<{ tasks: OwnedRecords; sessions: OwnedRe
         line.includes(`Handled FORBIDDEN PATCH /agent-approvals/${id} — This approval expired; ask for a new proposal`)));
       // FORCE_COLOR under Playwright adds SGR around numbers/null. Normalize
       // only those presentation bytes, retaining exact route, actor and text.
+      const taskNotFoundCounts = new Map<string, number>();
       const errors = unplanned.filter(raw => {
         const line = raw.replace(/\u001b\[[0-9;]*m/g, '');
+        const taskError = line.match(/^\[api_server\] \[ERROR\] Handled NOT_FOUND GET \/tasks\/([^/?]+) — Task not found \{ authUserId: (\d+) \}$/);
+        if (taskError && deletedOwnTasks.get(taskError[1]) === Number(taskError[2])) {
+          const count = (taskNotFoundCounts.get(taskError[1]) ?? 0) + 1;
+          taskNotFoundCounts.set(taskError[1], count);
+          if (count <= 2) return false;
+        }
         return ![...absentPrivateArtifactIds].some(([id, owner]) =>
           line === `[api_server] [ERROR] Handled NOT_FOUND GET /live-artifacts/${id} — Live artifact not found { authUserId: ${owner} }`)
           && ![...stalePrivateProfileIds].some(id =>

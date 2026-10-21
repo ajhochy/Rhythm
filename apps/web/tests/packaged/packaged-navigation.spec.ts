@@ -8,8 +8,8 @@ test('[P0] navigation: Tasks route shows real collection content after direct na
   const rows = await response.json() as Row[]; const api = ObservedApi.from(response);
   expect(Array.isArray(rows)).toBe(true);
   await expect(page.locator('#tasks-title')).toBeVisible();
-  await page.getByTestId('tasks-completion-filter').selectOption('all');
   if (rows.length) {
+    await page.getByTestId('tasks-completion-filter').selectOption('all');
     const row = rows[0];
     expect(row).toMatchObject({ id: expect.any(String), title: expect.any(String), status: expect.any(String) });
     await page.getByTestId('tasks-search').fill(String(row.title));
@@ -18,8 +18,12 @@ test('[P0] navigation: Tasks route shows real collection content after direct na
   } else await expect(page.getByTestId('page-state-empty')).toBeVisible();
   const reloaded = responseFor(page, 'GET', '/tasks');
   await page.reload();
-  await assertResponse(await reloaded, 'GET', '/tasks', 200);
+  const reloadResponse = await reloaded;
+  await assertResponse(reloadResponse, 'GET', '/tasks', 200);
+  const reloadedRows = await reloadResponse.json() as Row[];
+  expect(reloadedRows.map(row => row.id).sort()).toEqual(rows.map(row => row.id).sort());
   await expect(page.locator('#tasks-title')).toBeVisible();
+  if (rows.length === 0) await expect(page.getByTestId('page-state-empty')).toBeVisible();
 });
 
 test('[P0] navigation: narrow More menu reaches a real data page and Agents remains usable', async ({ page }) => {

@@ -89,6 +89,7 @@ import {
   deleteManagedSkill,
   managedSkillExists,
   readManagedSkillBytes,
+  readManagedSkillBody,
   slugForSkillName,
   InvalidSkillNameError,
 } from './rhythm_managed_skills';
@@ -1397,6 +1398,12 @@ const workflowPromptFixApplier: ProposalApplier = (proposal): ProposalApplyResul
 };
 
 // ── refine-skill (#976 approve half — change_json is already a BodyRefinementChange) ──
+// Compare the proposal preimage with the same semantic source that the
+// reviewer reads at submission: managed SKILL.md when present, DB otherwise.
+function refineSkillPreimageMatches(skill: AgentSkill, priorBody: string): boolean {
+  return (readManagedSkillBody(skill.title) ?? skill.body ?? '') === priorBody;
+}
+
 function validateRefineSkill(proposal: AgentOrgProposal): ProposalValidationResult {
   const change = parseChange(proposal.changeJson);
   if (typeof change?.priorBody !== 'string' || typeof change?.revisedBody !== 'string') {
@@ -1405,11 +1412,15 @@ function validateRefineSkill(proposal: AgentOrgProposal): ProposalValidationResu
       reason: 'refine-skill requires a BodyRefinementChange {priorBody, revisedBody} in change_json',
     };
   }
-  if (!resolveSkillForProposal(proposal)) {
+  const skill = resolveSkillForProposal(proposal);
+  if (!skill) {
     return {
       valid: false,
       reason: `refine-skill ${describeSkillResolutionFailure(proposal)}`,
     };
+  }
+  if (!refineSkillPreimageMatches(skill, change.priorBody)) {
+    return { valid: false, reason: 'refine-skill target content changed after proposal submission' };
   }
   return { valid: true };
 }
@@ -1420,8 +1431,14 @@ const refineSkillApplier: ProposalApplier = (proposal): ProposalApplyResult => {
   if (revisedBody == null) {
     throw AppError.badRequest('refine-skill change_json is missing its revisedBody at apply time');
   }
+  if (typeof change?.priorBody !== 'string') {
+    throw AppError.badRequest('refine-skill change_json is missing its priorBody at apply time');
+  }
   const skill = resolveSkillForProposal(proposal);
   if (!skill) throw AppError.badRequest(`refine-skill ${describeSkillResolutionFailure(proposal)}`);
+  if (!refineSkillPreimageMatches(skill, change.priorBody)) {
+    throw AppError.conflict('refine-skill target content changed after proposal submission');
+  }
   return applySkillBodyRevision(skill, revisedBody);
 };
 

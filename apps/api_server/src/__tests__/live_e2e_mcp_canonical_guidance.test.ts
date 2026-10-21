@@ -6,6 +6,7 @@
 import { createServer, type Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createOpencodeClient } from '@opencode-ai/sdk';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertLiveE2EIsolation } from './_live_e2e_guard';
@@ -42,6 +43,35 @@ async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
   const body = await response.text();
   expect(response.status, `${path}: ${body.slice(0, 800)}`).toBeLessThan(300);
   return JSON.parse(body) as T;
+}
+
+async function healthyBootId(): Promise<string | null> {
+  try {
+    const response = await fetch(`${ENGINE}/global/health`, { signal: AbortSignal.timeout(2_000) });
+    if (!response.ok) return null;
+    const body = await response.json() as { healthy?: boolean; bootId?: string };
+    return body.healthy === true && typeof body.bootId === 'string' && body.bootId.length > 0
+      ? body.bootId : null;
+  } catch {
+    return null;
+  }
+}
+
+async function waitForCredentialBounce(previousBootId: string): Promise<void> {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    const nextBootId = await healthyBootId();
+    if (nextBootId && nextBootId !== previousBootId) {
+      try {
+        const response = await api('/opencode/health');
+        if (response.ok && (await response.json() as { status?: string }).status === 'ready') return;
+      } catch {
+        // The API can be briefly unavailable during the credential bounce.
+      }
+    }
+    await delay(250);
+  }
+  throw new Error('synthetic credential bounce did not reach a new healthy engine boot within 60 seconds');
 }
 
 function sendAnthropic(response: import('node:http').ServerResponse, tool?: { name: string; input: unknown }): void {
@@ -114,6 +144,13 @@ describe.skipIf(!LIVE)('live MCP canonical execution guidance (scripted provider
     await new Promise<void>(done => provider!.listen(0, '127.0.0.1', done));
     const address = provider.address();
     if (!address || typeof address === 'string') throw new Error('fixture provider did not bind');
+    const beforeAuthBootId = await healthyBootId();
+    expect(beforeAuthBootId).toBeTruthy();
+    await json(`/opencode/auth/${providerId}`, { method: 'POST', body: JSON.stringify({ apiKey: 'synthetic-only' }) });
+    await waitForCredentialBounce(beforeAuthBootId!);
+
+    // PATCH is process-local; install it on the replacement engine, not the
+    // predecessor that the auth watcher just disposed.
     const patched = await fetch(`${ENGINE}/global/config`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider: { [providerId]: {
@@ -124,7 +161,10 @@ describe.skipIf(!LIVE)('live MCP canonical execution guidance (scripted provider
       signal: AbortSignal.timeout(10_000),
     });
     expect(patched.status).toBe(200);
-    await json(`/opencode/auth/${providerId}`, { method: 'POST', body: JSON.stringify({ apiKey: 'synthetic-only' }) });
+    const projected = await (await fetch(`${ENGINE}/global/config`, {
+      signal: AbortSignal.timeout(10_000),
+    })).json() as { provider?: Record<string, { models?: Record<string, unknown> }> };
+    expect(Boolean(projected.provider?.[providerId]?.models?.[modelId])).toBe(true);
     await json('/system/refresh', { method: 'POST' });
     const task = await json<{ id: string }>('/tasks', { method: 'POST', body: JSON.stringify({
       title: `[smoke] canonical tool ${nonce}`, notes: `Owned sandbox marker ${nonce}`, status: 'open',
@@ -143,7 +183,7 @@ describe.skipIf(!LIVE)('live MCP canonical execution guidance (scripted provider
     sessionId = session.id;
     sdkSessionId = session.sdkSessionId;
     expect(sdkSessionId).toBeTruthy();
-  }, 120_000);
+  }, 90_000);
 
   afterAll(async () => {
     const cleanupErrors: string[] = [];

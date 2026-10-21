@@ -7,8 +7,10 @@ export const DAYFLOW_BUNDLE_IDENTIFIER = 'teleportlabs.com.Dayflow';
 export const DAYFLOW_TEAM_ID = 'L75WYD8X4Y';
 export const DAYFLOW_VERSION = '2.6.0';
 export const DAYFLOW_BUILD = '133';
-const INSTALLED_DAYFLOW_VERSION = '2.7.2';
-const INSTALLED_DAYFLOW_BUILD = '136';
+const REVIEWED_INSTALLED_DAYFLOW_RELEASES = [
+  ['2.7.2', '136'],
+  ['2.7.3', '137'],
+];
 export const DAYFLOW_ARCHITECTURE = 'arm64';
 // This is intentionally an exact requirement, rather than a team-only check. It pins the
 // Developer ID intermediates and leaf-purpose OIDs used by the upstream Dayflow release.
@@ -142,8 +144,8 @@ export async function validateDayflowDesktopArtifact({
   }
   requiredValue(plist, 'CFBundleIdentifier', DAYFLOW_BUNDLE_IDENTIFIER);
   const reviewedInstalledRelease = allowInstalledRelease
-    && plist.CFBundleShortVersionString === INSTALLED_DAYFLOW_VERSION
-    && plist.CFBundleVersion === INSTALLED_DAYFLOW_BUILD;
+    && REVIEWED_INSTALLED_DAYFLOW_RELEASES.some(([version, build]) =>
+      plist.CFBundleShortVersionString === version && plist.CFBundleVersion === build);
   if (!reviewedInstalledRelease) {
     requiredValue(plist, 'CFBundleShortVersionString', DAYFLOW_VERSION);
     requiredValue(plist, 'CFBundleVersion', DAYFLOW_BUILD);

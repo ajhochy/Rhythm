@@ -19,7 +19,7 @@
         "#1556",
         "#1558"
       ],
-      "entry": "Agents → Advanced new session / rail / session menu",
+      "entry": "Agents \u2192 Advanced new session / rail / session menu",
       "expected": "Create/read/list/reload agree on name, profile, cwd and project; delete is permanent in API, SQLite and engine.",
       "edges": [
         "blank/cancel",
@@ -59,7 +59,7 @@
         "#1578",
         "#1582"
       ],
-      "entry": "Agents → owned session → composer/transcript",
+      "entry": "Agents \u2192 owned session \u2192 composer/transcript",
       "expected": "UI, API and engine show one user prompt and real assistant answer with provider/model provenance, same ordering after reload.",
       "edges": [
         "two-session isolation",
@@ -181,7 +181,7 @@
       "issues": [
         "#1576"
       ],
-      "entry": "Session Details → Served by / transcript",
+      "entry": "Session Details \u2192 Served by / transcript",
       "expected": "Visible provider/model matches the same actual assistant message and API/engine record.",
       "edges": [
         "alias",
@@ -232,7 +232,7 @@
         "#1589",
         "#1611"
       ],
-      "entry": "Chat model picker → Auto (router)",
+      "entry": "Chat model picker \u2192 Auto (router)",
       "expected": "Actual first turn uses selected eligible model/account/effort; ledger and engine agree; continuation reuses; fixed model bypasses.",
       "edges": [
         "trivial/routine prompts",
@@ -288,7 +288,7 @@
       "issues": [
         "#1612"
       ],
-      "entry": "Agent Settings → Grid Routing",
+      "entry": "Agent Settings \u2192 Grid Routing",
       "expected": "UI save/readback round-trips policy served by API; missing file shows defaults; malformed save rejected.",
       "edges": [
         "malformed policy",
@@ -326,7 +326,7 @@
       "issues": [
         "#1594"
       ],
-      "entry": "Agent Settings → Models / Model Routing; profile provider-model selector",
+      "entry": "Agent Settings \u2192 Models / Model Routing; profile provider-model selector",
       "expected": "Checked catalog IDs agree with enabled API set and routing candidates; empty/disconnected catalogs recover visibly.",
       "edges": [
         "search/sort",
@@ -374,7 +374,7 @@
       "issues": [
         "#1568"
       ],
-      "entry": "Agent Settings → Accounts; profile/session model selector",
+      "entry": "Agent Settings \u2192 Accounts; profile/session model selector",
       "expected": "Selected account applies per request; automatic eligible fallback works; explicit account pin is preserved; usage percentage means used.",
       "edges": [
         "two accounts",
@@ -420,7 +420,7 @@
       "issues": [
         "#1546"
       ],
-      "entry": "Agent Settings → Accounts → provider reauthorize",
+      "entry": "Agent Settings \u2192 Accounts \u2192 provider reauthorize",
       "expected": "Same account ID returns connected and remains default; sibling provider/account remains intact.",
       "edges": [
         "pending auth",
@@ -465,7 +465,7 @@
         "776ed655bf"
       ],
       "issues": [],
-      "entry": "Provider-backed chat and Agent Settings → Accounts",
+      "entry": "Provider-backed chat and Agent Settings \u2192 Accounts",
       "expected": "Current provider request succeeds; auth file appearing after launch updates account state; qualification writes only isolated data/config.",
       "edges": [
         "delayed file appearance",
@@ -503,7 +503,7 @@
       "issues": [
         "#1583"
       ],
-      "entry": "Composer file picker → transcript attachment thumbnail",
+      "entry": "Composer file picker \u2192 transcript attachment thumbnail",
       "expected": "Picked file reaches engine once; artifact route returns same owned bytes and transcript renders correct image/file fallback.",
       "edges": [
         "oversize",
@@ -584,7 +584,7 @@
         "c6cc2b129e"
       ],
       "issues": [],
-      "entry": "Agents → Tools → Brain",
+      "entry": "Agents \u2192 Tools \u2192 Brain",
       "expected": "Selecting a row shows its full matching content and source/date; deleted/missing rows produce honest empty/error state.",
       "edges": [
         "long content",
@@ -629,7 +629,7 @@
         "#1012",
         "#765"
       ],
-      "entry": "Profiles → MCP allowlist and real chat tool invocation",
+      "entry": "Profiles \u2192 MCP allowlist and real chat tool invocation",
       "expected": "Only profile-granted tools are callable; granted deferred tools remain reachable; ungranted tools remain unavailable; packaged Rhythm MCP lists actual tools.",
       "edges": [
         "empty allowlist",
@@ -686,7 +686,7 @@
         "#1544",
         "#1523"
       ],
-      "entry": "Agents → Profiles",
+      "entry": "Agents \u2192 Profiles",
       "expected": "Changed-field PATCH persists and reloads; failed save retains draft; inherited/explicit choices and skill tags remain stable.",
       "edges": [
         "dirty profile switch",
@@ -739,7 +739,7 @@
       "issues": [
         "#1597"
       ],
-      "entry": "Agents → Agent Settings → MCPs",
+      "entry": "Agents \u2192 Agent Settings \u2192 MCPs",
       "expected": "Packaged server starts over stdio, returns live tool catalog and inspector displays actual status/count.",
       "edges": [
         "missing bundle",
@@ -853,7 +853,7 @@
         "#1554",
         "#1582"
       ],
-      "entry": "Agents transcript → reasoning block / message usage footer",
+      "entry": "Agents transcript \u2192 reasoning block / message usage footer",
       "expected": "Whitespace reasoning has no row; streamed reasoning shows meaningful headline and SafeMarkdown body; in-flight all-zero usage is hidden; priced cost is rounded and plan-priced cost omitted.",
       "edges": [
         "late streamed text",
@@ -899,7 +899,7 @@
         "#1566",
         "#1565"
       ],
-      "entry": "Agents session inspector → Context Usage / Usage Budget",
+      "entry": "Agents session inspector \u2192 Context Usage / Usage Budget",
       "expected": "GET /agents/usage-budget results render correct window/credits/unavailable semantics by account; manual refresh works; context usage uses actual counts and readable abbreviation.",
       "edges": [
         "multiple accounts same provider",
@@ -947,7 +947,7 @@
         "#1572",
         "#1559"
       ],
-      "entry": "Agent Settings → Providers / Models; session model picker",
+      "entry": "Agent Settings \u2192 Providers / Models; session model picker",
       "expected": "Live connected/provider readiness states, inline login handoff, searchable live model catalog, persisted visibility and picker refresh without restart/profile switch.",
       "edges": [
         "provider disconnected",
@@ -990,7 +990,7 @@
       "source": "apps/web/tests/open-design-tools.sourcespec.ts:9-62; run inventory under docs/ai/plans/2026-10-19-feature-test-inventory.md (source-spec coverage only)",
       "commits": [],
       "issues": [],
-      "entry": "Agents → Tools → OpenDesign",
+      "entry": "Agents \u2192 Tools \u2192 OpenDesign",
       "expected": "Open action attaches workspace in host region; pin preference persists by scope; unavailable/malformed bridge yields fixed actionable error and Retry, never blank success.",
       "edges": [
         "bridge missing",
@@ -1063,7 +1063,7 @@
         "2a4d8a1223"
       ],
       "issues": [],
-      "entry": "Agents → Tools → Deep Research → project/run configuration",
+      "entry": "Agents \u2192 Tools \u2192 Deep Research \u2192 project/run configuration",
       "expected": "Configured lead/researcher models appear in run stages; bounded parallel work stays within budget; exhausted runs synthesize available evidence and disclose degraded completion.",
       "edges": [
         "invalid model catalog choice",
@@ -1100,7 +1100,7 @@
         "760f8deb39"
       ],
       "issues": [],
-      "entry": "Deep Research → Magazine / Gallery artifact viewer / Ask about this",
+      "entry": "Deep Research \u2192 Magazine / Gallery artifact viewer / Ask about this",
       "expected": "Same run+bytes is no-op; changed output versions; Ask opens exact discussion with quoted section/source link; export saves HTML/Markdown; per-run sources dedupe.",
       "edges": [
         "new version diff",
@@ -1139,7 +1139,7 @@
         "c1c0b3b328"
       ],
       "issues": [],
-      "entry": "Agents → Tools → Gallery → folders/artifact viewer",
+      "entry": "Agents \u2192 Tools \u2192 Gallery \u2192 folders/artifact viewer",
       "expected": "Owned poster/image/video loads with correct authenticated origin and selected artifact; folders support create/rename/delete/drag; failure on one item does not poison others.",
       "edges": [
         "no-cors local guard",
@@ -1153,7 +1153,7 @@
         "apps/web/tests/post-m1-phase-7-research-gallery.redspec.ts",
         "apps/web/tests/pages/agent-tools-list-inspector.spec.ts"
       ],
-      "coverage": "CONFIRMED SCOPED on exact signed private build 28bcc2aa44: owned 1×1 image preview decoded from the authenticated asset route; missing media stayed inspectable/unavailable; folder move/rename persisted through API/SQLite, and catalog 503 recovered after reload.",
+      "coverage": "CONFIRMED SCOPED on exact signed private build 28bcc2aa44: owned 1\u00d71 image preview decoded from the authenticated asset route; missing media stayed inspectable/unavailable; folder move/rename persisted through API/SQLite, and catalog 503 recovered after reload.",
       "gapReason": "Available image preview, missing-media inspector, folder mutation and one catalog recovery passed; actual playback and generated output remain unqualified.",
       "requires": [
         "Nonce-owned generated image/video artifact and reversible folder fixture in packaged app."
@@ -1186,7 +1186,7 @@
         "#1562",
         "#1564"
       ],
-      "entry": "Agents → Agent Settings → Runtime / MCPs / Profiles",
+      "entry": "Agents \u2192 Agent Settings \u2192 Runtime / MCPs / Profiles",
       "expected": "Status reflects owned runtime; restart only affects owned spawned runtime; MCP action errors/retries stay local and visible; navigation survives section load failures.",
       "edges": [
         "adopted runtime cannot be killed",
@@ -1316,7 +1316,7 @@
     {
       "id": "HERMES-01",
       "feature": "Pinned Hermes Desktop native child, attachment, resize, teardown",
-      "claim": "Issue acceptance excerpt (verbatim): “With the flag enabled and B2 ready, the Hermes sidebar route renders the real supervised dashboard inside the pinned Electron app; starting/failed states are legible, and navigation back to Rhythm works.”",
+      "claim": "Issue acceptance excerpt (verbatim): \u201cWith the flag enabled and B2 ready, the Hermes sidebar route renders the real supervised dashboard inside the pinned Electron app; starting/failed states are legible, and navigation back to Rhythm works.\u201d",
       "source": "apps/electron/test/hermes-desktop-native.test.mjs:1-4, 56-75; apps/electron/src/hermes-view.mjs:26-45, 59-73, 184; docs/ai/decisions/2026-09-19-hermes-desktop-host-plan.md:12-16; https://github.com/ajhochy/Rhythm/issues/1542",
       "commits": [
         "31906d37d2",
@@ -1369,7 +1369,7 @@
     {
       "id": "HERMES-02",
       "feature": "Hermes intents navigate to Rhythm session or create chat",
-      "claim": "Issue acceptance excerpt (verbatim): “Valid typed intents navigate to the requested session or open an editable draft with bounded, labelled Rhythm context; neither sends a message nor creates a legacy Rhythm agent session.”",
+      "claim": "Issue acceptance excerpt (verbatim): \u201cValid typed intents navigate to the requested session or open an editable draft with bounded, labelled Rhythm context; neither sends a message nor creates a legacy Rhythm agent session.\u201d",
       "source": "docs/ai/decisions/2026-09-18-hermes-inside-rhythm-coexists-with-rhythm-inside-hermes.md:13-25; apps/electron/src/hermes-protocol.mjs; https://github.com/ajhochy/Rhythm/issues/1542",
       "commits": [
         "31906d37d2",
@@ -1412,7 +1412,7 @@
     {
       "id": "HERMES-03",
       "feature": "Owner-authenticated Hermes approvals and durable workflow notifications",
-      "claim": "Issue acceptance excerpt (verbatim): “Enable task completion/rescheduling only after M4.6 authorization, conflict, idempotency/reconciliation and read-back gates. Expose exactly the three approved Hermes-native tools using Hermes approval policy, never legacy Rhythm approval IDs.”",
+      "claim": "Issue acceptance excerpt (verbatim): \u201cEnable task completion/rescheduling only after M4.6 authorization, conflict, idempotency/reconciliation and read-back gates. Expose exactly the three approved Hermes-native tools using Hermes approval policy, never legacy Rhythm approval IDs.\u201d",
       "source": "apps/electron/src/hermes-agent-bridge.mjs; apps/api_server/src/routes/hermes_notify_routes.ts; https://github.com/ajhochy/Rhythm/issues/1540; https://github.com/ajhochy/Rhythm/issues/1542",
       "commits": [
         "31906d37d2",
@@ -1463,7 +1463,7 @@
     {
       "id": "HERMES-04",
       "feature": "Hermes credential, account, and memory privacy",
-      "claim": "Issue acceptance excerpt (verbatim): “No credential value is logged, sent to production, or included in diagnostics.”",
+      "claim": "Issue acceptance excerpt (verbatim): \u201cNo credential value is logged, sent to production, or included in diagnostics.\u201d",
       "source": "docs/ai/decisions/2026-09-24-shared-agents-scope.md:14-37; apps/electron/src/hermes-credential-broker.mjs; apps/electron/test/hermes-accounts-memory.test.mjs; https://github.com/ajhochy/Rhythm/issues/1569",
       "commits": [
         "4df870e240",
@@ -1514,7 +1514,7 @@
     {
       "id": "HERMES-05",
       "feature": "Signed Desktop install and in-place update",
-      "claim": "Issue acceptance excerpt (verbatim): “A detached Ed25519 signature over the canonical `manifest.json` bytes is verified against a public key compiled into Rhythm, **before** any artifact path is read. Verification failure is indistinguishable in effect from a missing artifact.”",
+      "claim": "Issue acceptance excerpt (verbatim): \u201cA detached Ed25519 signature over the canonical `manifest.json` bytes is verified against a public key compiled into Rhythm, **before** any artifact path is read. Verification failure is indistinguishable in effect from a missing artifact.\u201d",
       "source": "apps/electron/src/hermes-desktop-updates.mjs; apps/electron/test/hermes-desktop-updates.test.mjs; commit subjects 6db991a961 and 7c8115a7f1; https://github.com/ajhochy/Rhythm/issues/1570",
       "commits": [
         "6db991a961",
@@ -1561,7 +1561,7 @@
     {
       "id": "COLONY-01",
       "feature": "Pinned Bot Crossing native scene and exact document authority",
-      "claim": "Issue acceptance excerpt (verbatim): “Deliver an opt-in Colony workspace for all Rhythm desktop users, packaged for Apple Silicon and Intel. Preserve the 3D colony and local multi-harness model while redesigning UI and menu items to match Rhythm Electron. **This is a filed implementation plan, not implemented or release-qualified work.**”",
+      "claim": "Issue acceptance excerpt (verbatim): \u201cDeliver an opt-in Colony workspace for all Rhythm desktop users, packaged for Apple Silicon and Intel. Preserve the 3D colony and local multi-harness model while redesigning UI and menu items to match Rhythm Electron. **This is a filed implementation plan, not implemented or release-qualified work.**\u201d",
       "source": "docs/ai/decisions/2026-09-18-colony-integration-proposal.md:7-13; apps/electron/src/colony-view.mjs:8-37,71-90; https://github.com/ajhochy/Rhythm/issues/1525",
       "commits": [
         "83a34785f0",
@@ -1671,7 +1671,7 @@
     {
       "id": "COLONY-02",
       "feature": "Multi-harness discovery, inventory, and read-only source behavior",
-      "claim": "Issue acceptance excerpt (verbatim): “With Colony disabled, normal app startup performs zero harness reads and creates zero Colony children. Ten concurrent enable/open events create one scanner; repeated tab use does not create another.”",
+      "claim": "Issue acceptance excerpt (verbatim): \u201cWith Colony disabled, normal app startup performs zero harness reads and creates zero Colony children. Ten concurrent enable/open events create one scanner; repeated tab use does not create another.\u201d",
       "source": "apps/electron/test/colony-host-inventory-contract.test.mjs; apps/electron/src/colony-sources.mjs; docs/ai/runs/2026-09-21-colony-issue-filing.md (release family #1533-1537); https://github.com/ajhochy/Rhythm/issues/1528",
       "commits": [
         "83a34785f0",
@@ -1752,7 +1752,7 @@
     {
       "id": "COLONY-03",
       "feature": "Open task/session in owning harness",
-      "claim": "Issue acceptance excerpt (verbatim): “From actual Colony controls, a Rhythm task outside the first page and a supported worker/parent open the requested visible identity while preserving authentication and the existing app/API/engine processes.”",
+      "claim": "Issue acceptance excerpt (verbatim): \u201cFrom actual Colony controls, a Rhythm task outside the first page and a supported worker/parent open the requested visible identity while preserving authentication and the existing app/API/engine processes.\u201d",
       "source": "apps/electron/src/colony-actions.mjs; apps/electron/src/colony-host.mjs; commit subjects 97c0f21613, 2cd0aa7bda, 6fdcf7e2a1, 3e5fa1448d; https://github.com/ajhochy/Rhythm/issues/1531",
       "commits": [
         "97c0f21613",
@@ -1808,7 +1808,7 @@
     {
       "id": "COLONY-04",
       "feature": "Colony inspector actions, archive/restore/viewed, import and account switch",
-      "claim": "Issue acceptance excerpt (verbatim): “Importing a synthetic state with at least 7,000 archived entries shows a count preview, merges once after user action, preserves unrelated current state and leaves the source byte-for-byte unchanged. Repeating import is idempotent.”",
+      "claim": "Issue acceptance excerpt (verbatim): \u201cImporting a synthetic state with at least 7,000 archived entries shows a count preview, merges once after user action, preserves unrelated current state and leaves the source byte-for-byte unchanged. Repeating import is idempotent.\u201d",
       "source": "apps/electron/src/colony-actions.mjs; apps/electron/src/colony-preferences.mjs; commits 93e75a4c53 and e5825b35a7; https://github.com/ajhochy/Rhythm/issues/1532",
       "commits": [
         "93e75a4c53",
@@ -1858,7 +1858,7 @@
     {
       "id": "COLONY-05",
       "feature": "Colony rail, search/filter, status, scene selection and inspector consistency",
-      "claim": "Issue acceptance excerpt (verbatim): “Preserve the 3D colony and local multi-harness model while redesigning UI and menu items to match Rhythm Electron.”",
+      "claim": "Issue acceptance excerpt (verbatim): \u201cPreserve the 3D colony and local multi-harness model while redesigning UI and menu items to match Rhythm Electron.\u201d",
       "source": "apps/web/src/pages/colony/index.tsx:15-45; apps/web/src/pages/colony/model.ts; commits edc78ef45c, 8fe332b5d4; https://github.com/ajhochy/Rhythm/issues/1525",
       "commits": [
         "edc78ef45c",
@@ -1968,7 +1968,7 @@
     {
       "id": "DAYFLOW-02",
       "feature": "Native Dayflow viewport and unavailable states",
-      "claim": "Issue acceptance excerpt (verbatim): “With a 445-point host viewport and a hosted native view whose intrinsic/fitting height is 558 points, the lifecycle retains a 445-point visible viewport and a separate scrollable document at least as tall as its measured minimum.”",
+      "claim": "Issue acceptance excerpt (verbatim): \u201cWith a 445-point host viewport and a hosted native view whose intrinsic/fitting height is 558 points, the lifecycle retains a 445-point visible viewport and a separate scrollable document at least as tall as its measured minimum.\u201d",
       "source": "apps/web/tests/dayflow-view.spec.ts; apps/electron/src/native-dayflow-production-host.mjs; commits 54888e924c, 49c2e5a01f, 5c36667493; https://github.com/ajhochy/Rhythm/issues/1605",
       "commits": [
         "54888e924c",
@@ -2300,7 +2300,7 @@
         "#1575",
         "#1556"
       ],
-      "entry": "UI/API: profile delegation from interactive agent session → rhythm_delegate_async MCP → agent_delegation_controller → child session creation/worktree metadata.",
+      "entry": "UI/API: profile delegation from interactive agent session \u2192 rhythm_delegate_async MCP \u2192 agent_delegation_controller \u2192 child session creation/worktree metadata.",
       "expected": "Child path.cwd, transcript stream, prompt execution and persisted worktree metadata all agree with the newly created worktree; permission bypass is allowed only with isolated worktree.",
       "edges": [
         "isolate false preserves old behavior",
@@ -2404,7 +2404,7 @@
         "apps/web/tests/post-m1-phase-5-catalogs-commands.redspec.ts:29-52",
         "apps/web/tests/packaged/packaged-ai-recon.spec.ts:4 (read-only packaged catalog observation; current untracked recon file)"
       ],
-      "coverage": "REDO for current behavior: the phase-5 skill test uses openInterceptedLiveApp synthetic catalog/PATCH responses; it proves UI contract only. Current untracked packaged-ai-recon observes real GET /opencode/skills but does not mutate profile allowlist or prove the engine's advertised skills changed. No real allowlist→engine-filter packaged flow. Current signed 5dff native 60-case selection passed managed skill create/edit/full-page reload/delete. Fresh-document response binding remained in the test; UI, API-managed file/content and both primed engine catalogs agreed on the edited skill.",
+      "coverage": "REDO for current behavior: the phase-5 skill test uses openInterceptedLiveApp synthetic catalog/PATCH responses; it proves UI contract only. Current untracked packaged-ai-recon observes real GET /opencode/skills but does not mutate profile allowlist or prove the engine's advertised skills changed. No real allowlist\u2192engine-filter packaged flow. Current signed 5dff native 60-case selection passed managed skill create/edit/full-page reload/delete. Fresh-document response binding remained in the test; UI, API-managed file/content and both primed engine catalogs agreed on the edited skill.",
       "gapReason": "No direct apps/web Playwright test identified for skill search, allowlist mutation, rewritten tag preservation, and post-reload engine filtering as one flow.",
       "requires": [
         "real profile/skill fixture",
@@ -2633,7 +2633,7 @@
         "#1583",
         "#1587"
       ],
-      "entry": "Mobile app conversation composer/transcript → relay gateway/uplink → local API/engine, attachment artifact endpoint, reconnect/outbox reconciliation.",
+      "entry": "Mobile app conversation composer/transcript \u2192 relay gateway/uplink \u2192 local API/engine, attachment artifact endpoint, reconnect/outbox reconciliation.",
       "expected": "Accepted prompt is not lost across offline transition; retransmit is idempotent; transcript switches to live authoritative source; attachment metadata relays while bytes stay on artifact path; heartbeat timeout produces visible failure/retry.",
       "edges": [
         "request accepted then disconnect",
@@ -2681,7 +2681,7 @@
       "issues": [
         "#1579"
       ],
-      "entry": "API event stream/notification endpoint → web store → Electron native IPC → OS notification and click-to-session behavior; mobile notification is a separate client path.",
+      "entry": "API event stream/notification endpoint \u2192 web store \u2192 Electron native IPC \u2192 OS notification and click-to-session behavior; mobile notification is a separate client path.",
       "expected": "Only validated owned event triggers the correct single notification; click opens right session; no duplicate renderer banner; waiting state reflects actual observed busy/request state; revocation clears notice.",
       "edges": [
         "malformed event",
@@ -3071,13 +3071,17 @@
       "requires": [
         "disposable owner proposal and live local/cloud boundaries",
         "explicit confirmation path",
-        "assert durable status after refresh"
+        "assert durable status after refresh",
+        "current supported Org Reviewer signed scan, not retired optimizer generators",
+        "existing owned skill with baseline failure and actual post-apply skill-use provenance",
+        "real human queue decision and durable target/file/engine agreement",
+        "separate deployment and measured-outcome proof; no fabricated statuses"
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Current test calls the gateway with mocked fetch and static state; product controls can look correct while remote/local state is rejected or deployment remains pending.",
+      "remaining": "User-requested full reviewer/skill journey O1\u2013O10 is designed in docs/ai/plans/2026-10-21-org-reviewer-end-to-end-playwright.md and unverified: actual scan/suggestion, understandable evidence, human apply, real changed-skill use, honest measurement, rejection/revision/stale edits/revert/owner recovery. Current reviewer refines existing targets only; new-skill and executable-test generation are not implemented by that seam. Existing mocked gateways do not qualify these outcomes.",
       "newTests": [],
-      "priority": "P2",
+      "priority": "P0",
       "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Review decisions map to exact selected proposal/run; write/enable mutation requires explicit confirmation; malformed or unsupported verdicts fail closed; deployment status is visible and not inferred from accepted request."
     },
     {
@@ -3419,7 +3423,7 @@
         "PR #1607"
       ],
       "entry": "Fork snapshot/status engine and API indicators.",
-      "expected": "Large repositories and active sessions remain responsive; “working/online” indicators follow observed progress/liveness.",
+      "expected": "Large repositories and active sessions remain responsive; \u201cworking/online\u201d indicators follow observed progress/liveness.",
       "edges": [
         "large untracked tree",
         "git gc contention",
@@ -3443,7 +3447,7 @@
       "remaining": "Fixture-based performance tests do not establish behavior of the current packaged fork or API runtime.",
       "newTests": [],
       "priority": "P1",
-      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Large repositories and active sessions remain responsive; “working/online” indicators follow observed progress/liveness."
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Large repositories and active sessions remain responsive; \u201cworking/online\u201d indicators follow observed progress/liveness."
     },
     {
       "id": "mobile-audio-outbox-and-transcript-transport",
@@ -3786,7 +3790,7 @@
         "#1573",
         "#1574"
       ],
-      "entry": "Flutter Settings → Semantic Memory; local API /engraph-manager/status, discover, choose-binary, enable, disable, check-health, retry, rebuild; explicit reference retrieval through GET /agent-memory/search?view=references. The Electron/web prototype has no Engraph settings UI.",
+      "entry": "Flutter Settings \u2192 Semantic Memory; local API /engraph-manager/status, discover, choose-binary, enable, disable, check-health, retry, rebuild; explicit reference retrieval through GET /agent-memory/search?view=references. The Electron/web prototype has no Engraph settings UI.",
       "expected": "Selecting a real installed CLI, enabling, and polling reaches Ready only after an authenticated local search. A synthetic canonical note is indexed and returned as an owner-safe reference; disable stops only the verified owned backend and reference search degrades honestly while FTS remains available.",
       "edges": [
         "missing or invalid binary and actionable UI state",
@@ -3824,8 +3828,8 @@
     }
   ],
   "qualification": {
-    "latestLocallySignedProductRevision": "b7d5db0af960196a3ca3ed0291877f7e7d2e0771",
-    "scope": "Latest signed b7d5 separate scopes: broad54/6; router/main/MCP19/19; checked Hermes1/1; natural Once1/1; focused reload10/10. Coordinator core finished but audit failed on background unavailable-model route. Auto-name diagnostic passed after earlier unexplained placeholder failure. Post-b7d5 MCP/model-eligibility candidates await fresh local build and native/live proof. All78 active markers remain incomplete.",
+    "latestLocallySignedProductRevision": "825c53bc9f1b4d3081de8a6a5a5c38de129a93d9",
+    "scope": "Exact signed825c expanded native selection80 passed/6 failed,0 skip/flaky; previousb7d5 six broad failures now pass. Remaining Tasks retry product bug, Dayflow readiness and four narrowly diagnosed test-authoring failures. Fresh825c C1 stopped incorrectly on an intermediate MCP describe step; terminal observer repair pending. Background positive native and canonical live confirmations running. Historical b7d5 paid scopes remain separate; all78 active markers incomplete.",
     "passed": 60,
     "failedExplicitCoverageGap": 0,
     "latestRunFailed": 0,
@@ -3874,7 +3878,7 @@
       "scope": "Selected regression excludes explicit UNVERIFIED markers; not full inventory qualification",
       "log": "/private/tmp/rhythm-private-4fda-broad-native-confirm-20261020.log"
     },
-    "latestProductRevision": "b7d5db0af960196a3ca3ed0291877f7e7d2e0771",
+    "latestProductRevision": "825c53bc9f1b4d3081de8a6a5a5c38de129a93d9",
     "currentRouterMcpAttempt": {
       "productRevision": "5dfffb5d9978795935becfe4723c8196bb2f883d",
       "cases": 18,
@@ -4033,6 +4037,16 @@
       "files": 32,
       "status": "discovered, not executed",
       "scope": "broad60 + catalogs18 + navigation3 + tasks5; explicit gap markers excluded and remain open"
+    },
+    "current825cBroadRegression": {
+      "revision": "825c53bc9f1b4d3081de8a6a5a5c38de129a93d9",
+      "passed": 80,
+      "failed": 6,
+      "skipped": 0,
+      "flaky": 0,
+      "durationMs": 345157.674,
+      "cliExit": 1,
+      "report": "/private/tmp/rhythm-updated-final-qualification-20261021/run-LnNDlX/report.json"
     }
   }
 }

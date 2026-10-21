@@ -2,7 +2,35 @@
 
 This ledger reads the named run record, the source inventory, and report metadata only. It does not reproduce prompts, credentials, attachment bodies, or error dumps. A run-note association supplies the build ID where a Playwright JSON report does not embed one. Missing a newer report is recorded as pending, not as “never run.”
 
-## Current evidence at a glance
+
+## Newest exact825c checkpoint
+
+The sections below retain older b7d5 evidence. Their “still failed” or “pending” labels describe that checkpoint and are superseded only by the named newer scope here.
+
+| Scope | Result | Boundary |
+|---|---|---|
+| Exact825c expanded packaged selection | 80 passed/6 failed, zero skipped/flaky, CLI1 | `/private/tmp/rhythm-updated-final-qualification-20261021/run-LnNDlX/report.json`; all six previousb7d5 failures now pass. Includes catalogs18. |
+| Exact825c Coordinator checked | Failed early after a completed MCP describe tool step | Test confused completed tool step with terminal turn; corrected observer requires final stop plus stable engine idle. Fresh native confirmation pending. |
+| Exact825c private background extraction | 1/1 passed, run0/scrub0, source hashes unchanged | Two UI/SDKLuna turns triggered one source-attributed system extractor; completedLuna/no tools; third turn produced no duplicate. `/private/tmp/rhythm-skill-extract-recon-20261021/output-0T2ZJA/observation.json`. Checked Codify/Confirm pending. |
+| Exact825c canonical MCP private live Recon | 1/1 passed, 4.75s, sandboxdown0 | Real API/engine/stdio tool execution with scripted loopback provider; not natural/paid provider proof. `/private/tmp/rhythm-mcp-canonical-boot-barrier-20261021/live-recon.log`. |
+| Exact825c Dayflow private readiness diagnostic | Failed1/1 | Native view attached/ready; standalone status ARTIFACT_INVALID in all three phases. Installed upstream2.7.3/137 passes exactsignature/Gatekeeper but current reviewedinstalledallowlist stops at2.7.2/136. Narrow repair underway. |
+| Final-source paid router/conversation/Hermes/naming/Once/C1 | Pending next build | Historical b7d5 successes remain separate; no new pass inferred. |
+| Full serial API gate | Running after canonical setup patch | Prior2b8 aggregate remains historical. |
+
+Latest86 failures and dispositions:
+
+| Case | Finding | Current disposition |
+|---|---|---|
+| Original signed Dayflow application ready | Installed version newer than reviewedallowlist; signature remainsvalid | Narrow allowlist extension underway; packaging pin/signaturefailclosed behavior preserved |
+| Tasks direct navigation | Legitimately empty account has no completion filter | Test now checks real empty UI before selecting optional controls; native rerun pending |
+| Task create/edit/complete/reload/delete | Intentional exactowned deletionGET404 failedglobalerroraudit | Narrow confirmedDELETE204+exactID/actor audit recognition; deletion404 assertion retained |
+| Rapid task creation | Same intentionalcleanup404 audit | Same narrow correction; native rerun pending |
+| Failed task save then retry | RetryPOST201 saved task but server-error surface hid it | Product now resetsready state on successfulcreate; fresh build/native confirmation pending |
+| Cancel task deletion/long title/reload | Same intentionalcleanup404 audit | Same narrow correction; native rerun pending |
+
+All78 active inventory markers remain incomplete. These results do not establish overall qualification or paid Claude account behavior.
+
+## Historical b7d5 evidence at a glance
 
 | Scope | Result | Build | Evidence / boundary |
 |---|---|---|---|

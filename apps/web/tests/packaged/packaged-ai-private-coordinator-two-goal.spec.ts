@@ -5,7 +5,7 @@ import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFil
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test as rawTest } from '@playwright/test';
-import { test, expect, API, ObservedApi, expectedRevision, localRows, responseFor, assertResponse } from './feature-test';
+import { test, expect, API, ENGINE, ObservedApi, expectedRevision, localRows, responseFor, assertResponse } from './feature-test';
 import { existingPrimary, openRuns } from './primary-read';
 import { readQualificationFixture } from '../../../../tools/testing/qualification_fixture.mjs';
 
@@ -274,11 +274,12 @@ test(title, async ({ page, sessions, packaged }, testInfo) => {
     const waitFor = async (predicate: (found: Run[]) => boolean, label: string,
       stopOnCompletedNoGoal = false) => {
       const started = Date.now();
+      let terminalNoGoal: { messageId: string; firstSeen: number; samples: number } | null = null;
       while (Date.now() < hardStop) {
         const found = await runs();
         if (predicate(found)) return found;
         if (stopOnCompletedNoGoal && Date.now() - started >= 12_000) {
-          const parent = localRows('SELECT coordinator_conversation_json,sdk_session_id FROM agent_sessions WHERE id=?', root!.id)[0];
+          const parent = localRows('SELECT coordinator_conversation_json,sdk_session_id,cwd FROM agent_sessions WHERE id=?', root!.id)[0];
           const conversation = JSON.parse(String(parent?.coordinator_conversation_json ?? '{}')) as {
             goals?: Array<{ objective?: string; state?: string }> };
           const ownedGoals = (conversation.goals ?? []).filter(goal => goal.objective?.includes(nonce));
@@ -286,13 +287,36 @@ test(title, async ({ page, sessions, packaged }, testInfo) => {
           const outputs = localRows('SELECT info_json,parts_json FROM agent_session_messages WHERE session_id=? AND role=?',
             root!.id, 'output');
           const completed = outputs.map(row => {
-            const info = JSON.parse(String(row.info_json ?? '{}')) as { id?: string; time?: { completed?: number } };
+            const info = JSON.parse(String(row.info_json ?? '{}')) as { id?: string; finish?: string;
+              time?: { completed?: number } };
             const parts = JSON.parse(String(row.parts_json ?? '[]')) as Array<{ type?: string; text?: string;
               tool?: string; state?: { status?: string; input?: Record<string, unknown>; error?: unknown } }>;
             return { info, parts };
           }).filter(row => (row.info.time?.completed ?? 0) >= started)
             .sort((a, b) => (a.info.time?.completed ?? 0) - (b.info.time?.completed ?? 0)).at(-1);
-          if (completed && delegations.length === 0
+          const sdkId = String(parent?.sdk_session_id ?? '');
+          const cwd = String(parent?.cwd ?? '');
+          const finalMessage = completed?.info.finish === 'stop'
+            && completed.parts.every(part => part.type !== 'tool'
+              || ['completed', 'error'].includes(part.state?.status ?? ''));
+          if (finalMessage && completed?.info.id && sdkId.startsWith('ses_') && cwd) {
+            const statusResponse = await fetch(`${ENGINE}/session/status?directory=${encodeURIComponent(cwd)}`,
+              { signal: AbortSignal.timeout(10_000) });
+            expect(statusResponse.status, 'real engine status must be readable before early stop').toBe(200);
+            const statuses = await statusResponse.json() as Record<string, { type?: string }>;
+            // OpenCode omits idle sessions from this map. A finished tool-call
+            // step may have time.completed but is not a terminal turn.
+            const idle = (statuses[sdkId]?.type ?? 'idle') === 'idle';
+            const previous = terminalNoGoal as { messageId: string; firstSeen: number; samples: number } | null;
+            if (idle) terminalNoGoal = previous?.messageId === completed.info.id
+              ? { ...previous, samples: previous.samples + 1 }
+              : { messageId: completed.info.id, firstSeen: Date.now(), samples: 1 };
+            else terminalNoGoal = null;
+          } else terminalNoGoal = null;
+          const stableTerminal = terminalNoGoal as { messageId: string; firstSeen: number; samples: number } | null;
+          if (completed && stableTerminal && stableTerminal.messageId === completed.info.id
+            && stableTerminal.samples >= 2 && Date.now() - stableTerminal.firstSeen >= 2_000
+            && delegations.length === 0
             && (ownedGoals.length === 0 || ownedGoals.every(goal => goal.state === 'captured'))
             && !found.some(run => run.objective.includes(nonce))) {
             const textParts = completed.parts.filter(part => part.type === 'text').map(part => part.text ?? '').join('');
@@ -313,6 +337,7 @@ test(title, async ({ page, sessions, packaged }, testInfo) => {
               : 'completed-secretary-with-captured-goal-but-no-delegation';
             receipt.rootSdk = { sdkSessionPresent: Boolean(parent?.sdk_session_id),
               assistantMessageId: completed.info.id ?? null, assistantCompleted: true,
+              assistantFinish: completed.info.finish, stableIdleSamples: stableTerminal.samples,
               partTypes: completed.parts.map(part => part.type ?? 'unknown'),
               refusalCategory: /not permitted|allowlist|unavailable/i.test(textParts)
                 ? 'coordinator-tool-unavailable' : /no startable goals|no authorized goal id/i.test(textParts)
