@@ -156,6 +156,12 @@ if (!manifestPath) {
     expect(await response.json()).toMatchObject({ kind: 'resolved', sessionId: root.id, projectId: root.project_id });
     await expect(page.getByTestId('rhythm-primary-status')).toHaveText('Rhythm could not be opened. Your ordinary chats are unchanged.');
     await expect(page.getByTestId('rhythm-setup-dialog')).toBeHidden();
+    await expect(page.getByTestId('composer-input')).toBeDisabled();
+    await expect(page.getByTestId('composer-send')).toBeDisabled();
+    // The native failure reproduced after an already-settled unavailable view,
+    // rather than restoring the directory in the same reconciliation tick.
+    await page.waitForTimeout(2000);
+    await expect(page.getByTestId('composer-input')).toBeDisabled();
     expect(primaryRows()).toEqual(rows);
     expect(counts()).toEqual(inert);
     expect(await sessions.read(ordinary.id)).toMatchObject({ id: ordinary.id, name: ordinaryBefore.name });
@@ -175,6 +181,20 @@ if (!manifestPath) {
     }
   }
   expect(await apiState()).toEqual(before);
+  expect(primaryRows()).toEqual(rows);
+  expect(counts()).toEqual(inert);
+  expect(ordinaryRows()).toEqual(ordinaryDurable);
+  const recoveredStatus = responseFor(page, 'POST', '/coordinator-conversations/status');
+  await page.getByTestId('rhythm-primary-entry').click();
+  const recovered = await recoveredStatus;
+  await assertResponse(recovered, 'POST', '/coordinator-conversations/status', 200);
+  expect(await recovered.json()).toMatchObject({ kind: 'status',
+    conversation: { primaryOwnerRoot: true, sessionId: root.id, projectId: root.project_id } });
+  await expect(page.getByTestId(`session-${root.id}`)).toHaveAttribute('aria-current', 'true');
+  await expect(page.getByTestId('rhythm-primary-status')).toHaveText('Rhythm is ready.');
+  await expect(page.locator('.conversation-pane .status-label')).toHaveText('Ready');
+  await expect(page.getByTestId('composer-input')).toBeEnabled();
+  await expect(page.getByTestId('composer-send')).toBeEnabled();
   expect(primaryRows()).toEqual(rows);
   expect(counts()).toEqual(inert);
   expect(ordinaryRows()).toEqual(ordinaryDurable);
