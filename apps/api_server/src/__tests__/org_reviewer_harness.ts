@@ -111,15 +111,17 @@ function unwrap(value: any): any {
 export class ReviewerHarness {
   readonly providerId = `org-reviewer-contract-${process.pid}-${randomUUID().slice(0, 8)}`;
   readonly modelId = 'signed-tool-transport';
-  readonly marker = `org-reviewer-${randomUUID()}`;
+  readonly marker = `[smoke] org-reviewer-${randomUUID()}`;
   readonly sessions: Json[] = [];
+  private readonly sessionOwnerTokens = new Map<string, string>();
   readonly profiles: string[] = [];
   readonly schedules: string[] = [];
   readonly bodies: Json[] = [];
   private server: Server | null = null;
   private providerConfigured = false;
-  private nextCall: { name: string; input: Json; mcp?: boolean } | undefined;
+  private nextCall: { name: string; input: Json; family: 'mcp' | 'builtin' } | undefined;
   private nextText: string | undefined;
+  readonly dispatchSelections: Json[] = [];
   reviewerSession!: Json;
   client = createOpencodeClient({ baseUrl: ENGINE, directory: process.env.RHYTHM_SANDBOX_DIR ?? '/private/tmp' });
 
@@ -133,9 +135,31 @@ export class ReviewerHarness {
         this.bodies.push(body);
         let call = this.nextCall;
         this.nextCall = undefined;
-        if (call?.mcp && !body.tools?.some((tool: Json) => tool.name === call!.name) && body.tools?.some((tool: Json) => tool.name === 'mcp_dispatch')) {
-          call = { name: 'mcp_dispatch', input: { name: call.name, arguments: call.input } };
+        const offeredToolNames = Array.isArray(body.tools)
+          ? body.tools.map((tool: Json) => typeof tool?.name === 'string' ? tool.name : 'unknown')
+          : [];
+        const requested = call ? { name: call.name, family: call.family } : null;
+        let selectedPath = call ? 'direct' : 'text';
+        if (call && !offeredToolNames.includes(call.name) && offeredToolNames.includes('mcp_dispatch')) {
+          selectedPath = 'deferred-dispatch';
+          call = {
+            name: 'mcp_dispatch',
+            input: { family: requested!.family, action: 'execute', name: requested!.name, arguments: call.input },
+            family: requested!.family,
+          };
+        } else if (call && !offeredToolNames.includes(call.name)) {
+          selectedPath = 'requested-tool-not-offered';
         }
+        this.dispatchSelections.push({
+          offeredToolNames,
+          requestedToolName: requested?.name ?? null,
+          requestedFamily: requested?.family ?? null,
+          selectedPath,
+          selectedOuterToolName: call?.name ?? null,
+          selectedFamily: selectedPath === 'deferred-dispatch' ? requested?.family ?? null : null,
+          selectedInnerToolName: selectedPath === 'deferred-dispatch' ? requested?.name ?? null : null,
+          recordedBeforeEngineExecution: true,
+        });
         const text = this.nextText;
         this.nextText = undefined;
         response.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -163,7 +187,34 @@ export class ReviewerHarness {
   }
   async cleanup(): Promise<void> {
     for (const id of this.schedules.reverse()) await api(`/agent-schedules/${id}`, { method: 'DELETE' }).catch(() => undefined);
-    for (const session of this.sessions.reverse()) await api(`/agent-sessions/${session.id}/hard`, { method: 'DELETE' }).catch(() => undefined);
+    const ownedSessionCleanupErrors: string[] = [];
+    for (const session of this.sessions.reverse()) {
+      const token = this.sessionOwnerTokens.get(String(session.id));
+      if (!token) {
+        await api(`/agent-sessions/${session.id}/hard`, { method: 'DELETE' }).catch(() => undefined);
+        continue;
+      }
+      try {
+        const removed = await api(`/agent-sessions/${session.id}/hard`, {
+          method: 'DELETE', headers: { authorization: `Bearer ${token}` },
+        });
+        if (removed.status !== 204) {
+          await removed.arrayBuffer();
+          ownedSessionCleanupErrors.push(`owned session delete returned HTTP ${removed.status}`);
+          continue;
+        }
+        const readback = await api(`/agent-sessions/${session.id}`, {
+          headers: { authorization: `Bearer ${token}` },
+        });
+        if (readback.status !== 404) {
+          await readback.arrayBuffer();
+          ownedSessionCleanupErrors.push(`owned session remained readable after delete (HTTP ${readback.status})`);
+        }
+      } catch {
+        ownedSessionCleanupErrors.push('owned session cleanup request failed');
+      }
+    }
+    this.sessionOwnerTokens.clear();
     for (const id of this.profiles.reverse()) await api(`/agent-configs/${id}`, { method: 'DELETE' }).catch(() => undefined);
     if (this.providerConfigured) {
       // Public config PATCH cannot delete a provider (it deep-merges maps).
@@ -175,6 +226,9 @@ export class ReviewerHarness {
       await api('/system/refresh', { method: 'POST' });
     }
     if (this.server) await new Promise<void>((done) => this.server!.close(() => done()));
+    if (ownedSessionCleanupErrors.length) {
+      throw new Error(`UNVERIFIED: ${ownedSessionCleanupErrors.join('; ')}`);
+    }
   }
   async profile(label: string, prompt = 'Prepare a weekly plain-text summary. Use no external tools.'): Promise<Json> {
     const id = `org-review-fixture-${randomUUID().slice(0, 12)}`;
@@ -186,9 +240,19 @@ export class ReviewerHarness {
     this.profiles.push(profile.id);
     return profile;
   }
-  async session(profileId: string, name: string, ownerToken?: string): Promise<Json> {
-    const session = await json('/agent-sessions', { method: 'POST', headers: ownerToken ? { authorization: `Bearer ${ownerToken}` } : undefined, body: JSON.stringify({ profileId, cwd: process.env.RHYTHM_SANDBOX_DIR, name, permissionMode: 'default' }) });
+  async session(
+    profileId: string,
+    name: string,
+    ownerToken?: string,
+    permissionMode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' = 'default',
+  ): Promise<Json> {
+    const body: Json = { profileId, cwd: process.env.RHYTHM_SANDBOX_DIR, name, permissionMode };
+    // The existing role is applied only to the exact seeded reviewer; other
+    // evidence profiles retain their ordinary no-role sessions.
+    if (profileId === REVIEWER) body.mcpRole = REVIEWER;
+    const session = await json('/agent-sessions', { method: 'POST', headers: ownerToken ? { authorization: `Bearer ${ownerToken}` } : undefined, body: JSON.stringify(body) });
     this.sessions.push(session);
+    if (ownerToken) this.sessionOwnerTokens.set(String(session.id), ownerToken);
     return session;
   }
   async scheduledReviewer(): Promise<Json> {
@@ -226,8 +290,17 @@ export class ReviewerHarness {
     if (!tokenPath.startsWith('/private/tmp/')) throw new Error('UNVERIFIED: owner token must come from the sanitized temporary fixture');
     const token = (await readFile(tokenPath, 'utf8')).trim();
     const identity = await json('/auth/me', { headers: { authorization: `Bearer ${token}` } });
-    if (!Number.isInteger(identity.user?.id) || identity.user?.email !== 'org-reviewer-sandbox@example.invalid') {
-      throw new Error('UNVERIFIED: owner credential must authenticate the known synthetic sandbox user');
+    const expectedIdText = process.env.RHYTHM_ORG_REVIEWER_OWNER_USER_ID;
+    const expectedEmail = process.env.RHYTHM_ORG_REVIEWER_OWNER_EMAIL;
+    const fixtureActorPinned = expectedIdText !== undefined || expectedEmail !== undefined;
+    const expectedId = Number(expectedIdText);
+    const matchesPinnedFixture = fixtureActorPinned && Number.isInteger(expectedId) && expectedId > 0 &&
+      typeof expectedEmail === 'string' && expectedEmail.endsWith('.invalid') &&
+      identity.user?.id === expectedId && identity.user?.email === expectedEmail;
+    const matchesLegacySyntheticActor = !fixtureActorPinned && Number.isInteger(identity.user?.id) &&
+      identity.user?.email === 'org-reviewer-sandbox@example.invalid';
+    if (!matchesPinnedFixture && !matchesLegacySyntheticActor) {
+      throw new Error('UNVERIFIED: owner credential must authenticate the explicitly approved synthetic fixture actor');
     }
     return { token, userId: identity.user.id };
   }
@@ -249,27 +322,143 @@ export class ReviewerHarness {
     } });
     if (response.error) throw new Error(`engine prompt rejected: ${JSON.stringify(response.error)}`);
   }
-  async call(name: string, input: Json, session = this.reviewerSession): Promise<{ value: any; raw: string; error: boolean }> {
+  private async promptThroughApi(session: Json, text: string): Promise<void> {
+    const token = this.sessionOwnerTokens.get(String(session.id));
+    if (!token) throw new Error('UNVERIFIED: API prompt requires the owner token for this fixture session');
+    const response = await api(`/agent-sessions/${session.id}/prompt`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        prompt: text,
+        modelOverride: { providerId: this.providerId, modelId: this.modelId },
+      }),
+    });
+    if (response.status !== 202) throw new Error(`UNVERIFIED: normal session prompt route returned HTTP ${response.status}`);
+  }
+  async reviewerMcpReadiness(): Promise<Json> {
+    const directory = process.env.RHYTHM_SANDBOX_DIR;
+    if (!directory || !directory.startsWith('/private/tmp/')) throw new Error('UNVERIFIED: reviewer MCP readiness requires the owned private cwd');
+    const queryUrl = (route: string) => {
+      const url = new URL(route, ENGINE);
+      url.searchParams.set('directory', directory);
+      return url;
+    };
+    const configResponse = await fetch(queryUrl('/config'));
+    if (!configResponse.ok) throw new Error(`UNVERIFIED: owned instance config returned HTTP ${configResponse.status}`);
+    const config = await configResponse.json() as Json;
+    assertReviewerMcpIsolation(config);
+    const rhythm = config.mcp?.rhythm as Json | undefined;
+    const environment = rhythm?.environment as Json | undefined;
+    const configGuard = {
+      existingLocalCommandMatches: Array.isArray(rhythm?.command) && rhythm!.command.length === 2 &&
+        rhythm!.command[0] === 'node' && rhythm!.command[1] === LOCAL_REVIEWER_MCP_ENTRYPOINT,
+      syntheticApiTokenConfigured: typeof environment?.RHYTHM_API_TOKEN === 'string' && environment.RHYTHM_API_TOKEN.length > 0,
+      apiAndAgentUrlsPassOwnedLoopbackGuard: true,
+    };
+    if (!configGuard.existingLocalCommandMatches || !configGuard.syntheticApiTokenConfigured) {
+      throw new Error('UNVERIFIED: existing sandbox MCP command/token configuration did not satisfy its guard');
+    }
+    const connectResponse = await fetch(queryUrl('/mcp/rhythm/connect'), { method: 'POST' });
+    let connectResult: unknown = null;
+    if (connectResponse.ok) {
+      try { connectResult = await connectResponse.json(); } catch { connectResult = null; }
+    }
+    const connect = { httpStatus: connectResponse.status, ok: connectResponse.ok, resultTrue: connectResult === true };
+    const statusUrl = queryUrl('/mcp');
+    const toolsUrl = queryUrl('/mcp/tools');
+    const deadline = Date.now() + 10_000;
+    const started = Date.now();
+    let last: Json = {
+      configGuard, connect, statusHttpStatus: null, toolsHttpStatus: null,
+      rhythmStatus: null, statusServerCount: 0, toolCount: 0,
+      createTaskVisible: false, waitMs: 0,
+    };
+    while (Date.now() < deadline) {
+      const statusResponse = await fetch(statusUrl);
+      if (!statusResponse.ok) throw new Error(`UNVERIFIED: owned MCP status returned HTTP ${statusResponse.status}`);
+      const status = await statusResponse.json() as Json;
+      const toolsResponse = await fetch(toolsUrl);
+      if (!toolsResponse.ok) throw new Error(`UNVERIFIED: owned MCP tool catalog returned HTTP ${toolsResponse.status}`);
+      const tools = await toolsResponse.json() as unknown;
+      if (!Array.isArray(tools) || !tools.every((item) => typeof item === 'string')) throw new Error('UNVERIFIED: MCP tool catalog DTO was not a string array');
+      const rhythmStatus = typeof status.rhythm?.status === 'string' ? status.rhythm.status : 'absent';
+      last = {
+        configGuard, connect,
+        statusHttpStatus: statusResponse.status, toolsHttpStatus: toolsResponse.status,
+        rhythmStatus, statusServerCount: Object.keys(status).length,
+        toolCount: tools.length, createTaskVisible: tools.includes('rhythm_rhythm_create_task'),
+        waitMs: Date.now() - started,
+      };
+      if (rhythmStatus === 'connected' && last.createTaskVisible) return last;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    return last;
+  }
+  async call(name: string, input: Json, session = this.reviewerSession): Promise<{ value: any; raw: string; error: boolean; dispatchSelection: Json | null; assistantAgentNames: string[] }> {
     const tools = await (await fetch(`${ENGINE}/mcp/tools`)).json() as string[];
     const callable = tools.find((id) => id.endsWith(`_${name}`));
     if (!callable) throw new Error(`UNVERIFIED: required real MCP tool ${name} absent from engine`);
-    return this.execute(callable, input, session, true);
+    return this.execute(callable, input, session, 'mcp');
   }
-  async builtin(name: string, input: Json, session = this.reviewerSession): Promise<{ value: any; raw: string; error: boolean }> {
-    return this.execute(name, input, session, false);
+  async builtin(name: string, input: Json, session = this.reviewerSession): Promise<{ value: any; raw: string; error: boolean; dispatchSelection: Json | null; assistantAgentNames: string[] }> {
+    return this.execute(name, input, session, 'builtin');
   }
-  private async execute(name: string, input: Json, session: Json, mcp: boolean): Promise<{ value: any; raw: string; error: boolean }> {
-    this.nextCall = { name, input, mcp };
+  private async execute(name: string, input: Json, session: Json, family: 'mcp' | 'builtin'): Promise<{ value: any; raw: string; error: boolean; dispatchSelection: Json | null; assistantAgentNames: string[] }> {
+    const selectionIndex = this.dispatchSelections.length;
+    this.nextCall = { name, input, family };
     const before = await this.client.session.messages({ path: { id: session.sdkSessionId } });
     const beforeIds = new Set((before.data ?? []).map((message) => message.info.id));
-    await this.prompt(session, `Execute fixture call ${randomUUID()}.`);
-    const messages = await this.client.session.messages({ path: { id: session.sdkSessionId } });
-    const parts = (messages.data ?? []).filter((message) => !beforeIds.has(message.info.id)).flatMap((message) => message.parts) as Json[];
-    const part = parts.find((entry) => entry.type === 'tool');
-    if (!part) throw new Error(`UNVERIFIED: real engine returned no tool result for ${name}`);
-    const raw = String(part.state?.output ?? part.state?.error ?? '');
+    const promptText = `Execute fixture call ${randomUUID()}.`;
+    if (this.sessionOwnerTokens.has(String(session.id))) await this.promptThroughApi(session, promptText);
+    else await this.prompt(session, promptText);
+    const observed = await poll(async () => {
+      const messages = await this.client.session.messages({ path: { id: session.sdkSessionId } });
+      const fresh = (messages.data ?? []).filter((message) => !beforeIds.has(message.info.id));
+      const parts = fresh.flatMap((message) => message.parts) as Json[];
+      const part = parts.find((entry) => entry.type === 'tool');
+      const userMessage = fresh.find((message) => message.info.role === 'user' &&
+        message.parts.some((item) => item.type === 'text' && item.text === promptText));
+      const assistantMessages = fresh.filter((message) => message.info.role === 'assistant');
+      const assistantAgentNames = assistantMessages.flatMap((message) => {
+        if (message.info.role !== 'assistant') return [];
+        // The live v1 DTO carries agent at runtime although its generated TS
+        // type omits it. Validate the observed extension before using it.
+        const agent = (message.info as typeof message.info & { agent?: unknown }).agent;
+        return typeof agent === 'string' ? [agent] : [];
+      });
+      const assistantStopped = Boolean(userMessage) && assistantMessages.length > 0 && assistantMessages.every((message) =>
+        message.info.role === 'assistant' && Boolean(message.info.time.completed) &&
+        message.info.parentID === userMessage!.info.id && message.info.sessionID === session.sdkSessionId,
+      );
+      const toolBoundToTurn = Boolean(part && assistantMessages.some((message) =>
+        message.info.role === 'assistant' && message.info.id === part.messageID &&
+        message.info.parentID === userMessage?.info.id,
+      ));
+      const status = await this.client.session.status({
+        query: { directory: String(session.cwd ?? process.env.RHYTHM_SANDBOX_DIR) },
+        throwOnError: true,
+      });
+      // SessionStatus.set removes idle sessions from its map; an absent entry
+      // is therefore the normal idle representation in this status-list DTO.
+      const reportedStatus = status.data?.[String(session.sdkSessionId)]?.type;
+      const sessionIdle = reportedStatus === undefined || reportedStatus === 'idle';
+      const terminalTool = part && ['completed', 'error'].includes(String(part.state?.status));
+      if (!terminalTool || !assistantStopped || !toolBoundToTurn || !assistantAgentNames.length || !sessionIdle) return null;
+      return {
+        part,
+        raw: String(part.state?.output ?? part.state?.error ?? ''),
+        assistantAgentNames,
+      };
+    }, 60_000);
+    const { part, raw, assistantAgentNames } = observed;
     const value = unwrap(part.state?.mcpResult?.structuredContent ?? raw);
-    return { value, raw, error: part.state?.status === 'error' || part.state?.mcpResult?.isError === true || value?.isError === true || value?.success === false || value?.ok === false };
+    return {
+      value,
+      raw,
+      error: part.state?.status === 'error' || part.state?.mcpResult?.isError === true || value?.isError === true || value?.success === false || value?.ok === false,
+      dispatchSelection: this.dispatchSelections[selectionIndex] ?? null,
+      assistantAgentNames,
+    };
   }
   async context(targetRef: string): Promise<Json> {
     const result = await this.call(READ, { windowDays: 7, sessionLimit: 100, targetRef });

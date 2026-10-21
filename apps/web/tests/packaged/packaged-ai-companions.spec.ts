@@ -249,7 +249,7 @@ test('[AI CROSS] Hermes remains responsive after Colony inventory while hidden b
     }
     // No test-initiated Hermes API calls while hidden. The strict main and
     // native renderer audits still reject any background failure.
-    await scene.waitForTimeout(Math.max(0, 16_500 - (Date.now() - hiddenAt)));
+    await expect.poll(() => Date.now() - hiddenAt, { timeout: 18_000, intervals: [50] }).toBeGreaterThanOrEqual(16_500);
     expect(Date.now() - hiddenAt).toBeGreaterThanOrEqual(16_500);
 
     const returned = await companionPage(page, 'hermes');

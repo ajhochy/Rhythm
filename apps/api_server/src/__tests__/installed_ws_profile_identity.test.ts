@@ -33,6 +33,7 @@ vi.mock('../services/opencode_engine', () => ({
     promptAsync,
     updateSessionAllowlist,
     updateSessionSkillAllowlist,
+    updateSessionPermissionMode: vi.fn().mockResolvedValue(true),
   },
 }));
 vi.mock('../services/agent_model_resolver', () => ({

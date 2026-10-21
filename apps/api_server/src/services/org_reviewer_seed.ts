@@ -25,6 +25,19 @@ const REVIEW_PERMISSIONS = {
   '*': 'deny',
   task: 'deny',
   skill: { '*': 'deny', [ORG_REVIEWER_SKILL]: 'allow' },
+  mcp_dispatch: 'allow',
+  rhythm_rhythm_read_org_review_context: 'allow',
+  rhythm_rhythm_read_org_review_session: 'allow',
+  rhythm_rhythm_read_org_review_catalog: 'allow',
+  rhythm_rhythm_submit_org_review_proposal: 'allow',
+};
+// Exact previous current policy, before the deferred MCP dispatcher grant.
+// Only this known-owned policy is eligible for the additive upgrade below;
+// any other permission drift continues to disable the profile.
+const PRE_DISPATCH_REVIEW_PERMISSIONS = {
+  '*': 'deny',
+  task: 'deny',
+  skill: { '*': 'deny', [ORG_REVIEWER_SKILL]: 'allow' },
   rhythm_rhythm_read_org_review_context: 'allow',
   rhythm_rhythm_read_org_review_session: 'allow',
   rhythm_rhythm_read_org_review_catalog: 'allow',
@@ -75,6 +88,16 @@ function matchesJson(value: string | null, expected: unknown): boolean {
   catch { return false; }
 }
 
+/** Permission order is authority: the fork chooses the last matching rule.
+ * Parse first so formatting whitespace stays irrelevant, but compare the
+ * reserialized object (including nested pattern order) to the owned seed. */
+function matchesOrderedPermissionJson(value: string | null, expected: unknown): boolean {
+  try {
+    const parsed = JSON.parse(value ?? 'null');
+    return isDeepStrictEqual(parsed, expected) && JSON.stringify(parsed) === JSON.stringify(expected);
+  } catch { return false; }
+}
+
 function hasReviewerPolicy(config: AgentConfig, mcps: unknown = REVIEW_MCPS, permissions: unknown = REVIEW_PERMISSIONS): boolean {
   return config.isAgent && !config.isManager && !config.locked &&
     !config.imageGenerationEnabled && !config.autoApproveActions &&
@@ -82,7 +105,7 @@ function hasReviewerPolicy(config: AgentConfig, mcps: unknown = REVIEW_MCPS, per
     (config.ocAgent === null || config.ocAgent === ORG_REVIEWER_PROFILE_ID) &&
     matchesJson(config.allowedMcpsJson, mcps) &&
     matchesJson(config.allowedSkillsJson, REVIEW_SKILLS) &&
-    matchesJson(config.corePermissionsJson, permissions) &&
+    matchesOrderedPermissionJson(config.corePermissionsJson, permissions) &&
     matchesJson(config.allowedDelegatesJson, []);
 }
 
@@ -164,7 +187,11 @@ export async function seedOrgReviewerTask(): Promise<{ seeded: boolean; legacyRe
       });
     }
     recordSeedMarker(PROFILE_MARKER);
-    if (hasReviewerPolicy(config, V1_REVIEW_MCPS, V1_REVIEW_PERMISSIONS)) {
+    if (hasReviewerPolicy(config, REVIEW_MCPS, PRE_DISPATCH_REVIEW_PERMISSIONS)) {
+      config = configs.update(config.id, {
+        corePermissionsJson: ORG_REVIEWER_CORE_PERMISSIONS_JSON,
+      })!;
+    } else if (hasReviewerPolicy(config, V1_REVIEW_MCPS, V1_REVIEW_PERMISSIONS)) {
       config = configs.update(config.id, {
         allowedMcpsJson: ORG_REVIEWER_ALLOWED_MCPS_JSON,
         corePermissionsJson: ORG_REVIEWER_CORE_PERMISSIONS_JSON,

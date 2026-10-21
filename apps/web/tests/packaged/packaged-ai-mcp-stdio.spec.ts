@@ -3,7 +3,7 @@ import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test as unverified, type Page } from '@playwright/test';
-import { test, expect, ObservedApi, assertResponse, responseFor, expectedRevision } from './feature-test';
+import { test, expect, ObservedApi, assertResponse, reloadJsonFor, expectedRevision } from './feature-test';
 import { readQualificationFixture } from '../../../../tools/testing/qualification_fixture.mjs';
 
 const manifestPath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
@@ -20,15 +20,12 @@ const bounded = async <T>(pending: Promise<T>, label: string): Promise<T> => {
 };
 
 async function observedMcp(page: Page, token: string) {
-  await page.goto('rhythm://app/index.html#/tools/agent-tools');
-  const pending = responseFor(page, 'GET', '/opencode/mcp');
   await page.goto('rhythm://app/index.html#/tools/agent-settings?settingsSection=mcp');
-  const response = await pending;
+  const { response, body: servers } = await reloadJsonFor<Array<{ name: string; status: string; tools: string[] }>>(page, '/opencode/mcp');
   await assertResponse(response, 'GET', '/opencode/mcp', 200);
   const api = ObservedApi.from(response);
   expect(api.origin).toBe('http://127.0.0.1:4001');
   expect(response.request().headers()['authorization']).toBe(`Bearer ${token}`);
-  const servers = await response.json() as Array<{ name: string; status: string; tools: string[] }>;
   expect(servers).toHaveLength(1);
   expect(servers[0]).toMatchObject({ name: 'rhythm', status: 'connected' });
   expect(Array.isArray(servers[0].tools)).toBe(true);

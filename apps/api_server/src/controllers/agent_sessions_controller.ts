@@ -24,7 +24,7 @@ import {
   SESSION_SCOPES,
 } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
-import { isInteractiveChatSession } from '../services/opencode_client_service';
+import { isOrgReviewerSession, taskScopeForSession } from '../services/opencode_client_service';
 import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
 import {
   isReservedAgentConfigId,
@@ -790,6 +790,12 @@ export class AgentSessionsController {
         profileDefaultAnthropicAccountId = agentConfig.defaultAnthropicAccountId ?? null;
         profileDefaultOpenaiAccountId = agentConfig.defaultOpenaiAccountId ?? null;
       }
+      if (permissionMode === 'bypassPermissions' && isOrgReviewerSession({
+        profileId: normalizedAgentId,
+        opencodeAgentId: resolvedEngineAgentKind,
+      })) {
+        throw AppError.badRequest('Org Reviewer cannot use bypassPermissions');
+      }
 
       // Task D — resolve the Anthropic account this session routes to:
       // body override → profile default → store default → null (engine default).
@@ -1136,7 +1142,7 @@ export class AgentSessionsController {
         undefined,
         undefined,
         permissionMode,
-        isInteractiveChatSession(session),
+        taskScopeForSession(session),
       );
       logger.info(`[Opencode][timing] opencodeClient.createSession took ${Date.now() - tSdkCreate}ms for session ${session.id}`);
       // #1222 — check `.id` explicitly: createSession no longer returns a bare
@@ -1321,13 +1327,29 @@ export class AgentSessionsController {
       // from create/resume) — written as-is via the existing updateAgentKind
       // helper, same as the resume path (~line 1253). Empty/omitted is a
       // no-op so callers that don't touch the profile are unaffected.
+      let requestedAgentKind: string | undefined;
       if (body.profileId === undefined && body.agentId !== undefined) {
         if (body.agentId !== null && typeof body.agentId !== 'string') {
           throw AppError.badRequest('agentId must be a string or null');
         }
         if (typeof body.agentId === 'string' && body.agentId.trim() !== '') {
-          repo.updateAgentKind(session.id, body.agentId.trim());
+          requestedAgentKind = body.agentId.trim();
         }
+      }
+
+      // Validate the proposed profile and mode together before any DB or SDK
+      // mutation. A combined PATCH must not move a bypass chat to Reviewer.
+      const nextPermissionMode = fields.permissionMode ?? session.permissionMode;
+      const nextTaskScope = taskScopeForSession({
+        ...session,
+        profileId: fields.profileId !== undefined ? fields.profileId : session.profileId,
+        opencodeAgentId: requestedAgentKind
+          ? asOpenCodeAgentId(requestedAgentKind)
+          : fields.opencodeAgentId !== undefined ? fields.opencodeAgentId : session.opencodeAgentId,
+        agentKind: (requestedAgentKind ?? fields.opencodeAgentId ?? session.agentKind) as AgentKind,
+      });
+      if (nextTaskScope === 'reviewer' && nextPermissionMode === 'bypassPermissions') {
+        throw AppError.badRequest('Org Reviewer cannot use bypassPermissions');
       }
 
       // Dual-account follow-up — switch the session's Claude account from the
@@ -1414,12 +1436,12 @@ export class AgentSessionsController {
         );
       }
       if (
-        fields.permissionMode !== undefined &&
+        (fields.permissionMode !== undefined || fields.profileId !== undefined || requestedAgentKind !== undefined) &&
         session.sdkSessionId &&
         !(await opencodeClient.updateSessionPermissionMode(
           session.sdkSessionId,
-          fields.permissionMode,
-          isInteractiveChatSession(session),
+          nextPermissionMode,
+          nextTaskScope,
         ))
       ) {
         throw new AppError(
@@ -1428,6 +1450,7 @@ export class AgentSessionsController {
           'OpenCode rejected the session permission-mode update',
         );
       }
+      if (requestedAgentKind !== undefined) repo.updateAgentKind(session.id, requestedAgentKind);
       repo.updateFields(session.id, fields);
       const updated = repo.findById(session.id)!;
       broadcastSessionUpdated(updated);
@@ -1951,6 +1974,10 @@ export class AgentSessionsController {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
 
+      if (session.permissionMode === 'bypassPermissions' && isOrgReviewerSession(session)) {
+        throw AppError.badRequest('Org Reviewer cannot resume with bypassPermissions');
+      }
+
       // profileId is the authoritative Rhythm identity. agentId/agentKind are
       // retained as compatibility aliases for older desktop clients.
       const body = req.body as Record<string, unknown> | undefined ?? {};
@@ -1981,6 +2008,12 @@ export class AgentSessionsController {
           agentConfig.ocAgent && agentConfig.ocAgent.trim() !== ''
             ? agentConfig.ocAgent
             : requestedAgentId;
+        if (session.permissionMode === 'bypassPermissions' && isOrgReviewerSession({
+          profileId: agentConfig.id,
+          opencodeAgentId: resolvedEngineAgentKind,
+        })) {
+          throw AppError.badRequest('Org Reviewer cannot resume with bypassPermissions');
+        }
         repo.updateFields(session.id, {
           profileId: asRhythmProfileId(agentConfig.id),
           opencodeAgentId: asOpenCodeAgentId(resolvedEngineAgentKind),
@@ -2002,6 +2035,10 @@ export class AgentSessionsController {
           if (blockReason) throw AppError.badRequest(blockReason);
         }
       }
+
+      // Resume may have just changed the stored profile identity above.
+      const taskScopeSession = repo.findById(session.id) ?? session;
+      const taskScope = isOrgReviewerSession(taskScopeSession) ? 'reviewer' : taskScopeForSession(taskScopeSession);
 
       if (session.status !== 'resumable' || !session.sessionToken) {
         throw AppError.badRequest(
@@ -2049,6 +2086,14 @@ export class AgentSessionsController {
           return;
         }
 
+        // An old Reviewer SDK session can still carry native general/explore
+        // allows. Append the Reviewer deny before exposing the reattached ID.
+        if (taskScope === 'reviewer' && !(await opencodeClient.updateSessionPermissionMode(
+          existingSession.id, session.permissionMode, taskScope,
+        ))) {
+          throw new AppError(502, 'SESSION_PERMISSION_SYNC_FAILED', 'Could not restore Org Reviewer task scope');
+        }
+
         // Path 1: session still alive — re-attach.
         sdkSessionId = existingSession.id;
         logger.info(
@@ -2068,7 +2113,7 @@ export class AgentSessionsController {
           undefined,
           undefined,
           session.permissionMode,
-          isInteractiveChatSession(session),
+          taskScope,
         );
         // #1222 — check `.id` explicitly (see comment on the sibling create() path above).
         if (!opencodeSession.id) {

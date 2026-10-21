@@ -50,6 +50,7 @@ vi.mock('../services/opencode_engine', () => ({
     getSession: vi.fn().mockResolvedValue(null),
     updateSessionAllowlist: vi.fn().mockResolvedValue(undefined),
     updateSessionSkillAllowlist: vi.fn().mockResolvedValue(undefined),
+    updateSessionPermissionMode: vi.fn().mockResolvedValue(true),
     subscribeToEvents: vi.fn().mockResolvedValue(null),
     respondPermission: vi.fn().mockResolvedValue(true),
     dispatchCommand: vi.fn().mockResolvedValue(null),

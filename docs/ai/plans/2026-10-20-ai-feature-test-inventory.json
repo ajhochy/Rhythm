@@ -3828,21 +3828,32 @@
     }
   ],
   "qualification": {
-    "latestLocallySignedProductRevision": "825c53bc9f1b4d3081de8a6a5a5c38de129a93d9",
-    "scope": "Exact signed825c expanded native selection80 passed/6 failed,0 skip/flaky; previousb7d5 six broad failures now pass. Remaining Tasks retry product bug, Dayflow readiness and four narrowly diagnosed test-authoring failures. Fresh825c C1 stopped incorrectly on an intermediate MCP describe step; terminal observer repair pending. Background positive native and canonical live confirmations running. Historical b7d5 paid scopes remain separate; all78 active markers incomplete.",
-    "passed": 60,
+    "latestLocallySignedProductRevision": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+    "scope": "Separate exact locally signed20471 scopes: broad packaged86/86; fresh router/conversation23/23; Coordinator, extraction scheduling, naming, Hermes and natural Once each1/1; checked Org entry1/1; canonical isolated MCP1/1. Full non-live API8845 passed/0 failed/392 gated skips. Counts are not summed into one qualification. Preserve earlier failures and unexplained intermittent lost draft. Full Org scan/apply/use, positive learned draft and78 active markers remain incomplete.",
+    "passed": 86,
     "failedExplicitCoverageGap": 0,
     "latestRunFailed": 0,
     "correctedTestAuthoringFailures": 0,
     "skipped": 0,
     "flaky": 0,
-    "newerSourceRepairsAwaitLocalNativeRebuild": true,
+    "newerSourceRepairsAwaitLocalNativeRebuild": false,
     "confirmedProductFailures": 1,
     "remainingCoverageMarkers": 78,
     "current2b8NativeRecon": "3 observations completed, later settledrepeat1failed/1passed; failure is staleprimarynotice/Startingheader onrestoredworkspace. No broad2b8 aggregate.",
     "current2b8PaidMainAutoRecon": "Actual6Luna served from6.1Sol baseline; cheapesttier4, engine/DB/provenance/UIagree, no tools. SemanticConfirmpending, no retry/reload/failoverclaim; loan scrubbed sourcehashesunchanged.",
-    "currentBackendAggregate": "885 passed/186 skipped files;8829 passed/0 failed/391 skipped tests;exit0,1118.58s at2b8. Separate from livegates/nativecoverage.",
-    "metricsApplyToProductRevision": "5dfffb5d9978795935becfe4723c8196bb2f883d",
+    "currentBackendAggregate": {
+      "sourceRevision": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+      "passed": 8845,
+      "failed": 0,
+      "gatedSkipped": 392,
+      "durationSeconds": 1172.83,
+      "runExitCode": 0,
+      "success": true,
+      "report": "/private/tmp/rhythm-api-20471-final-20261021.json",
+      "log": "/private/tmp/rhythm-api-20471-final-20261021.log",
+      "scope": "Full serial non-live API suite, including the stale-skill guard and new source regressions. Live gates disabled; not packaged or real-model proof."
+    },
+    "metricsApplyToProductRevision": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
     "current4fdaScopedRuns": {
       "primaryProfileSchedule": "7/7;49.1s;native",
       "settledRecoveryObserver": "1 observation completed;57.4s;no independent notice-cause claim",
@@ -3852,18 +3863,21 @@
     "current4fdaMainAutoFailedAttempt": "First Confirm failed: tier3 plus hidden6Sol steppedup2 to6.1Sol. Retained failureevidence; corrected fixture + faithful3/4 contract independently Confirmed. Do not count the failedattempt green.",
     "storageCleanup": "91 verified old cache directories across31 fixtures pruned;11600220KiB prior du-accounted.427 critical paths metadata unchanged. Fixture tree about1151.7MiB at cleanupcheckpoint; physical APFS recovery notmeasured. Creator-only successful synthetic cleanup independently Confirmed: native1/1 exit0 and exact new fixture removed. Wildcard address check corrected to actual loopback after unrelated Tailscale conflict; failed evidence retained.",
     "currentBroadRegression": {
-      "productRevision": "5dfffb5d9978795935becfe4723c8196bb2f883d",
-      "productSourceRevision": "0b3b1803938383385b376cfbd7571b584e658f2c",
-      "specs": 29,
-      "passed": 60,
+      "productRevision": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+      "specs": 32,
+      "passed": 86,
       "failed": 0,
       "skipped": 0,
       "flaky": 0,
-      "durationMs": 152939.173,
+      "durationMs": 155222.528,
       "cliExit": 0,
-      "scope": "Selected exact signed-app regression excludes explicit UNVERIFIED markers; not full inventory qualification",
-      "report": "/private/tmp/rhythm-private-5dff-broad-green-evidence-20261020/report.json",
-      "log": "/private/tmp/rhythm-private-5dff-broad-discard-confirm-20261020.log"
+      "scope": "Selected no-model regression excluding explicit coverage markers; not full inventory qualification",
+      "testOnlyCorrections": [
+        "packaged-ai-companions.spec.ts",
+        "packaged-ai-mcp-stdio.spec.ts"
+      ],
+      "report": "/private/tmp/rhythm-updated-final-qualification-20261021/run-Uqts1X/report.json",
+      "log": "/private/tmp/rhythm-private-20471-broad86-corrected-confirm-20261021.log"
     },
     "currentMcpLifecycle": "Two separate no-model lifecycle observations completed1/1 each: normal renderer restore ensure200 registered:true,114 tools across API/engine/UI stable35sec. Earlier outer CLI cleanup exit1 was unrelated Tailscale wildcard conflict. Scope execution still unrun; no cold-start or manual Connect claim.",
     "historical4fdaBroadRegression": {
@@ -3878,7 +3892,7 @@
       "scope": "Selected regression excludes explicit UNVERIFIED markers; not full inventory qualification",
       "log": "/private/tmp/rhythm-private-4fda-broad-native-confirm-20261020.log"
     },
-    "latestProductRevision": "825c53bc9f1b4d3081de8a6a5a5c38de129a93d9",
+    "latestProductRevision": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
     "currentRouterMcpAttempt": {
       "productRevision": "5dfffb5d9978795935becfe4723c8196bb2f883d",
       "cases": 18,
@@ -4047,6 +4061,130 @@
       "durationMs": 345157.674,
       "cliExit": 1,
       "report": "/private/tmp/rhythm-updated-final-qualification-20261021/run-LnNDlX/report.json"
+    },
+    "historical5dffBroadRegression": {
+      "productRevision": "5dfffb5d9978795935becfe4723c8196bb2f883d",
+      "productSourceRevision": "0b3b1803938383385b376cfbd7571b584e658f2c",
+      "specs": 29,
+      "passed": 60,
+      "failed": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "durationMs": 152939.173,
+      "cliExit": 0,
+      "scope": "Selected exact signed-app regression excludes explicit UNVERIFIED markers; not full inventory qualification",
+      "report": "/private/tmp/rhythm-private-5dff-broad-green-evidence-20261020/report.json",
+      "log": "/private/tmp/rhythm-private-5dff-broad-discard-confirm-20261020.log"
+    },
+    "current20471CanonicalLive": "Checked1/1 in4.73s,CLI0; real API/engine/stdio with scripted provider transport; sandbox down and removed. No natural/paid provider claim.",
+    "current20471CoordinatorChecked": {
+      "sourceRevision": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "durationMs": 99066.823,
+      "report": "/private/tmp/rhythm-20471a238e-checked-private-20261021/coordinator/confirm-z4ktZZ/report.json",
+      "scope": "Two owned goals, two actual child commits, persisted SDK overlap, one wake and one marked report per goal. Stop/restart/needs-you/notifications remain separate gaps.",
+      "runExitCode": 0,
+      "scrubExitCode": 0,
+      "sourceHashesUnchanged": true
+    },
+    "current20471RouterConversationAttempt": {
+      "sourceRevision": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+      "passed": 10,
+      "failed": 1,
+      "notRun": 12,
+      "flaky": 0,
+      "report": "/private/tmp/rhythm-20471a238e-paid-confirm-20261021/router23-Xwvlet/report.json",
+      "failure": "Explicit pinned Luna expected49 timed out; snapshot empty composer/empty-message toast, no recorded model dispatch. Input/readiness Recon pending; no provider-failure conclusion.",
+      "runExitCode": 1,
+      "scrubExitCode": 0,
+      "sourceHashesUnchanged": true
+    },
+    "current20471SkillExtractionChecked": {
+      "sourceRevision": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "durationMs": 146005.681,
+      "scope": "Two actual UI/SDK Luna turns trigger one attributable real Luna extractor; third turn persists without a duplicate. Does not prove a useful learned candidate, promotion or outcome.",
+      "report": "/private/tmp/rhythm-20471a238e-paid-confirm-20261021/skill-extraction-FkM4K5/report.json",
+      "runExitCode": 0,
+      "scrubExitCode": 0,
+      "sourceHashesUnchanged": true
+    },
+    "current20471SessionAutonameChecked": {
+      "sourceRevision": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "report": "/private/tmp/rhythm-20471a238e-checked-private-20261021/autoname/confirm-BwA4tS/report.json",
+      "runExitCode": 0,
+      "scrubExitCode": 0,
+      "sourceHashesUnchanged": true
+    },
+    "current20471HermesChecked": {
+      "sourceRevision": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "scope": "One actual static OpenAI API Luna turn with real UI/API/SQLite history. Other providers, accounts and reconnect remain separate.",
+      "report": "/private/tmp/rhythm-hermes-20471a238e-checked-liCuiq/turn-report.json",
+      "runExitCode": 0,
+      "scrubExitCode": 0,
+      "sourceHashesUnchanged": true,
+      "hermesPortFree": true,
+      "hermesSecretPathAbsent": true
+    },
+    "current20471RouterConversationConfirm": {
+      "sourceRevision": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+      "passed": 23,
+      "failed": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "durationMs": 130899.88,
+      "retries": 0,
+      "report": "/private/tmp/rhythm-20471a238e-paid-confirm-20261021/router23-LXXk3v/report.json",
+      "runExitCode": 0,
+      "scrubExitCode": 0,
+      "sourceHashesUnchanged": true,
+      "scope": "Fresh 23-case run: main Auto, scoped MCP, four conversations and 17 ordinary router checks. Prior empty-draft failure remains unexplained and is not retroactively passing."
+    },
+    "current20471OrgEntryChecked": {
+      "sourceRevision": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "report": "/private/tmp/rhythm-org-entry-checked-20471-20261021/run-3DQLFE/report.json",
+      "scope": "Canonical seed/profile/four-tool policy, API/SQLite, rendered enabled manual trigger. No scan, proposal, approval or model turn. Canonical owner NULL cannot read actor1 owned evidence.",
+      "fixtureRemoved": true
+    },
+    "historicalPreOrgBackendAggregate": "Pre-Org-guard API8839 passed/0failed/392 gatedskips,CLI0,1204.54s at825c production backend plus canonical setup test correction. New20471 semantic skill preimage guard passes focused246/246 plus APItsc; final-source full aggregate pending.",
+    "confirmedProductFailureScope": "Historical stale-skill overwrite was reproduced before the20471 guard; guard and246 related source checks pass, but live approval proof is blocked before signed READ. Do not interpret this field as a current packaged failure count.",
+    "currentProfilePolicyConfirm": {
+      "productRevision": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "report": "/private/tmp/rhythm-profile-policy-checked-20471-20261021/run-3shuvx/report.json",
+      "scope": "UI policy persistence and no-turn session binding only; runtime permissions not qualified",
+      "scrubbed": true,
+      "sourceHashesUnchanged": true
+    },
+    "uncommittedPermissionRepairs": {
+      "status": "repairing; live and native qualification pending",
+      "baseProductRevision": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+      "changes": [
+        "Org Reviewer deferred dispatcher grant and exact prior-policy migration",
+        "managed agent permission projection preserves authored order"
+      ],
+      "liveCandidateProbe": "/private/tmp/rhythm-org-reviewer-stale-skill-live-probe-20261021/attempt-5-candidate"
     }
   }
 }

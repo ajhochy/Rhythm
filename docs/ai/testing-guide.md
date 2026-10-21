@@ -973,6 +973,75 @@ the profile. Advanced can open before its catalog arrives, so selecting a profil
 precondition. Action waits are bounded to 15 seconds; provider-response assertions have their
 own longer limits. The temporary cwd is explicitly changed to clear any prior branch choice.
 
+### Org Reviewer and private profile checks
+
+`packaged-ai-private-org-reviewer-entry.spec.ts` checks the seeded policy and
+visible manual schedule trigger without starting a scan. It requires a new
+unloaned synthetic actor and the exact locally built source revision:
+
+```sh
+RHYTHM_FEATURE_EXPECTED_REVISION=<full-local-candidate-sha> \
+  node tools/testing/run_packaged_ai.mjs --synthetic \
+  packaged-ai-private-org-reviewer-entry.spec.ts
+```
+
+Keep `RHYTHM_FEATURE_MODEL` unset for the entry case.
+`packaged-ai-private-profile-policy.spec.ts` changes an owned profile through
+Settings, checks API/database/file persistence after reload, and creates a real
+engine session without sending a model turn. It requires a separate fresh,
+reviewed selected-default model loan so its model picker has a real authorized
+catalog; the test enforces that loan's deadline even though it sends no prompt.
+Use the approved loan runner's `run`/`scrub` lifecycle with this single spec,
+`RHYTHM_FEATURE_MODEL=1`, and its exact synthetic fixture manifest. Do not combine
+it with the unloaned entry case. A successful profile case proves neither a
+semantic scan nor runtime enforcement of saved permissions.
+
+`src/__tests__/org_reviewer_stale_skill_live.test.ts` is a separate opt-in API
+contract. It submits an actual signed proposal, edits the managed skill through
+its normal API, and requires stale approval to preserve the newer complete file,
+metadata/version and proposed status without starting a measurement session.
+Use only the approved read-only synthetic fixture with the standard sandbox
+lifecycle above (API4098/engine4097), plus explicit owner identity/token pins:
+
+```sh
+cd apps/api_server
+RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 \
+  RHYTHM_ORG_REVIEWER_STALE_SKILL=1 \
+  RHYTHM_ORG_REVIEWER_OWNER_USER_ID=<synthetic-owner-id> \
+  RHYTHM_ORG_REVIEWER_OWNER_EMAIL=<synthetic-owner-email> \
+  RHYTHM_ORG_REVIEWER_OWNER_TOKEN_PATH=<private-synthetic-token-file> \
+  RHYTHM_ORG_REVIEWER_FIXTURE_ROOT=<approved-read-only-fixture-root> \
+  RHYTHM_LIVE_URL=http://127.0.0.1:4098 \
+  RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4097 \
+  ./node_modules/.bin/vitest run src/__tests__/org_reviewer_stale_skill_live.test.ts --no-file-parallelism
+```
+
+The companion `org_reviewer_interactive_task_live.test.ts` runs with the same
+isolated fixture and owner pins, plus `RHYTHM_EXPECTED_SOURCE_REVISION` set to
+the full current checkout SHA. It drives normal HTTP prompts using only the
+scripted loopback provider and invokes native `general`/`explore` through the
+actual offered tool route. It must deny Reviewer delegation without creating
+children, refuse bypass changes before durable mutation, repair historical
+native helper grants, and retain ordinary chat's `general` helper. These are
+runtime permission checks, separate from the UI scan and semantic workflow.
+Run the two contracts serially against the sandbox:
+
+```sh
+./node_modules/.bin/vitest run \
+  src/__tests__/org_reviewer_stale_skill_live.test.ts \
+  src/__tests__/org_reviewer_interactive_task_live.test.ts --no-file-parallelism
+```
+
+Keep the same environment flags and pins from the preceding command, including
+`RHYTHM_ORG_REVIEWER_STALE_SKILL=1`, for this combined run.
+
+The sandbox MCP must be the built local entrypoint from this checkout, with
+both API URL variables routed to4098. The loopback scripted provider controls
+only model transport; actual API, engine, signed MCP, proposal validation and
+managed-file application guards are exercised. This does not prove model
+judgment, the native review UI, successful application/scoring, or later skill
+use. Keep each result scoped and retain failed Recon receipts.
+
 ### Month-wide AI behavior qualification (2026-10-20)
 
 The AI inventory is `docs/ai/plans/2026-10-20-ai-feature-test-inventory.json` and its

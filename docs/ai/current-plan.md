@@ -4,13 +4,14 @@
 - [x] Independently confirm b7d5 router19, checked Hermes1, natural Once1, and focused reload10 as separate scopes.
 - [x] Reproduce MCP readiness and background model eligibility failures with deterministic contracts; implement narrow candidates.
 - [x] Commit825c reviewed candidate and rebuild/sign mega app locally under shared10GiB guard.
-- [ ] Commit next Tasks/Dayflow/skill-approval repair batch and rebuild/sign locally again.
-- [x] Run corrected canonical MCP private live Recon in approved isolated sandbox (1/1); checked final-source refresh pending.
-- [ ] Finish current full serial API gate; refresh after any further backend repair.
+- [x] Commit Tasks/Dayflow/skill-approval repair batch20471a238e and rebuild/sign locally again.
+- [x] Run checked canonical MCP live test against20471 isolated sandbox (1/1); exact source, real API/engine/stdio, scripted provider transport only.
+- [x] Finish prior full serial API gate:8839passed/0failed/392gated skips before the Org skill guard.
+- [x] Refresh full API gate against20471 including the Org skill guard:8845passed/0failed/392gated skips.
 - [x] Run825c expanded86 selection:80passed/6failed,0skip/flaky.
-- [ ] Rerun86 against next signed repair batch; preserve all six failure dispositions.
-- [ ] Rerun actual model routing, ordinary conversations, two-goal Coordinator, Hermes, automatic naming and natural Once; capture full fixture cleanup.
-- [x] Observe real background extraction on eligible Luna and codify it; independent checked Confirm pending.
+- [x] Independently rerun86 against signed20471:86passed/0failed/0skipped/0flaky after two pre-action observer corrections; preserve earlier84/2 and825c80/6 receipts.
+- [x] Independently confirm current20471 routing/conversation23, Coordinator1, Hermes1, naming1 and naturalOnce1; exact fixture cleanup captured. Initial intermittent lost-draft failure remains unexplained.
+- [x] Observe real background extraction on eligible Luna, codify and independently Confirm1/1 on20471; useful learned draft creation remains separate.
 - [ ] Continue closing78 remaining active behavior markers using Recon → Codify → Confirm; no aggregate pass until required coverage is proven.
 
 No push, PR, merge, installation or release. Retain one active task worktree and only current/previous reviewed build artifacts; preserve unrelated work.
@@ -31,3 +32,6 @@ Clarification interview: user explicitly does not know the intended workflow and
 - [ ] Repair confirmed stale skill approval overwrite with focused and live owned behavioral proof.
 - [ ] Recon the representative journey on a fresh owned fixture, then Codify and independently Confirm; preserve failures as failures.
 - [ ] Continue original repairs, full backend gate, local rebuild and native reruns.
+
+- [x] Add and independently Confirm checked profile policy persistence and no-turn session binding1/1.
+- [ ] Qualify new reviewer dispatcher and shared permission-order candidates live, commit candidate, rebuild/sign locally and rerun native checks.

@@ -1110,6 +1110,15 @@ export const INTERACTIVE_TASK_PERMISSION = [
   { permission: 'task', pattern: 'general', action: 'allow' },
 ] as const;
 
+/** Reviewer never receives native task fan-out, including on an old SDK session. */
+export const REVIEWER_TASK_PERMISSION = [
+  { permission: 'task', pattern: '*', action: 'deny' },
+] as const;
+
+// Mirror the durable profile ID without importing org_reviewer_seed: that
+// seeder reaches agent_runner -> opencode_engine -> this client at startup.
+const ORG_REVIEWER_PROFILE_ID = 'org-reviewer';
+
 /**
  * The coordinator's worker policy is intentionally a session policy rather
  * than a stored profile change.  Ordering matters: the engine uses the last
@@ -1243,14 +1252,30 @@ function validFiniteExecutionPermissionRules(
   return baseline.size === 0 && usable;
 }
 
+type TaskScopeSession = Pick<AgentSession, 'category' | 'isSystem' | 'scheduledTaskId'> & {
+  profileId?: string | null;
+  opencodeAgentId?: string | null;
+  agentKind?: string | null;
+};
+
+export type SessionTaskScope = false | true | 'reviewer';
+
+export function isOrgReviewerSession(session: Pick<TaskScopeSession, 'profileId' | 'opencodeAgentId' | 'agentKind'> | null | undefined): boolean {
+  return !!session && (
+    session.profileId === ORG_REVIEWER_PROFILE_ID ||
+    session.opencodeAgentId === ORG_REVIEWER_PROFILE_ID ||
+    session.agentKind === ORG_REVIEWER_PROFILE_ID
+  );
+}
+
+export function taskScopeForSession(session: TaskScopeSession | null | undefined): SessionTaskScope {
+  if (!session || session.category !== 'chat' || session.isSystem || session.scheduledTaskId !== null) return false;
+  return isOrgReviewerSession(session) ? 'reviewer' : true;
+}
+
 /** Same predicate as the async-delegation gate in agent_delegation_service.ts. */
-export function isInteractiveChatSession(
-  session: Pick<AgentSession, 'category' | 'isSystem' | 'scheduledTaskId'> | null | undefined,
-): boolean {
-  return !!session &&
-    session.category === 'chat' &&
-    !session.isSystem &&
-    session.scheduledTaskId === null;
+export function isInteractiveChatSession(session: TaskScopeSession | null | undefined): boolean {
+  return taskScopeForSession(session) === true;
 }
 
 export class OpencodeClientService {
@@ -2343,7 +2368,7 @@ export class OpencodeClientService {
     permissionMode?: PermissionMode,
     // Interactive chat session (see isInteractiveChatSession): restrict the
     // engine task tool to explore/general. Headless callers omit it.
-    interactive?: boolean,
+    interactive?: SessionTaskScope,
     // Persistent coordinator workers use a narrow, engine-enforced policy.
     // This is deliberately trailing and optional so ordinary session callers
     // retain their exact existing behavior.
@@ -2372,6 +2397,9 @@ export class OpencodeClientService {
     // `?.id` explicitly so a truthy `{ error }` object is never mistaken for
     // success.
   ): Promise<{ id: string; error?: undefined } | { id?: undefined; error: string }> {
+    if (interactive === 'reviewer' && permissionMode === 'bypassPermissions') {
+      return { error: 'Org Reviewer cannot use bypassPermissions' };
+    }
     if (!this.client) {
       return { error: 'Opencode engine is not initialized (not ready) — no session was created' };
     }
@@ -2511,10 +2539,15 @@ function validFiniteExecutionPermissionRules(
           { permission: 'external_directory', pattern: '*', action: 'deny' },
         ];
       }
-      if (interactive) {
+      if (interactive === true) {
         body.permission = [
           ...((body.permission as unknown[] | undefined) ?? []),
           ...INTERACTIVE_TASK_PERMISSION,
+        ];
+      } else if (interactive === 'reviewer') {
+        body.permission = [
+          ...((body.permission as unknown[] | undefined) ?? []),
+          ...REVIEWER_TASK_PERMISSION,
         ];
       }
       if (managedReadOnly) {
@@ -2576,10 +2609,22 @@ function validFiniteExecutionPermissionRules(
   async updateSessionPermissionMode(
     sessionId: string,
     permissionMode: PermissionMode,
-    interactive?: boolean,
+    interactive?: SessionTaskScope,
   ): Promise<boolean> {
+    if (interactive === 'reviewer' && permissionMode === 'bypassPermissions') return false;
     try {
       const client = await this.v2Client();
+      if (interactive === 'reviewer') {
+        // The fork appends permission updates. A historical bypass wildcard
+        // (or another non-task allow) cannot be made safe by appending only a
+        // task deny; refuse the old SDK session instead of reopening tools.
+        const current = await client.session.get({ sessionID: sessionId });
+        const rules = current.data?.permission;
+        if (current.error || !current.data || (rules !== undefined && !Array.isArray(rules)) ||
+            rules?.some((rule) => rule.action === 'allow' && rule.permission !== 'task' && rule.permission !== 'mcp_dispatch')) {
+          return false;
+        }
+      }
       const modeRules = permissionMode === 'plan'
         ? [{ permission: 'bash' as const, pattern: '*', action: 'deny' as const }]
         : permissionMode === 'bypassPermissions'
@@ -2591,9 +2636,11 @@ function validFiniteExecutionPermissionRules(
       // The engine APPENDS a PATCHed ruleset to the session's existing rules,
       // so re-append the task restriction to keep it last (a bypass `*: allow`
       // would otherwise re-open task on an interactive session).
-      const permission = interactive
+      const permission = interactive === true
         ? [...modeRules, ...INTERACTIVE_TASK_PERMISSION]
-        : modeRules;
+        : interactive === 'reviewer'
+          ? [...modeRules, ...REVIEWER_TASK_PERMISSION]
+          : modeRules;
       const raw = await client.session.update({ sessionID: sessionId, permission });
       if (raw.error) {
         logger.warn(

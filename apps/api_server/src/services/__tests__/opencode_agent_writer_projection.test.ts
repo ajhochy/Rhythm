@@ -716,6 +716,40 @@ describe('#1138: corePermissions projection is defensive and self-healing', () =
     expect(readProjected('research')).toBe(first);
   });
 
+  it('reprojects direct permissions in authored order, preserving last-match authority', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+    const base = { ...agentConfig('order-perms', 'Order Perms'), systemPrompt: 'Authored body survives.' };
+    writeAgentProfileFile({ ...base, corePermissionsJson: JSON.stringify({ read: 'ask', edit: 'ask' }) });
+    const projectedPath = join(state.home, '.config', 'opencode', 'agents', 'order-perms.md');
+    writeFileSync(projectedPath, readFileSync(projectedPath, 'utf8').replace('mode: all', 'mode: all\ncustom_review: retained'));
+
+    const allowing = { ...base, corePermissionsJson: JSON.stringify({
+      '*': 'deny', read: { '*': 'allow', 'private/**': 'deny' }, edit: 'allow', mcp_dispatch: 'allow',
+    }) };
+    writeAgentProfileFile(allowing);
+    const allowed = readFileSync(join(state.home, '.config', 'opencode', 'agents', 'order-perms.md'), 'utf8');
+    const permissionBlock = allowed.split('permission:\n')[1].split('\noptions:')[0];
+    for (const entry of ['  "*": deny', '  read:', '  edit: allow', '  mcp_dispatch: allow']) {
+      expect(permissionBlock).toContain(entry);
+    }
+    expect(permissionBlock.indexOf('  "*": deny')).toBeLessThan(permissionBlock.indexOf('  read:'));
+    expect(permissionBlock.indexOf('  read:')).toBeLessThan(permissionBlock.indexOf('  edit: allow'));
+    expect(permissionBlock.indexOf('  edit: allow')).toBeLessThan(permissionBlock.indexOf('  mcp_dispatch: allow'));
+    expect(permissionBlock).toContain('    "*": allow\n    "private/**": deny');
+    expect(allowed).toContain('custom_review: retained');
+    expect(allowed).toContain('Authored body survives.');
+    expect(writeAgentProfileFile(allowing)).toBe('written');
+    expect(readFileSync(join(state.home, '.config', 'opencode', 'agents', 'order-perms.md'), 'utf8')).toBe(allowed);
+
+    const denying = { ...base, corePermissionsJson: JSON.stringify({ read: 'allow', '*': 'deny' }) };
+    writeAgentProfileFile(denying);
+    const denied = readFileSync(join(state.home, '.config', 'opencode', 'agents', 'order-perms.md'), 'utf8');
+    expect(denied.indexOf('  read: allow')).toBeLessThan(denied.indexOf('  "*": deny'));
+    expect(denied).not.toContain('  mcp_dispatch:');
+  });
+
   it('skips only the bad entries, keeping the valid ones in a mixed payload', () => {
     state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
     process.env.VITEST = 'false';

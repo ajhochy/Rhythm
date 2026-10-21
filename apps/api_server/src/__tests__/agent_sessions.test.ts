@@ -11,6 +11,7 @@ import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { asRhythmProfileId } from '../models/agent_session';
 
 // Mock the Opencode engine so we can control SDK availability in tests without
 // requiring a real Opencode SDK connection.
@@ -407,6 +408,33 @@ describe('Agent Sessions API', () => {
       'bypassPermissions',
       true, // interactive chat row → task restricted to explore/general
     );
+  });
+
+  it('refuses a persisted Reviewer bypass row before legacy resume mutates or creates an SDK session', async () => {
+    const sessions = new AgentSessionsRepository();
+    const inserted = sessions.insert({
+      agentKind: 'org-reviewer' as import('../models/agent_session').AgentKind,
+      profileId: asRhythmProfileId('org-reviewer'),
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'Legacy Reviewer bypass',
+      permissionMode: 'bypassPermissions',
+    });
+    sessions.updateToken(inserted.id, 'sdk-prior-token');
+    sessions.updateStatus(inserted.id, 'resumable');
+    const { opencodeClient, opencodeSessionMap } = await import('../services/opencode_engine');
+    const createSession = (opencodeClient as unknown as { createSession: ReturnType<typeof vi.fn> }).createSession;
+
+    const res = await fetch(`${baseUrl}/agent-sessions/${inserted.id}/resume`, {
+      method: 'POST', headers: authHeaders,
+    });
+    expect(res.status).toBe(400);
+    expect(createSession).not.toHaveBeenCalled();
+    expect(opencodeSessionMap.has(inserted.id)).toBe(false);
+    expect(sessions.findById(inserted.id)).toMatchObject({
+      profileId: 'org-reviewer', permissionMode: 'bypassPermissions', status: 'resumable', sdkSessionId: null,
+    });
   });
 
   it('interactive-task-scope: legacy resume of a system (headless) row does NOT restrict task', async () => {

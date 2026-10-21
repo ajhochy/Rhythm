@@ -719,17 +719,11 @@ export function writeAgentProfileFile(config: AgentConfig): AgentProfileWriteRes
       // #1138 — the merge path used to only UPSERT permission keys, never
       // remove ones no longer in the config, so a file once polluted with
       // stale/garbage keys never converged even after the config was corrected.
-      // Prune every existing `permission:` sub-key that this projection will
-      // NOT re-write — i.e. not in the current corePermissions and not one of
-      // the writer-injected keys (image_generation / task / write) appended
-      // below. Those injected keys are conditional, so a profile that stops
-      // being a manager (task) or loses image_generation also sheds them.
-      const keep = new Set<string>(Object.keys(corePermissions));
-      if (config.imageGenerationEnabled === true) keep.add('image_generation');
-      keep.add('task'); // #1322 — projected for every profile now
-      keep.add('rhythm_delegate_async');
-      if (config.id === 'workflow-orchestrator') keep.add('write');
-      fm = pruneStalePermissionKeys(fm, keep);
+      // #1138 owns this entire permission block. Rebuild it in the effective
+      // map's order: the fork uses the last matching rule, so retaining old
+      // subtree positions can change authority when a wildcard is added.
+      // Non-permission frontmatter and the body remain untouched.
+      fm = pruneStalePermissionKeys(fm, new Set());
     } else {
       // Fresh file authored from the profile.
       fm = `description: ${yamlQuotedString(config.label)}\nmode: ${mode}`;

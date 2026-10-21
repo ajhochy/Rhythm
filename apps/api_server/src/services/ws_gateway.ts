@@ -7,7 +7,7 @@ import {
   agentConfigExecutionBlockReason,
 } from '../repositories/agent_configs_repository';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
-import { isInteractiveChatSession } from './opencode_client_service';
+import { isOrgReviewerSession, taskScopeForSession } from './opencode_client_service';
 import { bridgePty, ptyEngineUrl } from './pty_proxy';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
 import { prepareAutomaticMemoryPreface } from './automatic_memory_preface';
@@ -471,6 +471,7 @@ export async function handleInputFrame(
   // appear to "work" because they never trigger tool-use at all.
   let sessionPermissionMode: PermissionMode = 'default';
   let attachmentSession: import('../models/agent_session').AgentSession | null = null;
+  let sessionLookupFailed = false;
   try {
     const session = new AgentSessionsRepository().findById(id);
     if (session) {
@@ -488,7 +489,11 @@ export async function handleInputFrame(
       sessionPermissionMode = session.permissionMode ?? 'default';
     }
   } catch {
-    /* DB unavailable — proceed without context */
+    sessionLookupFailed = true;
+  }
+  if (sessionLookupFailed || (!attachmentSession && opencodeId)) {
+    ws.send(JSON.stringify({ v: 1, type: 'error', id, message: 'Session identity is unavailable.' }));
+    return;
   }
 
   if (partsToForward?.some((part) => part.type === 'file')) {
@@ -559,6 +564,14 @@ export async function handleInputFrame(
     }
   }
   const scopeAgentId = trustedScopeAgent ?? perTurnProfileId ?? legacyCanonicalProfileId ?? sessionProfileId ?? perTurnAgent ?? agentKind ?? null;
+  const storedTaskScope = taskScopeForSession(attachmentSession);
+  const reviewerIdentity = isOrgReviewerSession(attachmentSession) ||
+    isOrgReviewerSession({ profileId: scopeAgentId, opencodeAgentId: perTurnAgent });
+  const turnTaskScope = reviewerIdentity ? 'reviewer' : storedTaskScope;
+  if (turnTaskScope === 'reviewer' && sessionPermissionMode === 'bypassPermissions') {
+    ws.send(JSON.stringify({ v: 1, type: 'error', id, message: 'Org Reviewer cannot use bypassPermissions.' }));
+    return;
+  }
   if (scopeAgentId) {
     try {
       const configsRepo = new AgentConfigsRepository();
@@ -746,12 +759,25 @@ export async function handleInputFrame(
     try {
       // OPC-M1-5: look up the persisted sdk_session_id first.
       const dbSessionForResume = new AgentSessionsRepository().findById(id);
+      const taskScope = turnTaskScope;
+      if (taskScope === 'reviewer' && sessionPermissionMode === 'bypassPermissions') {
+        ws.send(JSON.stringify({ v: 1, type: 'error', id, message: 'Org Reviewer cannot resume with bypassPermissions.' }));
+        return;
+      }
       const persistedSdkId = dbSessionForResume?.sdkSessionId ?? null;
 
       if (persistedSdkId) {
         // Try to re-attach to the existing SDK session.
         const existingSession = await opencodeClient.getSession(persistedSdkId);
         if (existingSession) {
+          // Revoke historical native general/explore grants before the old
+          // SDK session can accept another Reviewer turn.
+          if (taskScope === 'reviewer' && !(await opencodeClient.updateSessionPermissionMode(
+            existingSession.id, sessionPermissionMode, taskScope,
+          ))) {
+            ws.send(JSON.stringify({ v: 1, type: 'error', id, message: 'Could not restore Org Reviewer task scope.' }));
+            return;
+          }
           // Re-attach path — session is alive.
           opencodeId = existingSession.id;
           opencodeSessionMap.set(id, opencodeId);
@@ -783,7 +809,7 @@ export async function handleInputFrame(
             resolvedTurnProviderId,
             undefined,
             sessionPermissionMode,
-            isInteractiveChatSession(dbSessionForResume),
+            taskScope,
           );
           // #1222 — createSession no longer returns a bare `null`; check `.id`
           // explicitly so a truthy `{ error }` failure object is never
@@ -827,7 +853,7 @@ export async function handleInputFrame(
           resolvedTurnProviderId,
           undefined,
           sessionPermissionMode,
-          isInteractiveChatSession(dbSessionForResume),
+          taskScope,
         );
         // #1222 — check `.id` explicitly (see comment on the sibling branch above).
         if (!opencodeSession.id) {
@@ -872,6 +898,15 @@ export async function handleInputFrame(
       );
       return;
     }
+  }
+
+  // POST /agent-sessions/:id/prompt reaches this same path even when the SDK
+  // ID is already mapped. Reassert the effective task scope before every turn.
+  // A later ordinary turn can restore general/explore after a Reviewer switch.
+  if (turnTaskScope !== false && (!opencodeId ||
+      !(await opencodeClient.updateSessionPermissionMode(opencodeId, sessionPermissionMode, turnTaskScope)))) {
+    ws.send(JSON.stringify({ v: 1, type: 'error', id, message: 'Could not restore session task scope.' }));
+    return;
   }
 
   // #765 — push the resolved MCP allowlist onto the existing fork session so
@@ -981,7 +1016,12 @@ export async function handleInputFrame(
     //   provider kind — forwarding it is safe and different from the #738 guardrail.
     //   wsOcAgent is null when the profile has no ocAgent; perTurnAgent is null when
     //   the Flutter client didn't send an explicit per-turn agent override.
-    const effectiveAgent: string | null = legacyCanonicalProfileId ? wsOcAgent : perTurnAgent ?? wsOcAgent;
+    const configuredAgent = legacyCanonicalProfileId ? wsOcAgent : perTurnAgent ?? wsOcAgent;
+    // The accepted Org Reviewer profile may deliberately leave ocAgent unset.
+    // Its signed MCP calls still require the registered Reviewer engine identity;
+    // preserve the ordinary null-ocAgent default and any explicit turn override.
+    const effectiveAgent: string | null = configuredAgent ??
+      (scopeAgentId === 'org-reviewer' && reviewerIdentity ? 'org-reviewer' : null);
     // #1039 Cause B parity with agent_runner.ts (runningAsOwnAgent): running AS the
     // profile's own registered agent, its .md body already IS the profile prompt and the
     // engine layers `system:` after it, so forwarding it again duplicates it (and makes the
