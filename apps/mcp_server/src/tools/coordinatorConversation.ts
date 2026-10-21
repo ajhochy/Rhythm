@@ -57,7 +57,7 @@ export function registerCoordinatorConversationTools(server: McpServer, apiUrl: 
   registerTool(
     server,
     'rhythm_get_coordinator_status',
-    'Read current authoritative Rhythm Secretary attention, finite-work, and receipt status for this signed coordinator chat turn. Read-only.',
+    'Read current authoritative Rhythm Secretary attention, finite-work, and receipt status for this signed coordinator chat turn. Describe this tool in your catalog, then execute its canonical identifier (executeName when supplied). Read-only.',
     {},
     async () => {
       try {
@@ -81,9 +81,9 @@ export function registerCoordinatorConversationTools(server: McpServer, apiUrl: 
   registerTool(
     server,
     'rhythm_start_coordinator_goal',
-    'Start one coding run for a previously captured goal whose text names a git repository by absolute path. Read rhythm_get_coordinator_status first to obtain the goal id. The server runs the existing workflow-orchestrator in its own git worktree and branch of that repository; several goals may run at once. Returns only a dispatch acknowledgement; each run reports back later in this same chat.',
+    'Start one coding run for a previously captured goal whose text names a git repository by absolute path. Describe the coordinator status tool in your catalog, then use its canonical execution identifier (executeName when supplied) to execute it and obtain the goal id. Describe this start tool and execute its canonical identifier too. The server runs the existing workflow-orchestrator in its own git worktree and branch of that repository; several goals may run at once. Returns only a dispatch acknowledgement; each run reports back later in this same chat.',
     {
-      goalId: z.string().describe('An existing captured goal id from rhythm_get_coordinator_status.'),
+      goalId: z.string().describe('An existing captured goal id from the coordinator status tool, discovered and executed using its canonical identifier (executeName when supplied).'),
       approval_id: z.string().optional().describe('Approval id returned by rhythm_request_approval when untrusted content requires approval. If approval is needed, the held response states the exact security_action and security_payload to request it with.'),
     },
     async () => {

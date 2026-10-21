@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { resolveHermesBackendArtifact, resolveOptionalHermesBackendArtifact, refreshHermesBackendArtifactIntegrity } from '../src/hermes-backend-artifact.mjs';
 import { stageHermesBackendArtifact } from '../scripts/package-mac.mjs';
+import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from '../src/hermes-desktop-config.mjs';
 
 const digest = (data) => createHash('sha256').update(data).digest('hex');
 function fixture(t) {
@@ -23,7 +24,7 @@ function fixture(t) {
     'python/bin/python3': { link: 'python3.12' },
     'site-packages/module.py': { sha256: digest(readFileSync(join(root, 'site-packages', 'module.py'))) },
   };
-  const manifest = { schemaVersion: 1, product: 'hermes-backend', sourceCommit: '23589566471dbd2068a0387c85a2cb85d4a7d737',
+  const manifest = { schemaVersion: 1, product: 'hermes-backend', sourceCommit: PINNED_HERMES_DESKTOP_SOURCE_COMMIT,
     uvLockSha256: files['source/uv.lock'].sha256, pythonVersion: '3.12.13', arch: process.arch,
     distributionCount: process.arch === 'x64' ? 72 : 73, licenseCount: process.arch === 'x64' ? 72 : 73,
     files, native: ['python/bin/python3.12'] };
@@ -35,6 +36,14 @@ test('bundled backend validates its exact executable, source pin, symlinks and e
   const { root } = fixture(t);
   assert.equal(resolveHermesBackendArtifact(root).backendExecutablePath, join(root, 'hermes'));
   writeFileSync(join(root, 'site-packages', 'module.py'), 'VALUE = 2\n');
+  assert.throws(() => resolveHermesBackendArtifact(root), /Hermes backend artifact/);
+});
+
+test('bundled backend refuses an intact artifact from a different source revision', (t) => {
+  const { root, manifest } = fixture(t);
+  assert.equal(resolveHermesBackendArtifact(root).manifest.sourceCommit, PINNED_HERMES_DESKTOP_SOURCE_COMMIT);
+  manifest.sourceCommit = '0'.repeat(40);
+  writeFileSync(join(root, 'manifest.json'), JSON.stringify(manifest));
   assert.throws(() => resolveHermesBackendArtifact(root), /Hermes backend artifact/);
 });
 

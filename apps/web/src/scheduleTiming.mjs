@@ -47,6 +47,14 @@ export function validateScheduleTiming(schedule, now = Date.now()) {
   return null;
 }
 
+export function isConsumedOnceSchedule(schedule) {
+  if (schedule.scheduleType !== 'once'
+    || !['success', 'completed_no_op'].includes(schedule.lastRunStatus)) return false;
+  const runAt = Date.parse(schedule.runAt ?? '');
+  const lastRunAt = Date.parse(schedule.lastRunAt ?? '');
+  return Number.isFinite(runAt) && Number.isFinite(lastRunAt) && lastRunAt >= runAt;
+}
+
 export function scheduleTimeZones(current) {
   const supported = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [];
   const zones = new Set(['UTC', ...supported]);

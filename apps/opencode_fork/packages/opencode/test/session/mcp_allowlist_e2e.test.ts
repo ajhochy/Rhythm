@@ -1328,8 +1328,8 @@ it.instance(
       expect(search).toContain('"rawName":"status_probe"')
       expect(search).not.toContain("obsidian_status_probe")
       const described = outputOf(parts[1])
-      expect(described).toContain('"name":"rhythm_status_probe"')
-      expect(described).toContain('"registeredName":"status_probe"')
+      const descriptor = JSON.parse(described) as { name: string; executeName?: string; registeredName?: string }
+      expect(descriptor).toMatchObject({ name: "rhythm_status_probe", registeredName: "status_probe" })
       expect(described).toContain('"inputSchema"')
       expect(counted.rhythm_status_probe).toBe(1) // exactly the canonical call
       expect(counted.obsidian_status_probe).toBe(0)
@@ -1342,6 +1342,9 @@ it.instance(
       const executed = parts[3].state as MessageV2.ToolStateCompleted
       expect(executed.output).toContain("rhythm_status_probe-ok")
       expect(executed.input).toMatchObject({ name: "rhythm_status_probe" })
+      // local-mcp-canonical-guidance-c1: registered-name lookup must carry an
+      // unambiguous execution identifier while retaining the lookup alias.
+      expect(descriptor.executeName).toBe("rhythm_status_probe")
     }),
   { git: true, config: cfg },
   30_000,
@@ -1369,6 +1372,35 @@ it.instance(
       expect(ambiguity).toContain("rhythm_status_probe")
       expect(counted.rhythm_status_probe + counted.obsidian_status_probe).toBe(0)
       expect(outputOf(parts[2])).toContain('"name":"obsidian_status_probe"')
+    }),
+  { git: true, config: cfg },
+  30_000,
+)
+
+it.instance(
+  "local-mcp-canonical-guidance-c2: denied bare execute gives generic canonical retry guidance without widening scope",
+  () =>
+    Effect.gen(function* () {
+      counted.rhythm_status_probe = 0
+      counted.obsidian_status_probe = 0
+      const { llm } = yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const session = yield* discoverySession("canonical-guidance-c2", ["rhythm"])
+      yield* mcpCall(llm, { name: "status_probe", arguments: {} })
+      yield* mcpCall(llm, { name: "obsidian_status_probe", arguments: {} })
+      yield* mcpCall(llm, { name: "rhythm_status_probe", arguments: {} })
+      yield* llm.text("done")
+      yield* prompt.loop({ sessionID: session.id })
+      const parts = yield* dispatchParts(session.id)
+      expect(parts.map((part) => part.state.status)).toEqual(["error", "error", "completed"])
+      expect(counted.rhythm_status_probe).toBe(1)
+      expect(counted.obsidian_status_probe).toBe(0)
+      expect(outputOf(parts[0])).toContain("not permitted")
+      expect(outputOf(parts[1])).not.toContain("inputSchema")
+      expect(outputOf(parts[0])).toContain("describe")
+      expect(outputOf(parts[0])).toContain("executeName")
+      expect(outputOf(parts[0])).not.toContain("obsidian_status_probe")
+      expect(outputOf(parts[2])).toContain("rhythm_status_probe-ok")
     }),
   { git: true, config: cfg },
   30_000,

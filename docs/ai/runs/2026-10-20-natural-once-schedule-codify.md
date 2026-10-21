@@ -30,3 +30,10 @@ tags: [run, rhythm]
 ## Notes
 
 GitNexus `impact -r Rhythm hasEffectiveNoToolsBoundary --include-tests` and the added reload-capture helper returned UNKNOWN because these test-only symbols are new and the index trails this worktree by 319 commits; the indexed unrelated `responseFor` returned LOW/0 callers. Manual blast radius is this new spec only; no production or shared test symbol was edited. Existing schedule timing/storage tests remain useful and the checked-in case now confirms one natural Once dispatch and its disabled control. The first two checked failures remain test-authoring RED evidence, not product failures. Recurrence, restart, retry, sleep/wake and hosted behavior remain open.
+
+## Completed Once warning follow-up
+
+- Private native Recon on the same exact signed 5dff build passed **1/1** in 157.803 seconds. After `completed_no_op` with linked answer `19`, the selected enabled Once row had no next run and a last run after its due instant, yet displayed “Edit its timing before relying on it.” The disabled control had no run; exact cleanup and source-hash scrub passed. Credential-free record: [completed Once warning Recon](../../testing/results/2026-10-20-synthetic-completed-once-warning-recon.md).
+- The checked packaged case now captures the selected row and warning before opening its run/root, retains all existing execution/linkage/cleanup assertions, and asserts no warning only after the natural completion is established. **Native RED is UNRUN**; there is no product fix in this change.
+- GitNexus upstream impact on this test title returned `UNKNOWN` and zero indexed callers because the index is 320 commits behind this worktree. Manual impact is one packaged test case plus its focused evidence documents; no production symbol changed.
+- Guarded strict packaged TypeScript, one-case Playwright discovery, and `git diff --check` all exited 0. Discovery found exactly one case. These source checks do not count as native RED or GREEN.

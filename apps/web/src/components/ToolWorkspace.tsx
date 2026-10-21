@@ -4,7 +4,7 @@ import { useGateway } from '../gateway/context';
 import type { AgentMemory } from '../gateway/memory';
 import type { OrgProposal } from '../gateway/org-proposals';
 import { ScheduleGatewayError, type ScheduledTask, type ScheduledTaskInput, type ScheduledTaskRun } from '../gateway/schedules';
-import { formatLocalDateTime, localDateTimeToIso, scheduleTimeZones, validateScheduleTiming } from '../scheduleTiming.mjs';
+import { formatLocalDateTime, isConsumedOnceSchedule, localDateTimeToIso, scheduleTimeZones, validateScheduleTiming } from '../scheduleTiming.mjs';
 import type { AgentRunQuality } from '../gateway/run-quality';
 import type { CommandEntry, ManagedCommandContent } from '../gateway/commands';
 import type { CookbookRecipe } from '../gateway/cookbook';
@@ -1050,7 +1050,7 @@ function LiveSchedulesTool() {
           <div><dt>Timezone</dt><dd>{selected.timezone}</dd></div>
           <div><dt>Last run</dt><dd>{selected.lastRunAt ? <Timestamp value={selected.lastRunAt} /> : 'Never'}</dd></div>
         </dl>
-        {selected.enabled && !selected.nextRunAt && <p role="alert" data-testid="schedule-timing-warning">This schedule is enabled, but no next run is scheduled. Edit its timing before relying on it.</p>}
+        {selected.enabled && !selected.nextRunAt && !isConsumedOnceSchedule(selected) && <p role="alert" data-testid="schedule-timing-warning">This schedule is enabled, but no next run is scheduled. Edit its timing before relying on it.</p>}
         <div className="run-history">
           <header data-testid="schedule-run-context" aria-busy={Boolean(triggerStates[selected.id])}><h3>Run history</h3><button className="primary-button" type="button" aria-disabled={Boolean(triggerStates[selected.id]) || ['queued', 'running'].includes(selected.lastRunStatus ?? '')} onClick={() => void triggerNow()} data-testid="schedule-trigger"><Icon name="resume" size={13} />{triggerStates[selected.id] === 'queueing' ? 'Queueing…' : 'Trigger now'}</button></header>
           <p role="status" aria-live="polite" aria-atomic="true" data-testid="schedule-progress">{triggerStates[selected.id] === 'queueing' ? 'Queueing…' : triggerStates[selected.id] === 'reconciling' ? 'Checking whether the run was accepted…' : selected.lastRunStatus ? `Run ${selected.lastRunStatus}${selected.lastError ? ` · ${selected.lastError}` : ''}` : ''}</p>

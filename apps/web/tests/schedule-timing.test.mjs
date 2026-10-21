@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { formatLocalDateTime, localDateTimeToIso, scheduleTimeZones, validCronExpression, validScheduleTimeZone, validateScheduleTiming } from '../src/scheduleTiming.mjs';
+import { formatLocalDateTime, isConsumedOnceSchedule, localDateTimeToIso, scheduleTimeZones, validCronExpression, validScheduleTimeZone, validateScheduleTiming } from '../src/scheduleTiming.mjs';
 
 test('schedule timing preserves the exact saved once instant when the local editor value is untouched', () => {
   const original = '2031-06-14T19:22:33.456Z';
@@ -40,4 +40,18 @@ test('enabled schedule timing validation is shared by saves and the enable actio
   assert.match(validateScheduleTiming({ enabled: true, scheduleType: 'cron', timezone: 'UTC', cronExpression: 'not cron' }, now), /cron expression/);
   assert.equal(validateScheduleTiming({ enabled: false, scheduleType: 'once' }, now), null);
   assert.equal(validateScheduleTiming({ enabled: true, scheduleType: 'weekly', timezone: 'UTC', scheduledTime: '09:00', scheduledDay: 0 }, now), null);
+});
+
+test('only an actually consumed successful Once suppresses the missing-next-run warning', () => {
+  const due = '2035-01-01T12:00:00.000Z';
+  const completedAt = '2035-01-01T12:00:02.000Z';
+  const once = { scheduleType: 'once', runAt: due, lastRunAt: completedAt, lastRunStatus: 'completed_no_op' };
+  assert.equal(isConsumedOnceSchedule(once), true);
+  assert.equal(isConsumedOnceSchedule({ ...once, lastRunStatus: 'success' }), true);
+  assert.equal(isConsumedOnceSchedule({ ...once, lastRunAt: due }), true);
+  for (const changed of [
+    { scheduleType: 'daily' }, { runAt: null }, { runAt: 'invalid' },
+    { runAt: '2036-01-01T12:00:00.000Z' }, { lastRunAt: null },
+    { lastRunAt: 'invalid' }, { lastRunStatus: null }, { lastRunStatus: 'error' },
+  ]) assert.equal(isConsumedOnceSchedule({ ...once, ...changed }), false);
 });

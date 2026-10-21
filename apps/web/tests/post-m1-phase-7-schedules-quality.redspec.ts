@@ -165,6 +165,37 @@ test('schedule save without a next run warns after reopen and edits its real row
   expect(matching(seen, 'PATCH', '/agent-schedules/created-schedule')).toHaveLength(1);
 });
 
+test('completed Once no longer warns about timing, while incomplete or rescheduled rows still warn', async ({ page }) => {
+  const due = '2035-01-01T12:00:00.000Z';
+  const completedAt = '2035-01-01T12:00:02.000Z';
+  let stored: Record<string, unknown> = { ...task, scheduleType: 'once', runAt: due, nextRunAt: null,
+    lastRunAt: completedAt, lastRunStatus: 'completed_no_op' };
+  const seen: SeenRequest[] = [];
+  await openPhase7Live(page, '/tools/tasks', seen, async (route, request) => {
+    if (new URL(request.url()).pathname === '/agent-schedules')
+      return fulfillJson(route, 200, [stored]).then(() => true);
+    return false;
+  });
+  const warning = page.getByTestId('schedule-timing-warning');
+  const cases = [
+    { scheduleType: 'once', runAt: due, lastRunAt: completedAt, lastRunStatus: 'completed_no_op', enabled: true, warns: false },
+    { scheduleType: 'once', runAt: due, lastRunAt: completedAt, lastRunStatus: 'success', enabled: true, warns: false },
+    { scheduleType: 'once', runAt: due, lastRunAt: null, lastRunStatus: null, enabled: true, warns: true },
+    { scheduleType: 'once', runAt: 'invalid', lastRunAt: completedAt, lastRunStatus: 'completed_no_op', enabled: true, warns: true },
+    { scheduleType: 'once', runAt: '2036-01-01T12:00:00.000Z', lastRunAt: completedAt, lastRunStatus: 'completed_no_op', enabled: true, warns: true },
+    { scheduleType: 'daily', runAt: due, lastRunAt: completedAt, lastRunStatus: 'completed_no_op', enabled: true, warns: true },
+    { scheduleType: 'once', runAt: due, lastRunAt: null, lastRunStatus: null, enabled: false, warns: false },
+  ];
+  for (const scenario of cases) {
+    stored = { ...stored, ...scenario };
+    await page.reload();
+    await expect(page.getByTestId(`schedule-${task.id}`)).toBeVisible();
+    await expect(warning).toHaveCount(scenario.warns ? 1 : 0);
+  }
+  expect(matching(seen, 'POST', '/agent-schedules')).toHaveLength(0);
+  expect(matching(seen, 'PATCH', `/agent-schedules/${task.id}`)).toHaveLength(0);
+});
+
 test('enabling an untimed saved draft opens timing repair without an enable write', async ({ page }) => {
   const seen: SeenRequest[] = [];
   const draft = { ...task, scheduleType: 'once', enabled: false, runAt: null, nextRunAt: null };

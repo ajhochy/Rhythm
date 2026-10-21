@@ -1,0 +1,41 @@
+{
+  "issue": null,
+  "local_contract_id": "local-mcp-canonical-guidance",
+  "generated": "2026-10-20",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "local-mcp-canonical-guidance-c1",
+      "text": "Deferred describe gives an explicit executeName equal to the canonical name even when lookup uses an unambiguous registered name, while registeredName remains informational.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/mcp_allowlist_e2e.test.ts",
+      "test_id": "Case M (discovery) — natural search, describe by registered name, canonical execute once; alias execute and denied/builtin names have zero effect",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "local-mcp-canonical-guidance-c2",
+      "text": "Out-of-scope registered names remain fail-closed, bare execute remains denied with generic canonical retry guidance, and canonical execute performs the exact allowed effect.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/mcp_allowlist_e2e.test.ts",
+      "test_id": "local-mcp-canonical-guidance-c2: denied bare execute gives generic canonical retry guidance without widening scope",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "local-mcp-canonical-guidance-c4",
+      "text": "An ambiguous registered name remains fail-closed with zero effects while exact canonical names retain their identity.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/mcp_allowlist_e2e.test.ts",
+      "test_id": "Case N (discovery) — a registered name permitted on two servers holds with zero effects; the canonical id still works",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "local-mcp-canonical-guidance-c3",
+      "text": "Coordinator tool descriptions and the goalId schema instruct discovery and canonical execution without suggesting bare registered names for execution.",
+      "mode": "unit",
+      "test_file": "apps/mcp_server/src/tools/__tests__/coordinatorConversation.test.ts",
+      "test_id": "local-mcp-canonical-guidance-c3: Coordinator descriptions direct canonical discovery and execution",
+      "status": "pending"
+    }
+  ],
+  "not_tested": []
+}

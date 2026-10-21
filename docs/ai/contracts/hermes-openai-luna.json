@@ -1,0 +1,56 @@
+{
+  "work_item": "local-defect-hermes-openai-luna",
+  "issue": null,
+  "generated": "2026-10-20",
+  "criteria": [
+    {
+      "criterion_id": "hermes-openai-luna-c1",
+      "text": "GPT-6 Luna appears in the direct OpenAI API picker when the official live model listing contains GPT-6 Luna and an existing curated model.",
+      "mode": "unit",
+      "test_file": "/private/tmp/rhythm-hermes-timeout-source/tests/hermes_cli/test_openai_gpt6_luna_contract.py",
+      "test_id": "test_gpt6_luna_is_exposed_when_official_live_listing_contains_it",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "hermes-openai-luna-c2",
+      "text": "If the official live model listing does not contain GPT-6 Luna, selection is rejected and not persisted.",
+      "mode": "unit",
+      "test_file": "/private/tmp/rhythm-hermes-timeout-source/tests/hermes_cli/test_openai_gpt6_luna_contract.py",
+      "test_id": "test_gpt6_luna_absent_from_official_listing_is_not_selectable",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "hermes-openai-luna-c3",
+      "text": "Non-agent OpenAI catalog entries remain excluded from the picker.",
+      "mode": "unit",
+      "test_file": "/private/tmp/rhythm-hermes-timeout-source/tests/hermes_cli/test_openai_gpt6_luna_contract.py",
+      "test_id": "test_openai_picker_still_excludes_non_agent_catalog_entries",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "hermes-openai-luna-c4",
+      "text": "The provider label for openai-api matches its canonical Hermes provider label.",
+      "mode": "unit",
+      "test_file": "/private/tmp/rhythm-hermes-timeout-source/tests/hermes_cli/test_openai_gpt6_luna_contract.py",
+      "test_id": "test_openai_api_label_matches_its_canonical_provider_label",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "hermes-openai-luna-c5",
+      "text": "The exact GPT-6 Luna target resolves through the official OpenAI Responses transport.",
+      "mode": "unit",
+      "test_file": "/private/tmp/rhythm-hermes-timeout-source/tests/hermes_cli/test_openai_gpt6_luna_contract.py",
+      "test_id": "test_gpt6_luna_runtime_resolves_to_official_responses_transport",
+      "status": "pass"
+    }
+  ],
+  "stack": "python",
+  "not_tested": [],
+  "notes": [
+    "This is a local defect contract; no GitHub issue number was supplied.",
+    "The existing official-host picker behavior falls back to the full curated list when the successful live listing has zero curated matches. This behavior is separately characterized by test_official_listing_with_no_curated_intersection_keeps_existing_fallback and is not changed by this contract.",
+    "Initial RED: 2 failed, 4 passed. After the two approved source changes, the focused contract and six adjacent suites passed: 42 passed, 0 failed. A first post-change attempt had 41 passed/1 failed because the absent-listing test selected the first curated item, which was Luna after insertion at index 0; Luna was moved after the existing first model to preserve the existing preferred default and make the fixture accurately absent. The immutable test file was not changed.",
+    "Guarded command: python3 /private/tmp/rhythm-feature-playwright-2026-10-19/tools/build/guard.py --repo /private/tmp/rhythm-feature-playwright-2026-10-19 -- /bin/zsh -f -c 'cd /private/tmp/rhythm-hermes-timeout-source && scripts/run_tests.sh tests/hermes_cli/test_openai_gpt6_luna_contract.py tests/hermes_cli/test_openai_picker_curated.py tests/hermes_cli/test_openai_discovery_endpoint.py tests/hermes_cli/test_openai_listing_authority.py tests/hermes_cli/test_runtime_transport_precedence.py tests/hermes_cli/test_model_switch_openai_api_mode.py tests/hermes_cli/test_provider_catalog.py'. Exit 0; 42 passed, 0 failed."
+  ],
+  "test_command": "python3 /private/tmp/rhythm-feature-playwright-2026-10-19/tools/build/guard.py --repo /private/tmp/rhythm-feature-playwright-2026-10-19 -- /bin/zsh -f -c 'cd /private/tmp/rhythm-hermes-timeout-source && scripts/run_tests.sh tests/hermes_cli/test_openai_gpt6_luna_contract.py tests/hermes_cli/test_openai_picker_curated.py tests/hermes_cli/test_openai_discovery_endpoint.py tests/hermes_cli/test_openai_listing_authority.py tests/hermes_cli/test_runtime_transport_precedence.py tests/hermes_cli/test_model_switch_openai_api_mode.py tests/hermes_cli/test_provider_catalog.py'"
+}

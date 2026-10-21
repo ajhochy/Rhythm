@@ -383,8 +383,21 @@ test('[AI schedules] private UI-created Once job fires on a natural local tick; 
     receipt.localInputBoundToSdkUser = inputBound;
     receipt.sdkToolPartCount = engineMessages.flatMap(message => message.parts).filter(part => part.type === 'tool').length;
     phase = 'read rendered run history';
-    await reloadOwnedScheduleCatalog(page, `Bearer ${token}`);
+    const completedCatalog = await reloadOwnedScheduleCatalog(page, `Bearer ${token}`);
+    const completedOnce = completedCatalog.find(task => task.id === enabledId);
+    receipt.completedOnceCatalog = completedOnce ? {
+      id: completedOnce.id, enabled: completedOnce.enabled,
+      nextRunAt: completedOnce.nextRunAt, lastRunAt: completedOnce.lastRunAt,
+      lastRunStatus: completedOnce.lastRunStatus,
+    } : null;
     await page.getByTestId(`schedule-${enabledId}`).click();
+    await expect(page.getByTestId('schedule-run-context')).toBeVisible();
+    const timingWarning = page.getByTestId('schedule-timing-warning');
+    const warningVisible = await timingWarning.isVisible();
+    receipt.completedOnceWarning = {
+      visible: warningVisible,
+      text: warningVisible ? await timingWarning.innerText() : null,
+    };
     receipt.uiProgress = await page.getByTestId('schedule-progress').innerText();
     if (run) {
       await expect(page.getByTestId(`schedule-run-${run.id}`)).toBeVisible();
@@ -416,6 +429,13 @@ test('[AI schedules] private UI-created Once job fires on a natural local tick; 
       && receipt.manualTriggers === 0;
     receipt.status = dispatchedOnce ? 'observed' : 'unverified';
     if (!dispatchedOnce) throw new Error('UNVERIFIED: natural tick, Luna answer, SDK/local/UI linkage, or disabled control differed');
+    expect(receipt.completedOnceCatalog).toMatchObject({
+      id: enabledId, enabled: true, nextRunAt: null, lastRunStatus: 'completed_no_op',
+    });
+    expect(Date.parse(completedOnce?.lastRunAt ?? ''), 'successful Once was consumed at its due time')
+      .toBeGreaterThanOrEqual(Date.parse(runAt));
+    expect((receipt.completedOnceWarning as { visible: boolean }).visible,
+      'a completed Once must not warn that its timing needs editing').toBe(false);
   } catch (error) {
     primaryError = error;
   } finally {
@@ -512,6 +532,8 @@ test('[AI schedules] private UI-created Once job fires on a natural local tick; 
         observed: receipt.status === 'observed',
         manualTriggers: receipt.manualTriggers,
         runStatus: (receipt.enabledRuns as Run[] | undefined)?.[0]?.status ?? null,
+        completedOnceCatalog: receipt.completedOnceCatalog ?? null,
+        completedOnceWarning: receipt.completedOnceWarning ?? null,
         enabledRunCount: (receipt.enabledRuns as Run[] | undefined)?.length ?? null,
         disabledRunCount: (receipt.disabledRuns as Run[] | undefined)?.length ?? null,
         answer: receipt.answer ?? null,

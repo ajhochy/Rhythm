@@ -32,6 +32,22 @@ function extra(toolName = 'rhythm_get_coordinator_status') {
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
+it('local-mcp-canonical-guidance-c3: Coordinator descriptions direct canonical discovery and execution', () => {
+  const published = new Map<string, { description: string; shape: Record<string, { description?: string }> }>();
+  registerCoordinatorConversationTools({
+    tool: (name: string, description: string, shape: Record<string, { description?: string }>) => {
+      published.set(name, { description, shape });
+    },
+  } as never, 'http://127.0.0.1:4001', 'token');
+  const status = published.get('rhythm_get_coordinator_status');
+  const start = published.get('rhythm_start_coordinator_goal');
+  expect(status?.description).toMatch(/canonical/i);
+  expect(start?.description).toMatch(/describe.*canonical.*execute/is);
+  expect(start?.description).not.toContain('Read rhythm_get_coordinator_status');
+  expect(start?.shape.goalId.description).toMatch(/canonical/i);
+  expect(start?.shape.goalId.description).not.toContain('rhythm_get_coordinator_status');
+});
+
 describe('signed coordinator conversation MCP status', () => {
   it('registers one read-only status tool and posts only the signed active-call envelope', async () => {
     const handler = fixture().get('rhythm_get_coordinator_status')!;

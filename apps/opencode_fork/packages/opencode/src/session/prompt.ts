@@ -109,7 +109,7 @@ const elog = EffectLogger.create({ service: "session.prompt" })
 // the skill-scope dispatcher pattern in tool/skill.ts, #775).
 const MCP_DISPATCH_DESCRIPTION =
   "Discover and call MCP tools and hosted builtin tools by name. Use action=search to find a tool, action=describe to obtain its complete required input schema, and action=execute to call it. " +
-  'Search matches every word in any order. Always execute the canonical name that search/describe returns. ' +
+  'Search matches every word in any order. For MCP tools, describe returns executeName; always execute that canonical name, never registeredName. ' +
   'For backward compatibility, { "name": "<tool_name>", "arguments": { ... } } defaults to action=execute.'
 
 /** composedKey -> description, read from the AI SDK Tool objects mcp.tools() returns. */
@@ -1100,7 +1100,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   if (resolved.ok) selected = resolved.key
                 }
                 if (!cur.keys.has(selected)) {
-                  throw new Error(`MCP tool "${request.name}" is not permitted for this session's allowlist.`)
+                  throw new Error(`MCP tool "${request.name}" is not permitted for this session's allowlist. Use action=describe, then action=execute with the returned canonical executeName.`)
                 }
                 const rawItem = currentMcpTools[selected]
                 if (!rawItem) {
@@ -1120,6 +1120,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     metadata: {},
                     output: JSON.stringify({
                       name: selected,
+                      executeName: selected,
                       ...(registered !== undefined && registered !== selected ? { registeredName: registered } : {}),
                       description: rawItem.description ?? "",
                       inputSchema: described,

@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "date": "2026-10-20",
   "window": "2026-09-20 through 2026-10-20",
-  "sourceRevision": "8faf4e215679a79dbc2f658543d3cff4b19ef8f1",
-  "productRevision": "d7fb554735f93c0d0a76785cbadd583d0f866610",
+  "sourceRevision": "5dfffb5d9978795935becfe4723c8196bb2f883d",
+  "productRevision": "0b3b1803938383385b376cfbd7571b584e658f2c",
   "features": [
     {
       "id": "sessions-crud",
@@ -19,7 +19,7 @@
         "#1556",
         "#1558"
       ],
-      "entry": "Agents \u2192 Advanced new session / rail / session menu",
+      "entry": "Agents → Advanced new session / rail / session menu",
       "expected": "Create/read/list/reload agree on name, profile, cwd and project; delete is permanent in API, SQLite and engine.",
       "edges": [
         "blank/cancel",
@@ -59,7 +59,7 @@
         "#1578",
         "#1582"
       ],
-      "entry": "Agents \u2192 owned session \u2192 composer/transcript",
+      "entry": "Agents → owned session → composer/transcript",
       "expected": "UI, API and engine show one user prompt and real assistant answer with provider/model provenance, same ordering after reload.",
       "edges": [
         "two-session isolation",
@@ -121,7 +121,7 @@
       "existingTests": [
         "apps/web/tests/packaged/packaged-sessions.spec.ts"
       ],
-      "coverage": "REDO: packaged test covers explicit names, not automatic naming; no mobile packaged proof.",
+      "coverage": "REDO: packaged test covers explicit names, not automatic naming; no mobile packaged proof. Private exact-build observer is prepared with normal UI/real answer and title API/DB/list/reload readback, but is UNRUN; no generated-name behavior is credited.",
       "gapReason": "No assertion links generated title to post-turn session list/readback.",
       "requires": [
         "Packaged app and nonce-owned real session; mobile app/device for mobile claim."
@@ -181,7 +181,7 @@
       "issues": [
         "#1576"
       ],
-      "entry": "Session Details \u2192 Served by / transcript",
+      "entry": "Session Details → Served by / transcript",
       "expected": "Visible provider/model matches the same actual assistant message and API/engine record.",
       "edges": [
         "alias",
@@ -232,7 +232,7 @@
         "#1589",
         "#1611"
       ],
-      "entry": "Chat model picker \u2192 Auto (router)",
+      "entry": "Chat model picker → Auto (router)",
       "expected": "Actual first turn uses selected eligible model/account/effort; ledger and engine agree; continuation reuses; fixed model bypasses.",
       "edges": [
         "trivial/routine prompts",
@@ -246,18 +246,19 @@
         "apps/web/tests/packaged/packaged-model-router.spec.ts",
         "apps/web/tests/packaged/router-calibration-cases.ts"
       ],
-      "coverage": "KEEP: ordinary router remains scoped to the historical 17/17 packaged confirmation at d7fb554735. The focused Coordinator main-Auto source contract selection at cb383e77b5 passed 94/94; a later related source suite passed 137/137. The subsequent full serial API aggregate exited 1 with 8,827 passed tests and one shared-agent registrar auth-error timeout/unhandled rejection. These source checks do not qualify main-chat UI routing. The observed private main turn classified tier 4, found no usable Grid route, and served baseline `gpt-6.1-sol`; this is not a cheap-route success.",
+      "coverage": "CONFIRMED SCOPED on exact locally signed4fda: ordinary router17/17 includes actual cheap routes, calibration, fixed pin and reload reuse. Main Auto semantic case separately passes1/1 from explicit6.1Sol profile baseline: Decisions knowledge/tier3, applied6Sol/medium, one canonical foreground command, completed SDK/no-tools/19 and DB/history/provenance/UI agreement. Earlier2b8 actual tier4/Luna receipt is separate. The first4fda semantic attempt failed because its fixture hid the tier3 model; that failed receipt is retained, and both configured routine models were then made eligible through normal private API before independent Confirm. Latest exact signed 5dff router/MCP combined attempt is not a router pass: 3 cases passed, the eligible tier-3 arithmetic case failed, and 14 did not run because fixture visibility exposed Luna but not GPT-6 Sol (`/private/tmp/rhythm-private-5dff-router-mcp-confirm-20261020.log`). The prior 4fda ordinary 17/17 and separate 1/1 semantic result remain historical 4fda scopes. Separate current 5dff main Auto reload/reopen Recon passed 1/1: actual tier-4 Luna answer, same SDK root/messages and API history/UI after reload, one POST/foreground command, and unchanged two Grid attempts; this is Recon, not a new router Confirm. Current signed5dff paid19/19 includes ordinary router17 and checked main Auto reload/reopen1. Fresh isolated hidden-candidate router prerequisite independently passed1/1 after its own normal-API three-model visibility PATCH/readback and real tier3 Sol/medium route. The earlier18-case fixture RED remains separate.",
       "gapReason": "Held-out classifier quality, exhaustion recovery, explicit account pin, child provenance and failed-application remain unqualified.",
       "requires": [
         "Exact identity-matched packaged app, API/engine, authorized real provider model and eligible account."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Actual main-chat Grid/Luna attempt and served UI/engine model remain unqualified; held-out classifier quality, exhaustion recovery, explicit account pin, child provenance, and failed-application remain separate gaps.",
+      "remaining": "Held-out classifier quality, exhaustion/restart, explicit account pin, child provenance, failed application and main-chat provider retry remain unqualified.",
       "newTests": [
         "apps/api_server/src/__tests__/coordinator_chat_controls_parity.test.ts",
         "apps/api_server/src/__tests__/coordinator_auto_grid_live_e2e.test.ts",
-        "apps/api_server/src/services/decision/router_grid_turn.test.ts"
+        "apps/api_server/src/services/decision/router_grid_turn.test.ts",
+        "apps/web/tests/packaged/packaged-ai-primary-model-router.spec.ts"
       ],
       "primaryIssueTracking": [
         {
@@ -287,7 +288,7 @@
       "issues": [
         "#1612"
       ],
-      "entry": "Agent Settings \u2192 Grid Routing",
+      "entry": "Agent Settings → Grid Routing",
       "expected": "UI save/readback round-trips policy served by API; missing file shows defaults; malformed save rejected.",
       "edges": [
         "malformed policy",
@@ -325,7 +326,7 @@
       "issues": [
         "#1594"
       ],
-      "entry": "Agent Settings \u2192 Models / Model Routing; profile provider-model selector",
+      "entry": "Agent Settings → Models / Model Routing; profile provider-model selector",
       "expected": "Checked catalog IDs agree with enabled API set and routing candidates; empty/disconnected catalogs recover visibly.",
       "edges": [
         "search/sort",
@@ -337,17 +338,18 @@
         "apps/web/tests/contract/issue-1580-model-curation.spec.ts",
         "apps/web/tests/contract/issue-1580-provider-connect-card.test.mjs"
       ],
-      "coverage": "CONFIRMED SCOPED at the API/fork boundary: fresh guarded sandbox `b` first-boot OpenAI catalog test passed 1/1 (combined sandbox confirmation 2/2 with the separate primary denial case). The first catalog read returned authorized OpenAI rows from the sandbox 5.x model fixture and the Grid API reported `catalog.source: live`. This fixture intentionally omits GPT-6 IDs; the result does not prove GPT-6 hook availability, native picker refresh, or a paid served route.",
+      "coverage": "CONFIRMED SCOPED: API/fork synthetic first-boot gate and exact4fda native semantic case return live authorized configured GPT-6 rows before any profile PATCH or restart. Private normal-API opt-in exposes reviewed6Luna/6Sol/6.1Sol; actual main route serves6Sol and separate2b8 route served6Luna. This does not establish every provider entitlement or UI failure recovery.",
       "gapReason": "The real API/fork cold-start catalog is covered, but it does not establish current packaged native UI refresh, GPT-6 authorization/entitlement, or actual model execution.",
       "requires": [
         "Packaged app and real API model catalog; provider auth optional for read-only catalog case."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "GPT-6 model-hook and entitlement visibility, native picker refresh after first boot, provider auth/re-auth, catalog failure recovery, and actual served-model routing remain unqualified.",
+      "remaining": "Native picker refresh, provider auth/re-auth, catalog failure recovery and additional entitlement boundaries remain unqualified.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-settings.spec.ts",
-        "apps/api_server/src/__tests__/openai_catalog_first_boot_live_e2e.test.ts"
+        "apps/api_server/src/__tests__/openai_catalog_first_boot_live_e2e.test.ts",
+        "apps/web/tests/packaged/packaged-ai-primary-model-router.spec.ts"
       ],
       "primaryIssueTracking": [
         {
@@ -372,7 +374,7 @@
       "issues": [
         "#1568"
       ],
-      "entry": "Agent Settings \u2192 Accounts; profile/session model selector",
+      "entry": "Agent Settings → Accounts; profile/session model selector",
       "expected": "Selected account applies per request; automatic eligible fallback works; explicit account pin is preserved; usage percentage means used.",
       "edges": [
         "two accounts",
@@ -418,7 +420,7 @@
       "issues": [
         "#1546"
       ],
-      "entry": "Agent Settings \u2192 Accounts \u2192 provider reauthorize",
+      "entry": "Agent Settings → Accounts → provider reauthorize",
       "expected": "Same account ID returns connected and remains default; sibling provider/account remains intact.",
       "edges": [
         "pending auth",
@@ -463,7 +465,7 @@
         "776ed655bf"
       ],
       "issues": [],
-      "entry": "Provider-backed chat and Agent Settings \u2192 Accounts",
+      "entry": "Provider-backed chat and Agent Settings → Accounts",
       "expected": "Current provider request succeeds; auth file appearing after launch updates account state; qualification writes only isolated data/config.",
       "edges": [
         "delayed file appearance",
@@ -501,7 +503,7 @@
       "issues": [
         "#1583"
       ],
-      "entry": "Composer file picker \u2192 transcript attachment thumbnail",
+      "entry": "Composer file picker → transcript attachment thumbnail",
       "expected": "Picked file reaches engine once; artifact route returns same owned bytes and transcript renders correct image/file fallback.",
       "edges": [
         "oversize",
@@ -582,7 +584,7 @@
         "c6cc2b129e"
       ],
       "issues": [],
-      "entry": "Agents \u2192 Tools \u2192 Brain",
+      "entry": "Agents → Tools → Brain",
       "expected": "Selecting a row shows its full matching content and source/date; deleted/missing rows produce honest empty/error state.",
       "edges": [
         "long content",
@@ -627,7 +629,7 @@
         "#1012",
         "#765"
       ],
-      "entry": "Profiles \u2192 MCP allowlist and real chat tool invocation",
+      "entry": "Profiles → MCP allowlist and real chat tool invocation",
       "expected": "Only profile-granted tools are callable; granted deferred tools remain reachable; ungranted tools remain unavailable; packaged Rhythm MCP lists actual tools.",
       "edges": [
         "empty allowlist",
@@ -641,15 +643,17 @@
         "apps/web/tests/secondary-tool-paths.spec.ts",
         "apps/web/tests/tools.spec.ts"
       ],
-      "coverage": "ABSENT packaged end-to-end MCP catalog + invocation + per-session scope; current tests fake/contract.",
-      "gapReason": "No installed MCP stdio launch evidence or real engine tool call under distinct profiles.",
+      "coverage": "CONFIRMED SCOPED: independent fixed-Luna packaged scope test passed 1/1 on signed 6101 and as the first case on signed 5dff. Four real SDK outcomes covered inherited/selected allowed task calls plus selected/None canonical denials, with exact nonce-owned task identity in successful tool output. Historical packaged stdio114-tool discovery/ping and global inspector receipts remain separate. The 5dff combined router/MCP invocation later stopped on the hidden GPT-6 Sol prerequisite; it does not invalidate the earlier MCP case or establish all MCP lifecycles. Current signed5dff checked MCP case passed1/1 in24.8s inside separate19/19 paid selection; whole loan scrubbed with source hashes unchanged. Earlier visibility RED occurred in a separate router case.",
+      "gapReason": "Normal auth-restore/Connect catalog readiness, other profile lifecycle transitions, cold registration, and broader tool/server cases remain unqualified.",
       "requires": [
         "Packaged app/API/engine/MCP binary, sanitized safe local-command MCP fixture and owned sessions."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "No installed MCP stdio launch evidence or real engine tool call under distinct profiles.",
-      "newTests": [],
+      "remaining": "Observe normal auth-restore/Connect catalog readiness and remaining profile lifecycle edges; exercise the broader tool/server matrix with exact cleanup.",
+      "newTests": [
+        "apps/web/tests/packaged/packaged-ai-private-mcp-profile-scope.spec.ts"
+      ],
       "primaryIssueTracking": [
         {
           "issue": "#1012",
@@ -682,7 +686,7 @@
         "#1544",
         "#1523"
       ],
-      "entry": "Agents \u2192 Profiles",
+      "entry": "Agents → Profiles",
       "expected": "Changed-field PATCH persists and reloads; failed save retains draft; inherited/explicit choices and skill tags remain stable.",
       "edges": [
         "dirty profile switch",
@@ -697,19 +701,20 @@
         "apps/web/tests/inspector-profiles.spec.ts",
         "apps/web/tests/post-m1-phase-2-profiles.redspec.ts"
       ],
-      "coverage": "CONFIRMED SCOPED on exact signed private build 194: nonce-owned profile failed-save retained the draft and succeeded on retry; a stale 409 preserved the draft while the API winner remained at revision 1. The corrected native focused cases passed. Rendered profile CAS/revisioned retry also passed 2/2; the complete rendered profile file passed 37 with one existing skip, and the earlier skill-filter fixture failure is resolved.",
+      "coverage": "CONFIRMED SCOPED: prior exact194 failed-save/retry and stale409 draft-preservation cases; current exact4fda independently confirms existing-profile Keep Editing/Discard, explicit postreload reselect of original label, no profile writes and unchanged API/SQLite state. Rendered CAS2/2 and editor37 with one existing skip are separate source receipts. Current signed 5dff native 60-case selection passed both new-draft discard and existing-profile Keep Editing/Discard with reload barriers; the existing-profile case reselected the original profile and verified API/SQLite identity digests unchanged with zero profile writes.",
       "gapReason": "The confirmed profile cases cover controlled 503 retry and stale-revision conflict; broad profile capabilities and profile-to-session runtime propagation remain distinct.",
       "requires": [
         "Disposable profile with reversible settings and packaged app; no mutation to user profile."
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Dirty profile switching, broader changed-field/policy preservation, inherited/explicit MCP and skill scope, provider/model choices, and actual session runtime capabilities remain unqualified.",
+      "remaining": "Broader changed-field/policy preservation, inherited/explicit MCP and skill scope, provider/model choices and actual session runtime capabilities remain unqualified.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-settings.spec.ts",
         "apps/web/tests/packaged/packaged-ai-followon.spec.ts",
         "apps/web/tests/packaged/packaged-ai-profile-save.spec.ts",
-        "apps/web/tests/profiles-editor-redesign.spec.ts"
+        "apps/web/tests/profiles-editor-redesign.spec.ts",
+        "apps/web/tests/packaged/packaged-ai-private-profile-dirty-switch.spec.ts"
       ],
       "primaryIssueTracking": [
         {
@@ -734,7 +739,7 @@
       "issues": [
         "#1597"
       ],
-      "entry": "Agents \u2192 Agent Settings \u2192 MCPs",
+      "entry": "Agents → Agent Settings → MCPs",
       "expected": "Packaged server starts over stdio, returns live tool catalog and inspector displays actual status/count.",
       "edges": [
         "missing bundle",
@@ -848,7 +853,7 @@
         "#1554",
         "#1582"
       ],
-      "entry": "Agents transcript \u2192 reasoning block / message usage footer",
+      "entry": "Agents transcript → reasoning block / message usage footer",
       "expected": "Whitespace reasoning has no row; streamed reasoning shows meaningful headline and SafeMarkdown body; in-flight all-zero usage is hidden; priced cost is rounded and plan-priced cost omitted.",
       "edges": [
         "late streamed text",
@@ -894,7 +899,7 @@
         "#1566",
         "#1565"
       ],
-      "entry": "Agents session inspector \u2192 Context Usage / Usage Budget",
+      "entry": "Agents session inspector → Context Usage / Usage Budget",
       "expected": "GET /agents/usage-budget results render correct window/credits/unavailable semantics by account; manual refresh works; context usage uses actual counts and readable abbreviation.",
       "edges": [
         "multiple accounts same provider",
@@ -942,7 +947,7 @@
         "#1572",
         "#1559"
       ],
-      "entry": "Agent Settings \u2192 Providers / Models; session model picker",
+      "entry": "Agent Settings → Providers / Models; session model picker",
       "expected": "Live connected/provider readiness states, inline login handoff, searchable live model catalog, persisted visibility and picker refresh without restart/profile switch.",
       "edges": [
         "provider disconnected",
@@ -985,7 +990,7 @@
       "source": "apps/web/tests/open-design-tools.sourcespec.ts:9-62; run inventory under docs/ai/plans/2026-10-19-feature-test-inventory.md (source-spec coverage only)",
       "commits": [],
       "issues": [],
-      "entry": "Agents \u2192 Tools \u2192 OpenDesign",
+      "entry": "Agents → Tools → OpenDesign",
       "expected": "Open action attaches workspace in host region; pin preference persists by scope; unavailable/malformed bridge yields fixed actionable error and Retry, never blank success.",
       "edges": [
         "bridge missing",
@@ -1058,7 +1063,7 @@
         "2a4d8a1223"
       ],
       "issues": [],
-      "entry": "Agents \u2192 Tools \u2192 Deep Research \u2192 project/run configuration",
+      "entry": "Agents → Tools → Deep Research → project/run configuration",
       "expected": "Configured lead/researcher models appear in run stages; bounded parallel work stays within budget; exhausted runs synthesize available evidence and disclose degraded completion.",
       "edges": [
         "invalid model catalog choice",
@@ -1095,7 +1100,7 @@
         "760f8deb39"
       ],
       "issues": [],
-      "entry": "Deep Research \u2192 Magazine / Gallery artifact viewer / Ask about this",
+      "entry": "Deep Research → Magazine / Gallery artifact viewer / Ask about this",
       "expected": "Same run+bytes is no-op; changed output versions; Ask opens exact discussion with quoted section/source link; export saves HTML/Markdown; per-run sources dedupe.",
       "edges": [
         "new version diff",
@@ -1134,7 +1139,7 @@
         "c1c0b3b328"
       ],
       "issues": [],
-      "entry": "Agents \u2192 Tools \u2192 Gallery \u2192 folders/artifact viewer",
+      "entry": "Agents → Tools → Gallery → folders/artifact viewer",
       "expected": "Owned poster/image/video loads with correct authenticated origin and selected artifact; folders support create/rename/delete/drag; failure on one item does not poison others.",
       "edges": [
         "no-cors local guard",
@@ -1148,7 +1153,7 @@
         "apps/web/tests/post-m1-phase-7-research-gallery.redspec.ts",
         "apps/web/tests/pages/agent-tools-list-inspector.spec.ts"
       ],
-      "coverage": "CONFIRMED SCOPED on exact signed private build 28bcc2aa44: owned 1\u00d71 image preview decoded from the authenticated asset route; missing media stayed inspectable/unavailable; folder move/rename persisted through API/SQLite, and catalog 503 recovered after reload.",
+      "coverage": "CONFIRMED SCOPED on exact signed private build 28bcc2aa44: owned 1×1 image preview decoded from the authenticated asset route; missing media stayed inspectable/unavailable; folder move/rename persisted through API/SQLite, and catalog 503 recovered after reload.",
       "gapReason": "Available image preview, missing-media inspector, folder mutation and one catalog recovery passed; actual playback and generated output remain unqualified.",
       "requires": [
         "Nonce-owned generated image/video artifact and reversible folder fixture in packaged app."
@@ -1181,7 +1186,7 @@
         "#1562",
         "#1564"
       ],
-      "entry": "Agents \u2192 Agent Settings \u2192 Runtime / MCPs / Profiles",
+      "entry": "Agents → Agent Settings → Runtime / MCPs / Profiles",
       "expected": "Status reflects owned runtime; restart only affects owned spawned runtime; MCP action errors/retries stay local and visible; navigation survives section load failures.",
       "edges": [
         "adopted runtime cannot be killed",
@@ -1311,7 +1316,7 @@
     {
       "id": "HERMES-01",
       "feature": "Pinned Hermes Desktop native child, attachment, resize, teardown",
-      "claim": "Issue acceptance excerpt (verbatim): \u201cWith the flag enabled and B2 ready, the Hermes sidebar route renders the real supervised dashboard inside the pinned Electron app; starting/failed states are legible, and navigation back to Rhythm works.\u201d",
+      "claim": "Issue acceptance excerpt (verbatim): “With the flag enabled and B2 ready, the Hermes sidebar route renders the real supervised dashboard inside the pinned Electron app; starting/failed states are legible, and navigation back to Rhythm works.”",
       "source": "apps/electron/test/hermes-desktop-native.test.mjs:1-4, 56-75; apps/electron/src/hermes-view.mjs:26-45, 59-73, 184; docs/ai/decisions/2026-09-19-hermes-desktop-host-plan.md:12-16; https://github.com/ajhochy/Rhythm/issues/1542",
       "commits": [
         "31906d37d2",
@@ -1343,7 +1348,7 @@
         "apps/electron/test/hermes-desktop-ownership-live.test.mjs",
         "apps/web/tests/packaged/packaged-app.ts"
       ],
-      "coverage": "CONFIRMED SCOPED on exact signed private build 28bcc2aa44: actual pinned Hermes child opened saved history, retained an unsent draft through tab switches, and recovered its workspace after a notification overlay and hidden backend interval.",
+      "coverage": "CONFIRMED SCOPED on exact signed private build 28bcc2aa44: actual pinned Hermes child opened saved history, retained an unsent draft through tab switches, and recovered its workspace after a notification overlay and hidden backend interval. Later private native Hermes probe saved an authorized key but the 13-model picker lacked Luna, so no chat was sent. Local Hermes source2ad39a4cdb repairs GPT-6 slug/label curation; immutable contract RED2/4 to GREEN42/42, sealed Desktop404-file/backend19387-file artifacts built and isolated bundled health/history returned200/200 with one row. Rhythm full signed app remains old5dff/235; updated source pin is not committed or natively confirmed.",
       "gapReason": "hermes-desktop-native.test.mjs is an env-gated real Electron/CDP Playwright test and observes the actual Hermes child. The general packaged Playwright helper does not yet encode this companion assertion. Native test requires parent-owned candidate PID/userData and RHYTHM_LIVE_E2E=1; results are not inferred from its presence.",
       "requires": [
         "real packaged Rhythm candidate",
@@ -1354,7 +1359,7 @@
       "trackingStatus": "open; current tree instead integrates pinned Hermes Desktop renderer, but original issue remains open and acceptance is not closed",
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Crash/restart, artifact rejection, complete teardown ownership, and account-switch isolation still need disposable native checks.",
+      "remaining": "Crash/restart, artifact rejection, complete teardown ownership, and account-switch isolation still need disposable native checks. A real authenticated Hermes chat and history/served-model proof remain absent after source pin and full app rebuild.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-companions.spec.ts"
       ],
@@ -1364,7 +1369,7 @@
     {
       "id": "HERMES-02",
       "feature": "Hermes intents navigate to Rhythm session or create chat",
-      "claim": "Issue acceptance excerpt (verbatim): \u201cValid typed intents navigate to the requested session or open an editable draft with bounded, labelled Rhythm context; neither sends a message nor creates a legacy Rhythm agent session.\u201d",
+      "claim": "Issue acceptance excerpt (verbatim): “Valid typed intents navigate to the requested session or open an editable draft with bounded, labelled Rhythm context; neither sends a message nor creates a legacy Rhythm agent session.”",
       "source": "docs/ai/decisions/2026-09-18-hermes-inside-rhythm-coexists-with-rhythm-inside-hermes.md:13-25; apps/electron/src/hermes-protocol.mjs; https://github.com/ajhochy/Rhythm/issues/1542",
       "commits": [
         "31906d37d2",
@@ -1407,7 +1412,7 @@
     {
       "id": "HERMES-03",
       "feature": "Owner-authenticated Hermes approvals and durable workflow notifications",
-      "claim": "Issue acceptance excerpt (verbatim): \u201cEnable task completion/rescheduling only after M4.6 authorization, conflict, idempotency/reconciliation and read-back gates. Expose exactly the three approved Hermes-native tools using Hermes approval policy, never legacy Rhythm approval IDs.\u201d",
+      "claim": "Issue acceptance excerpt (verbatim): “Enable task completion/rescheduling only after M4.6 authorization, conflict, idempotency/reconciliation and read-back gates. Expose exactly the three approved Hermes-native tools using Hermes approval policy, never legacy Rhythm approval IDs.”",
       "source": "apps/electron/src/hermes-agent-bridge.mjs; apps/api_server/src/routes/hermes_notify_routes.ts; https://github.com/ajhochy/Rhythm/issues/1540; https://github.com/ajhochy/Rhythm/issues/1542",
       "commits": [
         "31906d37d2",
@@ -1458,7 +1463,7 @@
     {
       "id": "HERMES-04",
       "feature": "Hermes credential, account, and memory privacy",
-      "claim": "Issue acceptance excerpt (verbatim): \u201cNo credential value is logged, sent to production, or included in diagnostics.\u201d",
+      "claim": "Issue acceptance excerpt (verbatim): “No credential value is logged, sent to production, or included in diagnostics.”",
       "source": "docs/ai/decisions/2026-09-24-shared-agents-scope.md:14-37; apps/electron/src/hermes-credential-broker.mjs; apps/electron/test/hermes-accounts-memory.test.mjs; https://github.com/ajhochy/Rhythm/issues/1569",
       "commits": [
         "4df870e240",
@@ -1489,7 +1494,7 @@
         "apps/electron/test/hermes-accounts-memory.test.mjs",
         "apps/electron/test/hermes-accounts-wiring-contract.test.mjs"
       ],
-      "coverage": "KEEP unit/security checks; ABSENT packaged consent/account-switch E2E",
+      "coverage": "KEEP unit/security checks; ABSENT packaged consent/account-switch E2E Private Hermes normal UI saved an authorized OpenAI key, but no chat/provider turn occurred because Luna was absent from the picker; key persistence alone does not establish credential use or privacy. The local model-list fix is source/artifact evidence, not rebuilt Rhythm-native or provider proof.",
       "gapReason": "Current security tests cover policy and bridge contracts but not packaged renderer-visible privacy transitions.",
       "requires": [
         "synthetic credential and owner",
@@ -1499,7 +1504,7 @@
       "trackingStatus": "open; current unit/privacy implementation is partial evidence, issue remains open",
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Current security tests cover policy and bridge contracts but not packaged renderer-visible privacy transitions.",
+      "remaining": "Current security tests cover policy and bridge contracts but not packaged renderer-visible privacy transitions. Real authenticated provider use, account switch/revocation, consent scope, memory privacy and outbound redaction remain unqualified.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-tools.spec.ts"
       ],
@@ -1509,7 +1514,7 @@
     {
       "id": "HERMES-05",
       "feature": "Signed Desktop install and in-place update",
-      "claim": "Issue acceptance excerpt (verbatim): \u201cA detached Ed25519 signature over the canonical `manifest.json` bytes is verified against a public key compiled into Rhythm, **before** any artifact path is read. Verification failure is indistinguishable in effect from a missing artifact.\u201d",
+      "claim": "Issue acceptance excerpt (verbatim): “A detached Ed25519 signature over the canonical `manifest.json` bytes is verified against a public key compiled into Rhythm, **before** any artifact path is read. Verification failure is indistinguishable in effect from a missing artifact.”",
       "source": "apps/electron/src/hermes-desktop-updates.mjs; apps/electron/test/hermes-desktop-updates.test.mjs; commit subjects 6db991a961 and 7c8115a7f1; https://github.com/ajhochy/Rhythm/issues/1570",
       "commits": [
         "6db991a961",
@@ -1556,7 +1561,7 @@
     {
       "id": "COLONY-01",
       "feature": "Pinned Bot Crossing native scene and exact document authority",
-      "claim": "Issue acceptance excerpt (verbatim): \u201cDeliver an opt-in Colony workspace for all Rhythm desktop users, packaged for Apple Silicon and Intel. Preserve the 3D colony and local multi-harness model while redesigning UI and menu items to match Rhythm Electron. **This is a filed implementation plan, not implemented or release-qualified work.**\u201d",
+      "claim": "Issue acceptance excerpt (verbatim): “Deliver an opt-in Colony workspace for all Rhythm desktop users, packaged for Apple Silicon and Intel. Preserve the 3D colony and local multi-harness model while redesigning UI and menu items to match Rhythm Electron. **This is a filed implementation plan, not implemented or release-qualified work.**”",
       "source": "docs/ai/decisions/2026-09-18-colony-integration-proposal.md:7-13; apps/electron/src/colony-view.mjs:8-37,71-90; https://github.com/ajhochy/Rhythm/issues/1525",
       "commits": [
         "83a34785f0",
@@ -1666,7 +1671,7 @@
     {
       "id": "COLONY-02",
       "feature": "Multi-harness discovery, inventory, and read-only source behavior",
-      "claim": "Issue acceptance excerpt (verbatim): \u201cWith Colony disabled, normal app startup performs zero harness reads and creates zero Colony children. Ten concurrent enable/open events create one scanner; repeated tab use does not create another.\u201d",
+      "claim": "Issue acceptance excerpt (verbatim): “With Colony disabled, normal app startup performs zero harness reads and creates zero Colony children. Ten concurrent enable/open events create one scanner; repeated tab use does not create another.”",
       "source": "apps/electron/test/colony-host-inventory-contract.test.mjs; apps/electron/src/colony-sources.mjs; docs/ai/runs/2026-09-21-colony-issue-filing.md (release family #1533-1537); https://github.com/ajhochy/Rhythm/issues/1528",
       "commits": [
         "83a34785f0",
@@ -1747,7 +1752,7 @@
     {
       "id": "COLONY-03",
       "feature": "Open task/session in owning harness",
-      "claim": "Issue acceptance excerpt (verbatim): \u201cFrom actual Colony controls, a Rhythm task outside the first page and a supported worker/parent open the requested visible identity while preserving authentication and the existing app/API/engine processes.\u201d",
+      "claim": "Issue acceptance excerpt (verbatim): “From actual Colony controls, a Rhythm task outside the first page and a supported worker/parent open the requested visible identity while preserving authentication and the existing app/API/engine processes.”",
       "source": "apps/electron/src/colony-actions.mjs; apps/electron/src/colony-host.mjs; commit subjects 97c0f21613, 2cd0aa7bda, 6fdcf7e2a1, 3e5fa1448d; https://github.com/ajhochy/Rhythm/issues/1531",
       "commits": [
         "97c0f21613",
@@ -1803,7 +1808,7 @@
     {
       "id": "COLONY-04",
       "feature": "Colony inspector actions, archive/restore/viewed, import and account switch",
-      "claim": "Issue acceptance excerpt (verbatim): \u201cImporting a synthetic state with at least 7,000 archived entries shows a count preview, merges once after user action, preserves unrelated current state and leaves the source byte-for-byte unchanged. Repeating import is idempotent.\u201d",
+      "claim": "Issue acceptance excerpt (verbatim): “Importing a synthetic state with at least 7,000 archived entries shows a count preview, merges once after user action, preserves unrelated current state and leaves the source byte-for-byte unchanged. Repeating import is idempotent.”",
       "source": "apps/electron/src/colony-actions.mjs; apps/electron/src/colony-preferences.mjs; commits 93e75a4c53 and e5825b35a7; https://github.com/ajhochy/Rhythm/issues/1532",
       "commits": [
         "93e75a4c53",
@@ -1853,7 +1858,7 @@
     {
       "id": "COLONY-05",
       "feature": "Colony rail, search/filter, status, scene selection and inspector consistency",
-      "claim": "Issue acceptance excerpt (verbatim): \u201cPreserve the 3D colony and local multi-harness model while redesigning UI and menu items to match Rhythm Electron.\u201d",
+      "claim": "Issue acceptance excerpt (verbatim): “Preserve the 3D colony and local multi-harness model while redesigning UI and menu items to match Rhythm Electron.”",
       "source": "apps/web/src/pages/colony/index.tsx:15-45; apps/web/src/pages/colony/model.ts; commits edc78ef45c, 8fe332b5d4; https://github.com/ajhochy/Rhythm/issues/1525",
       "commits": [
         "edc78ef45c",
@@ -1963,7 +1968,7 @@
     {
       "id": "DAYFLOW-02",
       "feature": "Native Dayflow viewport and unavailable states",
-      "claim": "Issue acceptance excerpt (verbatim): \u201cWith a 445-point host viewport and a hosted native view whose intrinsic/fitting height is 558 points, the lifecycle retains a 445-point visible viewport and a separate scrollable document at least as tall as its measured minimum.\u201d",
+      "claim": "Issue acceptance excerpt (verbatim): “With a 445-point host viewport and a hosted native view whose intrinsic/fitting height is 558 points, the lifecycle retains a 445-point visible viewport and a separate scrollable document at least as tall as its measured minimum.”",
       "source": "apps/web/tests/dayflow-view.spec.ts; apps/electron/src/native-dayflow-production-host.mjs; commits 54888e924c, 49c2e5a01f, 5c36667493; https://github.com/ajhochy/Rhythm/issues/1605",
       "commits": [
         "54888e924c",
@@ -2144,8 +2149,8 @@
         "apps/api_server/src/__tests__/coordinator_workflow_runs.test.ts",
         "apps/web/tests/coordinator-workflow-issuance.test.mjs"
       ],
-      "coverage": "REDO/ABSENT for the important behavior. Packaged UI test only compares existing server run-list rows and requires an already existing run; three packaged cases are explicit UNVERIFIED gaps. The Oct. 12 run log records a real sandbox demonstration of concurrent completion and once-only reports, but it is historical evidence rather than a repeatable packaged Playwright test. Unit/controller tests and test fakes do not prove current packaged wiring.",
-      "gapReason": "Current P0 run test cannot create disposable Coordinator goals/runs and the persistent primary journal is non-deletable; current-branch packaged test run recorded 0/4 coordinator cases passing, all four UNVERIFIED.",
+      "coverage": "REDO/ABSENT for the important behavior. Packaged UI test only compares existing server run-list rows and requires an already existing run; three packaged cases are explicit UNVERIFIED gaps. The Oct. 12 run log records a real sandbox demonstration of concurrent completion and once-only reports, but it is historical evidence rather than a repeatable packaged Playwright test. Unit/controller tests and test fakes do not prove current packaged wiring. Signed5dff action-first private Recon observed two real delegations and child sessions in distinct fixture-owned branches/worktrees, original repositories unchanged; one child answered only pending, the other answered19 and committed. No overlap was observed. The observer failed an invented worktree-under-repository assumption after45.8s; corrected observer UNRUN. This is partial Recon, not a checked concurrent two-goal result. Latest exact5dff native probe described canonical rhythm_rhythm_get_coordinator_status and rhythm_rhythm_start_coordinator_goal but Secretary executed shorter registered names; both actual allowlist checks denied. One goal was captured, zero delegations/children followed, and the owned driver was interrupted after three minutes (exit130, one interrupted/one unrun). Whole mVw2Xl loan scrubbed with unchanged source. Prior distinct-worktree evidence is separate; no C1 suite GREEN.",
+      "gapReason": "The existing packaged multi-run cases remain UNVERIFIED. Action-first private Recon did create two disposable goals/children, but it did not prove both completed, concurrent overlap, final reporting once, usage or restart; corrected observer UNRUN. Operator journal remains untouched.",
       "requires": [
         "disposable signed-in primary/journal",
         "two nonce-owned git fixtures",
@@ -2154,7 +2159,7 @@
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Current P0 run test cannot create disposable Coordinator goals/runs and the persistent primary journal is non-deletable; current-branch packaged test run recorded 0/4 coordinator cases passing, all four UNVERIFIED.",
+      "remaining": "The existing packaged multi-run cases remain UNVERIFIED. Action-first private Recon did create two disposable goals/children, but it did not prove both completed, concurrent overlap, final reporting once, usage or restart; corrected observer UNRUN. Operator journal remains untouched. Keep the real allowlist denial while canonical guidance is corrected; no completed concurrent goals, overlap, once-only report, or restart proof.",
       "newTests": [],
       "priority": "P0",
       "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Two distinct goals can run concurrently; each row matches authoritative status, objective, branch, child session and usage; reports arrive once; execution stays in its selected repository worktree."
@@ -2295,7 +2300,7 @@
         "#1575",
         "#1556"
       ],
-      "entry": "UI/API: profile delegation from interactive agent session \u2192 rhythm_delegate_async MCP \u2192 agent_delegation_controller \u2192 child session creation/worktree metadata.",
+      "entry": "UI/API: profile delegation from interactive agent session → rhythm_delegate_async MCP → agent_delegation_controller → child session creation/worktree metadata.",
       "expected": "Child path.cwd, transcript stream, prompt execution and persisted worktree metadata all agree with the newly created worktree; permission bypass is allowed only with isolated worktree.",
       "edges": [
         "isolate false preserves old behavior",
@@ -2310,8 +2315,8 @@
         "apps/api_server/src/__tests__/issue_1575_async_delegation_worktree.test.ts",
         "apps/mcp_server/src/tools/issue_1575_agentDelegation_worktree.test.ts"
       ],
-      "coverage": "REDO: web post-m1 child test proves view-model identity using intercepted/synthetic API data, not server worktree cwd; backend live test is stronger but no Playwright user flow drives MCP to child filesystem write and verifies it in packaged UI.",
-      "gapReason": "Existing Playwright assertions don't verify actual filesystem target or child engine path.cwd. Issue #1575 remains open in GitHub result, so do not treat implementation commit as issue closure.",
+      "coverage": "REDO: web post-m1 child test proves view-model identity using intercepted/synthetic API data, not server worktree cwd; backend live test is stronger. The current private packaged observation reached a child filesystem commit but has not checked the child cwd, transcript and permission-bypass contract end to end. Action-first signed5dff private Recon observed two fixture-owned child worktrees and distinct branches with unchanged original repositories; one child made a real commit. The observer failed an incorrect parent-path assumption, so this is partial filesystem observation, not the full issue acceptance or checked packaged proof.",
+      "gapReason": "A corrected private observer has not run; child path.cwd/transcript and permission-bypass acceptance remain unconfirmed despite partial fixture-owned worktree effects. Issue #1575 remains open in the recorded GitHub result.",
       "requires": [
         "nonce-owned disposable git repo",
         "real MCP/API child dispatch",
@@ -2319,7 +2324,7 @@
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Existing Playwright assertions don't verify actual filesystem target or child engine path.cwd. Issue #1575 remains open in GitHub result, so do not treat implementation commit as issue closure.",
+      "remaining": "A corrected private observer has not run; child path.cwd/transcript and permission-bypass acceptance remain unconfirmed despite partial fixture-owned worktree effects. Issue #1575 remains open in the recorded GitHub result.",
       "newTests": [],
       "priority": "P1",
       "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Child path.cwd, transcript stream, prompt execution and persisted worktree metadata all agree with the newly created worktree; permission bypass is allowed only with isolated worktree."
@@ -2399,7 +2404,7 @@
         "apps/web/tests/post-m1-phase-5-catalogs-commands.redspec.ts:29-52",
         "apps/web/tests/packaged/packaged-ai-recon.spec.ts:4 (read-only packaged catalog observation; current untracked recon file)"
       ],
-      "coverage": "REDO for current behavior: the phase-5 skill test uses openInterceptedLiveApp synthetic catalog/PATCH responses; it proves UI contract only. Current untracked packaged-ai-recon observes real GET /opencode/skills but does not mutate profile allowlist or prove the engine's advertised skills changed. No real allowlist\u2192engine-filter packaged flow.",
+      "coverage": "REDO for current behavior: the phase-5 skill test uses openInterceptedLiveApp synthetic catalog/PATCH responses; it proves UI contract only. Current untracked packaged-ai-recon observes real GET /opencode/skills but does not mutate profile allowlist or prove the engine's advertised skills changed. No real allowlist→engine-filter packaged flow. Current signed 5dff native 60-case selection passed managed skill create/edit/full-page reload/delete. Fresh-document response binding remained in the test; UI, API-managed file/content and both primed engine catalogs agreed on the edited skill.",
       "gapReason": "No direct apps/web Playwright test identified for skill search, allowlist mutation, rewritten tag preservation, and post-reload engine filtering as one flow.",
       "requires": [
         "real profile/skill fixture",
@@ -2408,10 +2413,11 @@
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Real skill catalog/content and cancel/blank editor safety are exercised; saved profile allowlist propagation into actual engine invocation remains unqualified.",
+      "remaining": "Real skill catalog/content and cancel/blank editor safety are exercised; saved profile allowlist propagation into actual engine invocation remains unqualified. This does not qualify profile allowlist propagation, runtime filtering for distinct profiles/children, cold engine discovery, or the full catalog lifecycle.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-tools.spec.ts",
-        "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts"
+        "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "apps/web/tests/packaged/packaged-ai-private-skills.spec.ts"
       ],
       "priority": "P1",
       "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. User can find/filter allowed skills, change profile allowlist, retain metadata after skill rewrite, and runtime only advertises allowed skills to that profile/child."
@@ -2450,8 +2456,8 @@
         "apps/api_server/src/__tests__/issue_739_scheduler_agent_runner.test.ts",
         "apps/api_server/src/__tests__/agent_schedules_trigger_now_contract.test.ts"
       ],
-      "coverage": "CONFIRMED SCOPED on exact signed private build 194: real UI created a nonce-owned disabled schedule and verified owner, disabled state, edit/reload persistence, API/SQLite readback, and empty run history. Separate API storage contract evidence covers `enabled:false` vs default-enabled and malformed input (3/3); local Bearer attribution/mobile schedule cluster passes 18/18 and the real API/fork owner test passes 1/1. These checks do not execute a schedule.",
-      "gapReason": "Create/edit and disabled-state persistence are now covered in the packaged UI plus backend storage/auth contracts. Manual trigger and actual scheduler-to-agent output remain distinct execution claims.",
+      "coverage": "CONFIRMED SCOPED: exact194 create/edit/reload preserves disabled state and owner with zero runs; exact4fda separately confirms UI Cancel makeszeroDELETE and retains the nonce schedule, Confirm returns authorized204 and removes UI/API/SQLite state afterreload, zero runhistory. API storage/owner contracts and real API/fork owner gate are separate passing receipts. No actual schedule is executed. Current signed 5dff native 60-case selection passed the private timing spec: it created future Once, Daily, Weekly, Monthly, and Cron schedules, verified owner and API/SQLite fields, reloaded all five, and edited/read back Once and Daily. Enabled blank Once produced no POST; disabled blank Once remained saveable; inspector Enable on the blank row sent no PATCH. All owned rows remained disabled with zero run-history/session roots, and exact cleanup passed. Exact signed5dff natural Once private Recon passed1/1: due04:36:00Z, started00.475, completed02.304 as completed_no_op; linked real Luna SDK answer19, zero tools, matching UI run/root; disabled twin inert; exact cleanup and app hash/CDHash equality. Two checked attempts failed before schedule/model work from test-only error handling and old-document response capture. The new-document-bound signed5dff checked case then passed1/1: one natural completed_no_op run, linked Luna SDK/local/UI answer19, zero tools/manual triggers, disabled twin zero runs/roots, exact cleanup and unchanged signed bundle hashes. Signed5dff completed-Once warning Recon passed1/1, then strengthened checked native contract failed1/1 only because the consumed successful Once still displayed the invalid-timing warning; actual natural run/SDK/UI, disabled twin, cleanup and signed hashes remained correct. Narrow UI candidate helper6/6, rendered8/8 and TS pass; rebuilt native GREEN pending.",
+      "gapReason": "Create/edit and disabled-state persistence plus one natural Once scheduler-to-agent result are checked in the signed packaged UI with owner/API/SQLite/SDK readback. Manual trigger and recurrence/recovery remain separate execution claims.",
       "requires": [
         "disposable scheduled task and profile",
         "real local scheduler/engine",
@@ -2460,14 +2466,17 @@
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "UI delete is not covered (the packaged case uses API DELETE for owned cleanup). Manual trigger to actual agent output, durable result/history linkage, dedupe, restart/sleep-wake, and hosted-schedule quarantine remain unqualified.",
+      "remaining": "Manual Run now, recurrence, retry/dedupe, restart/sleep-wake and hosted-schedule quarantine remain unqualified; the checked natural Once result covers one private due tick. Completed-Once warning repair requires a rebuilt exact signed app and checked GREEN; the earlier one-run execution Confirm remains scoped and valid.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-private-disabled-schedule.spec.ts",
         "apps/web/tests/packaged/packaged-ai-schedules.spec.ts",
         "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
         "apps/api_server/src/__tests__/agent_schedules_enabled_create_contract.test.ts",
         "apps/api_server/src/__tests__/agent_schedules_local_auth_attribution.test.ts",
-        "apps/api_server/src/__tests__/agent_schedules_local_auth_live_e2e.test.ts"
+        "apps/api_server/src/__tests__/agent_schedules_local_auth_live_e2e.test.ts",
+        "apps/web/tests/packaged/packaged-ai-private-schedule-delete.spec.ts",
+        "apps/web/tests/packaged/packaged-ai-private-schedule-timing.spec.ts",
+        "apps/web/tests/packaged/packaged-ai-private-natural-once.spec.ts"
       ],
       "primaryIssueTracking": [
         {
@@ -2624,7 +2633,7 @@
         "#1583",
         "#1587"
       ],
-      "entry": "Mobile app conversation composer/transcript \u2192 relay gateway/uplink \u2192 local API/engine, attachment artifact endpoint, reconnect/outbox reconciliation.",
+      "entry": "Mobile app conversation composer/transcript → relay gateway/uplink → local API/engine, attachment artifact endpoint, reconnect/outbox reconciliation.",
       "expected": "Accepted prompt is not lost across offline transition; retransmit is idempotent; transcript switches to live authoritative source; attachment metadata relays while bytes stay on artifact path; heartbeat timeout produces visible failure/retry.",
       "edges": [
         "request accepted then disconnect",
@@ -2672,7 +2681,7 @@
       "issues": [
         "#1579"
       ],
-      "entry": "API event stream/notification endpoint \u2192 web store \u2192 Electron native IPC \u2192 OS notification and click-to-session behavior; mobile notification is a separate client path.",
+      "entry": "API event stream/notification endpoint → web store → Electron native IPC → OS notification and click-to-session behavior; mobile notification is a separate client path.",
       "expected": "Only validated owned event triggers the correct single notification; click opens right session; no duplicate renderer banner; waiting state reflects actual observed busy/request state; revocation clears notice.",
       "edges": [
         "malformed event",
@@ -2819,8 +2828,8 @@
         "apps/web/tests/packaged/packaged-sessions.spec.ts (session list only)",
         "apps/web/tests/contract/daily-work-dashboard-live-20260912.spec.ts"
       ],
-      "coverage": "KEEP for route mapping in fixture; REDO for schedule execution linkage. The Playwright session-opening spec is fixture data with mocked backend. It does not establish that an actual scheduler run created the row.",
-      "gapReason": "Session category mapping is downstream display only; no linked scheduler trigger-to-session-output packaged journey.",
+      "coverage": "KEEP for route mapping in fixture; REDO for schedule execution linkage. The Playwright session-opening spec is fixture data with mocked backend. It does not establish that an actual scheduler run created the row. Exact signed5dff natural Once Recon linked the actual scheduler run to an SDK Luna answer19, a root and rendered UI history; disabled twin had no root. Independent signed5dff checked packaged Confirm passed1/1 for one natural due run, linked SDK/local messages and UI-opened root; two earlier pre-write checked failures were test-authoring errors.",
+      "gapReason": "One natural scheduler trigger-to-session-output packaged journey is checked; distinct scheduled rail/category behavior after reload remains separate.",
       "requires": [
         "trigger a nonce schedule",
         "read exact scheduledTaskId session",
@@ -2828,8 +2837,10 @@
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked issue evidence preserves primary wording",
-      "remaining": "Session category mapping is downstream display only; no linked scheduler trigger-to-session-output packaged journey.",
-      "newTests": [],
+      "remaining": "The one scheduler-to-session/UI history link is checked; category/rail scope after reload, additional history edges, recurrence and restart remain unqualified.",
+      "newTests": [
+        "apps/web/tests/packaged/packaged-ai-private-natural-once.spec.ts"
+      ],
       "primaryIssueTracking": [
         {
           "issue": "#739",
@@ -3408,7 +3419,7 @@
         "PR #1607"
       ],
       "entry": "Fork snapshot/status engine and API indicators.",
-      "expected": "Large repositories and active sessions remain responsive; \u201cworking/online\u201d indicators follow observed progress/liveness.",
+      "expected": "Large repositories and active sessions remain responsive; “working/online” indicators follow observed progress/liveness.",
       "edges": [
         "large untracked tree",
         "git gc contention",
@@ -3432,7 +3443,7 @@
       "remaining": "Fixture-based performance tests do not establish behavior of the current packaged fork or API runtime.",
       "newTests": [],
       "priority": "P1",
-      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Large repositories and active sessions remain responsive; \u201cworking/online\u201d indicators follow observed progress/liveness."
+      "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Large repositories and active sessions remain responsive; “working/online” indicators follow observed progress/liveness."
     },
     {
       "id": "mobile-audio-outbox-and-transcript-transport",
@@ -3652,15 +3663,15 @@
         "apps/web/tests/packaged/packaged-rhythm-primary-chat.spec.ts",
         "apps/web/tests/rhythm-primary-entry.spec.ts"
       ],
-      "coverage": "CONFIRMED SCOPED: exact signed private build 194 primary-entry/history/recovery/rapid-repeat suite passed 3/3, including existing-root reuse/retry and reload. First-use also passed separately in the initial 56-case native run. The initial native run exposed missing-cwd false Ready. After the source repair, a fresh guarded API/fork sandbox confirmation passed 2/2 combined tests: the primary live case observed status 503 and actual foreground-message 503 with no SDK/Grid/dispatch/command/journal effects; the other case was cold OpenAI catalog. No fixed-cwd native confirmation exists yet.",
-      "gapReason": "The repaired missing-cwd status and foreground denial are confirmed through the real API/fork boundary, but the exact locally signed native build still showed false Ready and has not been rebuilt to confirm the UI repair.",
+      "coverage": "CONFIRMED SCOPED on exact4fda:7-case selection includes firstuse, settled missing-workspace composer denial then same-root200/Ready recovery, unchangedjournal/ordinarychat/no enginework, and existing-root history/retry/reload. Independent fresh Runs observer staysReady for16s aftersameinode restore. Main Auto paid semantic case independently confirms one canonical message and actual cheap6Sol route. The prior2b8 intermittent stale-notice failure remains recorded; no separate notice root cause or fix is inferred from unchanged notice code. The exact signed 5dff native 60-case selection confirms the repaired primary missing-cwd recovery and includes the late-catalog completion regression from product commit 0b3b180393; this is scoped primary-entry evidence, not a broad Coordinator journal claim.",
+      "gapReason": "Primary missing-cwd recovery and late-catalog completion now have current signed 5dff scoped native evidence. Busy-child reservation, populated historical journal/composer behavior and broader Coordinator flows remain open.",
       "requires": [
         "disposable primary/journal and signing identity",
         "identity-matched packaged backend/engine"
       ],
       "kind": "user-feature",
       "claimKind": "source-backed summary; linked source preserves primary wording",
-      "remaining": "Rebuilt native confirmation of missing-cwd unavailable status and foreground denial, busy-child reservation, populated historical journal/composer behavior, and an actual main-chat cheap Grid/Luna served-model result remain unqualified.",
+      "remaining": "Main message retry/reload deduplication, busy-child reservation, populated historical journal and the previously observed intermittent notice race remain unqualified. Main Auto turn reload/reopen is recorded separately as Recon below; it does not prove provider retry or API restart behavior.",
       "newTests": [
         "apps/web/tests/packaged/packaged-ai-000-primary-first-use.spec.ts",
         "apps/web/tests/packaged/packaged-ai-owner-identity.spec.ts",
@@ -3668,7 +3679,8 @@
         "apps/web/tests/packaged/packaged-rhythm-primary-chat.spec.ts",
         "apps/api_server/src/__tests__/live_e2e_primary_missing_cwd.test.ts",
         "apps/api_server/src/__tests__/coordinator_conversation_navigation.test.ts",
-        "apps/api_server/src/__tests__/coordinator_chat_controls_parity.test.ts"
+        "apps/api_server/src/__tests__/coordinator_chat_controls_parity.test.ts",
+        "apps/web/tests/packaged/packaged-ai-primary-model-router.spec.ts"
       ],
       "priority": "P0",
       "backendProofRequired": "Real UI request or native entry plus authoritative API/service/durable readback for the claimed outcome; real engine receipt for execution, exact owned cleanup for writes. Entry opens the designated durable primary chat without sending a prompt; first-use setup persists exactly once; child reservations do not freeze ordinary primary conversation."
@@ -3774,7 +3786,7 @@
         "#1573",
         "#1574"
       ],
-      "entry": "Flutter Settings \u2192 Semantic Memory; local API /engraph-manager/status, discover, choose-binary, enable, disable, check-health, retry, rebuild; explicit reference retrieval through GET /agent-memory/search?view=references. The Electron/web prototype has no Engraph settings UI.",
+      "entry": "Flutter Settings → Semantic Memory; local API /engraph-manager/status, discover, choose-binary, enable, disable, check-health, retry, rebuild; explicit reference retrieval through GET /agent-memory/search?view=references. The Electron/web prototype has no Engraph settings UI.",
       "expected": "Selecting a real installed CLI, enabling, and polling reaches Ready only after an authenticated local search. A synthetic canonical note is indexed and returned as an owner-safe reference; disable stops only the verified owned backend and reference search degrades honestly while FTS remains available.",
       "edges": [
         "missing or invalid binary and actionable UI state",
@@ -3812,18 +3824,195 @@
     }
   ],
   "qualification": {
-    "latestLocallySignedProductRevision": "19421753e05a7a1b2d0f09fcbd04063650e8390c",
-    "scope": "Exact local sign-only 194 initial integrated native selection: 56 cases, 51 passed / 5 failed / 0 skipped / 0 flaky. One confirmed product defect is missing-cwd false Ready; four failures were test/recon errors. Later focused corrections passed five cases; a separate primary entry/history/recovery/rapid-repeat suite passed 3/3. There was no fresh integrated rerun combining those corrections, so the results must not be combined into a 55/1 total. Fresh API/fork sandbox `b` separately passed cold catalog plus primary status/foreground denial 2/2. Overall inventory remains incomplete.",
-    "passed": 51,
+    "latestLocallySignedProductRevision": "5dfffb5d9978795935becfe4723c8196bb2f883d",
+    "scope": "Current signed5dff independent scopes: no-model native60/60; checked paid router/MCP/main Auto19/19; fresh hidden-candidate router prerequisite1/1; natural Once checked1/1 after private Recon1/1. Earlier visibility and pre-write test-authoring REDs remain preserved. Coordinator action-first private Recon observed two children but stopped on an invalid worktree-location assertion and did not prove concurrency/completion. Overall 78 active markers incomplete. Newer completed-Once warning checked native RED1/1 is a separate exact5dff run; top-level 60/60 counts still describe only the earlier broad selection.",
+    "passed": 60,
     "failedExplicitCoverageGap": 0,
-    "latestRunFailed": 5,
-    "correctedTestAuthoringFailures": 4,
+    "latestRunFailed": 0,
+    "correctedTestAuthoringFailures": 0,
     "skipped": 0,
     "flaky": 0,
-    "targetedCorrectedNativeCases": "A focused eight-case rerun passed five and failed three primary cases on a first-use helper assertion; after correcting that helper, the separate primary entry/history/recovery/rapid-repeat suite passed 3/3. No integrated full rerun followed.",
-    "backendSandboxConfirmation": "2/2: one cold OpenAI catalog test and one primary test asserting status 503 plus foreground denial 503 with no SDK/Grid/dispatch/command/journal effects",
     "newerSourceRepairsAwaitLocalNativeRebuild": true,
     "confirmedProductFailures": 1,
-    "remainingCoverageMarkers": 78
+    "remainingCoverageMarkers": 78,
+    "current2b8NativeRecon": "3 observations completed, later settledrepeat1failed/1passed; failure is staleprimarynotice/Startingheader onrestoredworkspace. No broad2b8 aggregate.",
+    "current2b8PaidMainAutoRecon": "Actual6Luna served from6.1Sol baseline; cheapesttier4, engine/DB/provenance/UIagree, no tools. SemanticConfirmpending, no retry/reload/failoverclaim; loan scrubbed sourcehashesunchanged.",
+    "currentBackendAggregate": "885 passed/186 skipped files;8829 passed/0 failed/391 skipped tests;exit0,1118.58s at2b8. Separate from livegates/nativecoverage.",
+    "metricsApplyToProductRevision": "5dfffb5d9978795935becfe4723c8196bb2f883d",
+    "current4fdaScopedRuns": {
+      "primaryProfileSchedule": "7/7;49.1s;native",
+      "settledRecoveryObserver": "1 observation completed;57.4s;no independent notice-cause claim",
+      "ordinaryRouter": "17/17;1.1m;real model/classifier",
+      "mainAutoSemantic": "1/1;41.3s;actual tier3 GPT-6 Sol below6.1Sol baseline"
+    },
+    "current4fdaMainAutoFailedAttempt": "First Confirm failed: tier3 plus hidden6Sol steppedup2 to6.1Sol. Retained failureevidence; corrected fixture + faithful3/4 contract independently Confirmed. Do not count the failedattempt green.",
+    "storageCleanup": "91 verified old cache directories across31 fixtures pruned;11600220KiB prior du-accounted.427 critical paths metadata unchanged. Fixture tree about1151.7MiB at cleanupcheckpoint; physical APFS recovery notmeasured. Creator-only successful synthetic cleanup independently Confirmed: native1/1 exit0 and exact new fixture removed. Wildcard address check corrected to actual loopback after unrelated Tailscale conflict; failed evidence retained.",
+    "currentBroadRegression": {
+      "productRevision": "5dfffb5d9978795935becfe4723c8196bb2f883d",
+      "productSourceRevision": "0b3b1803938383385b376cfbd7571b584e658f2c",
+      "specs": 29,
+      "passed": 60,
+      "failed": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "durationMs": 152939.173,
+      "cliExit": 0,
+      "scope": "Selected exact signed-app regression excludes explicit UNVERIFIED markers; not full inventory qualification",
+      "report": "/private/tmp/rhythm-private-5dff-broad-green-evidence-20261020/report.json",
+      "log": "/private/tmp/rhythm-private-5dff-broad-discard-confirm-20261020.log"
+    },
+    "currentMcpLifecycle": "Two separate no-model lifecycle observations completed1/1 each: normal renderer restore ensure200 registered:true,114 tools across API/engine/UI stable35sec. Earlier outer CLI cleanup exit1 was unrelated Tailscale wildcard conflict. Scope execution still unrun; no cold-start or manual Connect claim.",
+    "historical4fdaBroadRegression": {
+      "productRevision": "4fda3121184411ade608582428d10e9295fe7b2e",
+      "specs": 28,
+      "passed": 59,
+      "failed": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "durationMs": 157862.505,
+      "cliExit": 0,
+      "scope": "Selected regression excludes explicit UNVERIFIED markers; not full inventory qualification",
+      "log": "/private/tmp/rhythm-private-4fda-broad-native-confirm-20261020.log"
+    },
+    "latestProductRevision": "0b3b1803938383385b376cfbd7571b584e658f2c",
+    "currentRouterMcpAttempt": {
+      "productRevision": "5dfffb5d9978795935becfe4723c8196bb2f883d",
+      "cases": 18,
+      "passed": 3,
+      "failed": 1,
+      "notRun": 14,
+      "reason": "GPT-6 Sol was hidden by the private visibility fixture, which exposed Luna only; the eligible tier-3 route therefore had no usable model.",
+      "log": "/private/tmp/rhythm-private-5dff-router-mcp-confirm-20261020.log"
+    },
+    "currentMcpProfileScope": "Four fixed-Luna SDK calls cover inherited/selected allow and selected/None denial with exact owned task evidence. Passed1/1 on6101 and again within current signed5dff checked19/19 selection (24.8s); primed scope only, not all MCP lifecycle.",
+    "currentMainAutoReloadRecon": "5dff Recon1/1 observed tier4 Luna same SDK root/messages, history/UI, one POST/command, two Grid attempts after reload/reopen. The corresponding checked packaged case independently passed1/1 in5.3s within current signed5dff paid19/19; no provider retry/failover/API restart claim.",
+    "current5dffProductCoverage": "Separate current scopes: no-model native60/60 includes late-catalog recovery, five schedule timing types, managed Skills reload and profile Discard; paid model19/19 includes ordinary router17, MCPscope1, main Auto reload1. Fresh isolated router prerequisite1/1 proved its own three-model visibility PATCH. Natural Once checked1/1 confirms one real due dispatch, linked Luna SDK answer19/UI and inert disabled twin, with exact cleanup; recurrence/recovery remain open. Coordinator action-first partial Recon is not a checked two-goal result. Overall inventory remains open.",
+    "historical194InitialIntegratedSelection": {
+      "productRevision": "19421753e05a7a1b2d0f09fcbd04063650e8390c",
+      "passed": 51,
+      "failed": 5,
+      "skipped": 0,
+      "flaky": 0,
+      "confirmedProductDefect": "missing-cwd false Ready; later fixed and covered in the 5dff native selection",
+      "scope": "Initial 56-case integrated selection; four other failures were test/recon errors. Later focused corrections are separate and not summed."
+    },
+    "historical194TargetedCorrectedNativeCases": "A focused eight-case rerun passed five and failed three primary cases on a first-use helper assertion; after correcting that helper, the separate primary entry/history/recovery/rapid-repeat suite passed 3/3. No integrated full rerun followed.",
+    "historical194BackendSandboxConfirmation": "2/2: one cold OpenAI catalog test and one primary test asserting status 503 plus foreground denial 503 with no SDK/Grid/dispatch/command/journal effects",
+    "historical194CorrectedTestAuthoringFailures": 4,
+    "historical4fdaConfirmedProductFailures": 0,
+    "currentPaidModelSelection": {
+      "productRevision": "5dfffb5d9978795935becfe4723c8196bb2f883d",
+      "passed": 19,
+      "failed": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "durationMs": 89258,
+      "cliExit": 0,
+      "scope": "Ordinary router17, MCP profile scope1, main Auto reload/reopen1; separate from broad native60/60",
+      "report": "/private/tmp/rhythm-router-main-mcp-confirm-5dff-g3pvz5/report.json",
+      "loanScrubSourceHashesUnchanged": true
+    },
+    "freshIsolatedRouterPrerequisite": {
+      "passed": 1,
+      "failed": 0,
+      "durationMs": 41000,
+      "cliExit": 0,
+      "scope": "Fresh hidden candidate fixture; checked routine-arithmetic case itself patched three model visibilities through normal private API, read back live eligible models, served tier3 Sol/medium with two Grid attempts and owned session cleanup",
+      "report": "/private/tmp/rhythm-router-schedule-fresh-5dff-kdLBkB/report.json"
+    },
+    "naturalOnceSchedulerRecon": {
+      "status": "observed-pass-followed-by-independent-checked-confirm-pass",
+      "productRevision": "5dfffb5d9978795935becfe4723c8196bb2f883d",
+      "passed": 1,
+      "dueAt": "2026-10-21T04:36:00.000Z",
+      "startedAt": "2026-10-21T04:36:00.475Z",
+      "completedAt": "2026-10-21T04:36:02.304Z",
+      "runStatus": "completed_no_op",
+      "scope": "One natural Once dispatch; linked real Luna SDK answer19, one input/output, zero tools, matching UI history/root; disabled twin zero runs/roots; cleanup errors none and app hash/CDHash unchanged. Recurrence, retry, restart and sleep/wake unqualified.",
+      "receipt": "/private/tmp/rhythm-schedule-execution-recon-4fda/observation-204ff6ec-a853-47c7-8bf0-e2676803cb4a.json",
+      "loanScrub": "/private/tmp/rhythm-router-schedule-fresh-5dff-kdLBkB/scrub.json",
+      "loanScrubSourceHashesUnchanged": true
+    },
+    "naturalOnceCheckedFirstAttempt": {
+      "status": "failed-pre-schedule-write-and-pre-model",
+      "durationSeconds": 6.4,
+      "ownedRows": 0,
+      "rootCause": "primary error initially masked by finally cleanup; preserved second attempt proved old-document Network.getResponseBody race before any write/model turn",
+      "report": "/private/tmp/rhythm-natural-once-confirm-5dff-uMMkdX/report.json",
+      "log": "/private/tmp/rhythm-private-5dff-natural-once-checked-confirm-20261020.log",
+      "loanScrub": "O2JguI whole fixture; source hashes unchanged",
+      "followup": "new-main-frame-commit request identity barrier on both Tasks reload GETs; independent fresh signed5dff checked Confirm passed1/1"
+    },
+    "hermesMetadataPreflight": {
+      "status": "passed 1/1 metadata only",
+      "testSeconds": 18.4,
+      "totalSeconds": 54.1,
+      "observed": "actual backend, normal OpenAI API-key group/input, key unset",
+      "unrun": "key entry and provider/model turn",
+      "receipt": "/private/tmp/rhythm-hermes-key-preflight-5dff-yIJwDy/preflight.json",
+      "loanScrub": "/private/tmp/rhythm-hermes-key-preflight-5dff-yIJwDy/scrub.json",
+      "loanScrubSourceHashesUnchanged": true
+    },
+    "coordinatorTwoGoalRecon": "First private attempt: completed Secretary status turn then no-startable-goals refusal from [smoke]-first prompt, zero goals/children; maRa2D scrubbed. Second action-first attempt: two delegations/children in distinct fixture-owned branches/worktrees, original repositories unchanged, one pending prose answer and one answer19 plus real commit, no overlap; observer stopped after45.8s on invalid worktree-under-repository assertion, actual worktrees under fixture XDG/OpenCode. Whole4PiiFC scrubbed/source hashes unchanged; corrected observer UNRUN. No checked concurrent two-goal success.",
+    "naturalOnceCheckedSecondAttempt": {
+      "status": "failed-pre-schedule-write-and-pre-model-test-authoring-race",
+      "error": "old-document Network.getResponseBody; response navigated away before body read",
+      "report": "/private/tmp/rhythm-natural-once-primary-error-5dff-YRdSM1/report.json",
+      "loanScrubSourceHashesUnchanged": true
+    },
+    "naturalOnceCheckedConfirm": {
+      "productRevision": "5dfffb5d9978795935becfe4723c8196bb2f883d",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "durationMs": 142152,
+      "cliExit": 0,
+      "scope": "One natural Once due tick completed_no_op; linked real Luna answer19, zero tools/manual triggers, matching UI/root/SDK/local messages; disabled twin zero runs/roots; exact cleanup and signed bundle hashes unchanged. Recurrence, retry, restart, sleep-wake, hosted and Manual Run unqualified.",
+      "report": "/private/tmp/rhythm-natural-once-document-5dff-3mCsyr/report.json",
+      "loanScrubSourceHashesUnchanged": true
+    },
+    "coordinatorActionFirstRecon": {
+      "status": "partial-observation-invalid-observer-assumption",
+      "durationSeconds": 45.8,
+      "delegations": 2,
+      "children": 2,
+      "distinctBranches": true,
+      "originalRepositoriesUnchanged": true,
+      "overlapObserved": false,
+      "goal1": "pending prose, not completed deliverable",
+      "goal2": "answer19 and real commit",
+      "failure": "observer expected worktrees under source repository; actual fixture-owned XDG/OpenCode location valid",
+      "receipt": "/private/tmp/rhythm-coordinator-two-goal-recon-20261020/observation-e9a5ce3f-1acc-41dc-a3b7-f05a053b7028.json",
+      "loanScrubSourceHashesUnchanged": true,
+      "correctedObserver": "UNRUN"
+    },
+    "completedOnceWarning": {
+      "productRevision": "5dfffb5d9978795935becfe4723c8196bb2f883d",
+      "privateObservationPassed": 1,
+      "checkedNativeFailed": 1,
+      "checkedDurationMs": 165304,
+      "reason": "Successfully consumed Once still displays edit-timing warning; real completed_no_op answer19 zero tools, UI/SDK linkage, disabled twin and exact cleanup succeeded.",
+      "report": "/private/tmp/rhythm-once-warning-contract-CPQX4I/output-I2WVqo/report.json",
+      "loanScrubSourceHashesUnchanged": true,
+      "candidateChecks": "helper6/6; rendered8/8; web TypeScript pass; native GREEN pending"
+    },
+    "hermesModelPicker": {
+      "status": "source repair awaiting Rhythm pin commit and full signed app rebuild",
+      "sourceRevision": "2ad39a4cdb2c3c986219f8ca828fef8060e76273",
+      "before": "Authorized key saved; 13-model picker omitted Luna; no chat sent",
+      "contract": "RED2/4 to GREEN42/42",
+      "artifacts": "sealed Desktop404 files; backend19387 files; isolated bundled health/history200/200, one row",
+      "realAuthenticatedChat": "UNRUN"
+    },
+    "coordinatorCanonicalToolRefusal": {
+      "productRevision": "5dfffb5d9978795935becfe4723c8196bb2f883d",
+      "observed": "one captured goal; canonical tools described, shortened registered names executed and denied by allowlist; zero delegations/children",
+      "driver": "interrupted after three minutes; exit130; one interrupted, one unrun",
+      "receipt": "/private/tmp/rhythm-coordinator-autoname-recon-AIHLPl/manual-canonical-tool-refusal-diagnostic.json",
+      "loanScrubSourceHashesUnchanged": true,
+      "checkedC1Suite": "UNRUN"
+    },
+    "sessionAutonamingObserver": "Prepared private exact-build bounded observer; UNRUN."
   }
 }
