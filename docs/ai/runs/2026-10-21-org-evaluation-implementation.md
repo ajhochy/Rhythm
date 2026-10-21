@@ -45,6 +45,14 @@ All commands ran in `/private/tmp/rhythm-feature-playwright-2026-10-19`, HEAD `1
 
 ## Notes
 
+### First packaged checkpoint
+
+- WIP local commit `97a68e19e5770e24663fde46d503864e05341c6e`; guarded local native build/sign succeeded, including281 Dayflow files and deep strict signature verification. No GitHub build, installation or release.
+- `npm run build:guard -- node tools/testing/run_packaged_ai.mjs --synthetic packaged-ai-private-org-evaluation.spec.ts`: **1 failed** on the exact97a app. Settings API returned200, but the rendered request omitted the disposable actor Authorization header. `createLiveOrgProposalsGateway` ignored its supplied `_token`; the local compatibility bypass masked that omission. The assertion is retained; the product gateway is being repaired.
+- Failure evidence preserved under `/private/tmp/rhythm-org-eval-settings-red-97a68e19e5-20261021`; failed model-off fixture `/private/tmp/rhythm-ai-fixture-XIbWJo` retained by the strict fixture launcher. No model loan/request occurred in this test.
+- The reviewed Anthropic metadata inventory reports Team and Personal ready; Personal is selected for the future bounded full journey. Metadata only was read; no loan has been issued yet.
+- Gateway repair: supplied token is now attached by the domain request helper, while the existing parent localFetcher continues stripping cloud auth outside the validated fixture origin. Five request-path header assertions and legacy gateway checks pass **6/6**, `/private/tmp/rhythm-org-evaluation-gateway-green-20261021.log`; web typecheck exit0. The persistent RED is the packaged97a receipt above; the focused pre-fix console RED was not saved and is not represented as a retained log.
+
 - GitNexus original index is 324 commits stale and the task checkout is unindexed. Exact method lookup sometimes returns UNKNOWN; class/registration/revert lookups report LOW/zero. Manual integration blast radius is HIGH for AgentRunner routing, approval and permissions. Index results do not establish low runtime risk.
 - Public OpenAI and Anthropic API keys are absent from this process environment (presence only inspected). Normal account-service refresh restored the existing Anthropic sessions; a bounded tiny Anthropic request settled 29 tokens. The existing Codex OAuth transport accepted a list-input request with explicit output ceiling and settled 24 tokens. These tiny transport observations do not establish every model's compatibility.
 - Private HOME is insufficient isolation. Worker sandbox-exec now denies actual parent sentinel reads/writes and ungranted loopback connections; live denial probes pass. An early design used the main API's provider route port, which would have exposed broader local API authority. It was replaced before production worker probes with a dedicated loopback listener accepting only lease provider POSTs. HTTP checks prove settings/evaluation/profile mutation routes unavailable on that listener.

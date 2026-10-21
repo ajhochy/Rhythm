@@ -5,10 +5,19 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const base = 'http://127.0.0.1:4098';
 
 test('evaluation gateway uses the local API and preserves settings writes and exact approval proof', async () => {
-  const requests: Array<{ url: string; method: string; body: unknown }> = [];
-  const gateway = createLiveOrgProposalsGateway(base, undefined, async (url, init) => {
-    requests.push({ url: String(url), method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null });
+  const requests: Array<{ url: string; method: string; authorization: string | null; body: unknown }> = [];
+  const gateway = createLiveOrgProposalsGateway(base, 'synthetic-bearer', async (url, init) => {
+    requests.push({ url: String(url), method: init?.method ?? 'GET',
+      authorization: new Headers(init?.headers).get('authorization'),
+      body: init?.body ? JSON.parse(String(init.body)) : null });
     if (String(url).endsWith('/evaluations/settings')) return json({ tokenLimit: 120_000, candidateCount: 3 });
+    if (String(url).endsWith('/evaluations/job')) return json({ job: { id: 'job', status: 'qualified', maxTokens: 120_000,
+      validationReserveTokens: 20_000, originalHash: 'a'.repeat(64), targetRef: 'agent_config:test', targetRevision: '1',
+      finalCandidateId: 'final', qualifiedProposalId: 'proposal', failureReason: null,
+      createdAt: '2026-10-21T00:00:00Z', updatedAt: '2026-10-21T00:00:00Z' }, candidates: [], results: [],
+      budget: { maxTokens: 120_000, validationReserveTokens: 20_000, settledTokens: 80_000,
+        outstandingTokens: 0, explorationAvailableTokens: 20_000, totalAvailableTokens: 40_000,
+        hasUnknownUsage: false } });
     if (String(url).endsWith('/evaluations')) return json({ jobs: [] });
     return json({ id: 'proposal', kind: 'refine-skill', status: 'approved' });
   });
@@ -16,12 +25,14 @@ test('evaluation gateway uses the local API and preserves settings writes and ex
   expect(await gateway.updateEvaluationSettings({ tokenLimit: 120_000, candidateCount: 3 }))
     .toEqual({ tokenLimit: 120_000, candidateCount: 3 });
   expect(await gateway.listEvaluations()).toEqual({ jobs: [] });
+  expect((await gateway.getEvaluation('job')).job.id).toBe('job');
   await gateway.approve('proposal', false, { expectedEvaluationId: 'evaluation', finalCandidateHash: 'b'.repeat(64), originalHash: 'a'.repeat(64) });
   expect(requests).toEqual([
-    { url: `${base}/agent-org-proposals/evaluations/settings`, method: 'GET', body: null },
-    { url: `${base}/agent-org-proposals/evaluations/settings`, method: 'PATCH', body: { tokenLimit: 120_000, candidateCount: 3 } },
-    { url: `${base}/agent-org-proposals/evaluations`, method: 'GET', body: null },
-    { url: `${base}/agent-org-proposals/proposal/approve`, method: 'POST', body: { expectedEvaluationId: 'evaluation', finalCandidateHash: 'b'.repeat(64), originalHash: 'a'.repeat(64) } },
+    { url: `${base}/agent-org-proposals/evaluations/settings`, method: 'GET', authorization: 'Bearer synthetic-bearer', body: null },
+    { url: `${base}/agent-org-proposals/evaluations/settings`, method: 'PATCH', authorization: 'Bearer synthetic-bearer', body: { tokenLimit: 120_000, candidateCount: 3 } },
+    { url: `${base}/agent-org-proposals/evaluations`, method: 'GET', authorization: 'Bearer synthetic-bearer', body: null },
+    { url: `${base}/agent-org-proposals/evaluations/job`, method: 'GET', authorization: 'Bearer synthetic-bearer', body: null },
+    { url: `${base}/agent-org-proposals/proposal/approve`, method: 'POST', authorization: 'Bearer synthetic-bearer', body: { expectedEvaluationId: 'evaluation', finalCandidateHash: 'b'.repeat(64), originalHash: 'a'.repeat(64) } },
   ]);
 });
 

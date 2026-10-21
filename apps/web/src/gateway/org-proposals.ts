@@ -70,8 +70,13 @@ function normalize(value: unknown): OrgProposal {
   return { id: text(raw.id) ?? '', title: text(raw.title) ?? 'Untitled proposal', kind, risk: text(raw.risk) ?? 'unknown', status: text(raw.status) ?? 'unknown', outcomeStatus: text(raw.outcomeStatus) ?? 'unknown', rationale: text(raw.rationale), createdAt: text(raw.createdAt), updatedAt: text(raw.updatedAt), changeJson: kind === 'tool-install' ? null : text(raw.changeJson), ...(kind === 'tool-install' ? { toolSafety: toolSafety(raw.toolSafety) } : {}), experimentSummary: experimentSummary(raw.experimentSummary), source: text(raw.source), preReviewEvaluation: validEvaluation ? { evaluationId: text(evaluation!.evaluationId)!, originalHash: hash(evaluation!.originalHash)!, finalCandidateHash: hash(evaluation!.finalCandidateHash)!, status: 'qualified' } : null, evaluationProofInvalid };
 }
 
-export function createLiveOrgProposalsGateway(apiBase: string, _token: string | undefined, fetcher: typeof fetch = fetch): OrgProposalsGateway {
-  const request = (path: string, init: RequestInit = {}) => fetcher(`${apiBase}${path}`, { ...init, headers: init.body ? { 'Content-Type': 'application/json', ...init.headers } : init.headers });
+export function createLiveOrgProposalsGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): OrgProposalsGateway {
+  const request = (path: string, init: RequestInit = {}) => {
+    const headers = new Headers(init.headers);
+    if (init.body) headers.set('Content-Type', 'application/json');
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    return fetcher(`${apiBase}${path}`, { ...init, headers });
+  };
   const decode = async (pending: Promise<Response>) => { try { const response = await pending; if (!response.ok) throw new OrgProposalsGatewayError(response.status, failureText(response.status)); return normalize(await response.json()); } catch (error) { if (error instanceof OrgProposalsGatewayError) throw error; throw new OrgProposalsGatewayError(0, failureText(0)); } };
   const mutate = (id: string, action: 'approve' | 'reject' | 'revert', body?: Record<string, unknown>) => decode(request(`/agent-org-proposals/${encodeURIComponent(id)}/${action}`, { method: 'POST', ...(body ? { body: JSON.stringify(body) } : {}) }));
   const json = async (path: string, init?: RequestInit) => { try { const response = await request(path, init); if (!response.ok) throw new OrgProposalsGatewayError(response.status, failureText(response.status)); return await response.json() as unknown; } catch (error) { if (error instanceof OrgProposalsGatewayError) throw error; throw new OrgProposalsGatewayError(0, failureText(0)); } };
