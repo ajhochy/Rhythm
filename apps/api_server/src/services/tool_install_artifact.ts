@@ -5,6 +5,8 @@ import { posix, resolve, relative, join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
 export const LOCAL_TARBALL_INSTALL_METHOD = 'local-tarball';
+export const MANAGED_TOOL_MAX_ARCHIVE_BYTES = 5 * 1024 * 1024;
+export const MANAGED_TOOL_MAX_EXPANDED_BYTES = 20 * 1024 * 1024;
 const DIGEST = /^[a-f0-9]{64}$/;
 const SOURCE = /^local-tarball:sha256:([a-f0-9]{64})$/;
 
@@ -53,9 +55,9 @@ function isUnambiguousTarPath(name: string): boolean {
 
 /** Validates all archive bytes that may reach npm; never trusts a partial tar scan. */
 export function validateImmutableLocalTarballBytes(archive: Buffer, digest: string, expectedToolName: string): { packageName: string } | null {
-  if (!DIGEST.test(digest) || createHash('sha256').update(archive).digest('hex') !== digest) return null;
+  if (archive.length > MANAGED_TOOL_MAX_ARCHIVE_BYTES || !DIGEST.test(digest) || createHash('sha256').update(archive).digest('hex') !== digest) return null;
   let tar: Buffer;
-  try { tar = gunzipSync(archive); } catch { return null; }
+  try { tar = gunzipSync(archive, { maxOutputLength: MANAGED_TOOL_MAX_EXPANDED_BYTES }); } catch { return null; }
   const paths = new Set<string>();
   let packageJson: Buffer | null = null;
   let offset = 0;
@@ -109,7 +111,7 @@ export function inspectImmutableLocalTarball(
   try {
     const stat = lstatSync(path);
     const canonicalPath = realpathSync(path);
-    if (!stat.isFile() || stat.isSymbolicLink() || relative(root, canonicalPath).startsWith('..')) return null;
+    if (!stat.isFile() || stat.size > MANAGED_TOOL_MAX_ARCHIVE_BYTES || stat.isSymbolicLink() || relative(root, canonicalPath).startsWith('..')) return null;
     const bytes = readFileSync(path);
     const metadata = validateImmutableLocalTarballBytes(bytes, digest, expectedToolName);
     if (!metadata) return null;

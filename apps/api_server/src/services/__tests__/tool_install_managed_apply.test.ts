@@ -64,7 +64,7 @@ function proposal(source: string): AgentOrgProposal {
   return {
     id: 'managed-apply-proposal', auditRunId: null, kind: 'tool-install', risk: 'high', external: 0,
     status: 'approved', title: 'fixture', rationale: null, signalRef: null, targetRef: null,
-    changeJson: JSON.stringify({ toolName: 'fixture-tool', packageSource: source, installMethod: 'local-tarball', testPrompts: ['version-check', 'help-check'] }),
+    changeJson: JSON.stringify({ toolName: 'fixture-tool', agentConfigId: 'managed-apply-profile', packageSource: source, installMethod: 'local-tarball', testPrompts: ['version-check', 'help-check'] }),
     beforeSnapshotJson: null, provenanceJson: null, dedupKey: null, baselineScore: null, postScore: null,
     measureReason: null, decidedByUserId: 1, ownerUserId: null, diagnosisConfidence: null,
     diagnosisConfidenceVersion: null, createdAt: '', updatedAt: '',

@@ -7,6 +7,8 @@ export interface OrgEvaluationPublishObservation {
   method: string;
   path: string;
   status: number;
+  /** Worker verification marks its own reads; unmarked reads can come from the confined engine. */
+  client?: 'worker-verifier' | 'engine';
   bodyHash?: string;
   contentHash?: string;
 }
@@ -16,7 +18,7 @@ export interface OrgEvaluationPublishObservation {
  * receipt events alone never qualify a candidate. */
 export async function startOrgEvaluationPublishReceiverAsync(input: {
   expectedSkillName: string;
-  action: 'publish' | 'unpublish';
+  action: 'publish' | 'unpublish' | 'none';
   expectedBodyHash: string;
   token: string;
   initialPublishedBody?: string;
@@ -27,9 +29,8 @@ export async function startOrgEvaluationPublishReceiverAsync(input: {
   close(): Promise<void>;
 }> {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(input.expectedSkillName) ||
-      !['publish', 'unpublish'].includes(input.action) ||
+      !['publish', 'unpublish', 'none'].includes(input.action) ||
       (input.action === 'unpublish' && typeof input.initialPublishedBody !== 'string') ||
-      (input.action === 'publish' && input.initialPublishedBody !== undefined) ||
       !/^[a-f0-9]{64}$/.test(input.expectedBodyHash) || input.token.length < 32) {
     throw new Error('Invalid private org-skill receiver binding');
   }
@@ -39,7 +40,9 @@ export async function startOrgEvaluationPublishReceiverAsync(input: {
   const server: Server = createServer(async (req, res) => {
     const method = req.method ?? '';
     const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
-    const record: OrgEvaluationPublishObservation = { method, path, status: 404 };
+    const record: OrgEvaluationPublishObservation = { method, path, status: 404,
+      ...(method === 'GET' ? { client: req.headers['x-rhythm-evaluation-verify'] === '1'
+        ? 'worker-verifier' as const : 'engine' as const } : {}) };
     const finish = (status: number, body = '', type?: string): void => {
       record.status = status;
       requests.push(record);
@@ -57,7 +60,8 @@ export async function startOrgEvaluationPublishReceiverAsync(input: {
       else { record.contentHash = sha256(publishedBody); finish(200, publishedBody, 'text/markdown'); }
       return;
     }
-    if (path !== expectedPath || method !== (input.action === 'publish' ? 'POST' : 'DELETE')) {
+    if (input.action === 'none' || path !== expectedPath ||
+        method !== (input.action === 'publish' ? 'POST' : 'DELETE')) {
       finish(404);
       return;
     }

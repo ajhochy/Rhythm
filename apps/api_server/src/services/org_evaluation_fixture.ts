@@ -14,6 +14,8 @@ import { scanContextContent } from '../security/context_scanner';
 import { readManagedSkillBytes, slugForSkillName } from './rhythm_managed_skills';
 import { captureCreationTargetAsync, captureEvidenceBaselineProfileAsync } from './org_evaluation_creation_snapshot';
 import { captureEffectiveEvaluationModel, type FrozenEvaluationModel } from './org_evaluation_effective_model';
+import { captureOrgPublicationStateAsync, type FrozenOrgPublicationState } from './org_evaluation_publication_state';
+import { captureExternalSkillSourceAsync, type FrozenExternalSkillSource } from './org_evaluation_external_source';
 
 export interface FrozenEvaluationProfile {
   id: string;
@@ -92,6 +94,10 @@ export interface OrgEvaluationTargetSnapshot {
     dependencyFingerprints: Record<string, string>;
   };
   managedSkillFiles: { name: string; bytesBase64: string; sha256: string }[];
+  /** Public org-library bytes at diagnosis time, including verified absence. */
+  publicationOriginal?: FrozenOrgPublicationState;
+  /** Exact commit-pinned external skill bytes observed by the parent API. */
+  externalSkillSource?: FrozenExternalSkillSource;
 }
 
 export interface PreparedOrgEvaluationFixture {
@@ -255,9 +261,17 @@ export async function captureOrgEvaluationTargetAsync(input: {
     profileId: primary.id, profileModelProvider: primary.modelProvider, profileModelId: primary.modelId,
     scheduledModelProvider: task?.modelProvider, scheduledModelId: task?.modelId,
   });
+  const publicationOriginal = input.kind === 'publish-skill-to-org'
+    ? await captureOrgPublicationStateAsync({ skillName: capturedSkills[0].title })
+    : undefined;
+  const externalSkillSource = input.kind === 'external-adoption' && input.change?.candidateKind === 'skill'
+    ? await captureExternalSkillSourceAsync({ change: input.change })
+    : undefined;
   return {
     schemaVersion: 1, effectiveModel, kind: input.kind, targetRef: input.targetRef, targetRevision,
     profiles, skills: capturedSkills, schedules, recipes, managedSkillFiles,
+    ...(publicationOriginal ? { publicationOriginal } : {}),
+    ...(externalSkillSource ? { externalSkillSource } : {}),
   };
 }
 
@@ -282,7 +296,9 @@ function validateText(text: string | null, subject: string): void {
  */
 export function prepareOrgEvaluationFixture(
   snapshot: OrgEvaluationTargetSnapshot,
-  options: { fixtureRoot: string; safeMcpCommand: string[]; providerRelayUrl: string; relayToken: string },
+  options: { fixtureRoot: string; safeMcpCommand: string[]; providerRelayUrl: string;
+    relayToken: string; executionModel?: { providerID: string; modelID: string };
+    publicationBaseURL?: string },
 ): PreparedOrgEvaluationFixture {
   const root = resolve(options.fixtureRoot);
   if (!root.startsWith('/private/tmp/') || existsSync(root) || snapshot.schemaVersion !== 1 ||
@@ -297,7 +313,20 @@ export function prepareOrgEvaluationFixture(
     || !/^[a-zA-Z0-9._-]{1,80}$/.test(frozenModel.providerID)
     || !/^[a-zA-Z0-9._/-]{1,120}$/.test(frozenModel.modelID))
     throw new Error('Evaluation fixture requires an exact frozen production model');
+  const executionModel = options.executionModel ?? frozenModel;
+  if (!((executionModel.providerID === 'anthropic' && executionModel.modelID.startsWith('claude-')) ||
+      (executionModel.providerID === 'openai' && /^[A-Za-z0-9._-]{1,120}$/.test(executionModel.modelID)))) {
+    throw new Error('Evaluation fixture has no bounded provider transport for the actual model');
+  }
   const relay = new URL(options.providerRelayUrl);
+  if (options.publicationBaseURL) {
+    const publication = new URL(options.publicationBaseURL);
+    if (publication.protocol !== 'http:' || publication.hostname !== '127.0.0.1' ||
+        !publication.port || publication.pathname !== '/' || publication.search || publication.hash ||
+        publication.port === relay.port || [4001, 4096, 4098].includes(Number(publication.port))) {
+      throw new Error('Evaluation publication receiver must be a distinct private loopback origin');
+    }
+  }
   if (relay.protocol !== 'http:' || relay.hostname !== '127.0.0.1' || !relay.port ||
       relay.username || relay.password || relay.search || relay.hash ||
       !/^\/agent-org-proposals\/evaluations\/provider\/[A-Za-z0-9_-]+\/v1$/.test(relay.pathname)) {
@@ -386,7 +415,10 @@ export function prepareOrgEvaluationFixture(
   }
   const config = {
     mcp: { 'evaluation-fixture': { type: 'local', command: options.safeMcpCommand } },
-    provider: { anthropic: { options: { baseURL: options.providerRelayUrl, apiKey: options.relayToken } } },
+    provider: { [executionModel.providerID]: { options: {
+      baseURL: options.providerRelayUrl, apiKey: options.relayToken,
+    } } },
+    ...(options.publicationBaseURL ? { skills: { urls: [`${options.publicationBaseURL}/org-skills`] } } : {}),
   };
   const configPath = join(fixtureConfig, 'opencode.json');
   writeFileSync(configPath, JSON.stringify(config), { mode: 0o400 });

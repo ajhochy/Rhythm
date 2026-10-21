@@ -31,12 +31,18 @@ describe('private org-skill evaluation receiver', () => {
         skills: [{ name: 'private-skill', files: ['SKILL.md'] }],
       });
       expect(await fetch(`${receiver.baseURL}/org-skills/private-skill/SKILL.md`).then((res) => res.text())).toBe('# Test skill\n');
+      expect(await fetch(`${receiver.baseURL}/org-skills/private-skill/SKILL.md`, {
+        headers: { 'X-Rhythm-Evaluation-Verify': '1' },
+      }).then((res) => res.text())).toBe('# Test skill\n');
       const receipt = await receiver.observations();
       expect(receipt.publishedBody).toBe('# Test skill\n');
       expect(receipt.requests).toContainEqual(expect.objectContaining({
         method: 'POST', status: 201, bodyHash: hash(body), contentHash: hash('# Test skill\n'),
       }));
-      expect(receipt.requests).toContainEqual(expect.objectContaining({ method: 'GET', status: 200, contentHash: hash('# Test skill\n') }));
+      expect(receipt.requests).toContainEqual(expect.objectContaining({ method: 'GET', status: 200,
+        client: 'engine', contentHash: hash('# Test skill\n') }));
+      expect(receipt.requests).toContainEqual(expect.objectContaining({ method: 'GET', status: 200,
+        client: 'worker-verifier', contentHash: hash('# Test skill\n') }));
     } finally {
       await receiver.close();
     }
@@ -64,5 +70,43 @@ describe('private org-skill evaluation receiver', () => {
     } finally {
       await receiver.close();
     }
+  });
+
+  it('starts a publish replacement from frozen old bytes before applying new bytes', async () => {
+    const token = randomBytes(32).toString('hex');
+    const body = JSON.stringify({ content: '# New skill\n', published: true });
+    const receiver = await startOrgEvaluationPublishReceiverAsync({
+      expectedSkillName: 'existing-skill', action: 'publish', expectedBodyHash: hash(body), token,
+      initialPublishedBody: '# Frozen old skill\n',
+    });
+    try {
+      expect(await fetch(`${receiver.baseURL}/org-skills/existing-skill/SKILL.md`).then(res => res.text()))
+        .toBe('# Frozen old skill\n');
+      const applied = await fetch(`${receiver.baseURL}/org-skills/existing-skill`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body,
+      });
+      expect(applied.status).toBe(201);
+      expect(await fetch(`${receiver.baseURL}/org-skills/existing-skill/SKILL.md`).then(res => res.text()))
+        .toBe('# New skill\n');
+    } finally { await receiver.close(); }
+  });
+
+  it('serves frozen original discovery while refusing all baseline writes', async () => {
+    const token = randomBytes(32).toString('hex');
+    const receiver = await startOrgEvaluationPublishReceiverAsync({
+      expectedSkillName: 'existing-skill', action: 'none', expectedBodyHash: hash(''), token,
+      initialPublishedBody: '# Frozen old skill\n',
+    });
+    try {
+      expect(await fetch(`${receiver.baseURL}/org-skills/existing-skill/SKILL.md`).then(res => res.text()))
+        .toBe('# Frozen old skill\n');
+      for (const method of ['POST', 'DELETE'] as const) {
+        const response = await fetch(`${receiver.baseURL}/org-skills/existing-skill`, {
+          method, headers: { Authorization: `Bearer ${token}` },
+        });
+        expect(response.status).toBe(404);
+      }
+      expect((await receiver.observations()).publishedBody).toBe('# Frozen old skill\n');
+    } finally { await receiver.close(); }
   });
 });

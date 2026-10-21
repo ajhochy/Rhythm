@@ -10,7 +10,9 @@ import {
   prepareEvaluationWorkerFilesystem,
   buildEvaluationWorkerEnvironment,
   evaluationSandboxPolicy,
+  evaluationArmModel,
 } from '../org_evaluation_runtime';
+import type { OrgEvaluationTargetSnapshot } from '../org_evaluation_fixture';
 import { readEvaluationEffectiveManifest } from '../org_evaluation_worker';
 
 const base = {
@@ -102,6 +104,30 @@ describe('isolated org evaluation runtime contract', () => {
     expect(environment.RHYTHM_EVALUATION_PROVIDER_RELAY_URL).toBe('http://127.0.0.1:4796/agent-org-proposals/evaluations/provider/lease_1/v1');
   });
 
+  it('binds a publication receiver to only its private loopback port and synthetic token', () => {
+    const worker = { ...base, publicationBaseURL: 'http://127.0.0.1:50123',
+      publicationToken: 'a'.repeat(64) };
+    expect(() => assertEvaluationWorkerInput(worker)).not.toThrow();
+    expect(() => assertEvaluationWorkerInput({ ...worker,
+      publicationBaseURL: 'http://127.0.0.1:4001' })).toThrow();
+    const environment = buildEvaluationWorkerEnvironment(worker, {
+      homePath: '/private/tmp/evaluation-worker-1/home',
+      dbPath: '/private/tmp/evaluation-worker-1/rhythm.db',
+      configPath: '/private/tmp/evaluation-worker-1/home/.config/opencode',
+      workspacePath: '/private/tmp/evaluation-worker-1/workspace',
+    }, '/private/tmp/evaluation-engine/opencode', 'ephemeral-relay-token');
+    expect(environment.PROD_API_URL).toBe(worker.publicationBaseURL);
+    expect(environment.PROD_AUTH_TOKEN).toBe(worker.publicationToken);
+    const root = mkdtempSync('/private/tmp/rhythm-eval-policy-');
+    try {
+      const policy = evaluationSandboxPolicy({ workerRoot: root,
+        programRoots: ['/usr/local/bin/node'], enginePort: 49011, relayPort: 49012,
+        publicationPort: 50123 });
+      expect(policy).toContain('(allow network-outbound (remote ip "localhost:50123"))');
+      expect(policy).not.toContain('(allow network-outbound (remote ip "localhost:4001"))');
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it('denies cross-process signals and local IPC in the worker policy', () => {
     const root = mkdtempSync('/private/tmp/rhythm-eval-policy-');
     try {
@@ -112,10 +138,35 @@ describe('isolated org evaluation runtime contract', () => {
       expect(policy).toContain('(allow process-info* (target children))');
       expect(policy).toContain('(deny signal)');
       expect(policy).toContain('(deny mach-lookup)');
+      expect(policy).toContain('(deny mach-task*)');
+      expect(policy).toContain('(deny iokit*)');
       expect(policy).toContain('(deny appleevent-send)');
       expect(policy).toContain('(allow signal (target self))');
       expect(policy).toContain('(allow signal (target children))');
     } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('uses the verified old agent for a create-agent control and the new agent fallback for candidates', () => {
+    const snapshot = {
+      schemaVersion: 1, kind: 'create-agent', targetRef: 'agent_config:new-agent', targetRevision: 'absent',
+      effectiveModel: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6', source: 'hardcoded-default' },
+      profiles: [{ id: 'old-agent', label: 'Old agent', systemPrompt: null, revision: 1,
+        allowedMcpsJson: '[]', allowedSkillsJson: '[]', corePermissionsJson: '{}',
+        allowedDelegatesJson: '[]', isManager: false,
+        modelProvider: 'anthropic', modelId: 'claude-sonnet-4-5' }],
+      skills: [], schedules: [], recipes: [], managedSkillFiles: [],
+      creationControl: { targetName: 'new-agent', absenceKind: 'agent_configs', baselineProfileId: 'old-agent',
+        evidenceSessionIds: ['one', 'two'], catalogFingerprint: 'x', dependencyFingerprints: {} },
+    } as OrgEvaluationTargetSnapshot;
+    expect(evaluationArmModel(snapshot, 'create-agent', '{}', 'original')).toEqual({
+      providerID: 'anthropic', modelID: 'claude-sonnet-4-5',
+    });
+    expect(evaluationArmModel(snapshot, 'create-agent', '{}', 'variant')).toEqual({
+      providerID: 'anthropic', modelID: 'claude-sonnet-4-6',
+    });
+    expect(evaluationArmModel({ ...snapshot, kind: 'refine-config' }, 'refine-config', JSON.stringify({
+      configPatch: { field: 'model', value: 'openai/gpt-6.1-sol' },
+    }), 'variant')).toEqual({ providerID: 'openai', modelID: 'gpt-6.1-sol' });
   });
 
   it('binds generated creation rows by logical identity while retaining behavioral fields', () => {
@@ -153,5 +204,19 @@ describe('isolated org evaluation runtime contract', () => {
     } finally {
       left.close(); right.close(); rmSync(home, { recursive: true, force: true });
     }
+  });
+
+  it('includes observed remote publication state in the exact effective manifest', () => {
+    const home = mkdtempSync('/private/tmp/rhythm-eval-publication-manifest-');
+    const db = new Database(':memory:');
+    const model = { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' };
+    try {
+      const target = { kind: 'publish-skill-to-org' as const, targetRef: 'skill:sample',
+        publicationStateHash: 'a'.repeat(64) };
+      const first = readEvaluationEffectiveManifest(db, home, model, target);
+      const second = readEvaluationEffectiveManifest(db, home, model,
+        { ...target, publicationStateHash: 'b'.repeat(64) });
+      expect(first.manifestHash).not.toBe(second.manifestHash);
+    } finally { db.close(); rmSync(home, { recursive: true, force: true }); }
   });
 });

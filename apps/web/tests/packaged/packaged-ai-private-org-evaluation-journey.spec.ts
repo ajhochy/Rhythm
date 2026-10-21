@@ -155,12 +155,24 @@ if (!manifestPath || process.env.RHYTHM_FEATURE_MODEL !== '1') {
     const original = detail.candidates.find(candidate => candidate.role === 'original');
     const final = detail.candidates.find(candidate => candidate.role === 'final');
     expect(original).toBeDefined(); expect(final).toBeDefined();
+    const composition = detail.candidates.find(candidate => candidate.role === 'composition');
+    expect(composition, 'the normal prompt-edit path must compose the tested alternatives').toBeDefined();
+    expect(final!.changeJson, 'approval must apply exactly the separately validated combined change')
+      .toBe(composition!.changeJson);
     const originalValidation = detail.results.filter(result => result.phase === 'validation' && result.candidateId === original!.id);
     const finalValidation = detail.results.filter(result => result.phase === 'validation' && result.candidateId === final!.id);
     expect(originalValidation.length).toBeGreaterThan(0);
     expect(new Set(finalValidation.map(result => result.taskKey))).toEqual(new Set(originalValidation.map(result => result.taskKey)));
     expect(originalValidation.every(result => result.status === 'pass')).toBe(true);
     expect(finalValidation.every(result => result.status === 'pass')).toBe(true);
+    expect(finalValidation.every(result => result.score === 1),
+      'every held-out final task must satisfy all expected behavior checks').toBe(true);
+    expect(originalValidation.some(result => result.score !== null && result.score < 1),
+      'the fresh original must reproduce the failure on held-out behavior').toBe(true);
+    const scoreForTask = new Map(originalValidation.map(result => [result.taskKey, result.score]));
+    expect(finalValidation.some(result => result.score !== null && scoreForTask.get(result.taskKey) !== null &&
+      result.score > (scoreForTask.get(result.taskKey) ?? Infinity)),
+    'the final proposal must actually outperform the fresh original on the same held-out task').toBe(true);
     const originalSessions = originalValidation.map(result => JSON.parse(result.receiptJson).sessionId);
     const finalSessions = finalValidation.map(result => JSON.parse(result.receiptJson).sessionId);
     expect(originalSessions.every(Boolean)).toBe(true);

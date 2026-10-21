@@ -15,6 +15,7 @@ import { evaluationCanonicalJson, evaluationDigest } from './org_evaluation_inte
 import { orgEvaluationSchemaHints } from './org_evaluation_schema_hints';
 import { assertOrgEvaluationTargetBinding } from './org_evaluation_target_binding';
 import { normalizeToolInstallDiagnosisAsync, normalizeToolInstallCandidateChange } from './org_evaluation_tool_inputs';
+import { deriveSingletonPublicationAction } from './org_evaluation_singleton_action';
 
 /** Fixed before alternatives are authored. No executable commands come from a model-written test. */
 export interface OrgEvaluationTask {
@@ -252,12 +253,16 @@ ${batch}` }));
     const validation = [diagnosis.cases[heldIndex]];
     const probes = diagnosis.cases.filter((_, index) => index !== heldIndex);
     const { cases: _cases, ...problem } = diagnosis;
+    const singletonAction = deriveSingletonPublicationAction({ kind: diagnosis.kind,
+      targetRef: diagnosis.targetRef, snapshot, change: diagnosis.change });
+    const candidateStrategy = singletonAction ? 'singleton-action' : 'alternatives-composition';
     let job = await this.deps.repository.createJobAsync({
       id: randomUUID(), budgetRootId: cycle.id, sourceAuditRunId: cycle.id, ownerUserId: cycle.ownerUserId,
       maxTokens: cycle.maxTokens, validationReserveTokens: cycle.validationReserveTokens,
       originalHash: evaluationDigest(evaluationCanonicalJson(snapshot)), targetRef: diagnosis.targetRef,
       targetRevision: diagnosis.targetRevision,
-      inputJson: evaluationCanonicalJson({ snapshot, problem, probes, validation, candidateCount: settings.candidateCount }),
+      inputJson: evaluationCanonicalJson({ snapshot, problem, probes, validation,
+        candidateCount: settings.candidateCount, candidateStrategy }),
     });
     try {
       job = await this.transition(job, { status: 'exploring' });
@@ -265,6 +270,20 @@ ${batch}` }));
       const baseline = await this.execute(job, original, snapshot, probes, 'probe');
       if (baseline.some((result) => result.status !== 'pass')) throw new Error('Original probe did not execute safely');
       if (baseline.every((result) => result.score === 1)) throw new Error('The reported failure did not reproduce on the frozen original tasks');
+      if (singletonAction) {
+        const variant = await this.candidate(job, diagnosis, snapshot, 'variant', 1, singletonAction, []);
+        const observed = await this.execute(job, variant, snapshot, probes, 'probe');
+        if (observed.some((result) => result.status !== 'pass' || result.score !== 1
+          || result.score < (baseline.find((prior) => prior.taskKey === result.taskKey)?.score ?? 1)))
+          throw new Error('The single publication action did not pass safe execution');
+        job = await this.transition(job, { status: 'validating' });
+        const final = await this.candidate(job, diagnosis, snapshot, 'final', 11, singletonAction, [variant.id], []);
+        await this.execute(job, original, snapshot, validation, 'validation');
+        await this.execute(job, final, snapshot, validation, 'validation');
+        const fresh = await this.deps.capture(diagnosis, cycle.ownerUserId);
+        if (evaluationCanonicalJson(fresh) !== evaluationCanonicalJson(snapshot)) throw new Error('Target changed while testing');
+        return await this.transition(job, { status: 'qualified', finalCandidateId: final.id });
+      }
       const alternatives: unknown = JSON.parse(await this.deps.model({ jobId: job.id, stage: 'generator', prompt:
         `Return ONLY {"candidates":[changeObject,...]}. Write exactly ${settings.candidateCount} distinct general improvements.
 Use the existing proposal change schema and kind; change only the diagnosed target.

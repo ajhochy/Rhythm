@@ -1,4 +1,6 @@
 import Database from 'better-sqlite3';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { captureCreationTargetAsync } from '../org_evaluation_creation_snapshot';
 
@@ -85,5 +87,21 @@ describe('absent creation control snapshots', () => {
     const snapshot = await captureCreationTargetAsync(input, { ...deps(),managedToolRoot:'/private/tmp/org-eval-empty-tools' });
     expect(snapshot!.creationControl).toMatchObject({absenceKind:'managed-tool',baselineProfileId:'baseline'});
     expect(snapshot!.creationControl!.dependencyFingerprints['source:safe-tool']).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('does not call an already installed digest-named tool absent, or follow a tools-directory symlink', async () => {
+    const root = mkdtempSync('/private/tmp/rhythm-tool-absence-');
+    const input = { ...common, kind:'tool-install' as const, targetRef:'agent_config:baseline',
+      change:{toolName:'safe-tool',agentConfigId:'baseline',installMethod:'local-tarball',packageSource:`local-tarball:sha256:${'a'.repeat(64)}`} };
+    try {
+      mkdirSync(join(root, 'tools', 'safe-tool-aaaaaaaaaaaaaaaa'), { recursive: true });
+      await expect(captureCreationTargetAsync(input, { ...deps(), managedToolRoot: root }))
+        .rejects.toThrow(/not verified/);
+      rmSync(join(root, 'tools'), { recursive: true });
+      mkdirSync(join(root, 'outside'));
+      symlinkSync(join(root, 'outside'), join(root, 'tools'));
+      await expect(captureCreationTargetAsync(input, { ...deps(), managedToolRoot: root }))
+        .rejects.toThrow(/not verified/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

@@ -7,7 +7,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { resolveManagedToolArtifactRoot, resolveManagedToolRoot } from '../config/env';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import { buildToolInstallProposalFingerprint, evaluateToolInstallSafetyAsync } from './tool_install_safety_policy';
-import { LOCAL_TARBALL_INSTALL_METHOD, inspectImmutableLocalTarball, parseImmutableLocalTarballSource, validateImmutableLocalTarballBytes } from './tool_install_artifact';
+import { LOCAL_TARBALL_INSTALL_METHOD, MANAGED_TOOL_MAX_ARCHIVE_BYTES, inspectImmutableLocalTarball, parseImmutableLocalTarballSource, validateImmutableLocalTarballBytes } from './tool_install_artifact';
 import { isSafeToolName } from './tool_install_safety';
 
 export type ToolInstallApplyReason =
@@ -40,6 +40,8 @@ interface ManagedInstallReceipt {
   version: 1;
   proposalId: string;
   proposalFingerprint: string;
+  /** The installation approval grants this tool only to this exact profile. */
+  agentConfigId: string;
   installMethod: typeof LOCAL_TARBALL_INSTALL_METHOD;
   artifactDigest: string;
   managedRelativePath: string;
@@ -48,11 +50,12 @@ interface ManagedInstallReceipt {
   verifiedAt: string;
 }
 
-function inputs(proposal: AgentOrgProposal): { toolName: string; source: string; method: string } | null {
+function inputs(proposal: AgentOrgProposal): { toolName: string; source: string; method: string; agentConfigId: string } | null {
   try {
     const value = JSON.parse(proposal.changeJson ?? '') as Record<string, unknown>;
     return typeof value.toolName === 'string' && typeof value.packageSource === 'string' && typeof value.installMethod === 'string'
-      ? { toolName: value.toolName, source: value.packageSource, method: value.installMethod }
+      && typeof value.agentConfigId === 'string' && value.agentConfigId.length > 0
+      ? { toolName: value.toolName, source: value.packageSource, method: value.installMethod, agentConfigId: value.agentConfigId }
       : null;
   } catch { return null; }
 }
@@ -98,7 +101,10 @@ async function ownedOrdinaryFile(root: string, child: string): Promise<string | 
 async function readOwnedFile(root: string, child: string): Promise<Buffer | null> {
   const path = await ownedOrdinaryFile(root, child);
   if (!path) return null;
-  try { return await fs.readFile(path); } catch { return null; }
+  try {
+    if ((await fs.lstat(path)).size > MANAGED_TOOL_MAX_ARCHIVE_BYTES) return null;
+    return await fs.readFile(path);
+  } catch { return null; }
 }
 
 function destinationName(toolName: string, digest: string): string {
@@ -118,6 +124,7 @@ async function readReceipt(path: string): Promise<ManagedInstallReceipt | null> 
 
 function receiptMatches(receipt: ManagedInstallReceipt | null, expected: Omit<ManagedInstallReceipt, 'installedAt' | 'verifiedAt' | 'status' | 'version'>): boolean {
   return !!receipt && receipt.proposalId === expected.proposalId && receipt.proposalFingerprint === expected.proposalFingerprint &&
+    receipt.agentConfigId === expected.agentConfigId &&
     receipt.installMethod === expected.installMethod && receipt.artifactDigest === expected.artifactDigest &&
     receipt.managedRelativePath === expected.managedRelativePath;
 }
@@ -193,7 +200,7 @@ async function applyImmutableLocalTarballAsync(proposal: AgentOrgProposal, deps:
   const destination = join(tools, leaf);
   const expected: Omit<ManagedInstallReceipt, 'installedAt' | 'verifiedAt' | 'status' | 'version'> = {
     proposalId: proposal.id, proposalFingerprint: fingerprint, installMethod: LOCAL_TARBALL_INSTALL_METHOD,
-    artifactDigest: digest, managedRelativePath: relativeDestination,
+    artifactDigest: digest, managedRelativePath: relativeDestination, agentConfigId: candidate.agentConfigId,
   };
   try {
     const existing = await fs.lstat(destination).catch(() => null);
@@ -250,6 +257,37 @@ async function applyImmutableLocalTarballAsync(proposal: AgentOrgProposal, deps:
       if (lockHeld) await removeOwnedChild(lockRoot, lockName);
     }
   } catch { return { applied: false, reason: 'tool_install_apply_failed' }; }
+}
+
+export interface ActivatedManagedTool {
+  proposalId: string;
+  agentConfigId: string;
+  toolName: string;
+  artifactDigest: string;
+  artifactPath: string;
+}
+
+/** Discovery revalidates the actual installer receipt; package files alone
+ * cannot make an unapproved or differently scoped tool executable. */
+export async function inspectActivatedManagedToolAsync(proposal: AgentOrgProposal, agentConfigId: string,
+  deps: Pick<ToolInstallApplyDeps, 'managedRoot'> = {}): Promise<ActivatedManagedTool | null> {
+  if (proposal.kind !== 'tool-install' || !['applied', 'measuring', 'active'].includes(proposal.status)) return null;
+  const candidate = inputs(proposal);
+  const fingerprint = buildToolInstallProposalFingerprint(proposal);
+  if (!candidate || !fingerprint || candidate.agentConfigId !== agentConfigId ||
+      candidate.method !== LOCAL_TARBALL_INSTALL_METHOD || !isSafeToolName(candidate.toolName)) return null;
+  const digest = parseImmutableLocalTarballSource(candidate.source);
+  if (!digest) return null;
+  const root = await ownedDirectory(deps.managedRoot ?? resolveManagedToolRoot());
+  const tools = root && await ownedChildDirectory(root, 'tools');
+  if (!tools) return null;
+  const leaf = destinationName(candidate.toolName, digest);
+  const expected: Omit<ManagedInstallReceipt, 'version' | 'status' | 'installedAt' | 'verifiedAt'> = { proposalId: proposal.id, proposalFingerprint: fingerprint, agentConfigId,
+    installMethod: LOCAL_TARBALL_INSTALL_METHOD, artifactDigest: digest, managedRelativePath: join('tools', leaf) };
+  if (!(await verifyActivated(tools, leaf, digest, candidate.toolName, expected))) return null;
+  const artifactPath = await ownedOrdinaryFile(join(tools, leaf), 'artifact.tgz');
+  return artifactPath ? { proposalId: proposal.id, agentConfigId, toolName: candidate.toolName,
+    artifactDigest: digest, artifactPath } : null;
 }
 
 export async function applyVettedToolInstallAsync(

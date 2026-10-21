@@ -5,6 +5,7 @@ import { SQLITE_ORG_EVALUATION_SCHEMA } from '../../database/org_evaluation_sche
 import { ORG_EVALUATION_PROPOSAL_KINDS } from '../../models/org_evaluation';
 import { requiredEffectEvidence } from '../../models/org_evaluation_effect_evidence';
 import { OrgEvaluationRepository } from '../../repositories/org_evaluation_repository';
+import { evaluationCanonicalJson } from '../org_evaluation_integrity';
 
 const JOB_ID = 'evaluation-contract-1';
 const HASH = 'a'.repeat(64);
@@ -43,6 +44,34 @@ beforeEach(() => {
 afterEach(() => db.close());
 
 describe('pre-review durable evaluation contract', () => {
+  it('binds a singleton publication final to exactly one frozen tested action', async () => {
+    const action = { skillName: 'Reviewed Skill', action: 'publish' };
+    db.prepare('UPDATE org_evaluation_jobs SET target_ref=?, input_json=? WHERE id=?').run(
+      'skill:reviewed-skill', JSON.stringify({ candidateStrategy: 'singleton-action',
+        snapshot: { kind: 'publish-skill-to-org', targetRef: 'skill:reviewed-skill',
+          skills: [{ id: 'reviewed-skill', title: 'Reviewed Skill' }] },
+        problem: { change: action } }), JOB_ID);
+    const manifest = '{"published":true}';
+    const candidate = (id: string, role: 'original' | 'variant' | 'composition' | 'final',
+      changeJson: string, parents: string[] = [], effectiveConfigJson = manifest) => repo.addCandidateAsync({
+        id, jobId: JOB_ID, role, ordinal: role === 'original' ? 0 : role === 'variant' ? 1 : 11,
+        kind: 'publish-skill-to-org', targetRef: 'skill:reviewed-skill',
+        configHash: digest(effectiveConfigJson), effectiveConfigJson,
+        changeJson, parentCandidateIds: parents,
+      });
+    await candidate('original', 'original', '{}');
+    await expect(candidate('invented', 'variant', JSON.stringify({ ...action, note: 'fake' })))
+      .rejects.toThrow(/frozen action/);
+    const variant = await candidate('variant', 'variant', evaluationCanonicalJson(action));
+    await expect(candidate('duplicate', 'variant', evaluationCanonicalJson(action))).rejects.toThrow(/frozen action/);
+    await expect(candidate('composition', 'composition', evaluationCanonicalJson(action), [variant.id]))
+      .rejects.toThrow(/frozen action/);
+    await expect(candidate('different-final', 'final', evaluationCanonicalJson(action), [variant.id], '{"published":false}'))
+      .rejects.toThrow(/tested parent/);
+    const final = await candidate('final', 'final', evaluationCanonicalJson(action), [variant.id]);
+    expect(final.parentCandidateIds).toEqual([variant.id]);
+  });
+
   it('org-evaluation-c1: the closed evaluation catalog includes every existing proposal kind including tool installation', () => {
     expect(ORG_EVALUATION_PROPOSAL_KINDS).toEqual([
       'create-agent', 'grant-delegation', 'expand-delegation', 'broaden-scope',
@@ -56,6 +85,18 @@ describe('pre-review durable evaluation contract', () => {
   it('org-evaluation-c17: a workflow prompt fix needs observed managed skill execution', () => {
     expect(requiredEffectEvidence('workflow-prompt-fix')).toEqual([
       'managed-skill-bytes-written', 'skill-loaded', 'agent-output',
+    ]);
+  });
+
+  it('requires different actual effects for publishing and unpublishing a frozen skill', () => {
+    expect(requiredEffectEvidence('publish-skill-to-org', '{"action":"publish"}')).toEqual([
+      'loopback-org-publish-received', 'org-skill-fetch', 'skill-loaded',
+    ]);
+    expect(requiredEffectEvidence('publish-skill-to-org', '{"action":"unpublish"}')).toEqual([
+      'loopback-org-unpublish-received', 'org-skill-unavailable', 'skill-unavailable',
+    ]);
+    expect(requiredEffectEvidence('publish-skill-to-org', '{"action":"unknown"}')).toEqual([
+      'invalid-publication-action',
     ]);
   });
 

@@ -81,6 +81,10 @@ async function fetchJson<T>(url: string, headers?: Record<string, string>): Prom
 
 /** fetch raw text (skill body) with a hard timeout; null on any failure. Never throws. */
 export async function downloadSkillBody(url: string): Promise<string | null> {
+  if (process.env.RHYTHM_EVALUATION_WORKER === '1') {
+    const { downloadPrivateExternalSkillAsync } = await import('../org_evaluation_external_source');
+    return downloadPrivateExternalSkillAsync(url);
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {

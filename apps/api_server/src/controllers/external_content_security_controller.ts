@@ -12,6 +12,7 @@ import { verifyTrustedMcpCall } from '../security/trusted_mcp_call';
 
 const security = new ExternalContentSecurityService();
 const EXTERNAL_CONTENT_SOURCES = new Set([
+  'managed-tool.run',
   'gmail.search',
   'gmail.message',
   'message-thread.list',
@@ -52,6 +53,7 @@ const EXTERNAL_CONTENT_SOURCES = new Set([
 ]);
 
 export const EXTERNAL_CONTENT_TOOLS = new Map<string, string>([
+  ['managed-tool.run', 'rhythm_run_managed_tool'],
   ['gmail.search', 'rhythm_search_gmail'],
   ['gmail.message', 'rhythm_read_email'],
   ['message-thread.list', 'rhythm_list_message_threads'],

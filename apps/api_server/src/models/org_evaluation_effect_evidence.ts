@@ -22,13 +22,22 @@ const EFFECT_EVIDENCE: Record<OrgEvaluationProposalKind, readonly string[]> = {
   'tool-install': ['docker-safety-vetted', 'tool-installed', 'tool-invoked', 'forbidden-tool-effect-denied'],
 };
 
-export function requiredEffectEvidence(kind: OrgEvaluationProposalKind): readonly string[] {
+export function requiredEffectEvidence(kind: OrgEvaluationProposalKind, changeJson?: string): readonly string[] {
+  if (kind === 'publish-skill-to-org' && changeJson !== undefined) {
+    try {
+      const parsed: unknown = JSON.parse(changeJson);
+      const action = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>).action : null;
+      if (action === 'unpublish') return ['loopback-org-unpublish-received', 'org-skill-unavailable', 'skill-unavailable'];
+      if (action !== 'publish') return ['invalid-publication-action'];
+    } catch { return ['invalid-publication-action']; }
+  }
   return EFFECT_EVIDENCE[kind];
 }
 
 export function verifyObservedEffects(kind: OrgEvaluationProposalKind,
-  observed: readonly string[]): { verified: boolean; missing: string[] } {
+  observed: readonly string[], changeJson?: string): { verified: boolean; missing: string[] } {
   const seen = new Set(observed);
-  const missing = EFFECT_EVIDENCE[kind].filter((event) => !seen.has(event));
+  const missing = requiredEffectEvidence(kind, changeJson).filter((event) => !seen.has(event));
   return { verified: missing.length === 0, missing };
 }

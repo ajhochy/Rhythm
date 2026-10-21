@@ -1,7 +1,7 @@
 /** Existing-state control for proposal kinds that create a new object. */
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { env, resolveManagedToolRoot } from '../config/env';
 import { getDb, getPostgresPool } from '../database/db';
@@ -25,6 +25,18 @@ const list = (value: unknown): string[] => {
 const ownerCanRead = (owner: number | null, rowOwner: unknown) =>
   owner === null ? rowOwner === null : rowOwner === null || Number(rowOwner) === owner;
 const text = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0 && value.length <= 200;
+
+function managedToolIsAbsent(root: string, name: string): boolean {
+  if (!existsSync(root)) return true;
+  const stat = lstatSync(root);
+  if (!stat.isDirectory() || stat.isSymbolicLink() || existsSync(join(root, name))) return false;
+  const tools = join(root, 'tools');
+  if (!existsSync(tools)) return true;
+  const toolsStat = lstatSync(tools);
+  if (!toolsStat.isDirectory() || toolsStat.isSymbolicLink()) return false;
+  const entries = readdirSync(tools);
+  return entries.length <= 256 && !entries.some(entry => entry === name || entry.startsWith(`${name}-`));
+}
 
 function reader(db?: Database.Database): Reader {
   const tables = new Set(['agent_sessions', 'agent_configs', 'agent_cookbook', 'agent_scheduled_tasks',
@@ -169,7 +181,7 @@ export async function captureCreationTargetAsync(input: CreationSnapshotInput,
   } else {
     const name = change.toolName;
     if (!text(name) || !isSafeToolName(name) || input.targetRef !== `agent_config:${profileId}`
-      || change.agentConfigId !== profileId || existsSync(join(deps.managedToolRoot ?? resolveManagedToolRoot(), name)))
+      || change.agentConfigId !== profileId || !managedToolIsAbsent(deps.managedToolRoot ?? resolveManagedToolRoot(), name))
       throw new Error('Tool install target or baseline is not verified');
     targetName = name; absenceKind = 'managed-tool';
     dependencyFingerprints[`source:${name}`] = digest({ method: change.installMethod, source: change.packageSource });

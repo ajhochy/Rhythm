@@ -1953,7 +1953,15 @@ export class OpencodeClientService {
    * the file — without this, session.create() returns "Unauthorized".
    */
   private async restoreAuth(): Promise<void> {
-    if(loadQualificationFixtureAuthority())return; // engine uses its existing broker in place; no API credential copy
+    const qualification = loadQualificationFixtureAuthority();
+    if (qualification) {
+      const { seedQualificationAnthropicBeforeReady } = await import('./qualification_anthropic_engine_auth');
+      const { defaultAccountsFilePath } = await import('./anthropic_accounts_store');
+      await seedQualificationAnthropicBeforeReady({
+        authority: qualification, accountPath: defaultAccountsFilePath(), engine: this,
+      });
+      return;
+    }
     const authPath = opencodeDataFile('auth.json');
     if (!existsSync(authPath)) return;
     try {

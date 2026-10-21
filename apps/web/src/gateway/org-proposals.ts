@@ -9,7 +9,7 @@ export type ToolSafetyProjection = {
 export type ExperimentSummary = { collectingProgress: 'no_experiment' | 'collecting' | 'decided'; eligibleCount: number; missingCount: number; treatmentIntegrity: 'ok' | 'degraded' | 'unknown'; guardrailStatus: 'ok' | 'breached' | 'unknown'; terminalReason: string | null; staleBeforeApplyConflict: boolean; calibrationStatus: string; calibratedConfidence: number | null; };
 export type PreReviewEvaluation = { evaluationId: string; originalHash: string; finalCandidateHash: string; status: 'qualified' };
 export type EvaluationSettings = { tokenLimit: number; candidateCount: 2 | 3 };
-export type EvaluationJob = { id: string; status: 'planning' | 'exploring' | 'validating' | 'qualified' | 'inconclusive' | 'failed'; maxTokens: number; validationReserveTokens: number; originalHash: string; targetRef: string; targetRevision: string; finalCandidateId: string | null; qualifiedProposalId: string | null; failureReason: string | null; createdAt: string; updatedAt: string };
+export type EvaluationJob = { id: string; budgetRootId: string | null; status: 'planning' | 'exploring' | 'validating' | 'qualified' | 'inconclusive' | 'failed'; maxTokens: number; validationReserveTokens: number; originalHash: string; targetRef: string; targetRevision: string; finalCandidateId: string | null; qualifiedProposalId: string | null; failureReason: string | null; createdAt: string; updatedAt: string };
 export type EvaluationCompositionPart = { sourceCandidateId: string; changePath: string; retained: boolean; reason: string; evidenceResultIds: string[] };
 export type EvaluationCandidate = { id: string; role: 'original' | 'variant' | 'composition' | 'final'; ordinal: number; configHash: string; changeJson?: string; parentCandidateIds?: string[]; compositionParts?: EvaluationCompositionPart[] };
 export type EvaluationResult = { id: string; candidateId: string; phase: 'probe' | 'validation'; status: 'pass' | 'fail' | 'inconclusive'; score: number | null; taskKey: string; receiptHash: string; receiptJson: string; tokenUsage: { totalTokens: number; inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; reasoningTokens: number | null } | null; failureReason?: string | null };
@@ -33,7 +33,7 @@ function evaluationSettings(value: unknown): EvaluationSettings {
 
 function evaluationJob(value: unknown): EvaluationJob {
   const raw = record(value);
-  if (!raw || !text(raw.id) || !['planning', 'exploring', 'validating', 'qualified', 'inconclusive', 'failed'].includes(String(raw.status)) || nonnegative(raw.maxTokens) === null || nonnegative(raw.validationReserveTokens) === null || !hash(raw.originalHash) || !text(raw.targetRef) || !text(raw.targetRevision) || !text(raw.createdAt) || !text(raw.updatedAt)) throw new OrgProposalsGatewayError(0, 'Evaluation job response is malformed');
+  if (!raw || !text(raw.id) || !(raw.budgetRootId === null || text(raw.budgetRootId)) || !['planning', 'exploring', 'validating', 'qualified', 'inconclusive', 'failed'].includes(String(raw.status)) || nonnegative(raw.maxTokens) === null || nonnegative(raw.validationReserveTokens) === null || !hash(raw.originalHash) || !text(raw.targetRef) || !text(raw.targetRevision) || !text(raw.createdAt) || !text(raw.updatedAt)) throw new OrgProposalsGatewayError(0, 'Evaluation job response is malformed');
   return raw as EvaluationJob;
 }
 

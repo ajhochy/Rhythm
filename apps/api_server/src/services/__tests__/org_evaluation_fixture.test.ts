@@ -73,7 +73,12 @@ describe('org evaluation fixture', () => {
         .get('frozen-draft')).toEqual({ status: 'draft', confidence: 0.4,
         steps_json: '["Preserve extracted steps"]', tags_json: '["fixture"]' });
       db.close();
-      expect(readFileSync(join(fixture.fixtureConfig, 'opencode.json'), 'utf8')).toContain('127.0.0.1:4796');
+      const providerConfig = JSON.parse(readFileSync(join(fixture.fixtureConfig, 'opencode.json'), 'utf8')) as {
+        provider: Record<string, unknown>;
+      };
+      expect(providerConfig.provider).toHaveProperty('openai');
+      expect(providerConfig.provider).not.toHaveProperty('anthropic');
+      expect(JSON.stringify(providerConfig)).toContain('127.0.0.1:4796');
       expect(fixture.sourceHash).toMatch(/^[0-9a-f]{64}$/);
     } finally {
       rmSync(root, { recursive: true, force: true });

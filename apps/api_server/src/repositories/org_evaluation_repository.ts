@@ -10,6 +10,7 @@ import type {
 import { ORG_EVALUATION_PROPOSAL_KINDS } from '../models/org_evaluation';
 import { verifyObservedEffects } from '../models/org_evaluation_effect_evidence';
 import { evaluationCanonicalJson } from '../services/org_evaluation_integrity';
+import { deriveSingletonPublicationAction } from '../services/org_evaluation_singleton_action';
 
 export type CreateOrgEvaluationJobInput = Omit<OrgEvaluationJob,
   'budgetRootId' | 'status' | 'finalCandidateId' | 'qualifiedProposalId' | 'failureReason' | 'revision' | 'createdAt' | 'updatedAt'> &
@@ -119,29 +120,79 @@ function budgetFromRows(job: OrgEvaluationJob, reservations: OrgEvaluationTokenR
 }
 
 function assertQualificationEvidence(
-  job: OrgEvaluationJob, candidates: OrgEvaluationCandidate[], results: OrgEvaluationResult[],
+  job: OrgEvaluationJob, budgetRoot: OrgEvaluationJob,
+  candidates: OrgEvaluationCandidate[], results: OrgEvaluationResult[],
   reservations: OrgEvaluationTokenReservation[], finalId: string | null,
 ): void {
   const original = candidates.find((c) => c.role === 'original');
   const final = candidates.find((c) => c.id === finalId && c.role === 'final');
   const variants = candidates.filter((c) => c.role === 'variant');
   const composition = candidates.find((c) => c.id === final?.parentCandidateIds[0] && c.role === 'composition');
-  const budget = budgetFromRows(job, reservations);
+  const frozenInput = parseJson(job.inputJson) as Record<string, unknown>;
+  const singleton = frozenInput.candidateStrategy === 'singleton-action';
+  const budget = budgetFromRows(budgetRoot, reservations);
   if (!original || candidates.filter((c) => c.role === 'original').length !== 1 || !final
-    || !composition || final.parentCandidateIds.length !== 1
+    || budget.hasUnknownUsage
+    || budget.settledTokens > budgetRoot.maxTokens || budget.outstandingTokens > 0)
+    throw new Error('Evaluation is not qualified');
+  if (singleton) {
+    const problem = frozenInput.problem as Record<string, unknown> | undefined;
+    const action = deriveSingletonPublicationAction({ kind: variants[0]?.kind ?? original.kind,
+      targetRef: job.targetRef, snapshot: frozenInput.snapshot as Record<string, unknown>, change: problem?.change });
+    if (!action || variants.length !== 1 || candidates.length !== 3 || composition
+      || candidates.some((candidate) => candidate.kind !== 'publish-skill-to-org'
+        || candidate.targetRef !== job.targetRef)
+      || variants[0].parentCandidateIds.length || variants[0].changeJson !== evaluationCanonicalJson(action)
+      || final.parentCandidateIds.length !== 1 || final.parentCandidateIds[0] !== variants[0].id
+      || final.changeJson !== variants[0].changeJson || final.configHash !== variants[0].configHash
+      || final.effectiveConfigJson !== variants[0].effectiveConfigJson
+      || (final.compositionParts ?? []).length)
+      throw new Error('Singleton action does not match its frozen publication lineage');
+    const probeKeys = Array.isArray(frozenInput.probes)
+      ? frozenInput.probes.map((item) => item && typeof item === 'object'
+        ? (item as Record<string, unknown>).key : null) : [];
+    const originalProbe = results.filter((result) => result.phase === 'probe' && result.candidateId === original.id);
+    const variantProbe = results.filter((result) => result.phase === 'probe' && result.candidateId === variants[0].id);
+    if (!probeKeys.length || probeKeys.some((key) => typeof key !== 'string' || !key)
+      || new Set(probeKeys).size !== probeKeys.length
+      || originalProbe.length !== probeKeys.length || variantProbe.length !== probeKeys.length
+      || probeKeys.some((key) => {
+        const baseline = originalProbe.find((result) => result.taskKey === key);
+        const treatment = variantProbe.find((result) => result.taskKey === key);
+        if (!baseline || !treatment || baseline.status !== 'pass' || treatment.status !== 'pass'
+          || baseline.score === null || treatment.score !== 1 || treatment.score < baseline.score) return true;
+        const baselineReceipt = parseJson(baseline.receiptJson) as OrgEvaluationExecutionReceipt;
+        const treatmentReceipt = parseJson(treatment.receiptJson) as OrgEvaluationExecutionReceipt;
+        return !baselineReceipt.sessionId || !treatmentReceipt.sessionId
+          || baselineReceipt.sessionId === treatmentReceipt.sessionId
+          || baselineReceipt.taskFixtureHash !== treatmentReceipt.taskFixtureHash;
+      }) || !probeKeys.some((key) => variantProbe.find((result) => result.taskKey === key)!.score!
+        > originalProbe.find((result) => result.taskKey === key)!.score!))
+      throw new Error('Singleton action lacks paired improved original probe evidence');
+  } else if (!composition || final.parentCandidateIds.length !== 1
     || final.changeJson !== composition.changeJson || final.configHash !== composition.configHash
     || final.effectiveConfigJson !== composition.effectiveConfigJson
     || JSON.stringify(final.compositionParts ?? []) !== JSON.stringify(composition.compositionParts ?? [])
     || !composition.compositionParts?.some((part) => part.retained)
-    || variants.length < 2 || variants.length > 3 || budget.hasUnknownUsage
-    || budget.settledTokens > job.maxTokens || budget.outstandingTokens > 0)
+    || variants.length < 2 || variants.length > 3 || original.kind === 'publish-skill-to-org')
     throw new Error('Evaluation is not qualified');
-  const probed = [original, ...variants, composition];
+  const probed = singleton ? [original, ...variants] : [original, ...variants, composition!];
   if (probed.some((candidate) => !results.some((result) => result.candidateId === candidate.id
     && result.phase === 'probe' && result.status === 'pass' && result.score !== null)))
     throw new Error('Every variant and the original need actual probe evidence');
   const baseline = results.filter((r) => r.phase === 'validation' && r.candidateId === original.id);
   const treatment = results.filter((r) => r.phase === 'validation' && r.candidateId === final.id);
+  if (singleton) {
+    const withheldKeys = Array.isArray(frozenInput.validation)
+      ? frozenInput.validation.map((item) => item && typeof item === 'object'
+        ? (item as Record<string, unknown>).key : null) : [];
+    if (!withheldKeys.length || withheldKeys.some((key) => typeof key !== 'string' || !key)
+      || new Set(withheldKeys).size !== withheldKeys.length || baseline.length !== withheldKeys.length
+      || treatment.length !== withheldKeys.length
+      || withheldKeys.some((key) => !baseline.some((result) => result.taskKey === key)
+        || !treatment.some((result) => result.taskKey === key)))
+      throw new Error('Singleton final lacks the frozen independent validation tasks');
+  }
   if (!baseline.length || baseline.length !== treatment.length || baseline.some((b) => {
     const f = treatment.find((r) => r.taskKey === b.taskKey);
     if (!f || b.status !== 'pass' || f.status !== 'pass' || b.score === null || f.score !== 1 || f.score < b.score)
@@ -329,7 +380,7 @@ export class OrgEvaluationRepository {
           if (!rootRow || ['inconclusive', 'failed'].includes(rootRow.status)
             || (patch.qualifiedProposalId && rootId !== id && rootRow.status !== 'qualified'))
             throw new Error('Shared evaluation budget is not qualified');
-          assertQualificationEvidence(jobFromRow(rootRow), candidates, results, reservations,
+          assertQualificationEvidence(jobFromRow(currentRow), jobFromRow(rootRow), candidates, results, reservations,
             patch.finalCandidateId ?? currentRow.final_candidate_id ?? null);
         }
         const values = keys.map((key) => patch[key]);
@@ -355,7 +406,7 @@ export class OrgEvaluationRepository {
         if (!rootRow || ['inconclusive', 'failed'].includes(String(rootRow.status))
           || (patch.qualifiedProposalId && rootId !== id && rootRow.status !== 'qualified'))
           throw new Error('Shared evaluation budget is not qualified');
-        assertQualificationEvidence(jobFromRow(rootRow), candidates, results, reservations,
+        assertQualificationEvidence(jobFromRow(currentRow), jobFromRow(rootRow), candidates, results, reservations,
           patch.finalCandidateId ?? currentRow.final_candidate_id as string | null);
       }
       const values = keys.map((key) => patch[key]);
@@ -375,10 +426,21 @@ export class OrgEvaluationRepository {
     const job = await this.getJobAsync(input.jobId);
     if (!job || job.targetRef !== input.targetRef || job.status === 'qualified') throw new Error('Candidate target mismatch');
     const existing = await this.listCandidatesAsync(input.jobId);
+    const frozenInput = parseJson(job.inputJson) as Record<string, unknown>;
+    const singleton = frozenInput.candidateStrategy === 'singleton-action';
+    if (singleton) {
+      const problem = frozenInput.problem as Record<string, unknown> | undefined;
+      const action = deriveSingletonPublicationAction({ kind: input.kind, targetRef: job.targetRef,
+        snapshot: frozenInput.snapshot as Record<string, unknown>, change: problem?.change });
+      if (!action || input.role === 'composition' || input.kind !== 'publish-skill-to-org'
+        || input.role !== 'original' && input.changeJson !== evaluationCanonicalJson(action)
+        || input.role === 'variant' && existing.some((candidate) => candidate.role === 'variant'))
+        throw new Error('Singleton publication candidate differs from its frozen action');
+    }
     if (input.parentCandidateIds.some((id) => !existing.some((c) => c.id === id)))
       throw new Error('Candidate parent missing from evaluation');
     const parts = input.compositionParts ?? [];
-    if (['composition', 'final'].includes(input.role)) {
+    if (input.role === 'composition' || input.role === 'final' && !singleton) {
       if (!parts.length || parts.some((part) => !part.sourceCandidateId || !part.changePath || !part.reason
         || !part.evidenceResultIds.length || !part.evidenceResultIds.every((id) => typeof id === 'string')))
         throw new Error('Composition portions need evidence');
@@ -402,11 +464,11 @@ export class OrgEvaluationRepository {
     } else if (parts.length) throw new Error('Uncomposed candidate cannot claim portions');
     if (input.role === 'final') {
       const parent = existing.find((candidate) => candidate.id === input.parentCandidateIds[0]
-        && candidate.role === 'composition');
+        && candidate.role === (singleton ? 'variant' : 'composition'));
       if (!parent || input.parentCandidateIds.length !== 1 || input.changeJson !== parent.changeJson
         || input.effectiveConfigJson !== parent.effectiveConfigJson || input.configHash !== parent.configHash
         || JSON.stringify(parts) !== JSON.stringify(parent.compositionParts ?? []))
-        throw new Error('Final candidate differs from tested composition');
+        throw new Error('Final candidate differs from tested parent');
     }
     const timestamp = now();
     const values = [input.id, input.jobId, input.role, input.ordinal, input.kind, input.targetRef,
@@ -446,7 +508,7 @@ export class OrgEvaluationRepository {
       const effectKinds = proof.events.map((event) => event.kind);
       const required = candidate.role === 'original' ? ['agent-output'] : null;
       const missing = required ? required.filter((kind) => !effectKinds.includes(kind))
-        : verifyObservedEffects(candidate.kind, effectKinds).missing;
+        : verifyObservedEffects(candidate.kind, effectKinds, candidate.changeJson).missing;
       if (missing.length) throw new Error('Passing receipt lacks required effect evidence');
     }
     if (input.tokenUsage && !validUsage(input.tokenUsage)) throw new Error('Invalid evaluation token usage');

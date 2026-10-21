@@ -68,7 +68,7 @@
     },
     {
       "criterion_id": "org-evaluation-c9",
-      "text": "The original and two or three isolated candidate configurations execute real task and effect adapters, with actual tool and permission outcomes recorded.",
+      "text": "The original and two or three isolated candidate configurations execute real task and effect adapters, with actual tool and permission outcomes recorded. A code-verified singleton publication action has one candidate and no fabricated composition.",
       "mode": "manual",
       "status": "UNVERIFIED",
       "reason": "Requires the isolated real-engine/API sandbox and owned task fixtures; source or mocked tests cannot prove actual execution."

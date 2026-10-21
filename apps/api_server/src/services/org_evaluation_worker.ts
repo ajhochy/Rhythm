@@ -19,10 +19,11 @@ export interface EvaluationMaterializeRequest {
   dbPath: string;
   workerRoot: string;
   profileIds?: string[];
-  executionModel: { providerID: 'anthropic'; modelID: string };
+  executionModel: { providerID: string; modelID: string };
   proposal: { title: string; rationale: string; securityNote: string | null };
   bootstrapEngine?: boolean;
   workspacePath?: string;
+  publicationName?: string;
 }
 
 export interface EvaluationMaterializedConfiguration {
@@ -35,7 +36,7 @@ export interface EvaluationMaterializedConfiguration {
 export interface EvaluationExecuteRequest extends EvaluationMaterializeRequest {
   expectedManifestHash: string;
   task: { key: string; prompt: string; outputIncludes: string[]; outputExcludes: string[] };
-  model: { providerID: 'anthropic'; modelID: string };
+  model: { providerID: string; modelID: string };
   workspacePath: string;
   guardSentinelPath: string;
   guardNetworkUrl: string;
@@ -57,7 +58,8 @@ export interface EvaluationWorkerExecution {
   guardDetails: { hostReadDenied: boolean; hostWriteDenied: boolean; networkDenied: boolean;
     parentApiDenied: boolean; processSignalDenied: boolean };
   observedEffects: Array<{
-    kind: string; source: 'worker-db' | 'worker-file' | 'engine-session' | 'engine-tool';
+    kind: string; source: 'worker-db' | 'worker-file' | 'engine-session' | 'engine-tool' |
+      'engine-permission' | 'loopback-receiver' | 'docker-vetter';
     subject: string; evidenceHash: string;
   }>;
 }
@@ -81,7 +83,32 @@ function workerBoundary(request: EvaluationMaterializeRequest): void {
   }
 }
 
-function hashPrivateFiles(root: string): Record<string, string> {
+function selectedEvaluationProfileId(request: EvaluationMaterializeRequest): string | undefined {
+  if (request.kind === 'create-agent' && request.baseline) return request.profileIds?.[0];
+  return request.targetRef.startsWith('agent_config:')
+    ? request.targetRef.slice('agent_config:'.length) : request.profileIds?.[0];
+}
+
+async function assertAppliedEvaluationModel(request: EvaluationMaterializeRequest,
+  db: Database.Database): Promise<void> {
+  const profileId = selectedEvaluationProfileId(request);
+  if (!profileId) throw new Error('Evaluation has no frozen execution profile');
+  const { resolveRunModel } = await import('./agent_runner');
+  let actual = resolveRunModel(profileId);
+  if (request.targetRef.startsWith('scheduled_task:')) {
+    const taskId = request.targetRef.slice('scheduled_task:'.length);
+    const task = db.prepare('SELECT agent_config_id, model_provider, model_id FROM agent_scheduled_tasks WHERE id = ?')
+      .get(taskId) as { agent_config_id: string | null; model_provider: string | null; model_id: string | null } | undefined;
+    if (!task || task.agent_config_id !== profileId) throw new Error('Evaluation scheduled task binding changed');
+    if (task.model_provider && task.model_id) actual = { providerID: task.model_provider, modelID: task.model_id };
+  }
+  if (actual.providerID !== request.executionModel.providerID ||
+      actual.modelID !== request.executionModel.modelID) {
+    throw new Error('Applied candidate resolves to a different production model');
+  }
+}
+
+function hashPrivateFiles(root: string, selectedProvider: string): Record<string, string> {
   const result: Record<string, string> = {};
   if (!existsSync(root)) return result;
   const walk = (path: string): void => {
@@ -100,11 +127,16 @@ function hashPrivateFiles(root: string): Record<string, string> {
           // are transport details, not part of the target's effective policy.
           const parsed = JSON.parse(readFileSync(absolute, 'utf8')) as Record<string, unknown>;
           const provider = parsed.provider as Record<string, unknown> | undefined;
-          const anthropic = provider?.anthropic as Record<string, unknown> | undefined;
-          const options = anthropic?.options as Record<string, unknown> | undefined;
+          const selected = provider?.[selectedProvider] as Record<string, unknown> | undefined;
+          const options = selected?.options as Record<string, unknown> | undefined;
           if (options) {
             options.baseURL = '<private-budget-relay>';
             options.apiKey = '<ephemeral-relay-token>';
+          }
+          const skills = parsed.skills as { urls?: string[] } | undefined;
+          if (skills?.urls && process.env.RHYTHM_EVALUATION_PUBLICATION_URL) {
+            const privateUrl = `${process.env.RHYTHM_EVALUATION_PUBLICATION_URL}/org-skills`;
+            skills.urls = skills.urls.map((url) => url === privateUrl ? '<private-org-skills>' : url);
           }
           result[fileName] = sha256(JSON.stringify(parsed));
         } else result[fileName] = sha256(readFileSync(absolute));
@@ -151,8 +183,8 @@ function canonicalRows(rows: unknown[], table: string,
 /** Bind the actual copied DB and projected files without returning any secret bytes. */
 export function readEvaluationEffectiveManifest(
   db: Database.Database, homePath: string,
-  executionModel: { providerID: 'anthropic'; modelID: string },
-  target?: { kind: OrgEvaluationProposalKind; targetRef: string },
+  executionModel: { providerID: string; modelID: string },
+  target?: { kind: OrgEvaluationProposalKind; targetRef: string; publicationStateHash?: string },
 ): {
   manifestJson: string; manifestHash: string;
 } {
@@ -169,8 +201,43 @@ export function readEvaluationEffectiveManifest(
   }
   const configRoot = join(homePath, '.config', 'opencode');
   const manifestJson = JSON.stringify({ schemaVersion: 1, executionModel,
-    tableHashes, fileHashes: hashPrivateFiles(configRoot) });
+    tableHashes, fileHashes: hashPrivateFiles(configRoot, executionModel.providerID),
+    ...(target?.publicationStateHash ? { publicationStateHash: target.publicationStateHash } : {}) });
   return { manifestJson, manifestHash: sha256(manifestJson) };
+}
+
+async function readPrivatePublicationState(name: string | undefined): Promise<{
+  stateHash: string; published: boolean; bodyHash: string | null;
+}> {
+  const base = process.env.RHYTHM_EVALUATION_PUBLICATION_URL;
+  if (!base || !name || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(name)) {
+    throw new Error('Evaluation publication state has no private receiver binding');
+  }
+  const root = `${base}/org-skills`;
+  const index = await fetch(`${root}/index.json`, { signal: AbortSignal.timeout(5000),
+    headers: { 'X-Rhythm-Evaluation-Verify': '1' } });
+  if (!index.ok) throw new Error('Evaluation org-skill index read failed');
+  const list = await index.json() as { skills?: Array<{ name?: string; files?: string[] }> };
+  if (!Array.isArray(list.skills)) throw new Error('Evaluation org-skill index malformed');
+  const matches = list.skills.filter((entry) => entry.name === name);
+  if (matches.length > 1 || list.skills.some((entry) => !entry || typeof entry.name !== 'string')) {
+    throw new Error('Evaluation org-skill index ambiguous');
+  }
+  const body = await fetch(`${root}/${encodeURIComponent(name)}/SKILL.md`,
+    { signal: AbortSignal.timeout(5000), headers: { 'X-Rhythm-Evaluation-Verify': '1' } });
+  if (!matches.length) {
+    if (body.status !== 404) throw new Error('Evaluation org-skill absence disagrees with index');
+    return { published: false, bodyHash: null,
+      stateHash: sha256(JSON.stringify({ name, published: false })) };
+  }
+  if (!matches[0].files?.includes('SKILL.md') || !body.ok) {
+    throw new Error('Evaluation org-skill body disagrees with index');
+  }
+  const bytes = Buffer.from(await body.arrayBuffer());
+  if (!bytes.length || bytes.length > 256 * 1024) throw new Error('Evaluation org-skill body size invalid');
+  const bodyHash = sha256(bytes);
+  return { published: true, bodyHash,
+    stateHash: sha256(JSON.stringify({ name, published: true, bodyHash })) };
 }
 
 /**
@@ -182,9 +249,11 @@ export async function materializeOrgEvaluationCandidateAsync(
   request: EvaluationMaterializeRequest,
 ): Promise<EvaluationMaterializedConfiguration> {
   workerBoundary(request);
+  const externalChange = request.kind === 'external-adoption' && !request.baseline
+    ? JSON.parse(request.changeJson ?? 'null') as { candidateKind?: unknown } : null;
   if (!request.baseline && (!request.changeJson ||
-      ['tool-install', 'external-adoption', 'publish-skill-to-org']
-        .includes(request.kind))) {
+      request.kind === 'tool-install' ||
+      request.kind === 'external-adoption' && externalChange?.candidateKind !== 'skill')) {
     throw new Error(`Evaluation kind '${request.kind}' requires its isolated external/specialized applier`);
   }
   const db = new Database(request.dbPath);
@@ -226,6 +295,7 @@ export async function materializeOrgEvaluationCandidateAsync(
       }
       effectEvents.push('candidate-applied-to-worker-db');
     }
+    await assertAppliedEvaluationModel(request, db);
     if (request.bootstrapEngine) {
       if (!request.workspacePath) throw new Error('Evaluation prepare requires a private workspace');
       const { OpencodeClientService } = await import('./opencode_client_service');
@@ -233,8 +303,10 @@ export async function materializeOrgEvaluationCandidateAsync(
       try { await engine.initialize({ directory: request.workspacePath }); }
       finally { engine.dispose(); }
     }
+    const publicationStateHash = request.kind === 'publish-skill-to-org'
+      ? (await readPrivatePublicationState(request.publicationName)).stateHash : undefined;
     const manifest = readEvaluationEffectiveManifest(db, process.env.HOME!, request.executionModel,
-      { kind: request.kind, targetRef: request.targetRef });
+      { kind: request.kind, targetRef: request.targetRef, publicationStateHash });
     return { ...manifest, applied: !request.baseline, effectEvents };
   } finally {
     setDb(previous);
@@ -309,8 +381,15 @@ export async function executeOrgEvaluationTaskAsync(request: EvaluationExecuteRe
         allowedSkillsJsonOverride: task.allowedSkillsJson };
     }
     const scope = await resolveProfileScope(selectedProfileId, override);
-    if (scope.model.providerID !== request.executionModel.providerID ||
-        scope.model.modelID !== request.executionModel.modelID) {
+    const actualModel = scheduledTaskId
+      ? await (async () => {
+        const { AgentScheduledTasksRepository } = await import('../repositories/agent_scheduled_tasks_repository');
+        const task = await new AgentScheduledTasksRepository().findByIdAsync(scheduledTaskId);
+        return task?.modelProvider && task.modelId
+          ? { providerID: task.modelProvider, modelID: task.modelId } : scope.model;
+      })() : scope.model;
+    if (actualModel.providerID !== request.executionModel.providerID ||
+        actualModel.modelID !== request.executionModel.modelID) {
       throw new Error('Routed evaluation profile model differs from frozen execution model');
     }
     const decoded: unknown = scope.allowedSkillsJson === null ? undefined : JSON.parse(scope.allowedSkillsJson);
@@ -322,15 +401,18 @@ export async function executeOrgEvaluationTaskAsync(request: EvaluationExecuteRe
   };
   try {
     await engine.initialize({ directory: request.workspacePath });
+    const publicationBefore = request.kind === 'publish-skill-to-org'
+      ? await readPrivatePublicationState(request.publicationName) : undefined;
     const projected = readEvaluationEffectiveManifest(db, process.env.HOME!, request.executionModel,
-      { kind: request.kind, targetRef: request.targetRef });
+      { kind: request.kind, targetRef: request.targetRef,
+        publicationStateHash: publicationBefore?.stateHash });
     if (projected.manifestHash !== request.expectedManifestHash) {
       throw new Error('Evaluation candidate effective configuration changed between prepare and run');
     }
-    const profileId = request.targetRef.startsWith('agent_config:')
-      ? request.targetRef.slice('agent_config:'.length)
-      : request.profileIds?.[0];
-    const primaryScope = await sessionScope(profileId);
+    const profileId = selectedEvaluationProfileId(request);
+    const primaryScheduledTaskId = request.targetRef.startsWith('scheduled_task:')
+      ? request.targetRef.slice('scheduled_task:'.length) : undefined;
+    const primaryScope = await sessionScope(profileId, primaryScheduledTaskId);
     const session = await engine.createSession(
       `Evaluation ${request.task.key}`, request.workspacePath,
       primaryScope.mcpRoleConfig, primaryScope.skillAllowlist,
@@ -416,8 +498,41 @@ export async function executeOrgEvaluationTaskAsync(request: EvaluationExecuteRe
         }
       }
     }
+    if (request.kind === 'external-adoption' && !request.baseline) {
+      const change = JSON.parse(request.changeJson!) as { candidateKind?: string; skillName?: string };
+      const sourceName = change.candidateKind === 'skill' ? change.skillName : undefined;
+      if (sourceName && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(sourceName)) {
+        const { readManagedSkillBytes } = await import('./rhythm_managed_skills');
+        const { extractInvokedSkillNamesFromParts } = await import('./lazy_deps_turn_hook');
+        const bytes = readManagedSkillBytes(sourceName);
+        const invoked = extractInvokedSkillNamesFromParts(
+          historyParts as Parameters<typeof extractInvokedSkillNamesFromParts>[0]);
+        if (bytes && sha256(bytes) === process.env.RHYTHM_EVALUATION_EXTERNAL_SOURCE_SHA256 &&
+            invoked.includes(sourceName)) {
+          observedEffects.push({ kind: 'adopted-capability-executed', source: 'engine-tool',
+            subject: sourceName, evidenceHash: sha256(JSON.stringify(toolEvents)) });
+        }
+      }
+    }
+    if (publicationBefore) {
+      const { extractInvokedSkillNamesFromParts } = await import('./lazy_deps_turn_hook');
+      const invoked = extractInvokedSkillNamesFromParts(
+        historyParts as Parameters<typeof extractInvokedSkillNamesFromParts>[0]);
+      const name = request.publicationName!;
+      if (publicationBefore.published && invoked.includes(name)) {
+        observedEffects.push({ kind: 'skill-loaded', source: 'engine-tool', subject: name,
+          evidenceHash: sha256(JSON.stringify(toolEvents)) });
+      }
+      if (!publicationBefore.published) {
+        observedEffects.push({ kind: 'org-skill-unavailable', source: 'engine-session', subject: name,
+          evidenceHash: publicationBefore.stateHash });
+      }
+    }
+    const publicationAfterPrompt = request.kind === 'publish-skill-to-org'
+      ? await readPrivatePublicationState(request.publicationName) : undefined;
     const afterRun = readEvaluationEffectiveManifest(db, process.env.HOME!, request.executionModel,
-      { kind: request.kind, targetRef: request.targetRef });
+      { kind: request.kind, targetRef: request.targetRef,
+        publicationStateHash: publicationAfterPrompt?.stateHash });
     if (afterRun.manifestHash !== request.expectedManifestHash) {
       const before = JSON.parse(projected.manifestJson) as { tableHashes: Record<string, string>; fileHashes: Record<string, string> };
       const after = JSON.parse(afterRun.manifestJson) as typeof before;

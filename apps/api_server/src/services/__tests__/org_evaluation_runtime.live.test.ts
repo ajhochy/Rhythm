@@ -13,7 +13,7 @@ import type { OrgEvaluationCandidate } from '../../models/org_evaluation';
 const live = process.env.RHYTHM_ORG_EVALUATION_LIVE === '1';
 
 describe.skipIf(!live)('private engine evaluation with real bounded provider', () => {
-  it('executes an original arm using only a budgeted loopback relay', async () => {
+  const runScenario = async (scenario: 'prepare' | 'config' | 'scope') => {
     const root = mkdtempSync('/private/tmp/rhythm-org-evaluation-live-');
     const db = new Database(':memory:');
     db.exec(SQLITE_ORG_EVALUATION_SCHEMA);
@@ -85,8 +85,8 @@ describe.skipIf(!live)('private engine evaluation with real bounded provider', (
         role: 'original', ordinal: 0, kind: 'refine-config', targetRef: snapshot.targetRef,
         configHash: prepared.manifestHash, effectiveConfigJson: prepared.manifestJson,
         changeJson: '{}', parentCandidateIds: [], createdAt: new Date().toISOString() };
-      if (process.env.RHYTHM_ORG_EVALUATION_PREPARE_ONLY === '1') return;
-      if (process.env.RHYTHM_ORG_EVALUATION_TOOL_ONLY !== '1') {
+      if (scenario === 'prepare') return;
+      if (scenario === 'config') {
       const task = { key: 'basic-reply', prompt: 'Give the heading instructed by your system prompt.',
         outputIncludes: ['ACTIONS'], outputExcludes: [] };
       const result = await runtime.execute({ jobId, candidate, snapshot,
@@ -115,6 +115,7 @@ describe.skipIf(!live)('private engine evaluation with real bounded provider', (
       expect(variantResult.status).toBe('pass');
       expect(variantResult.score).toBe(1);
       expect(variantResult.tokenUsage?.totalTokens).toBeGreaterThan(0);
+      return;
       }
       const toolSnapshot: OrgEvaluationTargetSnapshot = { ...snapshot,
         profiles: [{ ...snapshot.profiles[0], systemPrompt:
@@ -172,5 +173,15 @@ describe.skipIf(!live)('private engine evaluation with real bounded provider', (
       db.close();
       rmSync(root, { recursive: true, force: true });
     }
-  }, 180_000);
+  };
+  it.skipIf(process.env.RHYTHM_ORG_EVALUATION_PREPARE_ONLY !== '1')(
+    'boots the private engine under the OS sandbox without a model request',
+    () => runScenario('prepare'), 180_000);
+  it.skipIf(process.env.RHYTHM_ORG_EVALUATION_PREPARE_ONLY === '1' ||
+    process.env.RHYTHM_ORG_EVALUATION_TOOL_ONLY === '1')(
+    'compares original and candidate profile behavior with independent bounded engine runs',
+    () => runScenario('config'), 180_000);
+  it.skipIf(process.env.RHYTHM_ORG_EVALUATION_PREPARE_ONLY === '1')(
+    'proves granted and denied MCP dispatch against the private fixture ledger',
+    () => runScenario('scope'), 180_000);
 });

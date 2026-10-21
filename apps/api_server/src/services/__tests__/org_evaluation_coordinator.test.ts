@@ -36,8 +36,22 @@ beforeEach(() => {
 });
 afterEach(() => { setDb(previous); db.close(); });
 
-function harness(options: { finalScore?: number; mutateDuring?: boolean; unknownUsage?: boolean; publishFailure?: boolean } = {}) {
+function harness(options: { finalScore?: number; mutateDuring?: boolean; unknownUsage?: boolean;
+  publishFailure?: boolean; singletonPublication?: boolean } = {}) {
   const calls: Array<{ type: string; phase?: string; role?: string; prompt?: string }> = [];
+  const selectedDiagnosis: OrgEvaluationDiagnosis = options.singletonPublication ? {
+    ...diagnosis, kind: 'publish-skill-to-org', targetRef: 'skill:reviewed-skill', targetRevision: '1',
+    change: { skillName: 'Reviewed Skill', action: 'unpublish' },
+  } : diagnosis;
+  const publicationSnapshot = {
+    schemaVersion: 1 as const, kind: 'publish-skill-to-org' as const,
+    targetRef: selectedDiagnosis.targetRef, targetRevision: selectedDiagnosis.targetRevision,
+    effectiveModel: { providerID: 'anthropic' as const, modelID: 'claude-sonnet-4-6',
+      source: 'hardcoded-default' as const },
+    profiles: [], schedules: [], recipes: [], managedSkillFiles: [],
+    skills: [{ id: 'reviewed-skill', title: 'Reviewed Skill', body: 'Reviewed body',
+      description: null, whenToUse: null, version: 1 }],
+  };
   const runtime: OrgEvaluationRuntimePort = {
     async prepare(input) {
       const manifestJson = evaluationCanonicalJson({ snapshot: input.snapshot, change: JSON.parse(input.changeJson) });
@@ -59,15 +73,19 @@ function harness(options: { finalScore?: number; mutateDuring?: boolean; unknown
             events: [{ kind: 'profile-projected', source: 'worker-file', subject: input.candidate.targetRef,
               evidenceHash: 'b'.repeat(64), observedAt: new Date().toISOString() },
             { kind: 'agent-output', source: 'engine-session', subject: 'controlled-output',
-              evidenceHash: 'c'.repeat(64), observedAt: new Date().toISOString() }] },
+              evidenceHash: 'c'.repeat(64), observedAt: new Date().toISOString() },
+            ...(options.singletonPublication ? ['loopback-org-unpublish-received', 'org-skill-unavailable', 'skill-unavailable']
+              .map(kind => ({ kind, source: 'loopback-receiver', subject: 'reviewed-skill',
+                evidenceHash: 'd'.repeat(64), observedAt: new Date().toISOString() })) : [])] },
         }) };
     },
   };
   let generated = false;
   const coordinator = new OrgEvaluationCoordinator({ repository, runtime,
-    capture: (item, ownerUserId) => captureOrgEvaluationTargetAsync({
-      kind: item.kind, targetRef: item.targetRef, expectedRevision: item.targetRevision, ownerUserId,
-    }),
+    capture: (item, ownerUserId) => options.singletonPublication ? Promise.resolve(publicationSnapshot)
+      : captureOrgEvaluationTargetAsync({
+        kind: item.kind, targetRef: item.targetRef, expectedRevision: item.targetRevision, ownerUserId,
+      }),
     // Evidence authorization has its own real-session route tests. This
     // controlled fixture supplies two known evidence references above.
     verifyEvidence: async () => {},
@@ -76,7 +94,7 @@ function harness(options: { finalScore?: number; mutateDuring?: boolean; unknown
       await repository.reserveTokensAsync({ jobId: input.jobId, stage: input.stage, reservationKey: `model-${calls.length}`, maxTokens: 20 });
       await repository.settleTokensAsync({ jobId: input.jobId, reservationKey: `model-${calls.length}`,
         usage: { totalTokens: 8, inputTokens: 5, outputTokens: 3, cacheReadTokens: null, reasoningTokens: null } });
-      if (!generated) { generated = true; return JSON.stringify({ diagnoses: [diagnosis] }); }
+      if (!generated) { generated = true; return JSON.stringify({ diagnoses: [selectedDiagnosis] }); }
       if (input.stage === 'generator') return JSON.stringify({ candidates: [patch('Use Actions heading'), patch('Always show Actions heading')] });
       const data = JSON.parse(input.prompt.split('Untrusted frozen data: ')[1]);
       return JSON.stringify({ change: patch('Use Actions heading; preserve facts'), parts: data.variants.map((candidate: { id: string }, index: number) => ({
@@ -97,6 +115,34 @@ function harness(options: { finalScore?: number; mutateDuring?: boolean; unknown
 }
 
 describe('pre-review coordinator sequencing and queue boundary', () => {
+  it('tests one code-owned publication action without fabricating variants or composition', async () => {
+    const { coordinator, calls } = harness({ singletonPublication: true });
+    const result = await coordinator.run({ ownerUserId: null,
+      settings: { tokenLimit: 10000, candidateCount: 2 }, context: { trusted: 'fixture' } });
+    expect(result.cycle.status, result.cycle.failureReason ?? '').toBe('qualified');
+    expect(result.proposals, JSON.stringify(result.evaluations.map(job => ({ status: job.status,
+      reason: job.failureReason })))).toHaveLength(1);
+    expect(result.proposals[0].changeJson).toBe(evaluationCanonicalJson({
+      skillName: 'Reviewed Skill', action: 'unpublish',
+    }));
+    const job = result.evaluations[0];
+    expect(JSON.parse(job.inputJson).candidateStrategy).toBe('singleton-action');
+    const candidates = await repository.listCandidatesAsync(job.id);
+    expect(candidates.map(candidate => candidate.role)).toEqual(['original', 'variant', 'final']);
+    expect(candidates[2].parentCandidateIds).toEqual([candidates[1].id]);
+    expect(candidates[2].changeJson).toBe(candidates[1].changeJson);
+    expect(calls.filter(call => call.type === 'generator')).toHaveLength(1); // diagnosis only
+    expect(calls.some(call => call.type === 'composition')).toBe(false);
+    expect((await repository.listResultsAsync(job.id)).filter(result => result.phase === 'validation')).toHaveLength(2);
+  });
+
+  it('keeps a singleton publication out of the queue when its final output is partial', async () => {
+    const { coordinator } = harness({ singletonPublication: true, finalScore: .75 });
+    const result = await coordinator.run({ ownerUserId: null,
+      settings: { tokenLimit: 10000, candidateCount: 2 }, context: {} });
+    expect(result.proposals).toEqual([]);
+  });
+
   it('stores two tested alternatives and composition, withholds a case, then queues exactly the qualified final', async () => {
     const { coordinator, calls } = harness();
     const result = await coordinator.run({ ownerUserId: null, settings: { tokenLimit: 10000, candidateCount: 2 }, context: { trusted: 'fixture' } });

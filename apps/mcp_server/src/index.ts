@@ -30,6 +30,7 @@ import { registerCreativePlatformTools } from './tools/creativePlatform.js';
 import { registerSetupReadinessTool } from './tools/setupReadiness.js';
 import { registerLiveArtifactTools } from './tools/liveArtifacts.js';
 import { registerDayflowTools } from './tools/dayflow.js';
+import { registerManagedToolTools } from './tools/managedTools.js';
 import { registerCoordinatorConversationTools } from './tools/coordinatorConversation.js';
 
 const RHYTHM_API_URL = process.env.RHYTHM_API_URL ?? 'https://api.vcrcapps.com';
@@ -86,6 +87,7 @@ registerAgentMemoryTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN, {
 // pipeline. These two read tools carry the same engine-signed call envelope;
 // they do not grant scope or accept owner/project identifiers from the model.
 registerDayflowTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
+registerManagedToolTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 // Dedicated coordinator state is signed against the exact active foreground
 // native turn. The global registration is still narrowed per session by the
 // server-pushed profile MCP allowlist before any C2 prompt is exposed.

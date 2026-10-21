@@ -18,6 +18,11 @@ export { requiredEffectEvidence, verifyObservedEffects } from '../models/org_eva
 import type { OrgEvaluationStage, OrgEvaluationTokenUsage } from '../models/org_evaluation';
 import type { OrgEvaluationRuntimePort } from './org_evaluation_coordinator';
 import { prepareOrgEvaluationFixture } from './org_evaluation_fixture';
+import type { OrgEvaluationTargetSnapshot } from './org_evaluation_fixture';
+import { publicationReceiverInput } from './org_evaluation_publication_state';
+import { startOrgEvaluationPublishReceiverAsync } from './org_evaluation_publish_receiver';
+import { verifyScopeDelegationEffects } from './org_evaluation_scope_effects';
+import { externalSkillReceiverInput, startExternalSkillReceiverAsync } from './org_evaluation_external_source';
 import type {
   EvaluationExecuteRequest,
   EvaluationMaterializeRequest,
@@ -35,6 +40,9 @@ export interface EvaluationWorkerInput {
   workerRoot: string;
   enginePort: number;
   webhookPort?: number;
+  publicationBaseURL?: string;
+  publicationToken?: string;
+  externalSource?: { url: string; sha256: string; receiverURL: string; token: string };
   /** A request-scoped local relay which admits each provider request. */
   providerRelayUrl: string;
 }
@@ -67,6 +75,28 @@ export function assertEvaluationWorkerInput(input: EvaluationWorkerInput): void 
   if (input.webhookPort !== undefined && (!Number.isInteger(input.webhookPort) ||
       input.webhookPort < 60001 || input.webhookPort > 63999 || input.webhookPort === input.enginePort)) {
     throw new Error('Evaluation webhook port is invalid or reserved');
+  }
+  if (input.publicationBaseURL) {
+    const publication = new URL(input.publicationBaseURL);
+    if (publication.protocol !== 'http:' || publication.hostname !== '127.0.0.1' ||
+        !publication.port || publication.pathname !== '/' || publication.search || publication.hash ||
+        !input.publicationToken || input.publicationToken.length < 32 ||
+        Number(publication.port) === input.enginePort ||
+        Number(publication.port) === input.webhookPort ||
+        [4000, 4001, 4002, 4096, 4098].includes(Number(publication.port))) {
+      throw new Error('Evaluation publication receiver is not privately bound');
+    }
+  }
+  if (input.externalSource) {
+    const external = new URL(input.externalSource.receiverURL);
+    if (external.protocol !== 'http:' || external.hostname !== '127.0.0.1' ||
+        !external.port || external.pathname !== '/' || external.search || external.hash ||
+        input.externalSource.token.length < 32 ||
+        !/^[a-f0-9]{64}$/.test(input.externalSource.sha256) ||
+        Number(external.port) === input.enginePort ||
+        [4000, 4001, 4002, 4096, 4098].includes(Number(external.port))) {
+      throw new Error('Evaluation external source receiver is not privately bound');
+    }
   }
   let relay: URL;
   try { relay = new URL(input.providerRelayUrl); }
@@ -180,6 +210,17 @@ export function buildEvaluationWorkerEnvironment(
     RHYTHM_EVALUATION_PROVIDER_RELAY_URL: input.providerRelayUrl,
     RHYTHM_EVALUATION_PROVIDER_RELAY_TOKEN: relayToken,
     ...(input.webhookPort ? { RHYTHM_EVALUATION_WEBHOOK_PORT: String(input.webhookPort) } : {}),
+    ...(input.publicationBaseURL ? {
+      PROD_API_URL: input.publicationBaseURL,
+      PROD_AUTH_TOKEN: input.publicationToken,
+      RHYTHM_EVALUATION_PUBLICATION_URL: input.publicationBaseURL,
+    } : {}),
+    ...(input.externalSource ? {
+      RHYTHM_EVALUATION_EXTERNAL_SOURCE_URL: input.externalSource.url,
+      RHYTHM_EVALUATION_EXTERNAL_SOURCE_SHA256: input.externalSource.sha256,
+      RHYTHM_EVALUATION_EXTERNAL_RECEIVER_URL: input.externalSource.receiverURL,
+      RHYTHM_EVALUATION_EXTERNAL_RECEIVER_TOKEN: input.externalSource.token,
+    } : {}),
   };
 }
 
@@ -193,7 +234,8 @@ function policyString(path: string): string {
  * network destinations. Node requires system reads to remain available.
  */
 export function evaluationSandboxPolicy(input: {
-  workerRoot: string; programRoots: string[]; enginePort: number; relayPort: number; webhookPort?: number;
+  workerRoot: string; programRoots: string[]; enginePort: number; relayPort: number;
+  webhookPort?: number; publicationPort?: number; externalSourcePort?: number;
 }): string {
   if (!temporaryPath(input.workerRoot) || input.programRoots.length === 0 ||
       !Number.isInteger(input.enginePort) || !Number.isInteger(input.relayPort)) {
@@ -229,6 +271,8 @@ export function evaluationSandboxPolicy(input: {
     '(deny process-info*)',
     '(deny signal)',
     '(deny mach-lookup)',
+    '(deny mach-task*)',
+    '(deny iokit*)',
     '(deny appleevent-send)',
     '(allow file-read* (literal "/Users"))',
     '(allow file-read* (literal "/private/tmp"))',
@@ -252,6 +296,12 @@ export function evaluationSandboxPolicy(input: {
     ...(input.webhookPort ? [
       `(allow network-outbound (remote ip "localhost:${input.webhookPort}"))`,
       `(allow network-inbound (local ip "localhost:${input.webhookPort}"))`,
+    ] : []),
+    ...(input.publicationPort ? [
+      `(allow network-outbound (remote ip "localhost:${input.publicationPort}"))`,
+    ] : []),
+    ...(input.externalSourcePort ? [
+      `(allow network-outbound (remote ip "localhost:${input.externalSourcePort}"))`,
     ] : []),
   ].join('\n');
 }
@@ -305,6 +355,10 @@ export async function materializeCandidateInSandboxAsync(
     enginePort: input.worker.enginePort,
     relayPort: Number(new URL(input.worker.providerRelayUrl).port),
     webhookPort: input.worker.webhookPort,
+    publicationPort: input.worker.publicationBaseURL
+      ? Number(new URL(input.worker.publicationBaseURL).port) : undefined,
+    externalSourcePort: input.worker.externalSource
+      ? Number(new URL(input.worker.externalSource.receiverURL).port) : undefined,
     programRoots: [
       distRoot,
       resolve(apiRoot, 'package.json'),
@@ -366,43 +420,94 @@ export interface OrgEvaluationRuntimeAdapterOptions {
   engineBinary: string;
   /** Existing owned directory under /private/tmp; each arm creates fresh children. */
   workerBaseRoot: string;
-  model: { providerID: 'anthropic'; modelID: string };
+  /** Generation model only; each candidate executes its frozen effective model. */
+  model: { providerID: string; modelID: string };
   createLease(input: { jobId: string; stage: OrgEvaluationStage; model: string; maxCalls: number }):
     Promise<{ leaseId: string; baseURL: string; token: string }> | { leaseId: string; baseURL: string; token: string };
   finishLease(leaseId: string): Promise<OrgEvaluationTokenUsage | null> | OrgEvaluationTokenUsage | null;
-  getObservedToolCatalog(leaseId: string): Array<{ providerRequestHash: string; toolNames: string[] }> | null;
+  getObservedToolCatalog(leaseId: string): Array<{ providerRequestHash: string; toolNames: string[];
+    deferredCatalog: import('./org_evaluation_scope_effects').ObservedDeferredCatalog | null }> | null;
   enginePort(): number;
   wallMs?: number;
+}
+
+export function evaluationArmModel(snapshot: OrgEvaluationTargetSnapshot, kind: OrgEvaluationProposalKind,
+  changeJson: string, role: 'original' | 'variant' | 'composition' | 'final'): {
+    providerID: string; modelID: string;
+  } {
+  let model: { providerID: string; modelID: string } = {
+    providerID: snapshot.effectiveModel.providerID, modelID: snapshot.effectiveModel.modelID,
+  };
+  if (kind === 'create-agent' && role === 'original') {
+    const baseline = snapshot.profiles.find((profile) => profile.id === snapshot.creationControl?.baselineProfileId);
+    if (!baseline) throw new Error('Creation evaluation has no verified baseline profile');
+    if (baseline.modelProvider && baseline.modelId) {
+      model = { providerID: baseline.modelProvider, modelID: baseline.modelId };
+    }
+  }
+  if (kind === 'refine-config' && role !== 'original') {
+    const patch = (JSON.parse(changeJson) as { configPatch?: { field?: string; value?: unknown } }).configPatch;
+    if (patch?.field === 'model') {
+      const value = patch.value;
+      if (typeof value !== 'string' || !value.includes('/')) {
+        throw new Error('Evaluation cannot resolve an unpinned model patch from the frozen baseline');
+      }
+      const slash = value.indexOf('/');
+      model = { providerID: value.slice(0, slash), modelID: value.slice(slash + 1) };
+    }
+  }
+  if (!((model.providerID === 'anthropic' && /^claude-[A-Za-z0-9._-]+$/.test(model.modelID)) ||
+      (model.providerID === 'openai' && /^[A-Za-z0-9._-]+$/.test(model.modelID)))) {
+    throw new Error('Evaluation has no bounded provider adapter for the actual production model');
+  }
+  return model;
+}
+
+async function startPublicationForArm(snapshot: OrgEvaluationTargetSnapshot, changeJson: string,
+  baseline: boolean): Promise<{
+    receiver: Awaited<ReturnType<typeof startOrgEvaluationPublishReceiverAsync>>;
+    token: string; name: string; action: 'publish' | 'unpublish' | 'none';
+  } | null> {
+  if (snapshot.kind !== 'publish-skill-to-org') return null;
+  const binding = publicationReceiverInput({ snapshot, changeJson, baseline });
+  const token = randomUUID() + randomUUID();
+  const receiver = await startOrgEvaluationPublishReceiverAsync({ ...binding, token });
+  return { receiver, token, name: binding.expectedSkillName, action: binding.action };
+}
+
+async function startExternalSourceForArm(snapshot: OrgEvaluationTargetSnapshot, changeJson: string,
+  baseline: boolean): Promise<{
+    receiver: Awaited<ReturnType<typeof startExternalSkillReceiverAsync>>;
+    token: string; source: ReturnType<typeof externalSkillReceiverInput>;
+  } | null> {
+  if (snapshot.kind !== 'external-adoption') return null;
+  const source = externalSkillReceiverInput({ snapshot, changeJson, baseline });
+  const token = randomUUID() + randomUUID();
+  const receiver = await startExternalSkillReceiverAsync({ source, token });
+  return { receiver, token, source };
 }
 
 /** Parent API boundary. All candidate bytes are applied in a new sandboxed worker. */
 export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeAdapterOptions): OrgEvaluationRuntimePort {
   if (!temporaryPath(options.workerBaseRoot) || !existsSync(options.workerBaseRoot) ||
-      options.model.providerID !== 'anthropic' || !options.model.modelID) {
-    throw new Error('Evaluation runtime requires an owned temporary root and a pinned Anthropic model');
+      !options.model.providerID || !options.model.modelID) {
+    throw new Error('Evaluation runtime requires an owned temporary root and a pinned generation model');
   }
   const prepare: OrgEvaluationRuntimePort['prepare'] = async (input) => {
-    if (input.kind === 'refine-config') {
-      const patch = (JSON.parse(input.changeJson) as { configPatch?: { field?: string } }).configPatch;
-      if (patch?.field === 'model') {
-        throw new Error('Evaluation cannot qualify a model change through a fixed provider fixture');
-      }
-    }
-    const primary = input.targetRef.startsWith('agent_config:')
-      ? input.snapshot.profiles.find((profile) => profile.id === input.targetRef.slice('agent_config:'.length))
-      : null;
-    if (primary && (primary.modelProvider !== options.model.providerID ||
-        primary.modelId !== options.model.modelID)) {
-      throw new Error('Evaluation model does not match the target profile model');
-    }
+    const executionModel = evaluationArmModel(input.snapshot, input.kind, input.changeJson, input.role);
     const id = randomUUID();
     const fixtureRoot = join(options.workerBaseRoot, `fixture-${id}`);
     const workerRoot = join(options.workerBaseRoot, `worker-${id}`);
     const url = 'http://127.0.0.1:4796/agent-org-proposals/evaluations/provider/prepare_only/v1';
+    const publication = await startPublicationForArm(input.snapshot, input.changeJson,
+      input.role === 'original');
+    const externalSource = await startExternalSourceForArm(input.snapshot, input.changeJson,
+      input.role === 'original');
     try {
       const fixture = prepareOrgEvaluationFixture(input.snapshot, {
         fixtureRoot, safeMcpCommand: [process.execPath, join(__dirname, 'org_evaluation_mcp_fixture.js')], providerRelayUrl: url,
-        relayToken: 'prepare-only-no-provider-access',
+        relayToken: 'prepare-only-no-provider-access', executionModel,
+        publicationBaseURL: publication?.receiver.baseURL,
       });
       const result = await materializeCandidateInSandboxAsync({
         worker: {
@@ -410,12 +515,21 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
           fixtureRoot: fixture.fixtureRoot, fixtureDb: fixture.fixtureDb,
           fixtureConfig: fixture.fixtureConfig, workerRoot,
           enginePort: options.enginePort(), providerRelayUrl: url,
+          publicationBaseURL: publication?.receiver.baseURL,
+          publicationToken: publication?.token,
+          externalSource: externalSource ? {
+            url: externalSource.source.downloadUrl,
+            sha256: externalSource.source.contentSha256,
+            receiverURL: externalSource.receiver.baseURL,
+            token: externalSource.token,
+          } : undefined,
         },
         request: {
           candidateId: id, kind: input.kind, targetRef: input.targetRef,
           changeJson: input.changeJson, baseline: input.role === 'original',
           profileIds: input.snapshot.profiles.map((profile) => profile.id),
-          executionModel: options.model,
+          executionModel,
+          publicationName: publication?.name,
           proposal: input.proposal,
           bootstrapEngine: true,
         },
@@ -424,6 +538,8 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
       });
       return { manifestJson: result.manifestJson, manifestHash: result.manifestHash };
     } finally {
+      await publication?.receiver.close();
+      await externalSource?.receiver.close();
       rmSync(workerRoot, { recursive: true, force: true });
       rmSync(fixtureRoot, { recursive: true, force: true });
     }
@@ -431,6 +547,8 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
   return {
     prepare,
     execute: async (input) => {
+      const executionModel = evaluationArmModel(input.snapshot, input.candidate.kind,
+        input.candidate.changeJson, input.candidate.role);
       const id = randomUUID();
       const fixtureRoot = join(options.workerBaseRoot, `fixture-${id}`);
       const workerRoot = join(options.workerBaseRoot, `worker-${id}`);
@@ -445,13 +563,18 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
       if (!guardAddress || typeof guardAddress === 'string') throw new Error('Evaluation guard listener unavailable');
       let lease: Awaited<ReturnType<OrgEvaluationRuntimeAdapterOptions['createLease']>> | null = null;
       let usage: OrgEvaluationTokenUsage | null = null;
+      const publication = await startPublicationForArm(input.snapshot, input.candidate.changeJson,
+        input.candidate.role === 'original');
+      const externalSource = await startExternalSourceForArm(input.snapshot, input.candidate.changeJson,
+        input.candidate.role === 'original');
       try {
         lease = await options.createLease({
-          jobId: input.jobId, stage: input.stage, model: options.model.modelID, maxCalls: 8,
+          jobId: input.jobId, stage: input.stage, model: executionModel.modelID, maxCalls: 8,
         });
         const fixture = prepareOrgEvaluationFixture(input.snapshot, {
           fixtureRoot, safeMcpCommand: [process.execPath, join(__dirname, 'org_evaluation_mcp_fixture.js')],
-          providerRelayUrl: lease.baseURL, relayToken: lease.token,
+          providerRelayUrl: lease.baseURL, relayToken: lease.token, executionModel,
+          publicationBaseURL: publication?.receiver.baseURL,
         });
         const execution = await materializeCandidateInSandboxAsync({
           worker: {
@@ -460,6 +583,14 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
             fixtureRoot: fixture.fixtureRoot, fixtureDb: fixture.fixtureDb,
             fixtureConfig: fixture.fixtureConfig, workerRoot,
             enginePort: options.enginePort(), providerRelayUrl: lease.baseURL,
+            publicationBaseURL: publication?.receiver.baseURL,
+            publicationToken: publication?.token,
+            externalSource: externalSource ? {
+              url: externalSource.source.downloadUrl,
+              sha256: externalSource.source.contentSha256,
+              receiverURL: externalSource.receiver.baseURL,
+              token: externalSource.token,
+            } : undefined,
             ...(input.candidate.kind === 'webhook-wiring' ? { webhookPort: randomInt(60001, 64000) } : {}),
           },
           request: {
@@ -467,12 +598,13 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
             targetRef: input.candidate.targetRef, changeJson: input.candidate.changeJson,
             baseline: input.candidate.role === 'original',
             profileIds: input.snapshot.profiles.map((profile) => profile.id),
-            executionModel: options.model,
+            executionModel,
+            publicationName: publication?.name,
             proposal: input.proposal,
           },
           execution: {
             expectedManifestHash: input.candidate.configHash,
-            task: input.task, model: options.model,
+            task: input.task, model: executionModel,
             guardSentinelPath,
             guardNetworkUrl: `http://127.0.0.1:${guardAddress.port}/guard`,
           },
@@ -490,14 +622,63 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
         if (execution.output.length > 16_384) {
           throw new Error('Evaluation output exceeded the bounded receipt limit');
         }
+        const scopeProof = verifyScopeDelegationEffects({
+          kind: input.candidate.kind,
+          changeJson: input.candidate.changeJson,
+          snapshot: input.snapshot,
+          toolEvents: execution.toolEvents,
+          fixtureToolEvents: execution.fixtureToolEvents,
+          providerToolCatalogs,
+          observedEffects: execution.observedEffects,
+          trustedFixtureServers: ['evaluation-fixture'],
+        });
+        execution.observedEffects.push(...scopeProof.events);
         const required = input.candidate.role === 'original'
           ? input.candidate.kind === 'create-recipe' || input.candidate.kind === 'webhook-wiring'
             ? ['target-absent']
             : input.candidate.kind === 'refine-recipe' ? ['recipe-selected']
             : input.candidate.kind === 'refine-task' ? ['scheduled-task-fired']
-            : ['agent-output'] : requiredEffectEvidence(input.candidate.kind);
+            : ['agent-output'] : requiredEffectEvidence(input.candidate.kind, input.candidate.changeJson);
+        const publicationObservations = publication
+          ? await publication.receiver.observations() : null;
+        const externalObservations = externalSource
+          ? await externalSource.receiver.observations() : null;
+        const publicationEvents: EvaluationWorkerExecution['observedEffects'] = [];
+        if (publication && publicationObservations) {
+          const skillPath = `/org-skills/${encodeURIComponent(publication.name)}`;
+          const actionMethod = publication.action === 'publish' ? 'POST' : 'DELETE';
+          const actionStatus = publication.action === 'publish' ? 201 : 204;
+          const actionObserved = publicationObservations.requests.find((item) =>
+            item.method === actionMethod && item.path === skillPath && item.status === actionStatus);
+          if (publication.action !== 'none' && actionObserved) {
+            publicationEvents.push({
+              kind: publication.action === 'publish' ? 'loopback-org-publish-received' :
+                'loopback-org-unpublish-received',
+              source: 'loopback-receiver', subject: publication.name,
+              evidenceHash: createHash('sha256').update(JSON.stringify(actionObserved)).digest('hex'),
+            });
+          }
+          const engineFetch = publicationObservations.requests.find((item) =>
+            item.client === 'engine' && item.method === 'GET' &&
+            item.path === `${skillPath}/SKILL.md` && item.status === 200 &&
+            item.contentHash && publicationObservations.publishedBody !== null &&
+            item.contentHash === createHash('sha256')
+              .update(publicationObservations.publishedBody).digest('hex'));
+          if (engineFetch && publication.action === 'publish') {
+            publicationEvents.push({ kind: 'org-skill-fetch', source: 'loopback-receiver',
+              subject: publication.name, evidenceHash: engineFetch.contentHash! });
+          }
+        }
+        execution.observedEffects.push(...publicationEvents);
+        if (externalSource && externalObservations?.some((entry) =>
+          entry.path === '/source/SKILL.md' && entry.status === 200 &&
+          entry.bodyHash === externalSource.source.contentSha256)) {
+          execution.observedEffects.push({ kind: 'artifact-provenance-verified',
+            source: 'loopback-receiver', subject: externalSource.source.skillName,
+            evidenceHash: externalSource.source.contentSha256 });
+        }
         const observed = execution.observedEffects.map((event) => event.kind);
-        const proof = verifyObservedEffects(input.candidate.kind, observed);
+        const proof = verifyObservedEffects(input.candidate.kind, observed, input.candidate.changeJson);
         const missing = input.candidate.role === 'original'
           ? required.filter((kind) => !observed.includes(kind)) : proof.missing;
         const positive = input.task.outputIncludes.filter((needle) =>
@@ -512,7 +693,7 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
         const receiptJson = JSON.stringify({
           sessionId: execution.sessionId, engineVersion: execution.engineVersion,
           engineBootId: execution.engineBootId,
-          executionModel: options.model,
+          executionModel,
           taskFixtureHash: execution.taskFixtureHash,
           effectiveConfigHash: execution.manifestHash,
           outputHash: execution.outputHash,
@@ -532,8 +713,11 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
           },
         });
         return { receiptJson, status, score, tokenUsage: usage,
-          failureReason: missing.length ? `Missing actual effect proof: ${missing.join(', ')}` : null };
+          failureReason: missing.length ? `Missing actual effect proof: ${missing.join(', ')}${
+            scopeProof.reason ? `; ${scopeProof.reason}` : ''}` : null };
       } finally {
+        await publication?.receiver.close();
+        await externalSource?.receiver.close();
         if (lease) await options.finishLease(lease.leaseId);
         await new Promise<void>((resolveClose) => guard.close(() => resolveClose()));
         rmSync(workerRoot, { recursive: true, force: true });

@@ -11,7 +11,7 @@ test('evaluation gateway uses the local API and preserves settings writes and ex
       authorization: new Headers(init?.headers).get('authorization'),
       body: init?.body ? JSON.parse(String(init.body)) : null });
     if (String(url).endsWith('/evaluations/settings')) return json({ tokenLimit: 120_000, candidateCount: 3 });
-    if (String(url).endsWith('/evaluations/job')) return json({ job: { id: 'job', status: 'qualified', maxTokens: 120_000,
+    if (String(url).endsWith('/evaluations/job')) return json({ job: { id: 'job', budgetRootId: 'cycle-root', status: 'qualified', maxTokens: 120_000,
       validationReserveTokens: 20_000, originalHash: 'a'.repeat(64), targetRef: 'agent_config:test', targetRevision: '1',
       finalCandidateId: 'final', qualifiedProposalId: 'proposal', failureReason: null,
       createdAt: '2026-10-21T00:00:00Z', updatedAt: '2026-10-21T00:00:00Z' }, candidates: [], results: [],

@@ -62,6 +62,14 @@ export function OrgEvaluationPanel() {
   const parts = composition?.compositionParts ?? final?.compositionParts ?? [];
   const validation = detail?.results.filter(result => result.phase === 'validation') ?? [];
   const probes = detail?.results.filter(result => result.phase === 'probe') ?? [];
+  const cycleSummary = (job: EvaluationJob) => {
+    const children = jobs.filter(child => child.budgetRootId === job.id);
+    const passed = children.filter(child => child.status === 'qualified').length;
+    const inconclusive = children.filter(child => child.status === 'inconclusive').length;
+    const failed = children.filter(child => child.status === 'failed').length;
+    return `${children.length} tested · ${passed} passed · ${inconclusive} inconclusive${failed ? ` · ${failed} failed` : ''}`;
+  };
+  const statusLabel = (job: EvaluationJob) => job.budgetRootId === null && job.status === 'qualified' ? 'completed' : job.status;
   return <div className="org-evaluation-panel">
     <section aria-label="Evaluation settings" className="tool-notice">
       <h3>Evaluation settings</h3>
@@ -78,10 +86,11 @@ export function OrgEvaluationPanel() {
       <button type="button" className="secondary-button compact" onClick={() => void refresh()}>Refresh evaluations</button>
       {error && <p role="alert">{error}</p>}
       {loading ? <p>Loading evaluations…</p> : jobs.length === 0 ? <p>No evaluations yet</p> : <div className="org-evaluation-activity">
-        <ul>{jobs.map(job => <li key={job.id}><button type="button" data-testid={`evaluation-${job.id}`} onClick={() => void select(job.id)} aria-current={selectedId === job.id ? 'true' : undefined}>{job.targetRef} · {job.status} · {number(job.maxTokens)} token cap</button></li>)}</ul>
+        <ul>{jobs.map(job => <li key={job.id}><button type="button" data-testid={`evaluation-${job.id}`} onClick={() => void select(job.id)} aria-current={selectedId === job.id ? 'true' : undefined}>{job.targetRef} · {statusLabel(job)}{job.budgetRootId === null ? ` · ${cycleSummary(job)}` : ''} · {number(job.maxTokens)} {job.budgetRootId === null ? 'whole-run' : 'shared cycle'} token cap</button></li>)}</ul>
         {selectedId && !detail && !error && <p>Loading evaluation detail…</p>}
         {detail && <article data-testid={`evaluation-${detail.job.id}-details`}>
-          <h4>{detail.job.targetRef} · {detail.job.status}</h4>
+          <h4>{detail.job.targetRef} · {statusLabel(detail.job)}</h4>
+          {detail.job.budgetRootId === null && <p>{cycleSummary(detail.job)}</p>}
           {detail.job.failureReason && <p role="status">{detail.job.failureReason}</p>}
           {detail.budget.hasUnknownUsage && <p role="status">Token usage is unknown; this evaluation is inconclusive.</p>}
           <dl>

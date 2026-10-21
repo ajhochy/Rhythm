@@ -12,8 +12,8 @@ const evaluated = {
   createdAt: null, updatedAt: null, changeJson: '{}', experimentSummary: null, source: 'org-reviewer-evaluated',
   preReviewEvaluation: { evaluationId: 'rendered-qualified', originalHash, finalCandidateHash: finalHash, status: 'qualified' },
 };
-const job = (id: string, status: string, failureReason: string | null = null) => ({
-  id, sourceAuditRunId: null, ownerUserId: 1, status, maxTokens: 100_000,
+const job = (id: string, status: string, failureReason: string | null = null, budgetRootId: string | null = 'cycle-root') => ({
+  id, budgetRootId, sourceAuditRunId: null, ownerUserId: 1, status, maxTokens: 100_000,
   validationReserveTokens: 20_000, originalHash, targetRef: 'review-agent-org-health',
   targetRevision: '7', inputJson: '{}', finalCandidateId: status === 'qualified' ? 'final-1' : null,
   qualifiedProposalId: status === 'qualified' ? evaluated.id : null, failureReason, revision: 3,
@@ -135,4 +135,27 @@ test('evaluated proposal with incomplete version proof cannot be approved', asyn
   const card = page.getByTestId('proposal-rendered-malformed-details');
   await expect(card).toContainText('Approval unavailable: evaluated version proof is incomplete.');
   await expect(page.getByTestId('proposal-approve-rendered-malformed')).toBeDisabled();
+});
+
+test('closed cycle reports child outcomes without claiming the whole cycle qualified', async ({ page }) => {
+  await install(page, { jobs: [
+    job('cycle-root', 'qualified', null, null),
+    job('target-passed', 'qualified'),
+    job('target-inconclusive', 'inconclusive', 'No reliable provider usage'),
+  ] });
+  await page.goto('/#/tools/review');
+  const activity = page.getByRole('region', { name: 'Evaluation activity' });
+  const root = activity.getByTestId('evaluation-cycle-root');
+  await expect(root).toContainText('completed');
+  await expect(root).toContainText('2 tested');
+  await expect(root).toContainText('1 passed');
+  await expect(root).toContainText('1 inconclusive');
+  await expect(root).not.toContainText('qualified');
+  await expect(activity.getByTestId('evaluation-target-passed')).toContainText('qualified');
+  await root.click();
+  const detail = activity.getByTestId('evaluation-cycle-root-details');
+  await expect(detail.getByRole('heading', { level: 4 })).toContainText('completed');
+  await expect(detail).toContainText('2 tested');
+  await expect(detail).toContainText('1 passed');
+  await expect(detail).toContainText('1 inconclusive');
 });
