@@ -47,13 +47,15 @@ describe.runIf(live)('first-boot OpenAI catalog from a synthetic sandbox account
     const response = await fetch(`${api}/agents/models/catalog/full`, { signal: AbortSignal.timeout(15_000) });
     expect(response.status).toBe(200);
     const rows = await response.json() as Array<{ provider: string; modelId: string; authorized: boolean }>;
-    for (const modelId of ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna']) {
+    // The sandbox pins test/tool/fixtures/models-api.json, whose actual first
+    // boot catalog advertises these 5.x models (not the installed 6.x set).
+    for (const modelId of ['gpt-5.5', 'gpt-5.4']) {
       expect(rows).toContainEqual(expect.objectContaining({ provider: 'openai', modelId, authorized: true }));
     }
     const grid = await fetch(`${api}/agent-decisions/config`, { signal: AbortSignal.timeout(15_000) });
     expect(grid.status).toBe(200);
     const config = await grid.json() as { catalog: { source: string; models: Array<{ providerID: string; modelID: string }> } };
     expect(config.catalog.source).toBe('live');
-    expect(config.catalog.models).toContainEqual(expect.objectContaining({ providerID: 'openai', modelID: 'gpt-6-sol' }));
+    expect(config.catalog.models).toContainEqual(expect.objectContaining({ providerID: 'openai', modelID: 'gpt-5.5' }));
   }, 30_000);
 });
