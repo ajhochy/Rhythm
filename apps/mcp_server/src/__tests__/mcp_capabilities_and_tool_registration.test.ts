@@ -61,6 +61,7 @@ import { registerLiveArtifactTools } from '../tools/liveArtifacts.js';
 import { registerAgentResearchTools } from '../tools/agentResearch.js';
 import { registerOrgOptimizerTools } from '../tools/orgOptimizer.js';
 import { registerOrgReviewerTools } from '../tools/orgReviewer.js';
+import { registerManagedToolTools } from '../tools/managedTools.js';
 
 const API_URL = 'http://x.invalid';
 const API_TOKEN = 'test-token';
@@ -99,6 +100,7 @@ const REGISTRARS_IN_INDEX_ORDER: Registrar[] = [
   (s) => registerAgentResearchTools(s, API_URL, API_TOKEN),
   (s) => registerOrgOptimizerTools(s, AGENT_URL, API_TOKEN),
   (s) => registerOrgReviewerTools(s, AGENT_URL, API_TOKEN),
+  (s) => registerManagedToolTools(s, AGENT_URL, API_TOKEN),
 ];
 
 /**
@@ -108,8 +110,8 @@ const REGISTRARS_IN_INDEX_ORDER: Registrar[] = [
  * are pinned from registration — a stale mirror here passes vacuously and
  * guards nothing.
  */
-const EXPECTED_REGISTRAR_CALLS = 29;
-const EXPECTED_TOOL_NAMES = 114;
+const EXPECTED_REGISTRAR_CALLS = 30;
+const EXPECTED_TOOL_NAMES = 116;
 
 /** Builds a fresh McpServer, applies `registrars` in order, and returns it. */
 function buildServer(registrars: Registrar[]): McpServer {

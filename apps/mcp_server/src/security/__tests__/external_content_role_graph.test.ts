@@ -34,6 +34,8 @@ const toolsDir = join(repoRoot, "apps", "mcp_server", "src", "tools");
 
 const externalReads = new Map<string, string>([
   ["rhythm_list_pending_triggers", "trigger.list"],
+  // Output of a human-approved offline tool; the handler scans it as untrusted.
+  ["rhythm_run_managed_tool", "managed-tool.run"],
   ["rhythm_list_scheduled_tasks", "scheduled-task.list"],
   ["rhythm_list_tasks", "task.list"],
   ["rhythm_list_rhythms", "rhythm.list"],
@@ -96,6 +98,8 @@ const trustedNonUserReads = new Set([
   // Server-resolved coordinator status for the signed foreground turn; the
   // model supplies no selector and the tool returns Rhythm-owned metadata only.
   "rhythm_get_coordinator_status",
+  // Catalog of human-approved managed tools: Rhythm-owned metadata, no tool output.
+  "rhythm_list_managed_tools",
 ]);
 
 const unavailableLegacyTools = new Set([
@@ -832,6 +836,7 @@ describe("#1175 external-content role graph", () => {
       rhythm_search_gmail: "google.ts",
       rhythm_read_email: "google.ts",
       rhythm_list_pending_triggers: "claude_triggers.ts",
+      rhythm_run_managed_tool: "managedTools.ts",
       rhythm_list_scheduled_tasks: "agentSchedule.ts",
       rhythm_list_tasks: "tasks.ts",
       rhythm_list_rhythms: "rhythms.ts",
