@@ -100,6 +100,21 @@ const drainDeps: DrainDeps = {
     return errors;
   },
 };
+/** Owner a held free-queue entry must still have to be released; undefined drops it. */
+export async function freeQueueCurrentOwner(reference: string): Promise<number | null | undefined> {
+  const [kind, id] = [reference.slice(0, reference.indexOf(':')), reference.slice(reference.indexOf(':') + 1)];
+  if (kind === 'session') {
+    const s = new AgentSessionsRepository().findById(id);
+    return !s || s.archivedAt || s.status === 'closed' ? undefined : s.ownerUserId ?? null;
+  }
+  if (kind !== 'scheduled') return undefined;
+  const { AgentScheduledTasksRepository } = await import('../../repositories/agent_scheduled_tasks_repository');
+  const task = await new AgentScheduledTasksRepository().findByIdAsync(id);
+  // Same owner the held run session was recorded with; the raw creator is
+  // null for legacy schedules and would drop every held scheduled run.
+  const { scheduledRunOwnerUserId } = await import('../agentSchedulerService');
+  return !task || !task.enabled ? undefined : scheduledRunOwnerUserId(task);
+}
 /** F2 release, single flight: stale claims surfaced, sessions drained exactly once, scheduled tasks re-run fresh. */
 function startFreeRelease(config: ReturnType<typeof loadRouterGridConfig>): void {
   if (freeRelease) return;
@@ -108,17 +123,7 @@ function startFreeRelease(config: ReturnType<typeof loadRouterGridConfig>): void
     for (const t of await held.surfaceStaleClaims(new Date(Date.now() - HELD_CLAIM_STALE_MS).toISOString()))
       await notifyFreeSession(t.sessionId, 'A held request could not be confirmed as sent. Check the conversation and resend it if needed.').catch(() => undefined);
     const result = await releaseFreeQueue(config, {
-      async currentOwner(reference) {
-        const [kind, id] = [reference.slice(0, reference.indexOf(':')), reference.slice(reference.indexOf(':') + 1)];
-        if (kind === 'session') {
-          const s = new AgentSessionsRepository().findById(id);
-          return !s || s.archivedAt || s.status === 'closed' ? undefined : s.ownerUserId ?? null;
-        }
-        if (kind !== 'scheduled') return undefined;
-        const { AgentScheduledTasksRepository } = await import('../../repositories/agent_scheduled_tasks_repository');
-        const task = await new AgentScheduledTasksRepository().findByIdAsync(id);
-        return !task || !task.enabled ? undefined : task.createdByUserId ?? null;
-      },
+      currentOwner: freeQueueCurrentOwner,
       async release(reference) {
         const id = reference.slice(reference.indexOf(':') + 1);
         if (reference.startsWith('scheduled:')) {

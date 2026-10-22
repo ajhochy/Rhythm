@@ -20,6 +20,7 @@ import { initializeMobilePairingSchema } from '../repositories/mobile_devices_re
 import { localOperatorUserId } from '../services/local_operator';
 import { scheduledRunOwnerUserId } from '../services/agentSchedulerService';
 import { delegateToAgentAsync } from '../services/agent_delegation_service';
+import { freeQueueCurrentOwner } from '../services/decision/router_grid_turn';
 
 let db: Database.Database;
 let operator: number;
@@ -84,6 +85,15 @@ describe('scheduled runs are attributed to the local operator', () => {
     expect(repo.findById(othersRun)?.ownerUserId).toBe(other);
     expect(repo.findById(interactive)?.ownerUserId).toBeNull();
     expect(repo.attributeOwnerlessScheduledSessions(operator)).toBe(0);
+  });
+
+  // A free-mode hold records the run session's owner; release re-reads the
+  // schedule. If they disagree the held scheduled run is silently dropped.
+  it('a held scheduled run is released under the same owner its session was recorded with', async () => {
+    pairDevice(operator, 'd1');
+    const sessionId = scheduledSession('held', scheduledRunOwnerUserId({ createdByUserId: null })!);
+    expect(await freeQueueCurrentOwner(`session:${sessionId}`)).toBe(operator);
+    expect(await freeQueueCurrentOwner('scheduled:briefing')).toBe(operator);
   });
 
   it('delegation from a scheduled session passes ownership only for its attributed owner', async () => {
