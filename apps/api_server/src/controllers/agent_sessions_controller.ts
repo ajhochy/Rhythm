@@ -4,7 +4,6 @@ import { readFileSync, existsSync } from 'fs';
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { env } from '../config/env';
-import { getDb } from '../database/db';
 import { canonicalize, containsReal } from '../utils/path_containment';
 import { AgentSessionsRepository, listPage, listChildrenPage } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
@@ -15,7 +14,7 @@ import {
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { ProjectsRepository } from '../repositories/projects_repository';
 import { TasksRepository } from '../repositories/tasks_repository';
-import { findSolePairedUserId } from '../repositories/mobile_devices_repository';
+import { localOperatorUserId } from '../services/local_operator';
 import type { AgentKind, CreateAgentSessionDto, PermissionMode, SessionScope } from '../models/agent_session';
 import {
   asOpenCodeAgentId,
@@ -1018,11 +1017,7 @@ export class AgentSessionsController {
       // personal Mac belongs to the one user represented by its pairing
       // history, including revoked devices. If history is empty or contains
       // more than one user, keep the session unowned instead of guessing.
-      const ownerUserId =
-        req.auth?.user.id ??
-        (env.agentLocal && env.dbClient === 'sqlite'
-          ? findSolePairedUserId(getDb())
-          : null);
+      const ownerUserId = req.auth?.user.id ?? localOperatorUserId();
 
       const dto: CreateAgentSessionDto = {
         // OPC-#710: resolvedEngineAgentKind is '' for agent-less instant-create.

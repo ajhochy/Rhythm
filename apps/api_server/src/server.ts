@@ -662,6 +662,19 @@ async function main() {
     startAttachmentBackfill();
   }
 
+  // Scheduled runs stored before they took the local operator as owner could not
+  // pass owner-checked calls once a human replied in them. Idempotent; a no-op
+  // when the operator is ambiguous (scheduledRunOwnerUserId).
+  {
+    const { localOperatorUserId } = await import('./services/local_operator');
+    const operator = localOperatorUserId();
+    if (operator !== null) {
+      const { AgentSessionsRepository } = await import('./repositories/agent_sessions_repository');
+      const attributed = new AgentSessionsRepository().attributeOwnerlessScheduledSessions(operator);
+      if (attributed > 0) logger.info(`[server] attributed ${attributed} ownerless scheduled session(s) to the local operator`);
+    }
+  }
+
   // #1309 — sweep expired unpinned media at boot and daily. This runs in both
   // local and cloud roles because either can own the configured durable root.
   if (process.env.VITEST !== 'true') {
