@@ -1,10 +1,10 @@
 import { test as base, expect } from '@playwright/test';
 import http from 'node:http';
 
-export const apiBase = 'http://rhythm-web.test:4098';
+export const apiBase = process.env.RHYTHM_WEB_PUBLIC_ORIGIN ?? 'http://rhythm-web.test:4098';
 export async function api(path: string, init?: RequestInit) {
   return new Promise<any>((resolve, reject) => {
-    const req = http.request(`http://127.0.0.1:4098${path}`, {
+    const req = http.request(`http://127.0.0.1:${new URL(apiBase).port || (apiBase.startsWith('https:') ? '443' : '80')}${path}`, {
       method: init?.method ?? 'GET',
       headers: { Host: new URL(apiBase).host, Origin: apiBase, 'Content-Type': 'application/json' },
     }, response => {

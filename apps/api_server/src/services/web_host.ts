@@ -4,6 +4,7 @@ import express, { type RequestHandler } from 'express';
 import { webHostConfig } from '../config/web_host';
 import type { User } from '../models/user';
 import { UsersRepository } from '../repositories/users_repository';
+import { initializeWebCloud, webCloudAvailable } from './web_cloud';
 
 let owner: User | null = null;
 let distRoot: string | null = null;
@@ -21,6 +22,7 @@ export async function initializeWebHost(): Promise<void> {
   }
   owner = validatedOwner;
   distRoot = root;
+  await initializeWebCloud(validatedOwner, root);
 }
 
 export function webHostOwner(): User | null {
@@ -44,7 +46,7 @@ export function createWebHostRouter() {
     const user = webHostOwner()!;
     res.setHeader('Cache-Control', 'no-store');
     res.json({ mode: 'web', owner: { id: user.id, displayName: user.name, role: user.role },
-      capabilities: { localAgents: true, cloud: false, approvals: false, mobileAccess: false } });
+      capabilities: { localAgents: true, cloud: webCloudAvailable(), approvals: false, mobileAccess: false } });
   });
   // Hash navigation needs only index.html at /. Never rewrite API misses to HTML.
   const serve = express.static(root, { dotfiles: 'deny', fallthrough: true, redirect: false });

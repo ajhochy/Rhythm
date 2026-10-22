@@ -8,6 +8,9 @@ import { spawnSync } from 'node:child_process';
 const file = fileURLToPath(import.meta.url);
 const root = resolve(dirname(file), '../..');
 const fixture = resolve(process.argv[2] || '/');
+const apiPort = Number(process.argv.find(value => value.startsWith('--api-port='))?.split('=')[1] ?? 4098);
+const cloudPort = Number(process.argv.find(value => value.startsWith('--cloud-port='))?.split('=')[1] ?? 7097);
+for (const port of [apiPort, cloudPort]) if (!Number.isInteger(port) || port < 1024 || port > 65535 || [4001, 4002, 4096].includes(port)) throw new Error('Fixture port must be unprivileged and not live');
 if (!fixture.startsWith('/private/tmp/') || realpathSync(dirname(fixture)) !== dirname(fixture)) {
   throw new Error('Choose a new fixture directory directly under a canonical /private/tmp parent');
 }
@@ -46,6 +49,12 @@ if (process.argv.includes('--web-host')) {
     VALUES ('local-lean','Synthetic local lean','flask','',1,1,1,'build',
       'web-scripted','s0-local','[]','[]','[]','{"*":"deny"}')`);
 }
+if (process.argv.includes('--web-cloud')) {
+  db.prepare("UPDATE users SET google_sub = 'web-cloud-synthetic-owner' WHERE id = 1").run();
+  mkdirSync(`${fixture}/private`, { mode: 0o700 });
+  writeFileSync(`${fixture}/private/cloud.json`, JSON.stringify({ productionApiBase: `http://127.0.0.1:${cloudPort}`, userId: 99, sessionToken: 'web-cloud-synthetic-bearer-only' }), { flag: 'wx', mode: 0o600 });
+  writeFileSync(`${fixture}/registrar`, 'web-cloud-synthetic-registrar-only-00000000000000000000000000000000', { flag: 'wx', mode: 0o600 });
+}
 db.pragma('wal_checkpoint(TRUNCATE)');
 db.pragma('journal_mode = DELETE');
 db.close();
@@ -56,7 +65,7 @@ writeFileSync(`${fixture}/opencode.json`, JSON.stringify({
       models: { 's0-local': { name: 'Synthetic local' } } } },
   } : {}),
   mcp: { rhythm: { type: 'local', command: ['node', `${root}/apps/mcp_server/dist/index.js`],
-    environment: { RHYTHM_API_URL: 'http://127.0.0.1:4098', RHYTHM_API_TOKEN: 'e02-synthetic-session-not-a-secret' } } },
+    environment: { RHYTHM_API_URL: `http://127.0.0.1:${apiPort}`, RHYTHM_API_TOKEN: 'e02-synthetic-session-not-a-secret' } } },
 }, null, 2), { flag: 'wx', mode: 0o400 });
 chmodSync(`${fixture}/rhythm.db`, 0o400);
 if (process.argv.includes('--web-host')) {

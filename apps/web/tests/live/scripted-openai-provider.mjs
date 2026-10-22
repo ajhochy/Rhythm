@@ -1,7 +1,7 @@
 // #1582 S0: loopback-only scripted OpenAI-compatible endpoint. No external calls.
 import http from 'node:http';
 
-const port = 6996;
+const port = Number(process.env.RHYTHM_SCRIPTED_PROVIDER_PORT ?? 6996);
 const key = 's0-local-synthetic-key';
 const hits = [];
 let disconnects = 0;

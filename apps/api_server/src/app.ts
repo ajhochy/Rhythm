@@ -107,6 +107,7 @@ import type { PersistentWorkstreamCoordinator } from './services/persistent_work
 import type { CoordinatorConversationService } from './services/coordinator_conversation_service';
 import type { CoordinatorConversationModelStatusService } from './services/coordinator_conversation_model_status_service';
 import { initializeRouterFreeRecovery } from './services/decision/router_grid_turn';
+import { createWebCloudRouter } from './services/web_cloud';
 
 export function isLoopbackAddress(address: string | undefined): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
@@ -134,6 +135,8 @@ export function createApp(options: {
   );
 
   app.use(localAgentSurfaceGuard);
+  // Cloud parses its bounded JSON before the broad parser/error logger below.
+  if (webHostConfig) app.use('/cloud', createWebCloudRouter());
   if (webHostConfig) app.use(webHostOwnerContext);
   if (env.bridgeEnabled) {
     app.use('/agent-bridge/v1', createAgentBridgeRouter());

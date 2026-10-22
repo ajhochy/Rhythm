@@ -63,6 +63,7 @@ export interface RendererGateway {
 }
 
 export interface LiveGatewayConfig {
+  cloud?: boolean;
   browserOrigin?: string;
   apiBase?: string;
   engineBase?: string;
@@ -75,6 +76,7 @@ export interface LiveGatewayConfig {
 }
 
 export interface GatewayEnvironment {
+  cloud?: boolean;
   browserOrigin?: string;
   mode?: string;
   apiBase?: string;
@@ -147,7 +149,7 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
   const fixtureLocalBase = 'http://127.0.0.1:4001';
   const qualificationLocalOrigin = config.qualificationLocalProductionApiBase === fixtureLocalBase
     && apiBase === fixtureLocalBase && config.productionApiBase === fixtureLocalBase;
-  const productionApiBase = browser ? apiBase : qualificationLocalOrigin
+  const productionApiBase = browser ? `${apiBase}/cloud` : qualificationLocalOrigin
     ? fixtureLocalBase : validateProductionApiBase(config.productionApiBase);
   const localFetcher: Fetcher = browser ? trustedBrowserFetcher(apiBase, fetcher) : (input, init) => {
     const headers = new Headers(init?.headers);
@@ -156,6 +158,8 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
     if (!qualificationLocalOrigin) headers.delete('authorization');
     return fetcher(input, { ...init, headers });
   };
+  const cloudEnabled = !browser || config.cloud === true;
+  const cloudFetcher = browser ? localFetcher : fetcher;
 
   const check = async (service: GatewayService, url: string): Promise<GatewayHealth> => {
     try {
@@ -177,19 +181,19 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
     domains: {
       inspector: createInspectorGateway(apiBase, productionApiBase, config.taskToken, fetcher, localFetcher),
       pty: createLivePtyGateway(apiBase, localFetcher),
-      tasks: browser ? undefined : createLiveTasksGateway(productionApiBase, config.taskToken, fetcher),
+      tasks: cloudEnabled ? createLiveTasksGateway(productionApiBase, config.taskToken, cloudFetcher) : undefined,
       sessions: createLiveSessionsGateway(apiBase, config.taskToken, localFetcher),
-      dashboard: browser ? undefined : createLiveDashboardGateway(productionApiBase, config.taskToken, fetcher),
-      planner: browser ? undefined : createLivePlannerGateway(productionApiBase, config.taskToken, fetcher),
-      rhythms: browser ? undefined : createLiveRhythmsGateway(productionApiBase, config.taskToken, fetcher),
-      projects: browser ? undefined : createLiveProjectsGateway(productionApiBase, config.taskToken, fetcher),
-      messages: browser ? undefined : createLiveMessagesGateway(productionApiBase, config.taskToken, fetcher),
-      facilities: browser ? undefined : createLiveFacilitiesGateway(productionApiBase, config.taskToken, fetcher),
-      automations: browser ? undefined : createLiveAutomationsGateway(productionApiBase, config.taskToken, fetcher),
-      integrations: browser ? undefined : createLiveIntegrationsGateway(productionApiBase, config.taskToken, fetcher),
-      liveArtifacts: browser ? undefined : createLiveArtifactsGateway(productionApiBase, config.taskToken, fetcher),
-      userPreferences: browser ? undefined : createLiveUserPreferencesGateway(productionApiBase, config.taskToken, fetcher),
-      notifications: browser ? undefined : createLiveNotificationsGateway(productionApiBase, config.taskToken, fetcher),
+      dashboard: cloudEnabled ? createLiveDashboardGateway(productionApiBase, config.taskToken, cloudFetcher) : undefined,
+      planner: cloudEnabled ? createLivePlannerGateway(productionApiBase, config.taskToken, cloudFetcher) : undefined,
+      rhythms: cloudEnabled ? createLiveRhythmsGateway(productionApiBase, config.taskToken, cloudFetcher) : undefined,
+      projects: cloudEnabled ? createLiveProjectsGateway(productionApiBase, config.taskToken, cloudFetcher) : undefined,
+      messages: cloudEnabled ? createLiveMessagesGateway(productionApiBase, config.taskToken, cloudFetcher) : undefined,
+      facilities: cloudEnabled ? createLiveFacilitiesGateway(productionApiBase, config.taskToken, cloudFetcher) : undefined,
+      automations: cloudEnabled ? createLiveAutomationsGateway(productionApiBase, config.taskToken, cloudFetcher) : undefined,
+      integrations: cloudEnabled ? createLiveIntegrationsGateway(productionApiBase, config.taskToken, cloudFetcher) : undefined,
+      liveArtifacts: cloudEnabled ? createLiveArtifactsGateway(productionApiBase, config.taskToken, cloudFetcher) : undefined,
+      userPreferences: cloudEnabled ? createLiveUserPreferencesGateway(productionApiBase, config.taskToken, cloudFetcher) : undefined,
+      notifications: cloudEnabled ? createLiveNotificationsGateway(productionApiBase, config.taskToken, cloudFetcher) : undefined,
       memory: createLiveMemoryGateway(apiBase, config.taskToken, localFetcher),
       permissions: createLivePermissionGateway(apiBase, config.taskToken, localFetcher),
       // Human approval surfaces skip the AGENT_LOCAL bypass and require the cloud bearer (agent_approvals_routes.ts).
@@ -207,9 +211,9 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       designs: createLiveDesignsGateway(apiBase, config.taskToken, localFetcher),
       orgProposals: createLiveOrgProposalsGateway(apiBase, config.taskToken, localFetcher),
       runOutcomes: createLiveRunOutcomesGateway(apiBase, config.taskToken, localFetcher),
-      autoPromotion: browser ? undefined : createLiveAutoPromotionGateway(productionApiBase, config.taskToken, fetcher),
-      workspaceMembers: browser ? undefined : createLiveWorkspaceMembersGateway(productionApiBase, config.taskToken, fetcher),
-      settings: browser ? undefined : createLiveSettingsGateway(productionApiBase, config.taskToken, fetcher),
+      autoPromotion: cloudEnabled ? createLiveAutoPromotionGateway(productionApiBase, config.taskToken, cloudFetcher) : undefined,
+      workspaceMembers: cloudEnabled ? createLiveWorkspaceMembersGateway(productionApiBase, config.taskToken, cloudFetcher) : undefined,
+      settings: cloudEnabled ? createLiveSettingsGateway(productionApiBase, config.taskToken, cloudFetcher) : undefined,
       runtime: createLiveRuntimeGateway(apiBase, localFetcher),
       dayflow: createLiveDayflowGateway(apiBase, localFetcher),
       sharedAgents: browser ? undefined : createLiveSharedAgentsPort(apiBase, config.taskToken, createLiveSessionsGateway(apiBase, config.taskToken, localFetcher), fetcher),
@@ -242,6 +246,7 @@ export function composeGateway(environment: GatewayEnvironment): RendererGateway
     throw new Error('Live configuration error: gateway mode must be fixture or live');
   }
   return createLiveGateway({
+    cloud: environment.cloud,
     browserOrigin: environment.browserOrigin,
     apiBase: environment.apiBase ?? '',
     engineBase: environment.engineBase ?? '',

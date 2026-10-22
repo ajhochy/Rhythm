@@ -1,4 +1,6 @@
 import type { GatewayMode } from '.';
+import { isTrustedBrowserFetcher } from './browser-transport';
+import { cloudAccountFailure } from './cloud-error';
 
 export type ConditionOperator = 'equals' | 'not_equals' | 'contains' | 'not_contains' | 'greater_than' | 'less_than';
 export interface AutomationCondition { field: string; operator: ConditionOperator; value: string }
@@ -44,7 +46,7 @@ export interface AutomationsGateway {
 
 export class AutomationsGatewayError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 const failureText = (status: number, operation: string) => ({ 0: 'Automations service unavailable', 401: 'Authentication required', 403: 'Forbidden', 404: 'Automation rule not found' })[status] ?? `${operation} failed (${status})`;
-async function response<T>(operation: string, pending: Promise<Response>): Promise<T> { try { const result = await pending; if (!result.ok) throw new AutomationsGatewayError(result.status, failureText(result.status, operation)); return result.status === 204 ? undefined as T : await result.json() as T; } catch (error) { if (error instanceof AutomationsGatewayError) throw error; throw new AutomationsGatewayError(0, failureText(0, operation)); } }
+async function response<T>(operation: string, pending: Promise<Response>): Promise<T> { try { const result = await pending; if (!result.ok) throw new AutomationsGatewayError(result.status, await cloudAccountFailure(result) ?? failureText(result.status, operation)); return result.status === 204 ? undefined as T : await result.json() as T; } catch (error) { if (error instanceof AutomationsGatewayError) throw error; throw new AutomationsGatewayError(0, failureText(0, operation)); } }
 
 export function createFixtureAutomationsGateway(_fetcher?: typeof fetch): AutomationsGateway {
   const unsupported = async (..._args: unknown[]): Promise<never> => { throw new AutomationsGatewayError(0, 'Fixture automations gateway is unsupported'); };
@@ -52,7 +54,7 @@ export function createFixtureAutomationsGateway(_fetcher?: typeof fetch): Automa
 }
 
 export function createLiveAutomationsGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): AutomationsGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: an explicit automations token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: an explicit automations token is required');
   const request = (path: string, init: RequestInit = {}) => fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   const json = (value: unknown) => JSON.stringify(value);
   return {
