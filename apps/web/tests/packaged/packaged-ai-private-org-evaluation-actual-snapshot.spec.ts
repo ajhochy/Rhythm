@@ -12,6 +12,8 @@ type Row = Record<string, unknown>;
 type Snapshot = { schemaVersion: 1; sourceKind: string; sourceReadOnly: boolean;
   sourceOwnerUserId: number; sourcePath: string; windowDays: number; capturedAt: string;
   excludedControlProfiles: string[]; omissions: string[];
+  managedSkillDependencies: Array<{ name: string; state: 'present' | 'absent';
+    sha256?: string; bytesBase64?: string }>;
   provenance: Array<{ sessionId: string; profileId: string; selectionRole: 'failure' | 'counterexample';
     sourceStatus: string; sourceCreatedAt: string; sourceMessageCount: number; sourceRowsSha256: string }>;
   tables: Record<'agent_configs' | 'agent_sessions' | 'agent_session_messages' |
@@ -50,6 +52,46 @@ function selectedCases(snapshot: Snapshot): string[] {
   if (!requested.length || new Set(requested).size !== requested.length || requested.some(id => !cases.includes(id)))
     throw new Error('Selected case profiles must be exact captured IDs');
   return requested;
+}
+
+function skillSlug(name: string): string {
+  if (!name || name === '.' || name === '..' || name.includes('..') || /[\\/]/.test(name))
+    throw new Error('Managed skill snapshot name is unsafe');
+  return name.trim().replace(/[^a-zA-Z0-9_-]+/g, '__');
+}
+
+function seedManagedSkills(snapshot: Snapshot, fixtureRoot: string): void {
+  const root = join(fixtureRoot, 'opencode-config', 'skills');
+  for (const dependency of snapshot.managedSkillDependencies) {
+    const destination = join(root, skillSlug(dependency.name), 'SKILL.md');
+    if (dependency.state === 'absent') {
+      if (existsSync(destination)) throw new Error('Absent source skill appeared in private fixture');
+      continue;
+    }
+    const bytes = Buffer.from(dependency.bytesBase64!, 'base64');
+    mkdirSync(join(root, skillSlug(dependency.name)), { recursive: true, mode: 0o700 });
+    writeFileSync(destination, bytes, { flag: 'wx', mode: 0o400 });
+    if (sha256(readFileSync(destination)) !== dependency.sha256)
+      throw new Error('Private managed skill differs from pinned source bytes');
+  }
+}
+
+function verifyManagedSkillReadback(snapshot: Snapshot, fixtureRoot: string): { present: number; absent: number } {
+  const root = join(fixtureRoot, 'opencode-config', 'skills');
+  let present = 0;
+  let absent = 0;
+  for (const dependency of snapshot.managedSkillDependencies) {
+    const path = join(root, skillSlug(dependency.name), 'SKILL.md');
+    if (dependency.state === 'absent') {
+      if (existsSync(path)) throw new Error('Source-absent managed skill appeared in private engine library');
+      absent++;
+    } else {
+      if (!existsSync(path) || sha256(readFileSync(path)) !== dependency.sha256)
+        throw new Error('Private engine managed skill no longer matches the pinned source');
+      present++;
+    }
+  }
+  return { present, absent };
 }
 
 function seedActualProfiles(snapshot: Snapshot, seedPath: string, selectedProfileIds: string[]) {
@@ -102,6 +144,7 @@ function readSnapshot(path: string, expectedSha: string, ownerUserId: number): S
       value.sourceReadOnly !== true || value.sourceOwnerUserId !== ownerUserId ||
       value.sourcePath === path || value.windowDays !== 14 ||
       !Array.isArray(value.provenance) || !Array.isArray(value.excludedControlProfiles) ||
+      !Array.isArray(value.managedSkillDependencies) ||
       !Array.isArray(value.omissions) || !Number.isFinite(Date.parse(value.capturedAt)))
     throw new Error('Actual review snapshot provenance or owner differs from fixture');
   const names = ['agent_configs', 'agent_sessions', 'agent_session_messages',
@@ -120,6 +163,34 @@ function readSnapshot(path: string, expectedSha: string, ownerUserId: number): S
       value.tables.agent_scheduled_tasks.some(row => row.created_by_user_id !== null && row.created_by_user_id !== ownerUserId) ||
       value.tables.agent_cookbook.some(row => row.owner_user_id !== null && row.owner_user_id !== ownerUserId))
     throw new Error('Actual review snapshot contains a foreign owner or live execution handle');
+  const allowedNames = new Set<string>();
+  for (const profile of value.tables.agent_configs) {
+    if (profile.allowed_skills_json === null) continue;
+    const names: unknown = JSON.parse(String(profile.allowed_skills_json));
+    if (!Array.isArray(names) || names.some(name => typeof name !== 'string'))
+      throw new Error('Actual managed skill scope is malformed');
+    for (const name of names) allowedNames.add(name);
+  }
+  if (value.managedSkillDependencies.length !== allowedNames.size ||
+      value.managedSkillDependencies.length > 512 ||
+      new Set(value.managedSkillDependencies.map(item => item.name)).size !== allowedNames.size)
+    throw new Error('Managed skill source inventory is incomplete');
+  if (new Set(value.managedSkillDependencies.map(item => skillSlug(item.name))).size !== allowedNames.size)
+    throw new Error('Managed skill names collide at the private engine path');
+  for (const dependency of value.managedSkillDependencies) {
+    skillSlug(dependency.name);
+    if (!allowedNames.has(dependency.name)) throw new Error('Unexpected managed skill dependency');
+    if (dependency.state === 'absent') {
+      if (dependency.sha256 !== undefined || dependency.bytesBase64 !== undefined)
+        throw new Error('Absent managed skill claims file bytes');
+    } else if (dependency.state === 'present') {
+      if (!/^[a-f0-9]{64}$/.test(dependency.sha256 ?? '') ||
+          typeof dependency.bytesBase64 !== 'string' ||
+          Buffer.from(dependency.bytesBase64, 'base64').toString('base64') !== dependency.bytesBase64 ||
+          sha256(Buffer.from(dependency.bytesBase64, 'base64')) !== dependency.sha256)
+        throw new Error('Managed skill bytes or digest differ from source receipt');
+    } else throw new Error('Managed skill source state is invalid');
+  }
   for (const provenance of value.provenance) {
     const session = sessions.get(provenance.sessionId);
     if (!session || session.profile_id !== provenance.profileId ||
@@ -272,6 +343,7 @@ const test = packagedTest.extend<{}, { actualProfileSeed: void }>({
       throw new Error('Actual profile seed must precede first private fixture bootstrap');
     const snapshot = readSnapshot(snapshotPath, snapshotSha, manifest.ownerUserId);
     seedPlan = seedActualProfiles(snapshot, manifest.profileSeedPath, selectedCases(snapshot));
+    seedManagedSkills(snapshot, manifest.fixtureRoot);
     readQualificationFixture(manifestPath, expectedRevision);
     await use();
   }, { scope: 'worker', auto: true }],
@@ -295,6 +367,7 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
   expect(await api.json<{ user: { id: number } }>('/auth/me')).toMatchObject({ user: { id: manifest.ownerUserId } });
   const existing = new Set((await api.json<{ jobs: Job[] }>('/agent-org-proposals/evaluations')).jobs.map(job => job.id));
   const imported = importSnapshot(snapshot, manifest.dbPath, manifest.fixtureRoot, requested, seedPlan!.projectedIds);
+  const managedSkillReadback = verifyManagedSkillReadback(snapshot, manifest.fixtureRoot);
   const reprojection = await resyncSelectedProfiles(snapshot, manifest.dbPath, requested, api);
   for (const row of reprojection) {
     const mapping = imported.revisionMap.find(candidate => candidate.id === row.id)!;
@@ -309,7 +382,7 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
     selectedProvenance: selectedProvenance.map(({ sessionId, profileId, selectionRole, sourceStatus, sourceCreatedAt, sourceMessageCount, sourceRowsSha256 }) =>
       ({ sessionId, profileId, selectionRole, sourceStatus, sourceCreatedAt, sourceMessageCount, sourceRowsSha256,
         insideReviewerFourteenDays: Date.parse(sourceCreatedAt) >= Date.now() - 14 * 86_400_000 })),
-    omissions: snapshot.omissions, importReadbackHashes: imported.readbackHashes,
+    omissions: snapshot.omissions, managedSkillReadback, importReadbackHashes: imported.readbackHashes,
     importedSessionIds: imported.selectedSessionIds, pausedRecurringSchedules: imported.pausedRecurring,
     projectedProfileIds: seedPlan!.projectedIds, unprojectedDelegateDependencies: seedPlan!.unprojectedDependencies,
     sourceToCloneRevisions: imported.revisionMap,
@@ -422,8 +495,12 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
       `Actual ${item.selectionRole} ${item.sessionId} needs a citable stored message`).toBe(true);
     }
     if (requested.includes('secretary')) {
-      expect(expectedRecent.filter(item => item.profileId === 'secretary' && item.selectionRole === 'failure').length).toBe(2);
+      const secretaryFailures = expectedRecent.filter(item => item.profileId === 'secretary' && item.selectionRole === 'failure');
+      expect(secretaryFailures.length).toBe(2);
       expect(expectedRecent.filter(item => item.profileId === 'secretary' && item.selectionRole === 'counterexample').length).toBe(1);
+      expect(batches.some(batch => secretaryFailures.every(failure =>
+        batch.sessionEvidence?.some(session => session.sessionId === failure.sessionId))),
+      'Both actual Secretary failures must share one complete diagnosis batch').toBe(true);
     }
     report.contextIncludedSessionIds = evidence.map(row => row.sessionId);
     report.contextOmittedProfiles = requested.filter(id => !batches.some(batch =>

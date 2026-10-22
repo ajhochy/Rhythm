@@ -5,6 +5,12 @@ import { getDb, setDb } from '../../database/db';
 import { AgentOrgProposalsRepository } from '../../repositories/agent_org_proposals_repository';
 import { ToolSafetyReportsRepository } from '../../repositories/tool_safety_reports_repository';
 import { promoteQualifiedToolVettingAsync } from '../org_evaluation_external_effects';
+import { vetToolInstallCandidateAsync } from '../org_evaluation_external_effects';
+import { buildProfileRevisionFingerprint } from '../org_proposal_experiment_service';
+import { PROPOSAL_EVIDENCE_BUNDLE_VERSION } from '../../models/proposal_evidence_bundle';
+import { GUARDRAIL_NAMES } from '../../models/guardrail_registry';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 
 const timestamp = '2026-10-21T00:00:00.000Z';
 let previousDb: ReturnType<typeof setDb>;
@@ -16,6 +22,42 @@ afterEach(() => {
 });
 
 describe('qualified tool-install safety receipt promotion', () => {
+  it('validates against the frozen private profile without initializing the parent global DB', async () => {
+    const scratch = mkdtempSync('/private/tmp/rhythm-eval-vetting-');
+    const profile = { id: 'owned-profile', label: 'Owned', revision: 2, systemPrompt: 'Frozen',
+      allowedMcpsJson: '[]', allowedSkillsJson: '[]', corePermissionsJson: '{}',
+      allowedDelegatesJson: '[]', isManager: false, modelProvider: null, modelId: null };
+    const snapshot = { schemaVersion: 1 as const, kind: 'tool-install' as const,
+      targetRef: 'agent_config:owned-profile', targetRevision: 'absent',
+      effectiveModel: { providerID: 'anthropic', modelID: 'claude-sonnet-4-5', source: 'profile' as const },
+      profiles: [{ ...profile, id: 'delegate-dependency', revision: 99 }, profile],
+      skills: [], schedules: [], recipes: [], managedSkillFiles: [],
+      creationControl: { targetName: 'fixture-tool', absenceKind: 'managed-tool',
+        baselineProfileId: profile.id, catalogFingerprint: 'owned', evidenceSessionIds: ['s1', 's2'],
+        dependencyFingerprints: {} } };
+    const change = { toolName: 'fixture-tool', packageSource: `local-tarball:sha256:${'a'.repeat(64)}`,
+      installMethod: 'local-tarball', agentConfigId: profile.id,
+      testPrompts: ['version-check', 'help-check', 'stdin-noop'],
+      evidenceBundle: { version: PROPOSAL_EVIDENCE_BUNDLE_VERSION,
+        sourceEvidence: { sessionIds: ['s1', 's2'], eventIds: [] },
+        counterEvidenceSearch: { query: 'owned absence', searchedAt: timestamp, contradictingCount: 0 },
+        target: { ref: snapshot.targetRef, hash: buildProfileRevisionFingerprint(profile) },
+        expectedOutcome: 'Tool becomes available', primaryMetric: { name: 'objective-success-rate', direction: 'increase' },
+        guardrails: [...GUARDRAIL_NAMES], experimentAdapter: 'usage-count', rollbackRule: 'remove',
+        generatorVersion: 'owned', confidenceCalibrationVersion: 'owned' } };
+    const prior = setDb(null);
+    try {
+      mkdirSync(join(scratch, 'artifacts'));
+      await expect(vetToolInstallCandidateAsync({ changeJson: JSON.stringify(change), workerRoot: scratch,
+        artifactRoot: join(scratch, 'artifacts'), validationSnapshot: snapshot }))
+        .rejects.toThrow(/available immutable local tarball/);
+      const stale = { ...snapshot, profiles: snapshot.profiles.map((item) => item.id === profile.id
+        ? { ...item, revision: 3 } : item) };
+      await expect(vetToolInstallCandidateAsync({ changeJson: JSON.stringify(change), workerRoot: scratch,
+        artifactRoot: join(scratch, 'artifacts'), validationSnapshot: stale }))
+        .rejects.toThrow(/fabricated/);
+    } finally { setDb(prior); rmSync(scratch, { recursive: true, force: true }); }
+  });
   it('keeps a qualified-looking proposal unapprovable when the final validation has no Docker proof', async () => {
     db = new Database(':memory:');
     runMigrations(db);

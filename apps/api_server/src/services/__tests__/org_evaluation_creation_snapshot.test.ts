@@ -1,10 +1,12 @@
 import Database from 'better-sqlite3';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { captureCreationTargetAsync } from '../org_evaluation_creation_snapshot';
+import { useTempManagedSkillsRoot } from '../../__tests__/_managed_skills_temp_root';
 
 let db: Database.Database;
+const managedRoot = useTempManagedSkillsRoot('rhythm-creation-managed-skills');
 beforeEach(() => {
   db = new Database(':memory:');
   db.exec(`
@@ -32,6 +34,23 @@ const common = { expectedRevision:'absent', ownerUserId:7, evidenceSessionIds:['
 const deps = () => ({ db, mcpDefinitions: async () => ({ pco: { type:'local', command:['pco'], env:{token:'not-persisted'} } }) });
 
 describe('absent creation control snapshots', () => {
+  it('freezes file-only and absent skill scope from its real baseline without a fabricated sidecar', async () => {
+    db.prepare('UPDATE agent_configs SET allowed_skills_json=? WHERE id=?')
+      .run('["file-only","absent-skill"]', 'baseline');
+    const dir = join(managedRoot(), 'file-only');
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'SKILL.md'), '# File-only procedure\n');
+    const snapshot = await captureCreationTargetAsync({ ...common, kind: 'create-recipe',
+      targetRef: 'recipe:New recipe', change: { title: 'New recipe', boundConfigId: 'baseline' } }, deps());
+    expect(snapshot!.skills).toEqual([]);
+    expect(snapshot!.managedSkillFiles.map(file => file.name)).toEqual(['file-only']);
+    expect(snapshot!.managedSkillAbsences).toEqual(['absent-skill']);
+    expect(snapshot!.creationControl!.dependencyFingerprints['managed-skill:file-only']).toMatch(/^[a-f0-9]{64}$/);
+    const newAgent = await captureCreationTargetAsync({ ...common, kind: 'create-agent',
+      targetRef: 'agent_config:new-helper', change: { agentSlug: 'new-helper',
+        allowedSkillsJson: '["file-only"]' } }, deps());
+    expect(newAgent!.managedSkillFiles.map(file => file.name)).toEqual(['file-only']);
+  });
   it('freezes an owner-verified original profile and only a digest of relevant MCP definitions', async () => {
     const snapshot = await captureCreationTargetAsync({ ...common, kind:'create-agent',
       targetRef:'agent_config:new-helper', change:{agentSlug:'new-helper',allowedMcpsJson:'["pco"]'} }, deps());

@@ -8,7 +8,7 @@ import { getDb, getPostgresPool } from '../database/db';
 import type { OrgEvaluationProposalKind } from '../models/org_evaluation';
 import type { FrozenEvaluationProfile, OrgEvaluationTargetSnapshot } from './org_evaluation_fixture';
 import { isSafeToolName } from './tool_install_safety';
-import { readManagedSkillBytes } from './rhythm_managed_skills';
+import { freezeEvaluationManagedSkillDependency } from './org_evaluation_managed_skill_dependency';
 import { opencodeClient } from './opencode_engine';
 import { captureEffectiveEvaluationModel } from './org_evaluation_effective_model';
 
@@ -119,20 +119,27 @@ export async function captureCreationTargetAsync(input: CreationSnapshotInput,
   const schedules: OrgEvaluationTargetSnapshot['schedules'] = [];
   const skills: OrgEvaluationTargetSnapshot['skills'] = [];
   const managedSkillFiles: OrgEvaluationTargetSnapshot['managedSkillFiles'] = [];
+  const managedSkillAbsences: string[] = [];
   const profiles = [profile];
   const addSkill = async (name: string) => {
     const row = (await read.all('agent_skills')).find((item) => String(item.title).toLowerCase() === name.toLowerCase());
-    if (!row || !['active', 'approved', 'draft'].includes(String(row.status))) throw new Error('Creation skill dependency is unavailable');
-    const frozen = { id: String(row.id), title: String(row.title), body: row.body as string | null,
-      description: row.description as string | null, whenToUse: row.when_to_use as string | null,
-      version: Number(row.version ?? 0), status: String(row.status), confidence: Number(row.confidence ?? 1),
-      stepsJson: row.steps_json as string | null ?? null, tagsJson: row.tags_json as string | null ?? null };
-    skills.push(frozen);
-    dependencyFingerprints[`skill:${frozen.id}`] = digest(frozen);
-    const bytes = readManagedSkillBytes(frozen.title);
-    if (bytes) managedSkillFiles.push({ name: frozen.title, bytesBase64: bytes.toString('base64'),
-      sha256: createHash('sha256').update(bytes).digest('hex') });
+    if (row) {
+      if (!['active', 'approved', 'draft'].includes(String(row.status)))
+        throw new Error('Creation skill dependency is unavailable');
+      const frozen = { id: String(row.id), title: String(row.title), body: row.body as string | null,
+        description: row.description as string | null, whenToUse: row.when_to_use as string | null,
+        version: Number(row.version ?? 0), status: String(row.status), confidence: Number(row.confidence ?? 1),
+        stepsJson: row.steps_json as string | null ?? null, tagsJson: row.tags_json as string | null ?? null };
+      if (!skills.some((item) => item.id === frozen.id)) skills.push(frozen);
+      dependencyFingerprints[`skill:${frozen.id}`] = digest(frozen);
+    }
+    const managed = freezeEvaluationManagedSkillDependency(row ? String(row.title) : name,
+      managedSkillFiles, managedSkillAbsences);
+    dependencyFingerprints[`managed-skill:${managed.name}`] = digest(managed);
   };
+  if (profile.allowedSkillsJson === null)
+    throw new Error('Unrestricted baseline skill scope has no bounded evaluation inventory');
+  for (const name of list(profile.allowedSkillsJson)) await addSkill(name);
   if (input.kind === 'create-agent') {
     const slug = input.targetRef.startsWith('agent_config:') ? input.targetRef.slice('agent_config:'.length) : '';
     if (!text(slug) || slug !== change.agentSlug || await read.get('agent_configs', 'id', slug))
@@ -203,7 +210,7 @@ export async function captureCreationTargetAsync(input: CreationSnapshotInput,
     scheduledModelProvider: schedules[0]?.modelProvider, scheduledModelId: schedules[0]?.modelId,
   }, deps.db);
   return { schemaVersion: 1, effectiveModel, kind: input.kind, targetRef: input.targetRef, targetRevision: 'absent',
-    profiles, skills, schedules, recipes, managedSkillFiles,
+    profiles, skills, schedules, recipes, managedSkillFiles, managedSkillAbsences,
     creationControl: { targetName, absenceKind, catalogFingerprint: digest({ absenceKind, targetName, sorted }),
       baselineProfileId: profileId, evidenceSessionIds: evidenceIds.sort(), dependencyFingerprints: sorted } };
 }

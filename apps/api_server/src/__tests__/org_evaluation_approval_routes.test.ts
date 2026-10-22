@@ -31,7 +31,7 @@ beforeEach(async () => {
   runMigrations(db);
   previousDb = setDb(db);
   registerAllProposalAppliers();
-  const profile = new AgentConfigsRepository().insert({ label: 'Evaluation approval fixture', icon: 'shield', modelProvider: 'anthropic', modelId: 'before' });
+  const profile = new AgentConfigsRepository().insert({ label: 'Evaluation approval fixture', icon: 'shield', modelProvider: 'anthropic', modelId: 'before', allowedSkillsJson: '[]' });
   profileId = profile.id;
   const targetRef = `agent_config:${profileId}`;
   const snapshot = await captureOrgEvaluationTargetAsync({ kind: 'refine-config', targetRef, expectedRevision: String(profile.revision ?? 0), ownerUserId: null });

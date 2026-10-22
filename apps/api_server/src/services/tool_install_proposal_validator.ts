@@ -135,7 +135,22 @@ function validateTestPrompts(value: unknown): ProposalValidationResult {
  * D1.3 — re-validate a `tool-install` proposal's `change_json` at apply
  * time. See module doc comment for the full check order.
  */
+type ToolInstallTargetProfile = { id: string; revision: number; systemPrompt: string | null };
+
+/** Evaluation uses an already captured, immutable profile; production still
+ * reads the live row below at every validation and apply boundary. */
+export function validateToolInstallChangeAgainstFrozenProfile(
+  proposal: AgentOrgProposal, profile: ToolInstallTargetProfile,
+): ProposalValidationResult {
+  return validateToolInstallChangeUsingProfile(proposal, (id) => profile.id === id ? profile : null);
+}
+
 export function validateToolInstallChange(proposal: AgentOrgProposal): ProposalValidationResult {
+  return validateToolInstallChangeUsingProfile(proposal, (id) => new AgentConfigsRepository().getById(id));
+}
+
+function validateToolInstallChangeUsingProfile(proposal: AgentOrgProposal,
+  profileLookup: (id: string) => ToolInstallTargetProfile | null): ProposalValidationResult {
   const change = parseChangeJson(proposal);
   if (!change) {
     return {
@@ -199,8 +214,7 @@ export function validateToolInstallChange(proposal: AgentOrgProposal): ProposalV
   if (!promptsValidation.valid) return promptsValidation;
 
   const agentConfigId = change.agentConfigId as string;
-  const configsRepo = new AgentConfigsRepository();
-  const profile = configsRepo.getById(agentConfigId);
+  const profile = profileLookup(agentConfigId);
   if (!profile) {
     return {
       valid: false,

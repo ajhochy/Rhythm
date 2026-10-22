@@ -7,7 +7,8 @@ import { OrgEvaluationRepository } from '../repositories/org_evaluation_reposito
 import { ToolSafetyReportsRepository } from '../repositories/tool_safety_reports_repository';
 import { buildToolInstallProposalFingerprint, evaluateToolInstallSafetyAsync,
   readValidatedToolInstallInputs } from './tool_install_safety_policy';
-import { validateToolInstallChange } from './tool_install_proposal_validator';
+import { validateToolInstallChange, validateToolInstallChangeAgainstFrozenProfile } from './tool_install_proposal_validator';
+import type { OrgEvaluationTargetSnapshot } from './org_evaluation_fixture';
 import { inspectImmutableLocalTarball, parseImmutableLocalTarballSource } from './tool_install_artifact';
 import { resolveManagedToolArtifactRoot } from '../config/env';
 import { DockerSandboxRuntime, vetToolInSandboxAsync, type ToolVettingOutcome } from './tool_sandbox_vetter';
@@ -35,10 +36,22 @@ export interface ToolInstallEvaluationVettingReceipt {
  * proves its closed scenarios ran, but cannot alone qualify an agent result. */
 export async function vetToolInstallCandidateAsync(input: {
   changeJson: string; workerRoot: string; artifactRoot?: string;
+  validationSnapshot?: OrgEvaluationTargetSnapshot;
 }): Promise<ToolInstallEvaluationVettingReceipt> {
   const scratchRoot = privateScratchRoot(input.workerRoot);
   const proposal = { kind: 'tool-install', changeJson: input.changeJson } as AgentOrgProposal;
-  const validation = validateToolInstallChange(proposal);
+  let validation;
+  if (input.validationSnapshot) {
+    const snapshot = input.validationSnapshot;
+    const targetId = snapshot.creationControl?.baselineProfileId;
+    const matches = snapshot.profiles.filter((item) => item.id === targetId);
+    const profile = matches[0];
+    if (snapshot.kind !== 'tool-install' || matches.length !== 1 || !profile ||
+        snapshot.targetRef !== `agent_config:${profile.id}` ||
+        targetId !== profile.id)
+      throw new Error('Tool vetting requires one bound frozen target profile');
+    validation = validateToolInstallChangeAgainstFrozenProfile(proposal, profile);
+  } else validation = validateToolInstallChange(proposal);
   if (!validation.valid) throw new Error(validation.reason ?? 'Tool candidate failed production validation');
   const change = JSON.parse(input.changeJson) as Record<string, unknown>;
   const digest = parseImmutableLocalTarballSource(change.packageSource);

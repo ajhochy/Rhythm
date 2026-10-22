@@ -12,11 +12,12 @@ const evaluated = {
   createdAt: null, updatedAt: null, changeJson: '{}', experimentSummary: null, source: 'org-reviewer-evaluated',
   preReviewEvaluation: { evaluationId: 'rendered-qualified', originalHash, finalCandidateHash: finalHash, status: 'qualified' },
 };
-const job = (id: string, status: string, failureReason: string | null = null, budgetRootId: string | null = 'cycle-root') => ({
+const job = (id: string, status: string, failureReason: string | null = null,
+  budgetRootId: string | null = 'cycle-root', targetRef = 'agent_config:review-agent-org-health') => ({
   id, budgetRootId, sourceAuditRunId: null, ownerUserId: 1, status, maxTokens: 100_000,
-  validationReserveTokens: 20_000, originalHash, targetRef: 'review-agent-org-health',
-  targetRevision: '7', inputJson: '{}', finalCandidateId: status === 'qualified' ? 'final-1' : null,
-  qualifiedProposalId: status === 'qualified' ? evaluated.id : null, failureReason, revision: 3,
+  validationReserveTokens: 20_000, originalHash, targetRef,
+  targetRevision: '7', inputJson: '{}', finalCandidateId: status === 'qualified' && !targetRef.startsWith('org-review-cycle:') ? 'final-1' : null,
+  qualifiedProposalId: status === 'qualified' && !targetRef.startsWith('org-review-cycle:') ? evaluated.id : null, failureReason, revision: 3,
   createdAt: '2026-10-21T00:00:00.000Z', updatedAt: '2026-10-21T00:01:00.000Z',
 });
 const candidates = [
@@ -63,7 +64,12 @@ async function install(page: Page, options: { jobs?: ReturnType<typeof job>[]; p
     }
     if (pathname === jobsPath) return fulfill(route, { jobs });
     const detailId = pathname.match(/^\/agent-org-proposals\/evaluations\/([^/]+)$/)?.[1];
-    if (detailId) return fulfill(route, { job: jobs.find(item => item.id === detailId), candidates, results, budget });
+    if (detailId) {
+      const selected = jobs.find(item => item.id === detailId);
+      const scan = selected?.budgetRootId === null && selected.targetRef.startsWith('org-review-cycle:');
+      return fulfill(route, { job: selected, candidates: scan ? [] : candidates,
+        results: scan ? [] : results, budget });
+    }
     if (pathname === '/agent-org-proposals' && method === 'GET') return fulfill(route, options.proposals ?? []);
     if (pathname === `/agent-org-proposals/${evaluated.id}/approve` && method === 'POST') {
       approvals.push(route.request().postDataJSON());
@@ -142,23 +148,52 @@ test('evaluated proposal with incomplete version proof cannot be approved', asyn
 
 test('closed cycle reports child outcomes without claiming the whole cycle qualified', async ({ page }) => {
   await install(page, { jobs: [
-    job('cycle-root', 'qualified', null, null),
+    job('cycle-root', 'qualified', null, null, 'org-review-cycle:cycle-root'),
     job('target-passed', 'qualified'),
     job('target-inconclusive', 'inconclusive', 'No reliable provider usage'),
   ] });
   await page.goto('/#/tools/review');
   const activity = page.getByRole('region', { name: 'Evaluation activity' });
   const root = activity.getByTestId('evaluation-cycle-root');
-  await expect(root).toContainText('completed');
-  await expect(root).toContainText('2 tested');
-  await expect(root).toContainText('1 passed');
+  await expect(root).toContainText('Scan complete');
+  await expect(root).toContainText('2 targets evaluated');
+  await expect(root).toContainText('1 improvement qualified');
   await expect(root).toContainText('1 inconclusive');
-  await expect(root).not.toContainText('qualified');
-  await expect(activity.getByTestId('evaluation-target-passed')).toContainText('qualified');
+  await expect(activity.getByTestId('evaluation-target-passed')).toContainText('Improvement qualified');
   await root.click();
   const detail = activity.getByTestId('evaluation-cycle-root-details');
-  await expect(detail.getByRole('heading', { level: 4 })).toContainText('completed');
-  await expect(detail).toContainText('2 tested');
-  await expect(detail).toContainText('1 passed');
+  await expect(detail.getByRole('heading', { level: 4 })).toContainText('Scan complete');
+  await expect(detail).toContainText('2 targets evaluated');
+  await expect(detail).toContainText('1 improvement qualified');
   await expect(detail).toContainText('1 inconclusive');
+  await expect(detail).toContainText('Not applicable to a scan');
+});
+
+test('completed root scan without a target reports no qualified improvement of its own', async ({ page }) => {
+  await install(page, { jobs: [job('cycle-root', 'qualified', null, null, 'org-review-cycle:cycle-root')] });
+  await page.goto('/#/tools/review');
+  const activity = page.getByRole('region', { name: 'Evaluation activity' });
+  const root = activity.getByTestId('evaluation-cycle-root');
+  await expect(root).toContainText('Scan complete');
+  await expect(root).toContainText('0 targets evaluated');
+  await expect(root).toContainText('0 improvements qualified');
+  await root.click();
+  const detail = activity.getByTestId('evaluation-cycle-root-details');
+  await expect(detail).toContainText('Review each target to see whether an improvement qualified');
+  await expect(detail).toContainText('Not applicable to a scan');
+});
+
+test('qualified standalone target keeps its final version and improvement status', async ({ page }) => {
+  await install(page, { jobs: [job('standalone-target', 'qualified', null, null)] });
+  await page.goto('/#/tools/review');
+  const activity = page.getByRole('region', { name: 'Evaluation activity' });
+  const target = activity.getByTestId('evaluation-standalone-target');
+  await expect(target).toContainText('Improvement qualified');
+  await expect(target).not.toContainText('Scan complete');
+  await expect(target).not.toContainText('targets evaluated');
+  await target.click();
+  const detail = activity.getByTestId('evaluation-standalone-target-details');
+  await expect(detail.getByRole('heading', { level: 4 })).toContainText('Improvement qualified');
+  await expect(detail).toContainText(finalHash);
+  await expect(detail).not.toContainText('Not applicable to a scan');
 });

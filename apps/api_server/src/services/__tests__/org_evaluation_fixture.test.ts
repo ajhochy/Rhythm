@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runMigrations } from '../../database/migrations';
 import { setDb } from '../../database/db';
@@ -10,9 +10,44 @@ import { AgentScheduledTasksRepository } from '../../repositories/agent_schedule
 import { useTempManagedSkillsRoot } from '../../__tests__/_managed_skills_temp_root';
 import { captureOrgEvaluationTargetAsync, prepareOrgEvaluationFixture, type OrgEvaluationTargetSnapshot } from '../org_evaluation_fixture';
 
-useTempManagedSkillsRoot('rhythm-evaluation-fixture');
+const managedRoot = useTempManagedSkillsRoot('rhythm-evaluation-fixture');
 
 describe('org evaluation fixture', () => {
+  it('freezes file-only managed skills and explicit absent grants without inventing database rows', async () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    const old = setDb(db);
+    const root = mkdtempSync('/private/tmp/rhythm-eval-skill-dependency-');
+    try {
+      new AgentSkillsRepository().create({ title: 'db-and-file', body: 'Database sidecar.' });
+      for (const [name, body] of [['db-and-file', '# DB and file\n'], ['file-only', '# File only\n']]) {
+        const dir = join(managedRoot(), name);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, 'SKILL.md'), body);
+      }
+      db.prepare(`INSERT INTO agent_configs(id,label,icon,command,system_prompt,revision,model_provider,model_id,allowed_skills_json)
+        VALUES (?,?,?,?,?,?,?,?,?)`).run('skill-agent', 'Skill agent', 'fixture', 'opencode',
+        'Use available skills.', 3, 'anthropic', 'claude-sonnet-4-5',
+        JSON.stringify(['db-and-file', 'file-only', 'absent-skill']));
+      const snapshot = await captureOrgEvaluationTargetAsync({ kind: 'refine-config',
+        targetRef: 'agent_config:skill-agent', expectedRevision: '3', ownerUserId: null });
+      expect(snapshot.skills.map(skill => skill.title)).toEqual(['db-and-file']);
+      expect(snapshot.managedSkillFiles.map(file => file.name).sort()).toEqual(['db-and-file', 'file-only']);
+      expect(snapshot.managedSkillAbsences).toEqual(['absent-skill']);
+      const fixture = prepareOrgEvaluationFixture(snapshot, {
+        fixtureRoot: join(root, 'fixture'),
+        safeMcpCommand: [process.execPath, join(__dirname, '..', 'org_evaluation_mcp_fixture.ts')],
+        providerRelayUrl: 'http://127.0.0.1:4796/agent-org-proposals/evaluations/provider/lease_skills/v1',
+        relayToken: 'fixture-only-token',
+      });
+      expect(readFileSync(join(fixture.fixtureConfig, 'skills', 'file-only', 'SKILL.md'), 'utf8'))
+        .toBe('# File only\n');
+      const copied = new Database(fixture.fixtureDb, { readonly: true });
+      try {
+        expect(copied.prepare('SELECT title FROM agent_skills ORDER BY title').all()).toEqual([{ title: 'db-and-file' }]);
+      } finally { copied.close(); }
+    } finally { setDb(old); db.close(); rmSync(root, { recursive: true, force: true }); }
+  });
   it('recreates an MRU fallback with model metadata only in the private database', () => {
     const root = mkdtempSync('/private/tmp/rhythm-eval-model-fixture-');
     const snapshot: OrgEvaluationTargetSnapshot = {
@@ -105,6 +140,19 @@ describe('org evaluation fixture', () => {
       setDb(old);
       db.close();
     }
+  });
+
+  it('does not call an unrestricted skill scope a complete private snapshot', async () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    const old = setDb(db);
+    try {
+      db.prepare(`INSERT INTO agent_configs(id,label,icon,command,revision,allowed_skills_json)
+        VALUES (?,?,?,?,?,NULL)`).run('unrestricted-agent', 'Unrestricted agent', 'fixture', 'opencode', 1);
+      await expect(captureOrgEvaluationTargetAsync({ kind: 'refine-config',
+        targetRef: 'agent_config:unrestricted-agent', expectedRevision: '1', ownerUserId: null }))
+        .rejects.toThrow(/Unrestricted.*skill scope/);
+    } finally { setDb(old); db.close(); }
   });
 
   it('uses the verified agent for a skill and freezes its other skill dependencies', async () => {

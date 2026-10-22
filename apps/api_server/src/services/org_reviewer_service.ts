@@ -838,6 +838,9 @@ export class OrgReviewerService {
     const batches: JsonRecord[] = [];
     for (const group of byProfile.values()) for (let index = 0; index < group.length; index += 2) {
       const pair = group.slice(index, index + 2);
+      // An odd final session still needs a same-profile comparator for a
+      // diagnosis to cite two distinct sessions from this bounded fragment.
+      if (pair.length === 1 && group.length > 1) pair.unshift(group[0]);
       const profileIds = new Set(pair.map((entry) => String(entry.profileId ?? '')));
       const batch: JsonRecord = {
         sessionEvidence: pair,

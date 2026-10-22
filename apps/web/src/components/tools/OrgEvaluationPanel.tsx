@@ -63,14 +63,16 @@ export function OrgEvaluationPanel() {
   const parts = composition?.compositionParts ?? final?.compositionParts ?? [];
   const validation = detail?.results.filter(result => result.phase === 'validation') ?? [];
   const probes = detail?.results.filter(result => result.phase === 'probe') ?? [];
+  const isScan = (job: EvaluationJob) => job.budgetRootId === null && job.targetRef.startsWith('org-review-cycle:');
   const cycleSummary = (job: EvaluationJob) => {
     const children = jobs.filter(child => child.budgetRootId === job.id);
-    const passed = children.filter(child => child.status === 'qualified').length;
+    const qualified = children.filter(child => child.status === 'qualified').length;
     const inconclusive = children.filter(child => child.status === 'inconclusive').length;
     const failed = children.filter(child => child.status === 'failed').length;
-    return `${children.length} tested · ${passed} passed · ${inconclusive} inconclusive${failed ? ` · ${failed} failed` : ''}`;
+    return `${children.length} ${children.length === 1 ? 'target' : 'targets'} evaluated · ${qualified} ${qualified === 1 ? 'improvement' : 'improvements'} qualified · ${inconclusive} inconclusive${failed ? ` · ${failed} failed` : ''}`;
   };
-  const statusLabel = (job: EvaluationJob) => job.budgetRootId === null && job.status === 'qualified' ? 'completed' : job.status;
+  const statusLabel = (job: EvaluationJob) => job.status === 'qualified'
+    ? isScan(job) ? 'Scan complete' : 'Improvement qualified' : job.status;
   return <div className="org-evaluation-panel">
     <section aria-label="Evaluation settings" className="tool-notice">
       <h3>Evaluation settings</h3>
@@ -88,16 +90,19 @@ export function OrgEvaluationPanel() {
       <button type="button" className="secondary-button compact" onClick={() => void refresh()}>Refresh evaluations</button>
       {error && <p role="alert">{error}</p>}
       {loading ? <p>Loading evaluations…</p> : jobs.length === 0 ? <p>No evaluations yet</p> : <div className="org-evaluation-activity">
-        <ul>{jobs.map(job => <li key={job.id}><button type="button" data-testid={`evaluation-${job.id}`} onClick={() => void select(job.id)} aria-current={selectedId === job.id ? 'true' : undefined}>{job.targetRef} · {statusLabel(job)}{job.budgetRootId === null ? ` · ${cycleSummary(job)}` : ''} · {number(job.maxTokens)} {job.budgetRootId === null ? 'whole-run' : 'shared cycle'} token cap</button></li>)}</ul>
+        <ul>{jobs.map(job => <li key={job.id}><button type="button" data-testid={`evaluation-${job.id}`} onClick={() => void select(job.id)} aria-current={selectedId === job.id ? 'true' : undefined}>{job.targetRef} · {statusLabel(job)}{isScan(job) ? ` · ${cycleSummary(job)}` : ''} · {number(job.maxTokens)} {job.budgetRootId === null ? 'whole-run' : 'shared cycle'} token cap</button></li>)}</ul>
         {selectedId && !detail && !error && <p>Loading evaluation detail…</p>}
         {detail && <article data-testid={`evaluation-${detail.job.id}-details`}>
           <h4>{detail.job.targetRef} · {statusLabel(detail.job)}</h4>
-          {detail.job.budgetRootId === null && <p>{cycleSummary(detail.job)}</p>}
+          {isScan(detail.job) && <p>{cycleSummary(detail.job)}</p>}
+          {isScan(detail.job) && detail.job.status === 'qualified' &&
+            <p>The scan is complete. Review each target to see whether an improvement qualified.</p>}
           {detail.job.failureReason && <p role="status">{detail.job.failureReason}</p>}
           {detail.budget.hasUnknownUsage && <p role="status">Token usage is unknown; this evaluation is inconclusive.</p>}
           <dl>
             <div><dt>Original</dt><dd>{original?.configHash ?? detail.job.originalHash}</dd></div>
-            <div><dt>Final version</dt><dd>{final?.configHash ?? 'No qualified final version'}</dd></div>
+            <div><dt>Final version</dt><dd>{isScan(detail.job)
+              ? 'Not applicable to a scan' : final?.configHash ?? 'No qualified final version'}</dd></div>
             <div><dt>Token use</dt><dd>{number(detail.budget.settledTokens)} used · {number(detail.budget.outstandingTokens)} reserved · {number(detail.budget.maxTokens)} cap</dd></div>
             <div><dt>Final validation reserve</dt><dd>{number(detail.budget.validationReserveTokens)}</dd></div>
             <div><dt>Available</dt><dd>{number(detail.budget.totalAvailableTokens)}</dd></div>

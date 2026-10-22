@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { runMigrations } from '../../database/migrations';
 import { setDb } from '../../database/db';
 import type { AgentOrgProposal } from '../../models/agent_org_proposal';
@@ -7,15 +9,41 @@ import { AgentConfigsRepository } from '../../repositories/agent_configs_reposit
 import { AgentSkillsRepository } from '../../repositories/agent_skills_repository';
 import { AgentScheduledTasksRepository } from '../../repositories/agent_scheduled_tasks_repository';
 import { AgentOrgProposalsRepository } from '../../repositories/agent_org_proposals_repository';
-import { armOrgEvaluationApplyFence } from '../org_evaluation_apply_fence';
+import { armOrgEvaluationApplyFence, assertOrgEvaluationApplyFenceSync } from '../org_evaluation_apply_fence';
+import { useTempManagedSkillsRoot } from '../../__tests__/_managed_skills_temp_root';
 import { registerAllProposalAppliers } from '../org_proposal_appliers_wiring';
 import { applyProposal, type ProposalApplier } from '../org_proposal_apply_service';
 import { applyApprovedScopeProposal } from '../org_proposal_scope_lifecycle';
 
 let db: Database.Database;
+const managedRoot = useTempManagedSkillsRoot('rhythm-evaluation-fence');
 afterEach(() => { setDb(null); db?.close(); });
 
 describe('evaluated apply fence', () => {
+  it('rejects a formerly absent managed skill appearing after approval recapture', () => {
+    db = new Database(':memory:');
+    runMigrations(db);
+    setDb(db);
+    const profile = new AgentConfigsRepository().insert({ label: 'Target', icon: 'x',
+      allowedSkillsJson: '["was-absent"]' });
+    const proposal = { id: 'absence-race', kind: 'refine-config', targetRef: `agent_config:${profile.id}`,
+      provenanceJson: JSON.stringify({ source: 'org-reviewer-evaluated' }) } as AgentOrgProposal;
+    armOrgEvaluationApplyFence(proposal, {
+      schemaVersion: 1, effectiveModel: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6', source: 'hardcoded-default' },
+      kind: 'refine-config', targetRef: proposal.targetRef!, targetRevision: String(profile.revision),
+      profiles: [{ id: profile.id, label: profile.label, systemPrompt: profile.systemPrompt,
+        revision: profile.revision ?? 0, allowedMcpsJson: profile.allowedMcpsJson,
+        allowedSkillsJson: profile.allowedSkillsJson, corePermissionsJson: profile.corePermissionsJson,
+        allowedDelegatesJson: profile.allowedDelegatesJson, isManager: profile.isManager,
+        modelProvider: profile.modelProvider, modelId: profile.modelId }],
+      skills: [], schedules: [], recipes: [], managedSkillFiles: [], managedSkillAbsences: ['was-absent'],
+    });
+    expect(assertOrgEvaluationApplyFenceSync(proposal)).not.toBeNull();
+    const dir = join(managedRoot(), 'was-absent');
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'SKILL.md'), '# New skill\n');
+    expect(() => assertOrgEvaluationApplyFenceSync(proposal)).toThrow(/absent managed skill appeared/);
+  });
   it('refuses an unrelated profile edit after the approved claim but before the scope pair', async () => {
     db = new Database(':memory:');
     runMigrations(db);

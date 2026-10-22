@@ -1145,6 +1145,53 @@ describe('OrgReviewerService bounded context and identity', () => {
     }
   });
 
+  it('pairs an odd older failure with the first same-profile session while retaining counterevidence', async () => {
+    const profileId = configs.insert({
+      id: `odd-review-target-${randomUUID()}`, label: 'Odd review target', icon: 'report',
+      enabled: true, isAgent: true, schedulable: true, systemPrompt: originalPrompt,
+      modelProvider: 'openai', modelId: 'gpt-5.6-sol', allowedMcpsJson: '{}', allowedSkillsJson: '[]',
+    }).id;
+    const cases = [
+      { ageDays: 1, status: 'error', text: 'Recent briefing failed at the source step.' },
+      { ageDays: 2, status: 'completed', text: 'Recent triage completed with the expected heading.' },
+      { ageDays: 10, status: 'error', text: 'Older briefing failed at the source step.' },
+    ];
+    const source = cases.map((item, index) => {
+      const { row } = session(profileId);
+      const messageId = `odd_source_${index}`;
+      messages.upsertStructured(row.id, messageId, 'output',
+        JSON.stringify([{ type: 'text', text: item.text }]), null, null);
+      if (item.status === 'error') sessions.setErrorStatus(row.id, item.text);
+      const at = new Date(Date.now() - item.ageDays * 86_400_000).toISOString();
+      db.prepare('UPDATE agent_sessions SET created_at=?, updated_at=?, last_activity_at=? WHERE id=?')
+        .run(at, at, at, row.id);
+      db.prepare('UPDATE agent_session_messages SET created_at=? WHERE session_id=?').run(at, row.id);
+      return { sessionId: row.id, messageId, ...item };
+    });
+    const context = await service.evaluationContext(null, 14) as { batches: Array<{
+      sessionEvidence: Array<{ sessionId: string; profileId: string;
+        messages: Array<{ messageId: string; text: string }> }>;
+    }> };
+    const own = context.batches.filter((batch) => batch.sessionEvidence.some((item) => item.profileId === profileId));
+    const older = own.find((batch) => batch.sessionEvidence.some((item) => item.sessionId === source[2].sessionId));
+    expect(older?.sessionEvidence.map((item) => item.sessionId)).toContain(source[0].sessionId);
+    expect(older?.sessionEvidence).toHaveLength(2);
+    for (const batch of own) {
+      expect(batch.sessionEvidence).toHaveLength(2);
+      expect(new Set(batch.sessionEvidence.map((item) => item.sessionId)).size).toBe(2);
+      expect(Buffer.byteLength(JSON.stringify(batch), 'utf8')).toBeLessThanOrEqual(23_000);
+    }
+    for (const item of source) {
+      const observed = own.flatMap((batch) => batch.sessionEvidence)
+        .find((entry) => entry.sessionId === item.sessionId);
+      expect(observed?.messages).toEqual(expect.arrayContaining([{
+        messageId: item.messageId, text: item.text,
+        role: 'output', createdAt: expect.any(String), totalChars: item.text.length,
+        toolErrorCount: 0, toolErrorOmitted: 0,
+      }]));
+    }
+  });
+
   it('cites source-backed tool errors with the request instead of blank final outputs', async () => {
     const source: Array<{ sessionId: string; errorMessageId: string; error: string }> = [];
     for (let index = 0; index < 2; index++) {

@@ -12,6 +12,7 @@ import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_t
 import { AgentCookbookRepository } from '../repositories/agent_cookbook_repository';
 import { scanContextContent } from '../security/context_scanner';
 import { readManagedSkillBytes, slugForSkillName } from './rhythm_managed_skills';
+import { freezeEvaluationManagedSkillDependency } from './org_evaluation_managed_skill_dependency';
 import { captureCreationTargetAsync, captureEvidenceBaselineProfileAsync } from './org_evaluation_creation_snapshot';
 import { captureEffectiveEvaluationModel, type FrozenEvaluationModel } from './org_evaluation_effective_model';
 import { captureOrgPublicationStateAsync, type FrozenOrgPublicationState } from './org_evaluation_publication_state';
@@ -94,6 +95,8 @@ export interface OrgEvaluationTargetSnapshot {
     dependencyFingerprints: Record<string, string>;
   };
   managedSkillFiles: { name: string; bytesBase64: string; sha256: string }[];
+  /** Allowed skills with no managed SKILL.md at capture time. */
+  managedSkillAbsences?: string[];
   /** Public org-library bytes at diagnosis time, including verified absence. */
   publicationOriginal?: FrozenOrgPublicationState;
   /** Exact commit-pinned external skill bytes observed by the parent API. */
@@ -160,6 +163,7 @@ export async function captureOrgEvaluationTargetAsync(input: {
   const schedules: FrozenEvaluationSchedule[] = [];
   const recipes: FrozenEvaluationRecipe[] = [];
   const managedSkillFiles: OrgEvaluationTargetSnapshot['managedSkillFiles'] = [];
+  const managedSkillAbsences: string[] = [];
   const ownerCanRead = (owner: number | null): boolean => input.ownerUserId === null
     ? owner === null : owner === null || owner === input.ownerUserId;
   const addProfile = (id: string): void => {
@@ -168,16 +172,12 @@ export async function captureOrgEvaluationTargetAsync(input: {
     if (!config) throw new Error(`Evaluation profile dependency '${id}' is missing`);
     profiles.push(freezeProfile(config));
   };
-  const addSkill = (nameOrId: string): void => {
+  const addSkill = (nameOrId: string, requireDbRow = false): void => {
     const skill = skills.getById(nameOrId) ?? skills.findByName(nameOrId);
-    if (!skill) throw new Error(`Evaluation skill dependency '${nameOrId}' is missing`);
-    if (capturedSkills.some((entry) => entry.id === skill.id)) return;
-    capturedSkills.push(freezeSkill(skill));
-    const bytes = readManagedSkillBytes(skill.title);
-    if (bytes) managedSkillFiles.push({
-      name: skill.title, bytesBase64: bytes.toString('base64'),
-      sha256: createHash('sha256').update(bytes).digest('hex'),
-    });
+    if (!skill && requireDbRow) throw new Error(`Evaluation skill target '${nameOrId}' has no database row`);
+    if (skill && !capturedSkills.some((entry) => entry.id === skill.id)) capturedSkills.push(freezeSkill(skill));
+    const name = skill?.title ?? nameOrId;
+    freezeEvaluationManagedSkillDependency(name, managedSkillFiles, managedSkillAbsences);
   };
   let targetRevision: string;
   if (input.targetRef.startsWith('agent_config:')) {
@@ -188,7 +188,7 @@ export async function captureOrgEvaluationTargetAsync(input: {
     for (const name of namesFromJson(profile.allowedSkillsJson)) addSkill(name);
     for (const delegate of namesFromJson(profile.allowedDelegatesJson)) addProfile(delegate);
   } else if (input.targetRef.startsWith('skill:')) {
-    addSkill(input.targetRef.slice('skill:'.length));
+    addSkill(input.targetRef.slice('skill:'.length), true);
     targetRevision = String(capturedSkills[0].version);
   } else if (input.targetRef.startsWith('scheduled_task:')) {
     const id = input.targetRef.slice('scheduled_task:'.length);
@@ -227,7 +227,7 @@ export async function captureOrgEvaluationTargetAsync(input: {
   if (input.kind === 'consolidate-skill') {
     const retired = input.change?.retiredSkillId ?? input.change?.retiredSkillName;
     if (typeof retired !== 'string' || !retired) throw new Error('Evaluation consolidation lacks retired skill');
-    addSkill(retired);
+    addSkill(retired, true);
   }
   // Skills and unbound recipes/tasks have no profile foreign key. The
   // verified transcripts identify the real execution profile; an empty
@@ -252,6 +252,8 @@ export async function captureOrgEvaluationTargetAsync(input: {
       throw new Error('Cited sessions do not belong to the reviewed target profile or its bound dependency');
     }
   }
+  if (profiles.some((profile) => profile.allowedSkillsJson === null))
+    throw new Error('Unrestricted profile skill scope has no bounded evaluation inventory');
   for (const profile of profiles) {
     for (const name of namesFromJson(profile.allowedSkillsJson)) addSkill(name);
   }
@@ -270,6 +272,7 @@ export async function captureOrgEvaluationTargetAsync(input: {
   return {
     schemaVersion: 1, effectiveModel, kind: input.kind, targetRef: input.targetRef, targetRevision,
     profiles, skills: capturedSkills, schedules, recipes, managedSkillFiles,
+    managedSkillAbsences,
     ...(publicationOriginal ? { publicationOriginal } : {}),
     ...(externalSkillSource ? { externalSkillSource } : {}),
   };
@@ -337,9 +340,12 @@ export function prepareOrgEvaluationFixture(
       !/^\/agent-org-proposals\/evaluations\/provider\/[A-Za-z0-9_-]+\/v1$/.test(relay.pathname)) {
     throw new Error('Evaluation fixture requires a private provider relay');
   }
-  if (snapshot.profiles.length > 32 || snapshot.skills.length > 64 || snapshot.schedules.length > 32 ||
+  if (snapshot.profiles.length > 32 || snapshot.skills.length > 128 || snapshot.schedules.length > 32 ||
       snapshot.recipes.length > 32 ||
-      snapshot.managedSkillFiles.length > 64) throw new Error('Evaluation snapshot exceeds dependency limits');
+      snapshot.managedSkillFiles.length > 128 ||
+      (snapshot.managedSkillAbsences?.length ?? 0) > 128) throw new Error('Evaluation snapshot exceeds dependency limits');
+  if (snapshot.managedSkillAbsences?.some((name) => snapshot.managedSkillFiles.some((file) => file.name === name)))
+    throw new Error('Evaluation skill cannot be both present and absent');
   const fixtureDb = join(root, 'rhythm.db');
   const fixtureConfig = join(root, 'opencode-config');
   mkdirSync(fixtureConfig, { recursive: true, mode: 0o700 });

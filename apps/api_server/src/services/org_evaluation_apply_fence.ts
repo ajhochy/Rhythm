@@ -58,5 +58,9 @@ export function assertOrgEvaluationApplyFenceSync(proposal: AgentOrgProposal): O
     if (readManagedSkillBytes(frozen.name)?.toString('base64') !== frozen.bytesBase64)
       throw AppError.conflict('Evaluated managed skill bytes changed after approval validation');
   }
+  for (const name of snapshot.managedSkillAbsences ?? []) {
+    if (readManagedSkillBytes(name) !== null)
+      throw AppError.conflict('Evaluated absent managed skill appeared after approval validation');
+  }
   return snapshot;
 }

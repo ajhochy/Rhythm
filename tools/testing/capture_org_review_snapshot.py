@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Capture an explicitly requested, owner-scoped evaluation input. Never opens live state writable."""
 import argparse
+import base64
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import sqlite3
+import stat
 import tempfile
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
@@ -16,6 +18,58 @@ CONTROL_PROFILES = {'org-reviewer', 'org-optimizer', 'org-external-discovery',
 CASE_PROFILES = ('secretary', 'workflow-orchestrator', 'librarian', 'AI-Trend-Researcher',
                  'fantasy-gm', 'worship-planning', 'coding-agent', 'claude-code')
 SECRET = re.compile(r'(?i)(?:\bBearer\s+[a-z0-9._~+/-]{24,}|\b(?:sk-ant-|sk-proj-|ghp_|github_pat_)[a-z0-9_-]{16,}|\bAKIA[A-Z0-9]{16}|\beyJ[a-z0-9_-]+\.[a-z0-9_-]{16,}\.[a-z0-9_-]{16,})')
+
+
+def capture_managed_skill_dependencies(profiles):
+    """Freeze engine-owned skill files, including absence, without inventing DB rows."""
+    home = Path.home()
+    root = home / '.config/opencode/skills'
+    for directory in (home / '.config', home / '.config/opencode', root):
+        if directory.is_symlink() or not directory.is_dir() or directory.stat().st_uid != os.getuid():
+            raise ValueError('Managed skill source root is unavailable or redirected')
+    names = set()
+    for profile in profiles:
+        raw = profile.get('allowed_skills_json')
+        if raw is None:
+            continue
+        parsed = json.loads(raw)
+        if not isinstance(parsed, list) or any(not isinstance(name, str) for name in parsed):
+            raise ValueError('Managed skill scope is not a string array')
+        names.update(parsed)
+    if len(names) > 512:
+        raise ValueError('Managed skill dependency inventory exceeds its bound')
+    dependencies = []
+    slugs = set()
+    for name in sorted(names):
+        if not name or name in ('.', '..') or '..' in name or '/' in name or '\\' in name:
+            raise ValueError('Managed skill name is unsafe')
+        slug = re.sub(r'[^a-zA-Z0-9_-]+', '__', name.strip())
+        if slug in slugs:
+            raise ValueError('Managed skill names collide at the production slug')
+        slugs.add(slug)
+        directory = root / slug
+        path = directory / 'SKILL.md'
+        if directory.is_symlink() or path.is_symlink():
+            raise ValueError('Managed skill dependency is a symlink')
+        if directory.exists() and not directory.is_dir():
+            raise ValueError('Managed skill dependency directory is not a directory')
+        if not path.exists():
+            dependencies.append({'name': name, 'state': 'absent'})
+            continue
+        before = path.stat()
+        if not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid() or before.st_nlink != 1 or before.st_size > 128_000:
+            raise ValueError('Managed skill dependency is not one bounded owned file')
+        content = path.read_bytes()
+        after = path.stat()
+        if (before.st_dev, before.st_ino, before.st_mtime_ns, before.st_size) != \
+           (after.st_dev, after.st_ino, after.st_mtime_ns, after.st_size) or len(content) != before.st_size:
+            raise ValueError('Managed skill dependency changed during capture')
+        if SECRET.search(content.decode('utf8')):
+            raise ValueError('Credential-shaped managed skill content cannot enter a snapshot')
+        dependencies.append({'name': name, 'state': 'present',
+                             'sha256': hashlib.sha256(content).hexdigest(),
+                             'bytesBase64': base64.b64encode(content).decode('ascii')})
+    return dependencies
 
 
 def captureOrgReviewSnapshot(owner_email):
@@ -90,6 +144,7 @@ def captureOrgReviewSnapshot(owner_email):
         schedules = [dict(r) for r in db.execute('SELECT * FROM agent_scheduled_tasks ORDER BY id')
                      if r['created_by_user_id'] in (None, owner_id) and r['agent_config_id'] not in CONTROL_PROFILES]
         skills = [dict(r) for r in db.execute('SELECT * FROM agent_skills ORDER BY id')]
+        managed_skill_dependencies = capture_managed_skill_dependencies(profiles)
         recipes = [dict(r) for r in db.execute('SELECT * FROM agent_cookbook ORDER BY id')
                    if r['owner_user_id'] in (None, owner_id)]
         payload = {'schemaVersion': 1, 'sourceKind': 'actual-electron-owner-snapshot',
@@ -99,6 +154,7 @@ def captureOrgReviewSnapshot(owner_email):
                               'agent_session_messages': messages, 'agent_scheduled_tasks': schedules,
                               'agent_skills': skills, 'agent_cookbook': recipes},
                    'provenance': provenance, 'excludedControlProfiles': sorted(CONTROL_PROFILES),
+                   'managedSkillDependencies': managed_skill_dependencies,
                    'omissions': ['Other users, authentication/credential stores, live SDK handles, reasoning, tool arguments/results, and unrelated application tables are excluded.',
                                  'The existing Reviewer default window remains seven days; original timestamps are preserved.']}
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()

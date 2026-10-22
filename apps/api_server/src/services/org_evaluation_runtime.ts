@@ -576,7 +576,7 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
     try {
       const managedToolVetting = input.kind === 'tool-install' && input.role !== 'original'
         ? await vetToolInstallCandidateAsync({ changeJson: input.changeJson,
-          workerRoot: options.workerBaseRoot }) : undefined;
+          workerRoot: options.workerBaseRoot, validationSnapshot: input.snapshot }) : undefined;
       const fixture = prepareOrgEvaluationFixture(input.snapshot, {
         fixtureRoot, safeMcpCommand: [process.execPath, join(__dirname, 'org_evaluation_mcp_fixture.js')], providerRelayUrl: url,
         managedMcpCommand: input.kind === 'tool-install'
@@ -650,7 +650,7 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
         const managedToolVetting = input.candidate.kind === 'tool-install' &&
           input.candidate.role !== 'original'
           ? await vetToolInstallCandidateAsync({ changeJson: input.candidate.changeJson,
-            workerRoot: options.workerBaseRoot }) : undefined;
+            workerRoot: options.workerBaseRoot, validationSnapshot: input.snapshot }) : undefined;
         const fixture = prepareOrgEvaluationFixture(input.snapshot, {
           fixtureRoot, safeMcpCommand: [process.execPath, join(__dirname, 'org_evaluation_mcp_fixture.js')],
           managedMcpCommand: input.candidate.kind === 'tool-install'
