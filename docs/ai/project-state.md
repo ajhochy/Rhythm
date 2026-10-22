@@ -24,8 +24,8 @@ Org Reviewer pre-review evaluation (Harness²-style, all improvement kinds, one 
 
 ## Test status
 
-- Integrated org-eval checkpoint at a1c906: 220 passed, 1 legacy-Docker skip, 40 files. MCP 3/3. API, MCP and web tsc pass.
-- Live, signed bundle: managed tool original/candidate pair **passes** (1ab737 and a1c906); routed 4/4 **fail** on the whole-run budget; actual-Secretary Playwright **passes** (3332856 rerun); no-model installer sandbox **passes**.
+- Integrated org-eval checkpoint at edc8e8: 220 passed, 1 legacy-Docker skip, 40 files. MCP 3/3. API, MCP and web tsc pass. Packaged settings spec 1/1 (no model).
+- Live, signed bundle: managed tool original/candidate pair **passes** (1ab737 and a1c906); routed 4/4 **fail** on the old 100k budget (a1c906; not yet rerun at 1.5M); actual-Secretary Playwright **passes** (3332856 rerun); no-model installer sandbox **passes**.
 - Kind coverage: `docs/ai/plans/2026-10-21-org-evaluation-kind-coverage.md`. Runs: `docs/ai/runs/2026-10-21-org-reviewer-claude-takeover.md`, `2026-10-21-org-evaluation-implementation.md`.
 
 ## Next step
