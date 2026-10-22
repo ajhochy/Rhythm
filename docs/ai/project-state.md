@@ -30,4 +30,6 @@ Org Reviewer pre-review evaluation (Harness²-style, all improvement kinds, one 
 
 ## Next step
 
+**Testing paused 2026-10-22:** the user is using this local `edc8e8259e` build for daily work. Packaged and live runs need Rhythm quit (ports 4001/4002/4096), so resume only when the user says so.
+
 After the user's Rhythm app refreshes the Anthropic login, rerun routed 4 cases, the managed pair and actual Secretary on `edc8e8259e`. Then qualify the routed kinds, run the packaged evaluation journey through approval and fresh use, and close the remaining per-kind gaps.
