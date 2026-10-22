@@ -1318,6 +1318,33 @@ describe('OrgReviewerService bounded context and identity', () => {
     expect(context.batches.flatMap((entry) => entry.recipes ?? []).some((entry) => entry.id === foreign.id)).toBe(false);
   });
 
+  it('includes ten-day-old owned failure evidence only in the chosen fourteen-day review window', async () => {
+    db.prepare(`INSERT INTO users (id, name, email) VALUES (4242, 'Owner A', 'owner-a@example.invalid')`).run();
+    db.prepare(`INSERT INTO users (id, name, email) VALUES (4343, 'Owner B', 'owner-b@example.invalid')`).run();
+    const oldAt = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+    const ownedIds: string[] = [];
+    const foreignIds: string[] = [];
+    for (const ownerUserId of [4242, 4242, 4343, 4343]) {
+      const { row } = session(targetId, { ownerUserId });
+      messages.upsertStructured(row.id, `older_failure_${row.id}`, 'output',
+        JSON.stringify([{ type: 'text', text: `Observed report failure for owner ${ownerUserId}` }]), null, null);
+      db.prepare('UPDATE agent_sessions SET created_at=?, updated_at=?, last_activity_at=? WHERE id=?')
+        .run(oldAt, oldAt, oldAt, row.id);
+      db.prepare('UPDATE agent_session_messages SET created_at=? WHERE session_id=?').run(oldAt, row.id);
+      (ownerUserId === 4242 ? ownedIds : foreignIds).push(row.id);
+    }
+    const recent = await service.evaluationContext(4242, 7) as { metadata: { windowDays: number };
+      batches: Array<{ sessionEvidence: Array<{ sessionId: string }> }> };
+    expect(recent.metadata.windowDays).toBe(7);
+    expect(recent.batches.flatMap((batch) => batch.sessionEvidence).map((entry) => entry.sessionId))
+      .not.toEqual(expect.arrayContaining(ownedIds));
+    const expanded = await service.evaluationContext(4242, 14) as typeof recent;
+    expect(expanded.metadata.windowDays).toBe(14);
+    const observed = expanded.batches.flatMap((batch) => batch.sessionEvidence).map((entry) => entry.sessionId);
+    expect(observed).toEqual(expect.arrayContaining(ownedIds));
+    for (const id of foreignIds) expect(observed).not.toContain(id);
+  });
+
   it('marks oversized recipe and skill preimages omitted without partial bytes', async () => {
     const recipes = new AgentCookbookRepository();
     const oversized = 'opaque-prior-byte'.repeat(2_000);

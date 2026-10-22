@@ -124,7 +124,7 @@ describe('pre-review coordinator sequencing and queue boundary', () => {
     'accepts one whole fenced JSON response at the %s model stage', async (fencedStage) => {
       const { coordinator } = harness({ fencedStage });
       const result = await coordinator.run({ ownerUserId: null,
-        settings: { tokenLimit: 10000, candidateCount: 2 }, context: { trusted: 'fixture' } });
+        settings: { tokenLimit: 10000, candidateCount: 2, lookbackDays: 7 }, context: { trusted: 'fixture' } });
       expect(result.cycle.status, result.cycle.failureReason ?? '').toBe('qualified');
       expect(result.proposals).toHaveLength(1);
       expect((await repository.listCandidatesAsync(result.evaluations[0].id)).map(candidate => candidate.role))
@@ -134,7 +134,7 @@ describe('pre-review coordinator sequencing and queue boundary', () => {
   it('tests one code-owned publication action without fabricating variants or composition', async () => {
     const { coordinator, calls } = harness({ singletonPublication: true });
     const result = await coordinator.run({ ownerUserId: null,
-      settings: { tokenLimit: 10000, candidateCount: 2 }, context: { trusted: 'fixture' } });
+      settings: { tokenLimit: 10000, candidateCount: 2, lookbackDays: 7 }, context: { trusted: 'fixture' } });
     expect(result.cycle.status, result.cycle.failureReason ?? '').toBe('qualified');
     expect(result.proposals, JSON.stringify(result.evaluations.map(job => ({ status: job.status,
       reason: job.failureReason })))).toHaveLength(1);
@@ -155,13 +155,13 @@ describe('pre-review coordinator sequencing and queue boundary', () => {
   it('keeps a singleton publication out of the queue when its final output is partial', async () => {
     const { coordinator } = harness({ singletonPublication: true, finalScore: .75 });
     const result = await coordinator.run({ ownerUserId: null,
-      settings: { tokenLimit: 10000, candidateCount: 2 }, context: {} });
+      settings: { tokenLimit: 10000, candidateCount: 2, lookbackDays: 7 }, context: {} });
     expect(result.proposals).toEqual([]);
   });
 
   it('stores two tested alternatives and composition, withholds a case, then queues exactly the qualified final', async () => {
     const { coordinator, calls } = harness();
-    const result = await coordinator.run({ ownerUserId: null, settings: { tokenLimit: 10000, candidateCount: 2 }, context: { trusted: 'fixture' } });
+    const result = await coordinator.run({ ownerUserId: null, settings: { tokenLimit: 10000, candidateCount: 2, lookbackDays: 7 }, context: { trusted: 'fixture' } });
     expect(result.cycle.status, result.cycle.failureReason ?? '').toBe('qualified');
     expect(result.proposals, JSON.stringify(result.evaluations.map(job => ({ status: job.status, reason: job.failureReason })))).toHaveLength(1);
     const job = result.evaluations[0];
@@ -186,7 +186,7 @@ describe('pre-review coordinator sequencing and queue boundary', () => {
 
   it.each([{ finalScore: .25 }, { finalScore: .75 }, { mutateDuring: true }, { unknownUsage: true }])('does not queue an unproved or stale result: %j', async options => {
     const { coordinator, calls } = harness(options);
-    const result = await coordinator.run({ ownerUserId: null, settings: { tokenLimit: 10000, candidateCount: 2 }, context: {} });
+    const result = await coordinator.run({ ownerUserId: null, settings: { tokenLimit: 10000, candidateCount: 2, lookbackDays: 7 }, context: {} });
     expect(result.proposals).toEqual([]);
     expect(calls.some(call => call.type === 'publish')).toBe(false);
     expect(await new AgentOrgProposalsRepository().listByStatusAsync('proposed')).toEqual([]);
@@ -221,7 +221,7 @@ describe('pre-review coordinator sequencing and queue boundary', () => {
   });
   it('reports publication failure after tests as inconclusive instead of a successful review', async () => {
     const { coordinator } = harness({ publishFailure: true });
-    const result = await coordinator.run({ ownerUserId: null, settings: { tokenLimit: 10000, candidateCount: 2 }, context: {} });
+    const result = await coordinator.run({ ownerUserId: null, settings: { tokenLimit: 10000, candidateCount: 2, lookbackDays: 7 }, context: {} });
     expect(result.cycle.status).toBe('inconclusive');
     expect(result.cycle.failureReason).toContain('proposal insert failure');
     expect(result.proposals).toEqual([]);

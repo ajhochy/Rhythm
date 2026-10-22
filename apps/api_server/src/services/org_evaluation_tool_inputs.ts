@@ -13,7 +13,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { buildProfileRevisionFingerprint } from './org_proposal_experiment_service';
 import { inspectImmutableLocalTarball, parseImmutableLocalTarballSource } from './tool_install_artifact';
 import { isSafeToolName } from './tool_install_safety';
-import { isToolTestScenarioId } from './tool_test_scenarios';
+import { isToolTestScenarioId, TOOL_TEST_SCENARIO_IDS } from './tool_test_scenarios';
 
 const DIGEST_NAME = /^([a-f0-9]{64})\.tgz$/;
 const MAX_ARCHIVES = 16;
@@ -131,11 +131,11 @@ export async function normalizeToolInstallDiagnosisAsync(input: {
     generatorVersion: 'org-evaluation-tool-evidence-v1',
     confidenceCalibrationVersion: 'independent-evaluation-v1',
   };
-  return { ...diagnosis, change: { ...change, evidenceBundle: bundle } };
+  return { ...diagnosis, change: { ...change, testPrompts: [...TOOL_TEST_SCENARIO_IDS], evidenceBundle: bundle } };
 }
 
-/** Alternatives may compare distinct supplied tarballs/scenarios, but may not
- * rewrite the frozen evidence, identity, or target to improve their score. */
+/** Alternatives may compare distinct supplied tarballs, but may not rewrite
+ * the frozen scenarios, evidence, identity, or target to improve their score. */
 export function normalizeToolInstallCandidateChange(input: {
   diagnosis: OrgEvaluationDiagnosis;
   change: Record<string, unknown>;
@@ -153,6 +153,7 @@ export function normalizeToolInstallCandidateChange(input: {
       change.installMethod !== 'local-tarball' || typeof change.packageSource !== 'string' ||
       !Array.isArray(change.testPrompts) || change.testPrompts.length < 2 || change.testPrompts.length > 3 ||
       !change.testPrompts.every(isToolTestScenarioId) || new Set(change.testPrompts).size !== change.testPrompts.length ||
+      JSON.stringify(change.testPrompts) !== JSON.stringify(original.testPrompts) ||
       !original.evidenceBundle || typeof original.evidenceBundle !== 'object') {
     throw new Error('Tool alternative changed identity, baseline, evidence, or closed scenarios');
   }
@@ -164,4 +165,27 @@ export function normalizeToolInstallCandidateChange(input: {
   return { toolName: change.toolName, packageSource: change.packageSource,
     installMethod: 'local-tarball', agentConfigId: profileId,
     testPrompts: [...change.testPrompts], evidenceBundle: original.evidenceBundle };
+}
+
+/** One immutable install action per available digest for the exact diagnosed tool. */
+export function deriveFrozenToolInstallActions(input: {
+  diagnosis: OrgEvaluationDiagnosis;
+  snapshot: OrgEvaluationTargetSnapshot;
+  candidateLimit: 2 | 3;
+  artifactRoot?: string;
+}): Record<string, unknown>[] {
+  if (input.diagnosis.kind !== 'tool-install' || ![2, 3].includes(input.candidateLimit))
+    throw new Error('Tool alternatives require a diagnosed tool and bounded candidate limit');
+  const diagnosed = input.diagnosis.change.packageSource;
+  const available = listOrgEvaluationToolArtifacts(input.artifactRoot)
+    .filter((item) => item.toolName === input.diagnosis.change.toolName)
+    .map((item) => item.packageSource);
+  if (typeof diagnosed !== 'string' || !available.includes(diagnosed))
+    throw new Error('Diagnosed immutable tool artifact is absent from the frozen inventory');
+  const selected = [diagnosed, ...available.filter((source) => source !== diagnosed)]
+    .slice(0, input.candidateLimit);
+  return selected.map((packageSource) => normalizeToolInstallCandidateChange({
+    diagnosis: input.diagnosis, snapshot: input.snapshot, artifactRoot: input.artifactRoot,
+    change: { ...input.diagnosis.change, packageSource },
+  }));
 }

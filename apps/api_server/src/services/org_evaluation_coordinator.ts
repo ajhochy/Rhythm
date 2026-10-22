@@ -14,7 +14,7 @@ import type { OrgEvaluationTargetSnapshot } from './org_evaluation_fixture';
 import { evaluationCanonicalJson, evaluationDigest } from './org_evaluation_integrity';
 import { orgEvaluationSchemaHints } from './org_evaluation_schema_hints';
 import { assertOrgEvaluationTargetBinding } from './org_evaluation_target_binding';
-import { normalizeToolInstallDiagnosisAsync, normalizeToolInstallCandidateChange } from './org_evaluation_tool_inputs';
+import { deriveFrozenToolInstallActions, normalizeToolInstallDiagnosisAsync, normalizeToolInstallCandidateChange } from './org_evaluation_tool_inputs';
 import { deriveSingletonPublicationAction } from './org_evaluation_singleton_action';
 import { parseEvaluationModelJson } from './org_evaluation_model_json';
 
@@ -294,14 +294,18 @@ ${batch}` }));
     const { cases: _cases, ...problem } = diagnosis;
     const singletonAction = deriveSingletonPublicationAction({ kind: diagnosis.kind,
       targetRef: diagnosis.targetRef, snapshot, change: diagnosis.change });
-    const candidateStrategy = singletonAction ? 'singleton-action' : 'alternatives-composition';
+    const toolActions = diagnosis.kind === 'tool-install'
+      ? deriveFrozenToolInstallActions({ diagnosis, snapshot, candidateLimit: settings.candidateCount }) : null;
+    const singletonToolAction = toolActions?.length === 1 ? toolActions[0] : null;
+    const candidateStrategy = singletonAction || singletonToolAction ? 'singleton-action'
+      : toolActions ? 'tool-actions' : 'alternatives-composition';
     let job = await this.deps.repository.createJobAsync({
       id: randomUUID(), budgetRootId: cycle.id, sourceAuditRunId: cycle.id, ownerUserId: cycle.ownerUserId,
       maxTokens: cycle.maxTokens, validationReserveTokens: cycle.validationReserveTokens,
       originalHash: evaluationDigest(evaluationCanonicalJson(snapshot)), targetRef: diagnosis.targetRef,
       targetRevision: diagnosis.targetRevision,
       inputJson: evaluationCanonicalJson({ snapshot, problem, probes, validation,
-        candidateCount: settings.candidateCount, candidateStrategy }),
+        candidateCount: toolActions?.length ?? settings.candidateCount, candidateStrategy, toolActions }),
     });
     try {
       job = await this.transition(job, { status: 'exploring' });
@@ -309,14 +313,51 @@ ${batch}` }));
       const baseline = await this.execute(job, original, snapshot, probes, 'probe');
       if (baseline.some((result) => result.status !== 'pass')) throw new Error('Original probe did not execute safely');
       if (baseline.every((result) => result.score === 1)) throw new Error('The reported failure did not reproduce on the frozen original tasks');
-      if (singletonAction) {
-        const variant = await this.candidate(job, diagnosis, snapshot, 'variant', 1, singletonAction, []);
+      if (singletonAction || singletonToolAction) {
+        const action = singletonAction ?? singletonToolAction!;
+        const variant = await this.candidate(job, diagnosis, snapshot, 'variant', 1, action, []);
         const observed = await this.execute(job, variant, snapshot, probes, 'probe');
         if (observed.some((result) => result.status !== 'pass' || result.score !== 1
           || result.score < (baseline.find((prior) => prior.taskKey === result.taskKey)?.score ?? 1)))
           throw new Error('The single publication action did not pass safe execution');
         job = await this.transition(job, { status: 'validating' });
-        const final = await this.candidate(job, diagnosis, snapshot, 'final', 11, singletonAction, [variant.id], []);
+        const final = await this.candidate(job, diagnosis, snapshot, 'final', 11, action, [variant.id], []);
+        await this.execute(job, original, snapshot, validation, 'validation');
+        await this.execute(job, final, snapshot, validation, 'validation');
+        const fresh = await this.deps.capture(diagnosis, cycle.ownerUserId);
+        if (evaluationCanonicalJson(fresh) !== evaluationCanonicalJson(snapshot)) throw new Error('Target changed while testing');
+        return await this.transition(job, { status: 'qualified', finalCandidateId: final.id });
+      }
+      if (toolActions) {
+        const variants: OrgEvaluationCandidate[] = [];
+        const observations: OrgEvaluationResult[] = [];
+        for (const [index, change] of toolActions.entries()) {
+          const variant = await this.candidate(job, diagnosis, snapshot, 'variant', index + 1, change, []);
+          variants.push(variant);
+          observations.push(...await this.execute(job, variant, snapshot, probes, 'probe'));
+        }
+        const eligible = variants.filter((variant) => probes.every((task) => {
+          const result = observations.find((item) => item.candidateId === variant.id && item.taskKey === task.key);
+          const prior = baseline.find((item) => item.taskKey === task.key);
+          return result?.status === 'pass' && result.score === 1 && prior?.score != null
+            && result.score >= prior.score;
+        }));
+        if (!eligible.length) throw new Error('No distinct supplied tool action passed the frozen probes');
+        const winner = eligible[0];
+        const evidence = observations.filter((item) => item.candidateId === winner.id && item.score !== null
+          && item.score > (baseline.find((prior) => prior.taskKey === item.taskKey)?.score ?? 1));
+        if (!evidence.length) throw new Error('No supplied tool action improved the frozen original');
+        const parts = [{ sourceCandidateId: winner.id, changePath: '/packageSource', retained: true,
+          reason: 'The complete immutable install action passed the frozen probe cases',
+          evidenceResultIds: evidence.map((item) => item.id) }];
+        const composed = await this.candidate(job, diagnosis, snapshot, 'composition', 10,
+          JSON.parse(winner.changeJson) as Record<string, unknown>, variants.map((item) => item.id), parts);
+        const composedResults = await this.execute(job, composed, snapshot, probes, 'probe');
+        if (composedResults.some((result) => result.status !== 'pass' || result.score !== 1))
+          throw new Error('Selected whole tool action failed fresh composition probe');
+        job = await this.transition(job, { status: 'validating' });
+        const final = await this.candidate(job, diagnosis, snapshot, 'final', 11,
+          JSON.parse(winner.changeJson) as Record<string, unknown>, [composed.id], parts);
         await this.execute(job, original, snapshot, validation, 'validation');
         await this.execute(job, final, snapshot, validation, 'validation');
         const fresh = await this.deps.capture(diagnosis, cycle.ownerUserId);

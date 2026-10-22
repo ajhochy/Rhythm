@@ -764,9 +764,9 @@ export class OrgReviewerService {
 
   /** Server-only context for the bounded evaluation path. It uses the same
    * owner filters and paged readers as the signed reviewer MCP tools. */
-  async evaluationContext(ownerUserId: number | null): Promise<JsonRecord> {
+  async evaluationContext(ownerUserId: number | null, windowDays: 7 | 14 = 7): Promise<JsonRecord> {
     const viewer = { ownerUserId };
-    const overview = await this.context({}, viewer);
+    const overview = await this.context({ windowDays }, viewer);
     const indexed = (overview.sessions as JsonRecord[]).filter((entry) => typeof entry.sessionId === 'string');
     const ordered = [...indexed].sort((a, b) => Number(b.toolErrors ?? 0) - Number(a.toolErrors ?? 0));
     const selected: JsonRecord[] = [];

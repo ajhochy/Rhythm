@@ -8,7 +8,7 @@ export type ToolSafetyProjection = {
 };
 export type ExperimentSummary = { collectingProgress: 'no_experiment' | 'collecting' | 'decided'; eligibleCount: number; missingCount: number; treatmentIntegrity: 'ok' | 'degraded' | 'unknown'; guardrailStatus: 'ok' | 'breached' | 'unknown'; terminalReason: string | null; staleBeforeApplyConflict: boolean; calibrationStatus: string; calibratedConfidence: number | null; };
 export type PreReviewEvaluation = { evaluationId: string; originalHash: string; finalCandidateHash: string; status: 'qualified' };
-export type EvaluationSettings = { tokenLimit: number; candidateCount: 2 | 3 };
+export type EvaluationSettings = { tokenLimit: number; candidateCount: 2 | 3; lookbackDays: 7 | 14 };
 export type EvaluationJob = { id: string; budgetRootId: string | null; status: 'planning' | 'exploring' | 'validating' | 'qualified' | 'inconclusive' | 'failed'; maxTokens: number; validationReserveTokens: number; originalHash: string; targetRef: string; targetRevision: string; finalCandidateId: string | null; qualifiedProposalId: string | null; failureReason: string | null; createdAt: string; updatedAt: string };
 export type EvaluationCompositionPart = { sourceCandidateId: string; changePath: string; retained: boolean; reason: string; evidenceResultIds: string[] };
 export type EvaluationCandidate = { id: string; role: 'original' | 'variant' | 'composition' | 'final'; ordinal: number; configHash: string; changeJson?: string; parentCandidateIds?: string[]; compositionParts?: EvaluationCompositionPart[] };
@@ -16,7 +16,7 @@ export type EvaluationResult = { id: string; candidateId: string; phase: 'probe'
 export type EvaluationBudget = { maxTokens: number; validationReserveTokens: number; settledTokens: number; outstandingTokens: number; explorationAvailableTokens: number; totalAvailableTokens: number; hasUnknownUsage: boolean };
 export type EvaluationDetail = { job: EvaluationJob; candidates: EvaluationCandidate[]; results: EvaluationResult[]; budget: EvaluationBudget };
 export type OrgProposal = { id: string; title: string; kind: string; risk: string; status: string; outcomeStatus: string; rationale: string | null; createdAt: string | null; updatedAt: string | null; changeJson: string | null; toolSafety?: ToolSafetyProjection; experimentSummary: ExperimentSummary | null; source?: string | null; preReviewEvaluation?: PreReviewEvaluation | null; evaluationProofInvalid?: boolean };
-export interface OrgProposalsGateway { readonly mode: GatewayMode; list(status: string): Promise<OrgProposal[]>; approve(id: string, conditionalToolInstall?: boolean, evaluated?: { expectedEvaluationId: string; finalCandidateHash: string; originalHash: string }): Promise<OrgProposal>; reject(id: string): Promise<OrgProposal>; revert(id: string): Promise<OrgProposal>; getEvaluationSettings(): Promise<EvaluationSettings>; updateEvaluationSettings(input: EvaluationSettings): Promise<EvaluationSettings>; listEvaluations(): Promise<{ jobs: EvaluationJob[] }>; getEvaluation(id: string): Promise<EvaluationDetail>; }
+export interface OrgProposalsGateway { readonly mode: GatewayMode; list(status: string): Promise<OrgProposal[]>; approve(id: string, conditionalToolInstall?: boolean, evaluated?: { expectedEvaluationId: string; finalCandidateHash: string; originalHash: string }): Promise<OrgProposal>; reject(id: string): Promise<OrgProposal>; revert(id: string): Promise<OrgProposal>; getEvaluationSettings(): Promise<EvaluationSettings>; updateEvaluationSettings(input: EvaluationSettings | Omit<EvaluationSettings, 'lookbackDays'>): Promise<EvaluationSettings>; listEvaluations(): Promise<{ jobs: EvaluationJob[] }>; getEvaluation(id: string): Promise<EvaluationDetail>; }
 export class OrgProposalsGatewayError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 
 const record = (value: unknown) => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -27,8 +27,11 @@ const failureText = (status: number) => ({ 0: 'Proposal service unavailable', 40
 
 function evaluationSettings(value: unknown): EvaluationSettings {
   const raw = record(value);
-  if (!raw || nonnegative(raw.tokenLimit) === null || raw.tokenLimit === 0 || ![2, 3].includes(Number(raw.candidateCount))) throw new OrgProposalsGatewayError(0, 'Evaluation settings response is malformed');
-  return { tokenLimit: raw.tokenLimit as number, candidateCount: raw.candidateCount as 2 | 3 };
+  if (!raw || nonnegative(raw.tokenLimit) === null || raw.tokenLimit === 0 || ![2, 3].includes(Number(raw.candidateCount))
+    || raw.lookbackDays !== undefined && raw.lookbackDays !== 7 && raw.lookbackDays !== 14)
+    throw new OrgProposalsGatewayError(0, 'Evaluation settings response is malformed');
+  return { tokenLimit: raw.tokenLimit as number, candidateCount: raw.candidateCount as 2 | 3,
+    lookbackDays: raw.lookbackDays === 14 ? 14 : 7 };
 }
 
 function evaluationJob(value: unknown): EvaluationJob {

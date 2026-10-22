@@ -44,6 +44,95 @@ beforeEach(() => {
 afterEach(() => db.close());
 
 describe('pre-review durable evaluation contract', () => {
+  it('binds a singleton tool final to its one frozen install action', async () => {
+    const action = { toolName: 'fixture-tool', packageSource: `local-tarball:sha256:${'a'.repeat(64)}`,
+      installMethod: 'local-tarball', agentConfigId: 'target', testPrompts: ['version-check', 'help-check'],
+      evidenceBundle: { verified: true } };
+    db.prepare('UPDATE org_evaluation_jobs SET input_json=? WHERE id=?').run(JSON.stringify({
+      candidateStrategy: 'singleton-action', toolActions: [action], problem: { change: action },
+    }), JOB_ID);
+    const add = (id: string, role: 'original' | 'variant' | 'final', change: unknown, parents: string[] = []) =>
+      repo.addCandidateAsync({ id, jobId: JOB_ID, role, ordinal: role === 'original' ? 0 : role === 'variant' ? 1 : 11,
+        kind: 'tool-install', targetRef: 'agent_config:target', configHash: digest('{}'), effectiveConfigJson: '{}',
+        changeJson: evaluationCanonicalJson(change), parentCandidateIds: parents });
+    await add('tool-original', 'original', {});
+    await expect(add('scenario-only', 'variant', { ...action, testPrompts: ['help-check', 'stdin-noop'] }))
+      .rejects.toThrow(/frozen action/);
+    const variant = await add('tool-variant', 'variant', action);
+    await expect(add('invented-digest', 'final', { ...action, packageSource: `local-tarball:sha256:${'b'.repeat(64)}` },
+      [variant.id])).rejects.toThrow(/frozen action/);
+    expect((await add('tool-final', 'final', action, [variant.id])).parentCandidateIds).toEqual([variant.id]);
+  });
+
+  it('accepts only listed distinct tool variants and one whole selected install action', async () => {
+    const base = { toolName: 'fixture-tool', agentConfigId: 'target', installMethod: 'local-tarball',
+      testPrompts: ['version-check', 'help-check'], evidenceBundle: { verified: true } };
+    const first = { ...base, packageSource: `local-tarball:sha256:${'a'.repeat(64)}` };
+    const second = { ...base, packageSource: `local-tarball:sha256:${'b'.repeat(64)}` };
+    db.prepare('UPDATE org_evaluation_jobs SET input_json=? WHERE id=?').run(JSON.stringify({
+      candidateStrategy: 'tool-actions', toolActions: [first, second], problem: { change: first },
+    }), JOB_ID);
+    const add = (id: string, role: 'original' | 'variant' | 'composition', change: unknown,
+      parents: string[] = [], parts: NonNullable<Parameters<typeof repo.addCandidateAsync>[0]['compositionParts']> = []) =>
+      repo.addCandidateAsync({ id, jobId: JOB_ID, role, ordinal: role === 'original' ? 0 : role === 'variant' ? id === 'second' ? 2 : 1 : 10,
+        kind: 'tool-install', targetRef: 'agent_config:target', configHash: digest('{}'), effectiveConfigJson: '{}',
+        changeJson: evaluationCanonicalJson(change), parentCandidateIds: parents, compositionParts: parts });
+    await add('original', 'original', {});
+    const variant = await add('first', 'variant', first);
+    await expect(add('scenario-only', 'variant', { ...first, testPrompts: ['help-check', 'stdin-noop'] }))
+      .rejects.toThrow(/frozen install actions/);
+    await expect(add('duplicate', 'variant', first)).rejects.toThrow(/frozen install actions/);
+    await add('second', 'variant', second);
+    await expect(add('mixed', 'composition', { ...first, packageSource: `local-tarball:sha256:${'c'.repeat(64)}` },
+      [variant.id], [{ sourceCandidateId: variant.id, changePath: '/packageSource', retained: true,
+        reason: 'observed', evidenceResultIds: ['probe'] }])).rejects.toThrow(/frozen install actions/);
+  });
+
+  it('rejects a tool alternative missing even one frozen probe despite a complete winner', async () => {
+    const actions = ['a', 'b'].map((digestByte) => ({ toolName: 'fixture-tool', agentConfigId: 'target',
+      packageSource: `local-tarball:sha256:${digestByte.repeat(64)}`, installMethod: 'local-tarball',
+      testPrompts: ['version-check', 'help-check', 'stdin-noop'], evidenceBundle: { verified: true } }));
+    db.prepare('UPDATE org_evaluation_jobs SET input_json=? WHERE id=?').run(JSON.stringify({
+      candidateStrategy: 'tool-actions', toolActions: actions,
+      probes: [{ key: 'one' }, { key: 'two' }], problem: { change: actions[0] },
+    }), JOB_ID);
+    const manifest = '{}';
+    const parts = [{ sourceCandidateId: 'first', changePath: '/packageSource', retained: true,
+      reason: 'observed', evidenceResultIds: ['first-one'] }];
+    const insertCandidate = (id: string, role: string, ordinal: number, change: unknown,
+      parents: string[] = [], portions: unknown[] = []) => db.prepare(`INSERT INTO org_evaluation_candidates
+      (id,job_id,role,ordinal,kind,target_ref,config_hash,effective_config_json,change_json,
+       parent_candidate_ids_json,composition_parts_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      id, JOB_ID, role, ordinal, 'tool-install', 'agent_config:target', digest(manifest), manifest,
+      evaluationCanonicalJson(change), JSON.stringify(parents), JSON.stringify(portions), '2026-10-21T00:00:00.000Z');
+    insertCandidate('original', 'original', 0, {});
+    insertCandidate('first', 'variant', 1, actions[0]);
+    insertCandidate('second', 'variant', 2, actions[1]);
+    insertCandidate('composition', 'composition', 10, actions[0], ['first', 'second'], parts);
+    insertCandidate('final', 'final', 11, actions[0], ['composition'], parts);
+    const insertProbe = (candidateId: string, key: string, score: number) => {
+      const receiptJson = JSON.stringify({ sessionId: `${candidateId}-${key}`, taskFixtureHash: digest(key) });
+      db.prepare(`INSERT INTO org_evaluation_results
+        (id,job_id,candidate_id,phase,task_key,receipt_hash,receipt_json,status,score,token_usage_json,created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(`${candidateId}-${key}`, JOB_ID, candidateId, 'probe', key,
+        digest(receiptJson), receiptJson, 'pass', score, JSON.stringify(usage(5)), '2026-10-21T00:00:00.000Z');
+    };
+    for (const key of ['one', 'two']) {
+      insertProbe('original', key, 0);
+      insertProbe('first', key, 1);
+      insertProbe('composition', key, 1);
+    }
+    insertProbe('second', 'one', 0);
+    const duplicateReceipt = JSON.stringify({ sessionId: 'second-one-other-session', taskFixtureHash: digest('one') });
+    expect(() => db.prepare(`INSERT INTO org_evaluation_results
+      (id,job_id,candidate_id,phase,task_key,receipt_hash,receipt_json,status,score,token_usage_json,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run('second-one-duplicate', JOB_ID, 'second', 'probe', 'one',
+      digest(duplicateReceipt), duplicateReceipt, 'pass', 0, JSON.stringify(usage(5)), '2026-10-21T00:00:00.000Z'))
+      .toThrow(/UNIQUE constraint failed/);
+    await expect(repo.updateJobAsync(JOB_ID, 0, { status: 'qualified', finalCandidateId: 'final' }))
+      .rejects.toThrow(/every frozen probe result/i);
+  });
+
   it('binds a singleton publication final to exactly one frozen tested action', async () => {
     const action = { skillName: 'Reviewed Skill', action: 'publish' };
     db.prepare('UPDATE org_evaluation_jobs SET target_ref=?, input_json=? WHERE id=?').run(
@@ -203,6 +292,20 @@ describe('pre-review durable evaluation contract', () => {
     await expect(repo.addResultAsync({id:'result-tool',jobId:JOB_ID,candidateId:candidate.id,
       phase:'probe',taskKey:'tool-case',receiptJson,receiptHash:digest(receiptJson),status:'pass',
       score:0.9,tokenUsage:usage(8),failureReason:null})).rejects.toThrow(/required effect evidence/);
+  });
+
+  it('requires a signed absence effect before accepting an original tool-install pass', async () => {
+    const candidate = await repo.addCandidateAsync({ id: 'tool-original', jobId: JOB_ID, role: 'original', ordinal: 0,
+      kind: 'tool-install', targetRef: 'agent_config:target', effectiveConfigJson: '{}', configHash: digest('{}'),
+      changeJson: '{}', parentCandidateIds: [] });
+    const receiptJson = JSON.stringify({ sessionId: 'original-session', engineVersion: 'exact', taskFixtureHash: HASH,
+      effectiveConfigHash: candidate.configHash, toolEvents: [], effectProof: { manifestHash: candidate.configHash,
+        negativeGuardsPassed: true, workerId: 'worker', workerRootHash: HASH, engineBootId: 'engine',
+        events: [{ kind: 'agent-output', source: 'engine-session', subject: 'output', evidenceHash: HASH }] } });
+    await expect(repo.addResultAsync({ id: 'original-missing-absence', jobId: JOB_ID, candidateId: candidate.id,
+      phase: 'probe', taskKey: 'task', receiptJson, receiptHash: digest(receiptJson),
+      status: 'pass', score: 0, tokenUsage: usage(8), failureReason: null }))
+      .rejects.toThrow(/required effect evidence/);
   });
 
   it('org-evaluation-c16: a partial final output cannot qualify even when it improves the original', async () => {

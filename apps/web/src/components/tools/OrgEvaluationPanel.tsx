@@ -41,8 +41,9 @@ export function OrgEvaluationPanel() {
   }
 
   async function save() {
-    if (!draft || !Number.isSafeInteger(draft.tokenLimit) || draft.tokenLimit <= 0 || ![2, 3].includes(draft.candidateCount)) {
-      setSaveError('Enter a positive whole-run token limit and choose two or three candidates.');
+    if (!draft || !Number.isSafeInteger(draft.tokenLimit) || draft.tokenLimit <= 0 ||
+      ![2, 3].includes(draft.candidateCount) || ![7, 14].includes(draft.lookbackDays)) {
+      setSaveError('Enter a positive whole-run token limit, two or three candidates, and a 7- or 14-day lookback.');
       return;
     }
     setSaving(true);
@@ -76,7 +77,8 @@ export function OrgEvaluationPanel() {
       {draft ? <>
         <label>Whole-run token limit<input type="number" min="1" step="1" value={draft.tokenLimit} onChange={event => setDraft({ ...draft, tokenLimit: Number(event.target.value) })} /></label>
         <label>Candidates per review<select value={draft.candidateCount} onChange={event => setDraft({ ...draft, candidateCount: Number(event.target.value) as 2 | 3 })}><option value="2">2</option><option value="3">3</option></select></label>
-        <button type="button" className="secondary-button compact" disabled={saving || settings?.tokenLimit === draft.tokenLimit && settings?.candidateCount === draft.candidateCount} onClick={() => void save()}>Save evaluation settings</button>
+        <label>Review lookback<select value={draft.lookbackDays} onChange={event => setDraft({ ...draft, lookbackDays: Number(event.target.value) as 7 | 14 })}><option value="7">7 days</option><option value="14">14 days</option></select></label>
+        <button type="button" className="secondary-button compact" disabled={saving || settings?.tokenLimit === draft.tokenLimit && settings?.candidateCount === draft.candidateCount && settings?.lookbackDays === draft.lookbackDays} onClick={() => void save()}>Save evaluation settings</button>
       </> : <p>{loading ? 'Loading evaluation settings…' : 'Settings unavailable.'}</p>}
       {saveError && <p role="alert">{saveError}</p>}
       <p>This cap covers candidate generation, probes, composition, judges, retries, and final validation. Only a qualified final version reaches human review.</p>

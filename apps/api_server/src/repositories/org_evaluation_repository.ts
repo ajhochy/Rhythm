@@ -54,6 +54,17 @@ function portionMatches(sourceJson: string, composedJson: string,
   return part.retained ? copied : !copied;
 }
 
+function frozenToolActions(input: Record<string, unknown>): string[] | null {
+  if (input.candidateStrategy !== 'tool-actions' && input.candidateStrategy !== 'singleton-action') return null;
+  if (!Array.isArray(input.toolActions)) return null;
+  const actions = input.toolActions.map((item) => evaluationCanonicalJson(item));
+  const problem = input.problem;
+  const originalChange = problem && typeof problem === 'object' && !Array.isArray(problem)
+    ? (problem as Record<string, unknown>).change : null;
+  return actions.length >= 1 && actions.length <= 3 && new Set(actions).size === actions.length
+    && originalChange && actions[0] === evaluationCanonicalJson(originalChange) ? actions : null;
+}
+
 function jobFromRow(row: Row): OrgEvaluationJob {
   return {
     id: String(row.id), budgetRootId: (row.budget_root_id as string | null) ?? null,
@@ -130,24 +141,32 @@ function assertQualificationEvidence(
   const composition = candidates.find((c) => c.id === final?.parentCandidateIds[0] && c.role === 'composition');
   const frozenInput = parseJson(job.inputJson) as Record<string, unknown>;
   const singleton = frozenInput.candidateStrategy === 'singleton-action';
+  const toolActions = original?.kind === 'tool-install' ? frozenToolActions(frozenInput) : null;
   const budget = budgetFromRows(budgetRoot, reservations);
   if (!original || candidates.filter((c) => c.role === 'original').length !== 1 || !final
     || budget.hasUnknownUsage
     || budget.settledTokens > budgetRoot.maxTokens || budget.outstandingTokens > 0)
     throw new Error('Evaluation is not qualified');
+  if (original.kind === 'tool-install' && (!toolActions
+    || singleton && toolActions.length !== 1
+    || frozenInput.candidateStrategy === 'tool-actions' && toolActions.length < 2
+    || !['singleton-action', 'tool-actions'].includes(String(frozenInput.candidateStrategy))))
+    throw new Error('Tool install lacks a frozen inventory-backed candidate strategy');
   if (singleton) {
     const problem = frozenInput.problem as Record<string, unknown> | undefined;
-    const action = deriveSingletonPublicationAction({ kind: variants[0]?.kind ?? original.kind,
-      targetRef: job.targetRef, snapshot: frozenInput.snapshot as Record<string, unknown>, change: problem?.change });
+    const publicationAction = original.kind === 'publish-skill-to-org' ? deriveSingletonPublicationAction({ kind: original.kind,
+      targetRef: job.targetRef, snapshot: frozenInput.snapshot as Record<string, unknown>, change: problem?.change }) : null;
+    const action = toolActions?.length === 1 ? toolActions[0] : publicationAction ? evaluationCanonicalJson(publicationAction) : null;
     if (!action || variants.length !== 1 || candidates.length !== 3 || composition
-      || candidates.some((candidate) => candidate.kind !== 'publish-skill-to-org'
+      || candidates.some((candidate) => candidate.kind !== original.kind
         || candidate.targetRef !== job.targetRef)
-      || variants[0].parentCandidateIds.length || variants[0].changeJson !== evaluationCanonicalJson(action)
+      || !['publish-skill-to-org', 'tool-install'].includes(original.kind)
+      || variants[0].parentCandidateIds.length || variants[0].changeJson !== action
       || final.parentCandidateIds.length !== 1 || final.parentCandidateIds[0] !== variants[0].id
       || final.changeJson !== variants[0].changeJson || final.configHash !== variants[0].configHash
       || final.effectiveConfigJson !== variants[0].effectiveConfigJson
       || (final.compositionParts ?? []).length)
-      throw new Error('Singleton action does not match its frozen publication lineage');
+      throw new Error('Singleton action does not match its frozen lineage');
     const probeKeys = Array.isArray(frozenInput.probes)
       ? frozenInput.probes.map((item) => item && typeof item === 'object'
         ? (item as Record<string, unknown>).key : null) : [];
@@ -176,10 +195,46 @@ function assertQualificationEvidence(
     || !composition.compositionParts?.some((part) => part.retained)
     || variants.length < 2 || variants.length > 3 || original.kind === 'publish-skill-to-org')
     throw new Error('Evaluation is not qualified');
+  if (frozenInput.candidateStrategy === 'tool-actions' && (!toolActions || toolActions.length < 2
+    || variants.length !== toolActions.length
+    || new Set(variants.map((candidate) => candidate.changeJson)).size !== toolActions.length
+    || variants.some((candidate) => !toolActions.includes(candidate.changeJson))
+    || !composition || !variants.some((candidate) => candidate.changeJson === composition.changeJson)
+    || composition.compositionParts?.length !== 1
+    || composition.compositionParts[0].changePath !== '/packageSource'
+    || !composition.compositionParts[0].retained
+    || !variants.some((candidate) => candidate.id === composition.compositionParts![0].sourceCandidateId
+      && candidate.changeJson === composition.changeJson)))
+    throw new Error('Tool alternatives lack distinct frozen install actions and whole-action selection');
   const probed = singleton ? [original, ...variants] : [original, ...variants, composition!];
   if (probed.some((candidate) => !results.some((result) => result.candidateId === candidate.id
     && result.phase === 'probe' && result.status === 'pass' && result.score !== null)))
     throw new Error('Every variant and the original need actual probe evidence');
+  if (original.kind === 'tool-install') {
+    const probeKeys = Array.isArray(frozenInput.probes) ? frozenInput.probes.map((task) => task && typeof task === 'object'
+      ? (task as Record<string, unknown>).key : null) : [];
+    if (!probeKeys.length || probeKeys.some((key) => typeof key !== 'string' || !key)
+      || new Set(probeKeys).size !== probeKeys.length) throw new Error('Tool probes lack frozen task keys');
+    const sessions = new Set<string>();
+    for (const candidate of probed) {
+      const candidateResults = results.filter((result) => result.phase === 'probe' && result.candidateId === candidate.id);
+      if (candidateResults.length !== probeKeys.length
+        || new Set(candidateResults.map((result) => result.taskKey)).size !== probeKeys.length
+        || candidateResults.some((result) =>
+        !probeKeys.includes(result.taskKey) || result.status !== 'pass' || result.score === null))
+        throw new Error('Every tool action needs every frozen probe result');
+      for (const result of candidateResults) {
+        const receipt = parseJson(result.receiptJson) as OrgEvaluationExecutionReceipt;
+        const baseline = results.find((item) => item.phase === 'probe' && item.candidateId === original.id
+          && item.taskKey === result.taskKey);
+        const baselineReceipt = baseline ? parseJson(baseline.receiptJson) as OrgEvaluationExecutionReceipt : null;
+        if (!receipt.sessionId || sessions.has(receipt.sessionId) || !baselineReceipt
+          || receipt.taskFixtureHash !== baselineReceipt.taskFixtureHash)
+          throw new Error('Tool probes lack independent engine sessions or matching task fixtures');
+        sessions.add(receipt.sessionId);
+      }
+    }
+  }
   const baseline = results.filter((r) => r.phase === 'validation' && r.candidateId === original.id);
   const treatment = results.filter((r) => r.phase === 'validation' && r.candidateId === final.id);
   if (singleton) {
@@ -428,14 +483,25 @@ export class OrgEvaluationRepository {
     const existing = await this.listCandidatesAsync(input.jobId);
     const frozenInput = parseJson(job.inputJson) as Record<string, unknown>;
     const singleton = frozenInput.candidateStrategy === 'singleton-action';
+    const toolActions = input.kind === 'tool-install' ? frozenToolActions(frozenInput) : null;
     if (singleton) {
       const problem = frozenInput.problem as Record<string, unknown> | undefined;
-      const action = deriveSingletonPublicationAction({ kind: input.kind, targetRef: job.targetRef,
-        snapshot: frozenInput.snapshot as Record<string, unknown>, change: problem?.change });
-      if (!action || input.role === 'composition' || input.kind !== 'publish-skill-to-org'
-        || input.role !== 'original' && input.changeJson !== evaluationCanonicalJson(action)
+      const publicationAction = input.kind === 'publish-skill-to-org' ? deriveSingletonPublicationAction({ kind: input.kind, targetRef: job.targetRef,
+        snapshot: frozenInput.snapshot as Record<string, unknown>, change: problem?.change }) : null;
+      const action = toolActions?.length === 1 ? toolActions[0] : publicationAction ? evaluationCanonicalJson(publicationAction) : null;
+      if (!action || input.role === 'composition' || !['publish-skill-to-org', 'tool-install'].includes(input.kind)
+        || input.role !== 'original' && input.changeJson !== action
         || input.role === 'variant' && existing.some((candidate) => candidate.role === 'variant'))
-        throw new Error('Singleton publication candidate differs from its frozen action');
+        throw new Error('Singleton candidate differs from its frozen action');
+    }
+    if (frozenInput.candidateStrategy === 'tool-actions' && (!toolActions || toolActions.length < 2
+      || input.kind !== 'tool-install' || input.role !== 'original' && !toolActions.includes(input.changeJson)
+      || input.role === 'variant' && existing.some((candidate) => candidate.changeJson === input.changeJson)
+      || input.role === 'composition' && (!existing.some((candidate) => candidate.role === 'variant'
+        && candidate.changeJson === input.changeJson) || input.compositionParts?.length !== 1
+        || input.compositionParts[0].changePath !== '/packageSource'
+        || !input.compositionParts[0].retained))) {
+      throw new Error('Tool candidate differs from distinct frozen install actions');
     }
     if (input.parentCandidateIds.some((id) => !existing.some((c) => c.id === id)))
       throw new Error('Candidate parent missing from evaluation');
@@ -506,7 +572,8 @@ export class OrgEvaluationRepository {
         || proof.events.some((event) => !event.kind || !event.source || !event.subject || !event.evidenceHash))
         throw new Error('Passing receipt lacks isolated effect proof');
       const effectKinds = proof.events.map((event) => event.kind);
-      const required = candidate.role === 'original' ? ['agent-output'] : null;
+      const required = candidate.role === 'original'
+        ? candidate.kind === 'tool-install' ? ['agent-output', 'managed-original-absent'] : ['agent-output'] : null;
       const missing = required ? required.filter((kind) => !effectKinds.includes(kind))
         : verifyObservedEffects(candidate.kind, effectKinds, candidate.changeJson).missing;
       if (missing.length) throw new Error('Passing receipt lacks required effect evidence');

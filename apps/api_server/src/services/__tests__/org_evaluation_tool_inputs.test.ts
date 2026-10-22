@@ -9,7 +9,7 @@ import { setDb } from '../../database/db';
 import type { OrgEvaluationDiagnosis } from '../org_evaluation_coordinator';
 import type { OrgEvaluationTargetSnapshot } from '../org_evaluation_fixture';
 import { buildProfileRevisionFingerprint } from '../org_proposal_experiment_service';
-import { listOrgEvaluationToolArtifacts, normalizeToolInstallCandidateChange,
+import { listOrgEvaluationToolArtifacts, deriveFrozenToolInstallActions, normalizeToolInstallCandidateChange,
   normalizeToolInstallDiagnosisAsync } from '../org_evaluation_tool_inputs';
 
 function entry(name: string, body: string): Buffer {
@@ -100,6 +100,7 @@ describe('trusted tool inputs for bounded reviewer', () => {
       hash: buildProfileRevisionFingerprint(snapshot().profiles[0]) });
     expect(bundle.counterEvidenceSearch).toMatchObject({ contradictingCount: 0,
       searchedAt: '2026-10-21T00:00:00.000Z' });
+    expect(normalized.change.testPrompts).toEqual(['version-check', 'help-check', 'stdin-noop']);
     expect(JSON.stringify(bundle)).not.toContain('model-authored');
   });
 
@@ -114,19 +115,41 @@ describe('trusted tool inputs for bounded reviewer', () => {
       ownerUserId: 7, artifactRoot: artifacts })).rejects.toThrow(/immutable local tarball/);
   });
 
-  it('lets alternatives vary only an available package and closed scenarios while inheriting exact evidence', async () => {
+  it('keeps vetting scenarios frozen while alternatives vary only verified package bytes', async () => {
     const original = await normalizeToolInstallDiagnosisAsync({ diagnosis: diagnosis(), snapshot: snapshot(),
       ownerUserId: 7, artifactRoot: artifacts });
     const variant = normalizeToolInstallCandidateChange({ diagnosis: original, snapshot: snapshot(), artifactRoot: artifacts,
       change: { toolName: 'fixture-tool', agentConfigId: 'baseline', packageSource: source,
-        installMethod: 'local-tarball', testPrompts: ['help-check', 'stdin-noop'],
+        installMethod: 'local-tarball', testPrompts: ['version-check', 'help-check', 'stdin-noop'],
         evidenceBundle: { model: 'invented' } } });
-    expect(variant.testPrompts).toEqual(['help-check', 'stdin-noop']);
+    expect(variant.testPrompts).toEqual(['version-check', 'help-check', 'stdin-noop']);
+    expect(() => normalizeToolInstallCandidateChange({ diagnosis: original, snapshot: snapshot(), artifactRoot: artifacts,
+      change: { ...variant, testPrompts: ['help-check', 'stdin-noop'] } })).toThrow(/closed scenarios/);
+    expect(deriveFrozenToolInstallActions({ diagnosis: original, snapshot: snapshot(), candidateLimit: 3,
+      artifactRoot: artifacts })).toEqual([variant]);
     expect(variant.evidenceBundle).toBe(original.change.evidenceBundle);
     expect(JSON.stringify(variant)).not.toContain('invented');
     expect(() => normalizeToolInstallCandidateChange({ diagnosis: original, snapshot: snapshot(), artifactRoot: artifacts,
       change: { ...variant, toolName: 'other-tool' } })).toThrow(/changed identity/);
     expect(() => normalizeToolInstallCandidateChange({ diagnosis: original, snapshot: snapshot(), artifactRoot: artifacts,
       change: { ...variant, packageSource: `local-tarball:sha256:${'0'.repeat(64)}` } })).toThrow(/immutable local tarball/);
+  });
+
+  it('counts only distinct immutable same-tool artifacts, with the diagnosed action first', async () => {
+    const second = gzipSync(Buffer.concat([
+      entry('package/package.json', JSON.stringify({ name: 'fixture-tool', version: '2.0.0', bin: { 'fixture-tool': 'index.js' } })),
+      entry('package/index.js', '#!/usr/bin/env node\nconsole.log("second")\n'), Buffer.alloc(1024),
+    ]));
+    const secondSource = `local-tarball:sha256:${createHash('sha256').update(second).digest('hex')}`;
+    writeFileSync(join(artifacts, `${secondSource.slice(-64)}.tgz`), second);
+    const original = await normalizeToolInstallDiagnosisAsync({ diagnosis: diagnosis(), snapshot: snapshot(),
+      ownerUserId: 7, artifactRoot: artifacts });
+    const actions = deriveFrozenToolInstallActions({ diagnosis: original, snapshot: snapshot(),
+      candidateLimit: 3, artifactRoot: artifacts });
+    expect(actions.map((action) => action.packageSource)).toEqual([source, secondSource]);
+    expect(actions.map((action) => action.testPrompts)).toEqual([
+      ['version-check', 'help-check', 'stdin-noop'], ['version-check', 'help-check', 'stdin-noop'],
+    ]);
+    expect(new Set(actions.map((action) => JSON.stringify(action))).size).toBe(2);
   });
 });

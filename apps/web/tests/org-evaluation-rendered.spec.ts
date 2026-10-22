@@ -47,7 +47,7 @@ async function fulfill(route: Route, body: unknown, status = 200) {
 }
 
 async function install(page: Page, options: { jobs?: ReturnType<typeof job>[]; proposals?: unknown[] } = {}) {
-  let settings = { tokenLimit: 100_000, candidateCount: 2 };
+  let settings = { tokenLimit: 100_000, candidateCount: 2, lookbackDays: 7 };
   const patches: unknown[] = [];
   const approvals: unknown[] = [];
   const jobs = options.jobs ?? [];
@@ -83,13 +83,16 @@ test('live Review Queue configures a whole-run cap and candidate count, then rel
   const panel = page.getByRole('region', { name: 'Evaluation settings' });
   await expect(panel.getByLabel('Whole-run token limit')).toHaveValue('100000');
   await expect(panel.getByLabel('Candidates per review')).toHaveValue('2');
+  await expect(panel.getByLabel('Review lookback')).toHaveValue('7');
   await panel.getByLabel('Whole-run token limit').fill('120000');
   await panel.getByLabel('Candidates per review').selectOption('3');
+  await panel.getByLabel('Review lookback').selectOption('14');
   await panel.getByRole('button', { name: 'Save evaluation settings' }).click();
-  await expect.poll(() => server.patches).toEqual([{ tokenLimit: 120000, candidateCount: 3 }]);
+  await expect.poll(() => server.patches).toEqual([{ tokenLimit: 120000, candidateCount: 3, lookbackDays: 14 }]);
   await page.reload();
   await expect(panel.getByLabel('Whole-run token limit')).toHaveValue('120000');
   await expect(panel.getByLabel('Candidates per review')).toHaveValue('3');
+  await expect(panel.getByLabel('Review lookback')).toHaveValue('14');
   await expect(page.getByRole('region', { name: 'Evaluation activity' })).toContainText('No evaluations yet');
 });
 

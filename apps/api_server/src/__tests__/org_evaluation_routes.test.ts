@@ -44,21 +44,44 @@ describe('pre-review evaluation HTTP contract', () => {
   it('org-evaluation-settings: saves one whole-run token limit and candidate count', async () => {
     const initial = await fetch(`${baseUrl}/agent-org-proposals/evaluations/settings`);
     expect(initial.status).toBe(200);
-    expect(await initial.json()).toMatchObject({ tokenLimit: 100000, candidateCount: 2 });
+    expect(await initial.json()).toMatchObject({ tokenLimit: 100000, candidateCount: 2, lookbackDays: 7 });
     const saved = await fetch(`${baseUrl}/agent-org-proposals/evaluations/settings`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ tokenLimit: 64000, candidateCount: 3 }),
+      body: JSON.stringify({ tokenLimit: 64000, candidateCount: 3, lookbackDays: 14 }),
     });
     expect(saved.status).toBe(200);
-    expect(await saved.json()).toMatchObject({ tokenLimit: 64000, candidateCount: 3 });
+    expect(await saved.json()).toMatchObject({ tokenLimit: 64000, candidateCount: 3, lookbackDays: 14 });
     const reloaded = await fetch(`${baseUrl}/agent-org-proposals/evaluations/settings`);
-    expect(await reloaded.json()).toMatchObject({ tokenLimit: 64000, candidateCount: 3 });
+    expect(await reloaded.json()).toMatchObject({ tokenLimit: 64000, candidateCount: 3, lookbackDays: 14 });
+  });
+
+  it('loads a legacy two-field stored setting with the seven-day default', async () => {
+    const previous = db.prepare('SELECT content FROM org_settings WHERE id=?').get('org_evaluation_settings') as { content: string };
+    try {
+      db.prepare('UPDATE org_settings SET content=? WHERE id=?').run(
+        JSON.stringify({ tokenLimit: 64000, candidateCount: 3 }), 'org_evaluation_settings');
+      const response = await fetch(`${baseUrl}/agent-org-proposals/evaluations/settings`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ tokenLimit: 64000, candidateCount: 3, lookbackDays: 7 });
+      const oldClient = await fetch(`${baseUrl}/agent-org-proposals/evaluations/settings`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tokenLimit: 64000, candidateCount: 3 }),
+      });
+      expect(oldClient.status).toBe(200);
+      expect(await oldClient.json()).toEqual({ tokenLimit: 64000, candidateCount: 3, lookbackDays: 7 });
+    } finally {
+      db.prepare('UPDATE org_settings SET content=? WHERE id=?').run(previous.content, 'org_evaluation_settings');
+    }
   });
 
   it.each([
     { tokenLimit: 0, candidateCount: 2 },
     { tokenLimit: 12000.5, candidateCount: 2 },
     { tokenLimit: 64000, candidateCount: 4 },
+    { tokenLimit: 64000, candidateCount: 2, lookbackDays: 0 },
+    { tokenLimit: 64000, candidateCount: 2, lookbackDays: 8 },
+    { tokenLimit: 64000, candidateCount: 2, lookbackDays: 15 },
+    { tokenLimit: 64000, candidateCount: 2, lookbackDays: '14' },
     { tokenLimit: 64000, candidateCount: 2, unbounded: true },
   ])('org-evaluation-settings: refuses invalid or open settings %j without mutation', async input => {
     const before = await fetch(`${baseUrl}/agent-org-proposals/evaluations/settings`).then(r => r.json());

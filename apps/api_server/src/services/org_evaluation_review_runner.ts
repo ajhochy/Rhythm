@@ -57,7 +57,7 @@ export async function runOrgEvaluationReview(opts: AgentRunOptions): Promise<Age
     const modelID = profile?.modelProvider === 'anthropic' && profile.modelId?.startsWith('claude-')
       ? profile.modelId : 'claude-sonnet-4-5';
     const settings = await getOrgEvaluationSettingsAsync();
-    const context = await reviewer.evaluationContext(ownerUserId);
+    const context = await reviewer.evaluationContext(ownerUserId, settings.lookbackDays);
     context.evaluationModel = { providerID: 'anthropic', modelID };
     const { listOrgEvaluationToolArtifacts } = await import('./org_evaluation_tool_inputs');
     const availableToolArtifacts = listOrgEvaluationToolArtifacts();

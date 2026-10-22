@@ -10,7 +10,7 @@ test('evaluation gateway uses the local API and preserves settings writes and ex
     requests.push({ url: String(url), method: init?.method ?? 'GET',
       authorization: new Headers(init?.headers).get('authorization'),
       body: init?.body ? JSON.parse(String(init.body)) : null });
-    if (String(url).endsWith('/evaluations/settings')) return json({ tokenLimit: 120_000, candidateCount: 3 });
+    if (String(url).endsWith('/evaluations/settings')) return json({ tokenLimit: 120_000, candidateCount: 3, lookbackDays: 14 });
     if (String(url).endsWith('/evaluations/job')) return json({ job: { id: 'job', budgetRootId: 'cycle-root', status: 'qualified', maxTokens: 120_000,
       validationReserveTokens: 20_000, originalHash: 'a'.repeat(64), targetRef: 'agent_config:test', targetRevision: '1',
       finalCandidateId: 'final', qualifiedProposalId: 'proposal', failureReason: null,
@@ -21,19 +21,25 @@ test('evaluation gateway uses the local API and preserves settings writes and ex
     if (String(url).endsWith('/evaluations')) return json({ jobs: [] });
     return json({ id: 'proposal', kind: 'refine-skill', status: 'approved' });
   });
-  expect(await gateway.getEvaluationSettings()).toEqual({ tokenLimit: 120_000, candidateCount: 3 });
-  expect(await gateway.updateEvaluationSettings({ tokenLimit: 120_000, candidateCount: 3 }))
-    .toEqual({ tokenLimit: 120_000, candidateCount: 3 });
+  expect(await gateway.getEvaluationSettings()).toEqual({ tokenLimit: 120_000, candidateCount: 3, lookbackDays: 14 });
+  expect(await gateway.updateEvaluationSettings({ tokenLimit: 120_000, candidateCount: 3, lookbackDays: 14 }))
+    .toEqual({ tokenLimit: 120_000, candidateCount: 3, lookbackDays: 14 });
   expect(await gateway.listEvaluations()).toEqual({ jobs: [] });
   expect((await gateway.getEvaluation('job')).job.id).toBe('job');
   await gateway.approve('proposal', false, { expectedEvaluationId: 'evaluation', finalCandidateHash: 'b'.repeat(64), originalHash: 'a'.repeat(64) });
   expect(requests).toEqual([
     { url: `${base}/agent-org-proposals/evaluations/settings`, method: 'GET', authorization: 'Bearer synthetic-bearer', body: null },
-    { url: `${base}/agent-org-proposals/evaluations/settings`, method: 'PATCH', authorization: 'Bearer synthetic-bearer', body: { tokenLimit: 120_000, candidateCount: 3 } },
+    { url: `${base}/agent-org-proposals/evaluations/settings`, method: 'PATCH', authorization: 'Bearer synthetic-bearer', body: { tokenLimit: 120_000, candidateCount: 3, lookbackDays: 14 } },
     { url: `${base}/agent-org-proposals/evaluations`, method: 'GET', authorization: 'Bearer synthetic-bearer', body: null },
     { url: `${base}/agent-org-proposals/evaluations/job`, method: 'GET', authorization: 'Bearer synthetic-bearer', body: null },
     { url: `${base}/agent-org-proposals/proposal/approve`, method: 'POST', authorization: 'Bearer synthetic-bearer', body: { expectedEvaluationId: 'evaluation', finalCandidateHash: 'b'.repeat(64), originalHash: 'a'.repeat(64) } },
   ]);
+});
+
+test('evaluation gateway defaults an older two-field settings response to seven days', async () => {
+  const gateway = createLiveOrgProposalsGateway(base, undefined,
+    async () => json({ tokenLimit: 100_000, candidateCount: 2 }));
+  expect(await gateway.getEvaluationSettings()).toEqual({ tokenLimit: 100_000, candidateCount: 2, lookbackDays: 7 });
 });
 
 test('evaluated queue rows fail closed when provenance or evaluation response is incomplete', async () => {

@@ -300,7 +300,7 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
     const mapping = imported.revisionMap.find(candidate => candidate.id === row.id)!;
     mapping.clone = row.cloneRevision;
   }
-  const settings = await api.json<{ tokenLimit: number; candidateCount: number }>('/agent-org-proposals/evaluations/settings');
+  const settings = await api.json<{ tokenLimit: number; candidateCount: 2 | 3; lookbackDays: 7 | 14 }>('/agent-org-proposals/evaluations/settings');
   expect(settings.tokenLimit, 'The actual run must keep the shared default 100,000-token cap').toBe(100_000);
   const nonce = randomUUID().slice(0, 8);
   const taskName = `[smoke] Actual Org Reviewer ${nonce}`;
@@ -308,7 +308,7 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
     sourceCapturedAt: snapshot.capturedAt, selectedProfileIds: requested,
     selectedProvenance: selectedProvenance.map(({ sessionId, profileId, selectionRole, sourceStatus, sourceCreatedAt, sourceMessageCount, sourceRowsSha256 }) =>
       ({ sessionId, profileId, selectionRole, sourceStatus, sourceCreatedAt, sourceMessageCount, sourceRowsSha256,
-        insideReviewerSevenDays: Date.parse(sourceCreatedAt) >= Date.now() - 7 * 86_400_000 })),
+        insideReviewerFourteenDays: Date.parse(sourceCreatedAt) >= Date.now() - 14 * 86_400_000 })),
     omissions: snapshot.omissions, importReadbackHashes: imported.readbackHashes,
     importedSessionIds: imported.selectedSessionIds, pausedRecurringSchedules: imported.pausedRecurring,
     projectedProfileIds: seedPlan!.projectedIds, unprojectedDelegateDependencies: seedPlan!.unprojectedDependencies,
@@ -319,8 +319,26 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
   let cycleId: string | null = null;
   let jobIds: string[] = [];
   let proposalIds: string[] = [];
+  let settingsWriteAttempted = false;
   let primaryError: unknown;
   try {
+    const reviewLoaded = responseFor(page, 'GET', '/agent-org-proposals/evaluations/settings');
+    await page.goto('rhythm://app/index.html#/tools/review');
+    await assertResponse(await reviewLoaded, 'GET', '/agent-org-proposals/evaluations/settings', 200);
+    const settingsRegion = page.getByRole('region', { name: 'Evaluation settings' });
+    await expect(settingsRegion).toBeVisible();
+    await expect(settingsRegion.getByLabel('Review lookback')).toHaveValue(String(settings.lookbackDays));
+    if (settings.lookbackDays !== 14) {
+      await settingsRegion.getByLabel('Review lookback').selectOption('14');
+      const saved = responseFor(page, 'PATCH', '/agent-org-proposals/evaluations/settings');
+      settingsWriteAttempted = true;
+      await settingsRegion.getByRole('button', { name: 'Save evaluation settings' }).click();
+      const response = await saved;
+      await assertResponse(response, 'PATCH', '/agent-org-proposals/evaluations/settings', 200);
+      expect(response.request().postDataJSON()).toEqual({ ...settings, lookbackDays: 14 });
+    }
+    expect(await api.json('/agent-org-proposals/evaluations/settings')).toEqual({ ...settings, lookbackDays: 14 });
+    report.evaluationSettings = { ...settings, lookbackDays: 14 };
     const controls = await api.json<Array<{ id: string; name: string; prompt: string; agentConfigId: string;
       agentKind: string; allowedMcpsJson: string | null; allowedSkillsJson: string | null }>>('/agent-schedules');
     const control = controls.find(row => row.name === 'Org Reviewer' && row.agentConfigId === 'org-reviewer');
@@ -385,7 +403,7 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
           model: { providerId: string | null; modelId: string | null }; allowedMcps: unknown;
           allowedSkills: unknown; corePermissions: unknown; allowedDelegates: unknown }>;
         omittedConfigurationSummaries?: boolean }> } };
-    expect(frozen.context?.metadata?.windowDays, 'Reviewer must use its unchanged seven-day window').toBe(7);
+    expect(frozen.context?.metadata?.windowDays, 'Reviewer must use the selected fourteen-day window').toBe(14);
     const batches = frozen.context?.batches ?? [];
     const evidence = batches.flatMap(batch => batch.sessionEvidence ?? []);
     const sourceSessions = new Map(snapshot.tables.agent_sessions.map(row => [String(row.id), row]));
@@ -393,7 +411,7 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
     const expectedRecent = selectedProvenance.filter(item => {
       const source = sourceSessions.get(item.sessionId)!;
       const recentAt = Date.parse(String(source.last_activity_at ?? source.updated_at ?? source.created_at));
-      return recentAt >= Date.now() - 7 * 86_400_000 && item.sourceMessageCount > 0;
+      return recentAt >= Date.now() - 14 * 86_400_000 && item.sourceMessageCount > 0;
     });
     for (const item of expectedRecent) {
       const matched = evidence.find(row => row.sessionId === item.sessionId);
@@ -404,8 +422,8 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
       `Actual ${item.selectionRole} ${item.sessionId} needs a citable stored message`).toBe(true);
     }
     if (requested.includes('secretary')) {
-      expect(expectedRecent.filter(item => item.profileId === 'secretary' && item.selectionRole === 'failure').length).toBeGreaterThan(0);
-      expect(expectedRecent.filter(item => item.profileId === 'secretary' && item.selectionRole === 'counterexample').length).toBeGreaterThan(0);
+      expect(expectedRecent.filter(item => item.profileId === 'secretary' && item.selectionRole === 'failure').length).toBe(2);
+      expect(expectedRecent.filter(item => item.profileId === 'secretary' && item.selectionRole === 'counterexample').length).toBe(1);
     }
     report.contextIncludedSessionIds = evidence.map(row => row.sessionId);
     report.contextOmittedProfiles = requested.filter(id => !batches.some(batch =>
@@ -432,6 +450,9 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
       }
     }
     report.contextRecentSourceSessionIds = expectedRecent.map(item => item.sessionId);
+    report.scanOutcome = { cycleStatus: cycle!.status, cycleReason: cycle!.failureReason,
+      contextBatchCount: batches.length, evaluatedTargetCount: children.length,
+      diagnosedNoTargets: cycle!.status === 'qualified' && children.length === 0 };
     const proposed = await api.json<Proposal[]>('/agent-org-proposals?status=proposed');
     const linked = proposed.filter(proposal => jobIds.includes(proposal.preReviewEvaluation?.evaluationId ?? ''));
     proposalIds = linked.map(proposal => proposal.id);
@@ -476,6 +497,15 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
   }
   finally {
     const cleanupErrors: string[] = [];
+    try {
+      if (settingsWriteAttempted) {
+        const restored = await api.fetch('/agent-org-proposals/evaluations/settings', {
+          method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(settings),
+        });
+        if (restored.status !== 200) throw Error('Private evaluation settings restoration failed');
+        expect(await api.json('/agent-org-proposals/evaluations/settings')).toEqual(settings);
+      }
+    } catch (error) { cleanupErrors.push(`evaluation settings: ${String(error)}`); }
     try {
       if (reviewerTaskId) {
         const owned = await api.json<{ id: string; name: string; createdByUserId: number }>(`/agent-schedules/${reviewerTaskId}`);

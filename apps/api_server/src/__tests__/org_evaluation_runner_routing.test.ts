@@ -32,4 +32,30 @@ describe('Org Reviewer bounded run admission', () => {
     expect(session).toMatchObject({ profileId: 'org-reviewer', category: 'self_improvement',
       isSystem: true, status: 'error', sdkSessionId: null, permissionMode: 'default' });
   });
+
+  it('passes the stored fourteen-day lookback into the owner-scoped review context before model work', async () => {
+    vi.resetModules();
+    const { runMigrations } = await import('../database/migrations');
+    const { setDb } = await import('../database/db');
+    const { AgentConfigsRepository } = await import('../repositories/agent_configs_repository');
+    const { OrgReviewerService } = await import('../services/org_reviewer_service');
+    const { saveOrgEvaluationSettingsAsync } = await import('../services/org_evaluation_settings');
+    const { runOrgEvaluationReview } = await import('../services/org_evaluation_review_runner');
+    db = new Database(':memory:');
+    runMigrations(db);
+    previousDb = setDb(db);
+    new AgentConfigsRepository().insert({ id: 'org-reviewer', label: 'Reviewer fixture', icon: 'shield',
+      modelProvider: 'anthropic', modelId: 'claude-sonnet-4-5', allowedMcpsJson: '{}' });
+    await saveOrgEvaluationSettingsAsync({ tokenLimit: 100_000, candidateCount: 2, lookbackDays: 14 });
+    vi.spyOn(OrgReviewerService.prototype, 'assertServerEvaluationProfile').mockImplementation(() => {});
+    vi.spyOn(OrgReviewerService.prototype, 'assertServerEvaluationTask').mockResolvedValue(undefined);
+    const context = vi.spyOn(OrgReviewerService.prototype, 'evaluationContext')
+      .mockRejectedValue(new Error('stopped after bounded context selection'));
+    const result = await runOrgEvaluationReview({ prompt: 'Review known older failures',
+      agentConfigId: 'org-reviewer', ownerUserId: null });
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('stopped after bounded context selection');
+    expect(context).toHaveBeenCalledWith(null, 14);
+    vi.restoreAllMocks();
+  });
 });
