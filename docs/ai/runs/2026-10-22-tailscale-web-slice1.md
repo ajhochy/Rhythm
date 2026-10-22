@@ -941,3 +941,13 @@ in-memory attachment, not a separate checked JSON file in that directory.
 - Evidence loss: that regression run reused `apps/web/test-results/`, which Playwright clears at start; the attempt-4 A1/A2 screenshots/traces listed above no longer exist. Pass results stand as recorded; next live run must use a separate `--output` dir.
 - Teardown provenance FAIL cause: `web-host-session.spec.ts` registers the provider through `PUT /opencode/providers`, which restarts the engine under the API; `down` then refuses the unrecorded engine PID. No listeners leaked; sandbox dirs attempt4, attempt4-a2, attempt4-a2-repair1, attempt4-final remain in /private/tmp awaiting approved cleanup.
 - GitNexus detect_changes (stale index b846fdc): 39 symbols / 26 files, risk low, 0 affected processes.
+
+## Rebase gate onto mega a018589 (2026-10-22, manager)
+
+- AJ pushed test/feature-playwright to mega: origin/mega `a018589282` contains `f262417ade` (+8 commits: #1619 re-merge, approval-owner live test, sandbox HUMAN_APPROVAL_* pass-through; no product source delta). PR #1598 still OPEN draft.
+- `git rebase --onto origin/mega f262417ade` -> clean; slice-1 patch content identical (diff-of-diffs empty). New heads 3dec182 / 76857d6 / e96a8d4. Local safety tag `mgr/pre-rebase-slice1-54e53c1`.
+- Re-verification on e96a8d4, all inherited RHYTHM_* unset: api build PASS; web build + build:web PASS; Electron CSP hash == source (fe847f84...); web typecheck PASS; browser unit 5/5; api vitest 5 files 95/95 (incl. opencode_client_service 66/66); desktop gateway Playwright 27/27.
+- Live run 1 (SB reverify-e96a8d4): A3 8/8, A1 pass, **A2 FAIL**: transcript `Dayflow provider guard held this request (proof_unavailable)`. Cause per docs/ai/runs/2026-10-10-router-sandbox-stop-handoff.md: missing RHYTHM_WORKSTREAMS_ENABLED/RHYTHM_MANAGED_CONTEXT_EXPORTS pair. Attempt 4 had passed only by inheriting the pair from the operator shell. Fix: run-sandbox.sh exports RHYTHM_WORKSTREAMS_ENABLED=true explicitly. Cutover note: the LaunchAgent must set this pair too.
+- Live run 2 (SB reverify2-e96a8d4): **A3 8/8, A1+A2 2 passed (19.2s)**. Evidence /private/tmp/rhythm-web-reverify-e96a8d4-live2/ (A1-owner-shell.png, A2-persisted-transcript.png, traces).
+- Teardown: `down` refused both runs (engine restarted by PUT /opencode/providers). Manager stopped only PIDs whose cwd/HOME/DB_PATH were the run's sandbox dir (14707, 14877; 16587); 4097/4098/4099/6996 free; live 4697 (4001/4002) and 4743 (4096) identical before/after.
+- Screenshot review found untested defects for slice 2: env pill stuck 'Connecting/checking'; session header 'Working' + Stop button after reply finished; notification bell error badge in browser mode.

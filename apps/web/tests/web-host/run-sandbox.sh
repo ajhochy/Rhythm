@@ -10,6 +10,10 @@ export RHYTHM_SANDBOX_ENGINE_DIR=/private/tmp/rhythm-feature-playwright-2026-10-
 export RHYTHM_SANDBOX_SKIP_ENGINE_BUILD=1 RHYTHM_WEB_HOST=1
 export RHYTHM_WEB_PUBLIC_ORIGIN=http://rhythm-web.test:4098 RHYTHM_WEB_OWNER_USER_ID=1
 export RHYTHM_WEB_DIST_DIR="$ROOT/apps/web/dist-web"
+# Live Electron env pair (sandbox.sh adds RHYTHM_MANAGED_CONTEXT_EXPORTS=1). Without it every
+# prompt is held `proof_unavailable` by the Dayflow guard before the provider: see
+# docs/ai/runs/2026-10-10-router-sandbox-stop-handoff.md. Set explicitly; never inherit it.
+export RHYTHM_WORKSTREAMS_ENABLED=true
 provider=''
 cleanup() {
   local result=$? teardown=0
