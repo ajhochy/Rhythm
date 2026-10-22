@@ -20,8 +20,9 @@ const profile = { id: 'routed-profile', label: 'Owned routed profile', systemPro
   revision: 1, allowedMcpsJson: '[]', allowedSkillsJson: '[]', corePermissionsJson: '{}',
   allowedDelegatesJson: '[]', isManager: false, modelProvider: model.providerID, modelId: model.modelID };
 // Product default whole-run cap. Reservations are pessimistic (request bytes +
-// output ceiling), so a 20k cap refused the candidate arm's later calls.
-const RUN_TOKEN_CAP = 100_000;
+// output ceiling), so a 20k cap refused the candidate arm's later calls; a routed
+// pair alone needs ~120-130k, more than the former 100k default.
+const RUN_TOKEN_CAP = 1_500_000;
 const recipe = (stepsJson: string): FrozenEvaluationRecipe => ({ id: 'owned-recipe', title: 'Owned recipe',
   description: null, stepsJson, boundConfigId: profile.id, schemaVersion: 1, definitionJson: null });
 const schedule = (prompt: string): FrozenEvaluationSchedule => ({ id: 'owned-task', name: 'Owned task',

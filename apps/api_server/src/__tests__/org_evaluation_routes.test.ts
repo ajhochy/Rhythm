@@ -44,7 +44,7 @@ describe('pre-review evaluation HTTP contract', () => {
   it('org-evaluation-settings: saves one whole-run token limit and candidate count', async () => {
     const initial = await fetch(`${baseUrl}/agent-org-proposals/evaluations/settings`);
     expect(initial.status).toBe(200);
-    expect(await initial.json()).toMatchObject({ tokenLimit: 100000, candidateCount: 2, lookbackDays: 7 });
+    expect(await initial.json()).toMatchObject({ tokenLimit: 1500000, candidateCount: 2, lookbackDays: 7 });
     const saved = await fetch(`${baseUrl}/agent-org-proposals/evaluations/settings`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ tokenLimit: 64000, candidateCount: 3, lookbackDays: 14 }),

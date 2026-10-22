@@ -8,7 +8,11 @@ export interface OrgEvaluationSettings {
   lookbackDays: 7 | 14;
 }
 const SETTINGS_ID = 'org_evaluation_settings';
-const DEFAULT_SETTINGS: OrgEvaluationSettings = { tokenLimit: 100000, candidateCount: 2, lookbackDays: 7 };
+// A routed recipe/task/webhook arm settles ~52-66k actual tokens. One target with
+// four cases and two candidates runs 12 exploration arms (65% of the cap) plus 2
+// validation arms (35%), so 1.5M is the smallest round cap that completes a full
+// cycle. It is a ceiling: a scan that finds nothing still stops near 12k.
+const DEFAULT_SETTINGS: OrgEvaluationSettings = { tokenLimit: 1500000, candidateCount: 2, lookbackDays: 7 };
 
 export function validateOrgEvaluationSettings(input: unknown): OrgEvaluationSettings {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw AppError.badRequest('Evaluation settings must be an object');

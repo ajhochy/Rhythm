@@ -374,7 +374,7 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
     mapping.clone = row.cloneRevision;
   }
   const settings = await api.json<{ tokenLimit: number; candidateCount: 2 | 3; lookbackDays: 7 | 14 }>('/agent-org-proposals/evaluations/settings');
-  expect(settings.tokenLimit, 'The actual run must keep the shared default 100,000-token cap').toBe(100_000);
+  expect(settings.tokenLimit, 'The actual run must keep the shared default 1,500,000-token cap').toBe(1_500_000);
   const nonce = randomUUID().slice(0, 8);
   const taskName = `[smoke] Actual Org Reviewer ${nonce}`;
   const report: Record<string, unknown> = { sourceRevision: expectedRevision, snapshotSha256: snapshotSha,
@@ -463,8 +463,8 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
     report.cycle = cycle;
     report.evaluationDetails = details;
     const root = details.find(detail => detail.job.id === cycle!.id)!;
-    expect(root.budget.maxTokens).toBe(100_000);
-    expect(root.budget.settledTokens + root.budget.outstandingTokens).toBeLessThanOrEqual(100_000);
+    expect(root.budget.maxTokens).toBe(1_500_000);
+    expect(root.budget.settledTokens + root.budget.outstandingTokens).toBeLessThanOrEqual(1_500_000);
     if (cycle!.status === 'qualified') {
       expect(root.budget.outstandingTokens).toBe(0);
       expect(root.budget.hasUnknownUsage).toBe(false);

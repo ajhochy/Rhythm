@@ -23,8 +23,9 @@ const profile = { id: 'smoke-managed-profile', label: '[smoke] managed profile',
   allowedSkillsJson: '[]', corePermissionsJson: '{}', allowedDelegatesJson: '[]', isManager: false,
   modelProvider: model.providerID, modelId: model.modelID };
 // Product default whole-run cap. Reservations are pessimistic (request bytes +
-// output ceiling), so a 20k cap refused the candidate arm's later calls.
-const RUN_TOKEN_CAP = 100_000;
+// output ceiling), so a 20k cap refused the candidate arm's later calls; a routed
+// pair alone needs ~120-130k, more than the former 100k default.
+const RUN_TOKEN_CAP = 1_500_000;
 const targetRef = `agent_config:${profile.id}`;
 const proposal = { title: 'Owned immutable CLI', rationale: 'Measure a real managed command outcome',
   securityNote: 'Runs only in copied state and network-disabled Docker' };
