@@ -68,8 +68,9 @@ export function createFixtureMcpGateway(): McpGateway {
   return { mode: 'fixture', list: unsupported, add: unsupported, setCredentials: unsupported, startOAuth: unsupported, oauthStatus: unsupported, connect: unsupported, disconnect: unsupported, remove: unsupported };
 }
 
+import { isTrustedBrowserFetcher } from './browser-transport';
 export function createLiveMcpGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch, ready?: () => Promise<void>): McpGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: an MCP token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: an MCP token is required');
   const request = (path: string, init: RequestInit = {}) =>
     fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   return {

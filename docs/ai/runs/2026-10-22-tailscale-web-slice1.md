@@ -679,3 +679,265 @@ apply. `git diff --check` passed before this appendix. Default Electron HTML
 rebuild hash is identical above. Read-only lsof audit found no sandbox listener
 rows on 4097/4098/4099 (exit 1; unrelated Time Machine SMB stat warning).
 All edits remain uncommitted for manager review. No completion claim.
+
+## Attempt 4 — frontend delivered; A1/A2/A3 pass, A4 identity and lifecycle remain FAIL
+
+### Scope, gates, and status
+
+Parent specialist handoff accepted at `c8dae8461b553c2fd974538c2dde0c438d7a7e2f`,
+branch `feat/tailscale-web-app-20261022`; initial tree clean. Loaded
+`acceptance-contract` first, then `coding-agent`; read project-state, current-plan,
+predecessor receipt and supplied AGENTS. No orchestrator/peer dispatch. No commit,
+push, switch, dependency install, network/Tailscale change, paid model, live-data
+access, or requests/process control on 4001/4002/4096. Backend design, Python
+bootstrap test and broad suites were not revisited. Only requested served-index
+CSP behavior changed in backend. Existing scope/exclusions/approvals carry forward;
+Slice 2 remains gated on AJ pushing f262417 to mega.
+
+**PARTIAL / NOT READY_FOR_VERIFICATION as a completed Slice 1.** A1/A2/A3 have
+real passing receipts. A4 byte identity fails, and the canonical lifecycle's down
+reports a provenance mismatch. AJ's every-confirmed-working-feature bar is NOT met.
+Manager is the independent verifier; no independent verification claimed here.
+The checked commands can run without editing application sources.
+
+- Phase 0 performed before production edits: authored browser transport contract,
+  ran it. Initial loader failure (workspace alias missing) was test infrastructure,
+  corrected to load the real workspace error type. Genuine baseline: **1 pass,
+  2 fail**: loopback validator rejects browser config; HTTPS PTY produces
+  `https://owner.ts.net/ws/pty/terminal` instead of `wss://...`. Existing A1 red
+  from Attempt 3 retained; A2 authored later before its first runtime execution,
+  not claimed as a complete preimplementation A1–A5 red contract.
+- Before backend CSP edit, real Express served-index contract genuinely failed:
+  old api.vcrcapps.com/loopback connect-src versus exact configured origins/twins.
+- Phase 1 bounded review completed for startup/composition/local guard/WS surface;
+  new pending-decisions direct engine fetch discovered during live validation and
+  analyzed before repair. Page-wide feature qualification remains incomplete.
+- Phase 2 implementation and focused checks performed; unresolved gates below.
+
+### Files changed
+
+- `apps/web/package.json`, `apps/web/.gitignore`: separate `build:web` output
+  (`VITE_RHYTHM_WEB_HOST=1 vite build --outDir dist-web`), ignored dist-web.
+- `apps/web/src/main.tsx`: opt-in same-origin bootstrap; require web mode and
+  owner shape, live gateway, existing startup error on failure; no Google auth,
+  `/auth/me`, rhythmShell auth or ensureRhythmMcp in this branch. Minimal AuthUser
+  mapping uses owner id/displayName, empty email and conservative member role;
+  no extra owner PII added to bootstrap. Full role-dependent feature parity is
+  not established by this mapping.
+- `apps/web/src/gateway/index.ts`: explicit browser config, same-origin API and
+  API-served engine health, no direct engine transport; cloud-backed domains,
+  approvals, mobileAccess and sharedAgents omitted. Desktop URL validation kept.
+- New `apps/web/src/gateway/browser-transport.ts`: one WeakSet-marked same-origin
+  transport that strips Authorization and rejects foreign URLs. No dummy token.
+- Local factory guard adaptation (only token preflight and shared-helper import):
+  `apps/web/src/gateway/{commands,cookbook,delegation,designs,mcp,memory,permissions,
+  research,run-quality,schedules,skills,usage-budget,workstreams}.ts`.
+- `apps/web/src/gateway/sessions.ts`: same shared token preflight plus http→ws,
+  https→wss; `apps/web/src/gateway/pty.ts`: same scheme correction.
+- `apps/web/src/store.tsx`: skip notification polling when domain omitted; fixes
+  observed synchronous `undefined.list` shell crash.
+- `apps/web/src/pending-decisions.ts`: browser branch does not call a reconstructed
+  loopback engine `/question` URL. Questions still arrive over WS, but pending
+  question rehydration after browser reload remains unsupported until an API-side
+  list exists. This is a deliberate limitation, not claimed feature parity.
+- `apps/api_server/src/services/web_host.ts`: only served `/` and `/index.html`
+  connect-src rewrite to self + configured origins + ws/wss twins; all remaining
+  directives/HTML bytes and on-disk dist remain unchanged; no-store.
+- New `apps/api_server/src/services/web_host_csp.test.ts`: real HTTP and SQLite
+  owner fixture, exact rewrite + all other HTML bytes preserved + source untouched.
+- New `apps/web/tests/web-host/browser-gateway.test.mjs`: actual TS modules loaded,
+  real loopback HTTP backend for composition, omitted-domain and health routes;
+  PTY/session http+https mapping (socket constructor is only transport observation,
+  not live engine proof). No application gateway mocked.
+- New `apps/web/tests/web-host/web-host-session.spec.ts`: scripted-provider setup,
+  real project/session creation via API, UI-open/send, same-origin WS frames,
+  reload transcript and Node HTTP readback of session/project/messages.
+- New `apps/web/tests/web-host/run-sandbox.sh`: canonical foreground lifecycle,
+  explicit fixture/dist/origin/engine paths, API+engine readiness, trap down and
+  provider cleanup. Final trap correction preserves teardown's nonzero exit;
+  syntax checked but this exact final trap revision was not rerun live.
+- `apps/web/tests/web-host/web-host-shell.spec.ts`: original assertions retained;
+  adds CSP audit and screenshot. `playwright.config.ts`: retain success traces
+  and failure screenshots. `apps/web/tests/live/scripted-openai-provider.mjs`:
+  additive `/v1/models` synthetic catalog so existing real custom-provider setup
+  can discover s0-local. No external calls.
+- This appended receipt. Generated logs/builds/test-results ignored.
+
+### Impact and risk review
+
+Stale GitNexus **b846fdc**, not the worktree base. Upstream impact attempted before
+edits for renderGateway, composeGateway, createLiveGateway, createLivePtyGateway,
+createLiveSessionsGateway (disambiguated source path), every adapted local factory,
+FixtureProvider and rehydrateDecisions. Indexed results LOW, zero indexed direct
+callers/processes. createWebHostRouter and scripted provider were unindexed;
+api_impact(web_host.ts) found no indexed routes. Exact source caller searches
+cross-checked main→composition→local factories; store→rehydrateDecisions (two
+callers); direct loopback question fetch; notification/approval domain reads;
+SessionRail and existing conversation/live-session selectors. No HIGH/CRITICAL
+result. Zero graph edges are undercount, not isolation evidence.
+
+Risk controls tested: desktop loopback validator still rejects browser-shaped
+config without browser branch; no cloud bearer/dummy issued; no direct engine
+health; exact origin CSP including Safari-required explicit WS twin; actual
+stream/durable transcript. Missing-domain pages are not comprehensively audited:
+some existing catches may show generic server-error rather than an explicit
+unavailable state (e.g. Tasks); cloud feature parity remains unproven.
+
+Final `detect_changes(scope:all, repo:Rhythm, worktree:<this worktree>)`: LOW,
+39 indexed symbols / 25 tracked files / 0 affected indexed processes. New files
+and newer backend module unindexed; source diff authoritative.
+
+### Exact commands and observed results
+
+Unit commands run outside sandbox shells. API unit environment removes **all**
+RHYTHM_* variables using the following command prefix, not just WEB_*:
+
+```sh
+# From apps/api_server (no sandbox exports in this invocation):
+env $(env | cut -d= -f1 | /usr/bin/awk '/^RHYTHM_/ {print "-u " $0}') \
+  ./node_modules/.bin/vitest run src/services/web_host_csp.test.ts \
+  src/config/web_host.test.ts src/middleware/web_host_surface_contract.test.ts \
+  src/middleware/local_agent_surface_guard.test.ts
+```
+
+**4 files / 29 tests PASS** (2.98s). Earlier CSP-only baseline 0/1 expected fail;
+after edit combined CSP/config/F1F2 27/27 passed. No env-leak suite rerun needed.
+
+```sh
+node --test apps/web/tests/web-host/browser-gateway.test.mjs
+npm --prefix apps/web run typecheck
+npm run build:guard -- npm --prefix apps/web run build:web
+npm run build:guard -- npm --prefix apps/web run build
+npm --prefix apps/web run test:dist-smoke
+bash -n apps/web/tests/web-host/run-sandbox.sh
+git diff --check
+```
+
+Final browser contract **5/5 PASS**; renderer typecheck PASS; both guarded builds
+PASS (1789 modules, existing >500kB chunk advisory); dist-smoke PASS `index and 2
+relative assets verified`; harness syntax and diff whitespace PASS. Browser
+contract's first product rerun found gallery token preflight left unchanged;
+fixed through shared helper, then passed. No broad suites run.
+
+Final live invocation (one Bash call, no build guard around lifecycle):
+
+```sh
+RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-web-slice1-sandbox-20261022-attempt4-final \
+  bash apps/web/tests/web-host/run-sandbox.sh bash -c \
+  'node --test apps/web/tests/web-host/security.test.mjs; security=$?;
+   apps/web/node_modules/.bin/playwright test --config apps/web/tests/web-host/playwright.config.ts;
+   browser=$?; tools/dev/sandbox.sh status;
+   printf "security_exit=%s browser_exit=%s\n" "$security" "$browser"; exit "$browser"'
+```
+
+Harness specifies fixture root `/private/tmp/rhythm-web-slice1-fixtures-20261022`,
+its read-only rhythm.db/opencode.json, approved engine checkout from manager,
+skip engine build, public origin http://rhythm-web.test:4098, owner 1, absolute
+dist-web. Uses existing custom-provider API to register loopback 6996 and
+synthetic key from checked provider source. **Deviation:** no inert synthetic
+OpenAI catalog account or cloud auth-fixture needed: real owner context + custom
+provider registration covers this prompt without using metadata-only account
+tokens or any paid provider. Project/session are created via real API then opened
+and prompted in browser; browser UI session creation itself is not A2 proof here.
+Node readback uses existing harness http.request with explicit Host/Origin rather
+than fetch (manager-documented Node Host behavior); actual backend data is read.
+
+Observed final **A3 8 pass / 0 fail; Playwright 2 pass / 0 fail, 16.2s;
+security_exit=0 browser_exit=0**. API PID 99488, engine initially 99529 then 99655
+after provider config restart. No paid model. Provider emits hello/hello/seedling;
+A2 asserts WS frame text, rendered response, reload and stored transcript.
+
+Earlier runs retained as failures, not hidden:
+- Initial A1 failed `nav-agents` missing; trace proved synchronous notification
+  undefined.list crash. Missing-domain guard fixed it; A1 then passed.
+- Initial A2 setup timeout expected .healthy true, actual undefined. Corrected
+  observer to actual `/opencode/health` schema `.status === ready`; no backend edit
+  or acceptance-outcome relaxation. Rerun A2 passed.
+- A1 after A2 then caught CSP-blocked hardcoded loopback `/question` fetch with a
+  persisted SDK session. Added explicit browser direct-engine exclusion; final
+  combined A1/A2 run passes. Two bounded A1 production repairs total.
+
+### Electron identity proof — FAIL (not waived)
+
+Before any source edit:
+
+```text
+09ce840b483bc110872bee25c12e36474823b313b54dd830003ab3ffaa6dbbd4  dist/index.html
+d5e47b801245781456b4e926a6a57c3cd32714f43183d0642d9db74c9dd682f9  dist/assets/index-nVDJJXpt.js
+```
+
+Final `npm run build:guard -- npm --prefix apps/web run build`, then
+`shasum -a 256 apps/web/dist/index.html apps/web/dist/assets/*.js`:
+
+```text
+7371edd1863d316fbba345a569ae567be43c2be3fb9d3b34df74066aa2f3066b  dist/index.html
+7e364af9238f1e5e18f8cee97e4f368b1f135728251124cd878f2a8da6a2a029  dist/assets/index-DqKPMh3A.js
+```
+
+Default output **not byte-identical**: shared gateway/token/WS/source changes alter
+the JS hash and thus index asset reference. Source index.html/CSP and Vite base
+remain untouched, but that does not satisfy byte identity. Did not hide this with
+copied baseline dist, an ignored cached artifact, or a weakened comparison. A
+build-time isolation strategy is still necessary if strict identity is retained.
+
+### Evidence, lifecycle failure, permissions
+
+Final current evidence under `apps/web/test-results/`:
+- `web-host-shell-A1-configur-3ee48-ll-uses-only-its-own-origin/A1-owner-shell.png`
+- Same A1 directory `trace.zip`.
+- `web-host-session-A2-projec-7f61e-s-reload-plus-Node-readback/A2-persisted-transcript.png`
+- Same A2 directory `trace.zip` and Playwright attached backend-readback JSON.
+
+Canonical `down` was attempted every time. Initial long run down succeeded;
+subsequent short run raced engine PID ownership envelope. Provider-bearing runs
+restart engine through legitimate config API; down then reports **Refusing unowned
+sandbox engine attachment/provenance; engine/API provenance or runtime envelope
+mismatch**. Final sanitized diagnostics:
+`/private/tmp/rhythm-web-slice1-sandbox-20261022-attempt4-final.evidence.hgq5ST`.
+This lifecycle FAIL is independent of the passing assertions. Final trap was
+corrected not to mask down's exit, but not rerun live after that correction.
+No launcher/provenance safeguard weakened; no manual process-control workaround.
+
+Final read-only `tools/dev/sandbox.sh status` for final directory showed no API
+4098, engine 4097, gateway 4099 listeners. `lsof -nP -iTCP:6996 -iTCP:4097
+-iTCP:4098 -iTCP:4099 -sTCP:LISTEN` showed no listeners, exit 1 (unrelated Time
+Machine SMB stat warning). Sandbox directories/evidence left for operator-owned
+cleanup; no assertion that down fully removed them.
+
+Read tool denied `/private/tmp/rhythm-web-slice1-fixtures-20261022/opencode.json`.
+No alternate tool/path/copy used to read it; continued using the approved launcher
+and remaining source. Manager may inspect it under its own permission. This is
+not a scope-approval question and did not stop frontend delivery.
+
+### A1–A5 handoff
+
+| Criterion | Result | Boundary |
+|---|---|---|
+| A1 | PASS | Chromium realistic origin, owner, no sign-in/foreign page request/CSP errors; screenshot/trace. |
+| A2 | PASS | Real scripted loopback provider/API/engine, project/session, WS stream, reload and Node HTTP messages readback; no paid model. |
+| A3 | PASS | Unchanged security suite 8/8 in final sandbox. |
+| A4 | FAIL | Unit 5/5 + API 29/29 + typecheck/builds/smoke pass, but Electron HTML AND JS identity fail. |
+| A5 | FAIL overall (partial) | Reusable harness/specs with named bug assertions and backend readbacks work; canonical down fails provenance after runtime restart; final trap only syntax checked. |
+
+Smallest next action: manager reviews the frontend diff and passing A1/A2 traces,
+then addresses strict Electron build isolation and asks the sandbox owner to
+resolve runtime-restart provenance/teardown (no safeguard bypass). Independently
+rerun exact checked commands. Pending question reload, role-dependent identity,
+honest cloud-unavailable states across all pages and every currently-confirmed
+working feature still require explicit qualification. Do not call this full web
+feature parity or begin Slice 2 from this receipt.
+
+Final post-receipt audit: reran browser units with the same all-RHYTHM_* removal
+prefix (`env $(env | cut -d= -f1 | /usr/bin/awk '/^RHYTHM_/ {print "-u " $0}')
+node --test apps/web/tests/web-host/browser-gateway.test.mjs`): **5/5 PASS**.
+`git diff --check` PASS; HEAD remains c8dae8461b, all edits uncommitted. Confirmed
+current A2 screenshot and trace files exist; backend-readback is a Playwright
+in-memory attachment, not a separate checked JSON file in that directory.
+
+## Manager review after Attempt 4 (2026-10-22)
+
+- Electron identity criterion revised (manager error in attempt-4 brief): byte identity of the bundle is impossible once shared source changes. Real invariant verified: CSP in `dist/index.html` sha256 of the CSP attribute equals the source `index.html` CSP (`fe847f84...`), and `dist/index.html` equals `dist-web/index.html` modulo asset names. Desktop-path code changes are limited to the `^http`->`ws` regex (identical result for http) and token guards relaxed only for fetchers created by `trustedBrowserFetcher` (browser branch only).
+- Desktop gateway regression: `playwright test tests/gateway/{gateway,sessions-gateway,tasks-gateway,receipt}.spec.ts --workers=1` with all `RHYTHM_*` unset -> **27 passed**. First run failed 10/10 in gateway.spec with `Cannot find package 'react' imported from packages/rhythm-workspace-ui/src/context.tsx`; reproduced identically with `apps/web/src` changes stashed (pre-existing environment). Fixed by `npm run build:guard -- npm --prefix packages/rhythm-workspace-ui ci --workspaces=false --ignore-scripts`.
+- Evidence loss: that regression run reused `apps/web/test-results/`, which Playwright clears at start; the attempt-4 A1/A2 screenshots/traces listed above no longer exist. Pass results stand as recorded; next live run must use a separate `--output` dir.
+- Teardown provenance FAIL cause: `web-host-session.spec.ts` registers the provider through `PUT /opencode/providers`, which restarts the engine under the API; `down` then refuses the unrecorded engine PID. No listeners leaked; sandbox dirs attempt4, attempt4-a2, attempt4-a2-repair1, attempt4-final remain in /private/tmp awaiting approved cleanup.
+- GitNexus detect_changes (stale index b846fdc): 39 symbols / 26 files, risk low, 0 affected processes.

@@ -19,6 +19,10 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ hits, disconnects })); return;
   }
+  if (req.url === '/v1/models' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ object: 'list', data: [{ id: 's0-local', object: 'model', owned_by: 'synthetic-loopback' }] })); return;
+  }
   if (req.url !== '/v1/chat/completions' || req.method !== 'POST' || req.headers.authorization !== `Bearer ${key}`) {
     res.writeHead(403).end(); return;
   }

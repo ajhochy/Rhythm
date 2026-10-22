@@ -73,7 +73,9 @@ export async function rehydrateDecisions(gateway: RendererGateway, session: { id
   const permissions = gateway.domains.permissions!.pending(session.id);
   // The existing local API exposes question replies, but not a pending-question list.
   // Use the engine's directory-scoped GET /question; never send the cloud bearer here.
-  const questions = session.sdkSessionId ? fetch(`http://127.0.0.1:${gateway.environment.enginePort}/question?directory=${encodeURIComponent(session.cwd)}`, { signal: AbortSignal.timeout(5000) }).then(async response => {
+  // Browser mode has no direct engine endpoint. Questions still arrive over agent WS;
+  // pending-question reload needs a server-side API in a later slice, not loopback access.
+  const questions = session.sdkSessionId && !gateway.environment.browser ? fetch(`http://127.0.0.1:${gateway.environment.enginePort}/question?directory=${encodeURIComponent(session.cwd)}`, { signal: AbortSignal.timeout(5000) }).then(async response => {
     if (!response.ok) throw new Error(`Pending questions unavailable (${response.status})`);
     const rows: unknown = await response.json();
     if (!Array.isArray(rows)) throw new Error('Invalid pending question list');

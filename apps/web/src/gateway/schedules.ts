@@ -127,9 +127,10 @@ function grantsRhythmTools(raw: string | null | undefined): boolean {
   return false;
 }
 
+import { isTrustedBrowserFetcher } from './browser-transport';
 export function createLiveScheduleGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch,
   mcpReady?: () => Promise<void>): ScheduleGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: a schedules token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: a schedules token is required');
   const request = (path: string, init: RequestInit = {}) =>
     fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   return {

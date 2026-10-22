@@ -57,6 +57,12 @@ export function createWebHostRouter() {
       if (!target.startsWith(`${root}${path.sep}`)) return next();
       // express.static follows symlinks; verify the real target before handing it off.
       if (!fs.existsSync(target) || !fs.realpathSync(target).startsWith(`${root}${path.sep}`)) return next();
+      if (target === path.join(root, 'index.html')) {
+        const sources = ["'self'", ...webHostConfig!.origins.flatMap(origin => [origin, origin.replace(/^http/, 'ws')])];
+        const html = fs.readFileSync(target, 'utf8').replace(/connect-src [^;"\n]+/, `connect-src ${sources.join(' ')}`);
+        res.setHeader('Cache-Control', 'no-store');
+        return res.type('html').send(html);
+      }
       return serve(req, res, next);
     } catch { return res.status(404).json({ error: { code: 'NOT_FOUND' } }); }
   });

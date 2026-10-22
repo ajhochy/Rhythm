@@ -876,7 +876,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   }, [gateway, live]);
 
   useEffect(() => {
-    if (!live) return;
+    if (!live || !gateway.domains.notifications) return;
     let active = true;
     // Poll runs on mount, every 60s and on every focus: toast a given failure once until a success resets it.
     let lastFailure: string | null = null;

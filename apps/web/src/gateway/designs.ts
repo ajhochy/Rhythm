@@ -67,8 +67,9 @@ export function createFixtureDesignsGateway(): DesignsGateway {
   return { mode: 'fixture', list: unsupported, asset: unsupported, launch: unsupported, listFolders: unsupported, createFolder: unsupported, renameFolder: unsupported, deleteFolder: unsupported, update: unsupported, remove: unsupported };
 }
 
+import { isTrustedBrowserFetcher } from './browser-transport';
 export function createLiveDesignsGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): DesignsGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: a gallery token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: a gallery token is required');
   const auth = { Authorization: `Bearer ${token}` };
   const send = async (method: string, path: string, operation: string, body?: unknown) => {
     let result: Response;

@@ -53,7 +53,7 @@ export interface GatewayHealth {
 
 export interface RendererGateway {
   readonly mode: GatewayMode;
-  readonly environment: { apiPort: string; enginePort: string; apiBase: string } | null;
+  readonly environment: { apiPort: string; enginePort: string; apiBase: string; browser?: boolean } | null;
   readonly domains: GatewayDomainContracts;
   readonly health: {
     api(): Promise<GatewayHealth>;
@@ -63,9 +63,10 @@ export interface RendererGateway {
 }
 
 export interface LiveGatewayConfig {
-  apiBase: string;
-  engineBase: string;
-  productionApiBase: string;
+  browserOrigin?: string;
+  apiBase?: string;
+  engineBase?: string;
+  productionApiBase?: string;
   qualificationLocalProductionApiBase?: string;
   expectedApiBase?: string;
   expectedEngineBase?: string;
@@ -74,6 +75,7 @@ export interface LiveGatewayConfig {
 }
 
 export interface GatewayEnvironment {
+  browserOrigin?: string;
   mode?: string;
   apiBase?: string;
   engineBase?: string;
@@ -134,18 +136,20 @@ export function createFixtureGateway(_fetcher?: Fetcher): RendererGateway {
 }
 
 export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = fetch): RendererGateway {
-  const apiBase = validateLiveBase(config.apiBase, 'api', config.expectedApiBase);
-  const engineBase = validateLiveBase(config.engineBase, 'engine', config.expectedEngineBase);
-  if (apiBase === engineBase) throw new Error('Live configuration error: API and engine expected bases must use distinct ports');
+  const browser = config.browserOrigin !== undefined;
+  if (browser && (!/^https?:$/.test(new URL(config.browserOrigin!).protocol) || new URL(config.browserOrigin!).origin !== config.browserOrigin)) throw new Error('Browser gateway requires an HTTP(S) origin');
+  const apiBase = browser ? config.browserOrigin! : validateLiveBase(config.apiBase, 'api', config.expectedApiBase);
+  const engineBase = browser ? apiBase : validateLiveBase(config.engineBase, 'engine', config.expectedEngineBase);
+  if (!browser && apiBase === engineBase) throw new Error('Live configuration error: API and engine expected bases must use distinct ports');
   // The native host grants this one origin only after validating a private, exact-build fixture.
   // Browser/Vite configuration has no path to supply the grant in main.tsx. Keep every other
   // production origin subject to the normal remote HTTPS validator.
   const fixtureLocalBase = 'http://127.0.0.1:4001';
   const qualificationLocalOrigin = config.qualificationLocalProductionApiBase === fixtureLocalBase
     && apiBase === fixtureLocalBase && config.productionApiBase === fixtureLocalBase;
-  const productionApiBase = qualificationLocalOrigin
+  const productionApiBase = browser ? apiBase : qualificationLocalOrigin
     ? fixtureLocalBase : validateProductionApiBase(config.productionApiBase);
-  const localFetcher: Fetcher = (input, init) => {
+  const localFetcher: Fetcher = browser ? trustedBrowserFetcher(apiBase, fetcher) : (input, init) => {
     const headers = new Headers(init?.headers);
     // Only the validated private actor uses its seeded ordinary session for owner-scoped local
     // routes. Normal local calls still strip cloud Authorization for AGENT_LOCAL as before.
@@ -166,35 +170,35 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
 
   return {
     mode: 'live',
-    environment: { apiPort: new URL(apiBase).port, enginePort: new URL(engineBase).port, apiBase },
+    environment: { apiPort: new URL(apiBase).port, enginePort: new URL(engineBase).port, apiBase, ...(browser ? { browser: true } : {}) },
     // The signed-in cloud bearer belongs only on production requests. The local API mirrors
     // Flutter's localHeaders() trust boundary: a present cloud bearer must be omitted because
     // AGENT_LOCAL fails closed on invalid Authorization instead of using the local bypass.
     domains: {
       inspector: createInspectorGateway(apiBase, productionApiBase, config.taskToken, fetcher, localFetcher),
       pty: createLivePtyGateway(apiBase, localFetcher),
-      tasks: createLiveTasksGateway(productionApiBase, config.taskToken, fetcher),
+      tasks: browser ? undefined : createLiveTasksGateway(productionApiBase, config.taskToken, fetcher),
       sessions: createLiveSessionsGateway(apiBase, config.taskToken, localFetcher),
-      dashboard: createLiveDashboardGateway(productionApiBase, config.taskToken, fetcher),
-      planner: createLivePlannerGateway(productionApiBase, config.taskToken, fetcher),
-      rhythms: createLiveRhythmsGateway(productionApiBase, config.taskToken, fetcher),
-      projects: createLiveProjectsGateway(productionApiBase, config.taskToken, fetcher),
-      messages: createLiveMessagesGateway(productionApiBase, config.taskToken, fetcher),
-      facilities: createLiveFacilitiesGateway(productionApiBase, config.taskToken, fetcher),
-      automations: createLiveAutomationsGateway(productionApiBase, config.taskToken, fetcher),
-      integrations: createLiveIntegrationsGateway(productionApiBase, config.taskToken, fetcher),
-      liveArtifacts: createLiveArtifactsGateway(productionApiBase, config.taskToken, fetcher),
-      userPreferences: createLiveUserPreferencesGateway(productionApiBase, config.taskToken, fetcher),
-      notifications: createLiveNotificationsGateway(productionApiBase, config.taskToken, fetcher),
+      dashboard: browser ? undefined : createLiveDashboardGateway(productionApiBase, config.taskToken, fetcher),
+      planner: browser ? undefined : createLivePlannerGateway(productionApiBase, config.taskToken, fetcher),
+      rhythms: browser ? undefined : createLiveRhythmsGateway(productionApiBase, config.taskToken, fetcher),
+      projects: browser ? undefined : createLiveProjectsGateway(productionApiBase, config.taskToken, fetcher),
+      messages: browser ? undefined : createLiveMessagesGateway(productionApiBase, config.taskToken, fetcher),
+      facilities: browser ? undefined : createLiveFacilitiesGateway(productionApiBase, config.taskToken, fetcher),
+      automations: browser ? undefined : createLiveAutomationsGateway(productionApiBase, config.taskToken, fetcher),
+      integrations: browser ? undefined : createLiveIntegrationsGateway(productionApiBase, config.taskToken, fetcher),
+      liveArtifacts: browser ? undefined : createLiveArtifactsGateway(productionApiBase, config.taskToken, fetcher),
+      userPreferences: browser ? undefined : createLiveUserPreferencesGateway(productionApiBase, config.taskToken, fetcher),
+      notifications: browser ? undefined : createLiveNotificationsGateway(productionApiBase, config.taskToken, fetcher),
       memory: createLiveMemoryGateway(apiBase, config.taskToken, localFetcher),
       permissions: createLivePermissionGateway(apiBase, config.taskToken, localFetcher),
       // Human approval surfaces skip the AGENT_LOCAL bypass and require the cloud bearer (agent_approvals_routes.ts).
-      approvals: createLiveApprovalGateway(apiBase, config.taskToken, fetcher),
+      approvals: browser ? undefined : createLiveApprovalGateway(apiBase, config.taskToken, fetcher),
       delegation: createLiveDelegationGateway(apiBase, config.taskToken, localFetcher),
       mcp: createLiveMcpGateway(apiBase, config.taskToken, localFetcher, config.mcpReady),
       skills: createLiveSkillGateway(apiBase, config.taskToken, localFetcher),
       schedules: createLiveScheduleGateway(apiBase, config.taskToken, localFetcher, config.mcpReady),
-      mobileAccess: createLiveMobileAccessGateway(apiBase, config.taskToken, localFetcher),
+      mobileAccess: browser ? undefined : createLiveMobileAccessGateway(apiBase, config.taskToken, localFetcher),
       commands: createLiveCommandGateway(apiBase, config.taskToken, localFetcher),
       runQuality: createLiveRunQualityGateway(apiBase, config.taskToken, localFetcher),
       usageBudget: createLiveUsageBudgetGateway(apiBase, config.taskToken, localFetcher),
@@ -203,19 +207,19 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       designs: createLiveDesignsGateway(apiBase, config.taskToken, localFetcher),
       orgProposals: createLiveOrgProposalsGateway(apiBase, config.taskToken, localFetcher),
       runOutcomes: createLiveRunOutcomesGateway(apiBase, config.taskToken, localFetcher),
-      autoPromotion: createLiveAutoPromotionGateway(productionApiBase, config.taskToken, fetcher),
-      workspaceMembers: createLiveWorkspaceMembersGateway(productionApiBase, config.taskToken, fetcher),
-      settings: createLiveSettingsGateway(productionApiBase, config.taskToken, fetcher),
+      autoPromotion: browser ? undefined : createLiveAutoPromotionGateway(productionApiBase, config.taskToken, fetcher),
+      workspaceMembers: browser ? undefined : createLiveWorkspaceMembersGateway(productionApiBase, config.taskToken, fetcher),
+      settings: browser ? undefined : createLiveSettingsGateway(productionApiBase, config.taskToken, fetcher),
       runtime: createLiveRuntimeGateway(apiBase, localFetcher),
       dayflow: createLiveDayflowGateway(apiBase, localFetcher),
-      sharedAgents: createLiveSharedAgentsPort(apiBase, config.taskToken, createLiveSessionsGateway(apiBase, config.taskToken, localFetcher), fetcher),
+      sharedAgents: browser ? undefined : createLiveSharedAgentsPort(apiBase, config.taskToken, createLiveSessionsGateway(apiBase, config.taskToken, localFetcher), fetcher),
       // #1374 — undefined outside the Electron shell (plain browser preview, or a build with the
       // RHYTHM_REMOTE_ATTACH kill switch off); the gateway itself reports `enabled: false` then.
       remoteSessions: createLiveRemoteSessionsGateway(
         typeof window === 'undefined' ? undefined
           : (window as unknown as { rhythmShell?: { remoteEnvironments?: RemoteEnvironmentsBridge } }).rhythmShell?.remoteEnvironments,
       ),
-      workstreams: createLiveWorkstreamsGateway(apiBase, config.taskToken, fetcher),
+      workstreams: createLiveWorkstreamsGateway(apiBase, config.taskToken, browser ? localFetcher : fetcher),
       // Coordinator is the one protected local surface that requires the
       // signed-in bearer (requireLocalOrCloudAuth). Keep localFetcher for all
       // established local routes, where its credential stripping is required.
@@ -226,7 +230,7 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
     },
     health: {
       api: () => check('api', `${apiBase}/health`),
-      engine: () => check('engine', `${engineBase}/global/health`),
+      engine: () => check('engine', browser ? `${apiBase}/opencode/health` : `${engineBase}/global/health`),
     },
     unsupported: (operation) => unsupported('live', operation),
   };
@@ -238,6 +242,7 @@ export function composeGateway(environment: GatewayEnvironment): RendererGateway
     throw new Error('Live configuration error: gateway mode must be fixture or live');
   }
   return createLiveGateway({
+    browserOrigin: environment.browserOrigin,
     apiBase: environment.apiBase ?? '',
     engineBase: environment.engineBase ?? '',
     productionApiBase: environment.productionApiBase ?? '',
@@ -248,6 +253,7 @@ export function composeGateway(environment: GatewayEnvironment): RendererGateway
     mcpReady: environment.mcpReady,
   });
 }
+import { trustedBrowserFetcher } from './browser-transport';
 import { createLiveTasksGateway, type TaskGateway } from './tasks';
 import { createInspectorGateway } from './inspector';
 import { createLivePtyGateway } from './pty';

@@ -6,5 +6,5 @@ export default defineConfig({
   timeout: 60_000, reporter: 'line',
   use: { ...devices['Desktop Chrome'], baseURL: 'http://rhythm-web.test:4098',
     launchOptions: { args: ['--host-resolver-rules=MAP rhythm-web.test 127.0.0.1', '--unsafely-treat-insecure-origin-as-secure=http://rhythm-web.test:4098'] },
-    trace: 'retain-on-failure', viewport: { width: 1440, height: 900 } },
+    trace: 'on', screenshot: 'only-on-failure', viewport: { width: 1440, height: 900 } },
 });
