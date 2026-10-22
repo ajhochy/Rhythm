@@ -158,7 +158,7 @@ export function createApp(options: {
           env.agentOriginGuardEnabled !== false &&
           env.agentLocal
         ) {
-          callback(null, webHostConfig ? webHostConfig.origins.includes(origin) : env.localRendererOrigins.includes(origin));
+          callback(null, env.localRendererOrigins.includes(origin) || webHostConfig?.origins.includes(origin) === true);
           return;
         }
 

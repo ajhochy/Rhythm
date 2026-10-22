@@ -20,8 +20,7 @@ function isAllowedHost(value: string | string[] | undefined): boolean {
 export function isAllowedLocalAgentSurfaceRequest(
   headers: IncomingHttpHeaders,
 ): boolean {
-  if (webHostConfig) {
-    if (typeof headers.host !== 'string' || !webHostConfig.hosts.includes(headers.host)) return false;
+  if (webHostConfig && typeof headers.host === 'string' && webHostConfig.hosts.includes(headers.host)) {
     if (headers.origin !== undefined &&
       (typeof headers.origin !== 'string' || !webHostConfig.origins.includes(headers.origin))) return false;
     const site = headers['sec-fetch-site'];

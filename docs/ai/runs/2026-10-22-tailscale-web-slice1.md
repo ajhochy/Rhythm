@@ -440,3 +440,242 @@ Final handoff audit: `git diff --check` passed after the Attempt 2 log append.
 rows, exit 1; only the existing unrelated Time Machine SMB stat warning.
 `.sandbox-attempt2.out` is absent from final status. All changes remain
 uncommitted; predecessor harness and log remain untracked alongside new modules.
+
+## Attempt 3 — F1/F2 repaired; Slice 1 remains incomplete
+
+### Scope / gates / handoff
+
+Parent handoff accepted. Loaded `acceptance-contract` first, then `coding-agent`;
+read the predecessor receipt, external plan sections 1–2, supplied AGENTS,
+project-state, current-plan and regression registry before investigation.
+Started on the requested branch at `e5031254594eca3cc9c6ca2b373a2108edc9e18d`
+with a clean tree. No branch change, commit, push, PR, deployment, dependency
+installation, networking/Tailscale change, live-data access or live-port request.
+The approved feature scope and exclusions in the preceding receipts carry forward.
+Slice 2 remains gated on the manager's base landing; no work on it occurred.
+
+**Partial, NOT READY_FOR_VERIFICATION.** No frontend production file was edited.
+The backend fixes have real regression/security evidence, but browser transport,
+A2 and the complete A1–A5 contract remain unfinished. The manager/independent
+verifier can run these tests against the candidate without editing its sources;
+no independent verifier has run this candidate yet.
+
+- Phase 0: genuine F1/F2 failing contract recorded before production edits.
+  The larger contract is still incomplete: A2 and WS URL unit tests do not exist.
+- Phase 1: backend F1/F2 scope reviewed; stale GitNexus plus exact source callers.
+  Frontend implementation review/impact analysis is not complete.
+- Phase 2: F1/F2 implemented and focused checks pass; aggregate validation failed
+  with captured diagnostics denied by host policy. No attempt to bypass denial.
+
+### Files
+
+- `apps/api_server/src/middleware/local_agent_surface_guard.ts`: configured web
+  Host branch now applies only to exact configured Hosts; other requests retain
+  the pre-existing desktop rule. Web Hosts still reject foreign Origins and
+  non-same-origin fetch metadata. No changes to native approval/bearer gates.
+- `apps/api_server/src/app.ts`: CORS is the union of localRendererOrigins and
+  configured web origins, rather than a replacement.
+- `apps/api_server/src/middleware/web_host_surface_contract.test.ts`: eight
+  non-loopback-origin guard table cases plus real Express HTTP preflights for
+  Electron and web CORS. Only configuration is injected; the guard, CORS,
+  owner initialization, UsersRepository and HTTP server are real. Synthetic
+  in-memory SQLite and temporary built-index fixture; no mock system under test.
+- `apps/web/tests/web-host/playwright.config.ts`: realistic non-loopback origin;
+  Chromium resolver maps `rhythm-web.test` to loopback. The insecure-origin-as-
+  secure flag approximates the real HTTPS secure context; it does NOT prove
+  actual TLS, Tailscale Serve or physical-device behavior. CSP is not bypassed.
+- `apps/web/tests/web-host/fixture.ts`: Node HTTP helper explicitly sends web
+  Host/Origin while dialing only 127.0.0.1:4098; no DNS/network configuration.
+- `apps/web/tests/web-host/security.test.mjs`: same explicit headers for web
+  requests; adds loopback local route, Electron and web CORS preflights, originless
+  web access, loopback-Origin-on-web-Host rejection, cross-site rejection, and
+  accepted loopback/Electron/web WS upgrades. Existing foreign write/upgrade,
+  traversal and JSON-404 assertions retained.
+- This run log. Own scratch `.sandbox-attempt3.out` removed before handoff.
+
+### Impact / F1/F2 contract commands
+
+Before changing production, upstream GitNexus impact ran for
+`isAllowedLocalAgentSurfaceRequest` and `createApp` (including its nested CORS
+callback), repo Rhythm, summaryOnly. Both returned LOW, zero direct indexed
+callers and affected processes. **Stale index b846fdc: not proof of isolation.**
+Exact-source search confirmed HTTP `localAgentSurfaceGuard`, WS upgrades in
+`ws_gateway.ts:146–195` (both agent and PTY), and Dayflow router at
+`dayflow_integration_routes.ts:131–139` use this same guard. These consumers
+retain their separate peer/optional-bearer checks. Risk review: additive desktop
+compatibility must not become a foreign-Host/Origin bypass; use a non-loopback
+web config so the overlapping-loopback test cannot mask the defect again.
+
+From `apps/api_server`:
+
+```sh
+npx --no-install vitest run src/middleware/web_host_surface_contract.test.ts
+```
+
+1. Initial contract authoring run: 6 pass / 3 fail. F1 had two genuine
+   `expected false to be true` failures; the F2 test lacked web-host initialization
+   and was not valid red evidence yet.
+2. Added real owner/static fixture initialization before implementation; reran:
+   **6 pass / 3 fail**, F1 false-vs-true, F2 `403 !== 204`. Genuine baseline.
+3. F1 repair only; reran unchanged assertions: **8 pass / 1 fail**. F2 now
+   `401 !== 204`, proving the missing CORS allowance independently of F1.
+4. F2 repair; combined default/opt-in tests: **10 pass / 1 fail**. Node fetch
+   did not transmit the supplied web Host as required on this runtime; web leg
+   got 403. Fixed the test transport to `http.request` with explicit Host,
+   preserving exact status and ACAO assertions (not a product relaxation).
+5. Final focused command:
+
+   ```sh
+   npx --no-install vitest run src/middleware/web_host_surface_contract.test.ts src/middleware/local_agent_surface_guard.test.ts
+   ```
+
+   **2 files / 11 tests passed**, including default-mode ts.net refusal.
+   One implementation repair per defect; no repeated product-repair loop.
+
+### Builds / Electron identity proof
+
+Before sandbox/browser baseline:
+
+```sh
+npm run build:guard -- npm --prefix apps/web run build
+shasum -a 256 apps/web/dist/index.html
+npm run build:guard -- npm --prefix apps/api_server run build
+```
+
+Both builds PASS; web runs `tsc -b && vite build` (1788 modules, existing large
+chunk advisory); API tsc/postbuild PASS. Repeated the first two commands at
+handoff, again PASS. Before/after SHA-256 of default Electron-mode dist HTML:
+
+```text
+09ce840b483bc110872bee25c12e36474823b313b54dd830003ab3ffaa6dbbd4
+09ce840b483bc110872bee25c12e36474823b313b54dd830003ab3ffaa6dbbd4
+```
+
+Exact byte identity includes its CSP. No frontend production change was made,
+so this is a desktop non-regression proof, **not** proof that a separate web
+build/CSP/output was implemented. That requirement remains outstanding.
+
+### Canonical sandbox protocol and actual acceptance runs
+
+Both groups below ran each lifecycle plus its tests in a **single Bash tool
+invocation**, timeout 1,200,000ms. Never wrapped sandbox.sh in build:guard.
+Reused the manager-approved engine checkout read-only, no fork changes/build.
+No scripted provider was started and no model, paid or otherwise, was invoked.
+
+Common exports (all values explicit):
+
+```sh
+export RHYTHM_APPROVED_FIXTURE_ROOT=/private/tmp/rhythm-web-slice1-fixtures-20261022
+export RHYTHM_LIVE_DB_PATH=/private/tmp/rhythm-web-slice1-fixtures-20261022/rhythm.db
+export RHYTHM_SANDBOX_OPENCODE_CONFIG=/private/tmp/rhythm-web-slice1-fixtures-20261022/opencode.json
+export RHYTHM_SANDBOX_ENGINE_DIR=/private/tmp/rhythm-feature-playwright-2026-10-19/apps/opencode_fork/packages/opencode
+export RHYTHM_SANDBOX_SKIP_ENGINE_BUILD=1 RHYTHM_WEB_HOST=1
+export RHYTHM_WEB_PUBLIC_ORIGIN=http://rhythm-web.test:4098 RHYTHM_WEB_OWNER_USER_ID=1
+export RHYTHM_WEB_DIST_DIR="$PWD/apps/web/dist"
+# Set the per-group directory below before running this common lifetime block.
+trap 'tools/dev/sandbox.sh down' EXIT
+tools/dev/sandbox.sh up --foreground > .sandbox-attempt3.out 2>&1 & holder=$!
+ready=0
+for n in {1..180}; do
+  if ! kill -0 "$holder" 2>/dev/null; then break; fi
+  if curl -sf http://127.0.0.1:4098/health >/dev/null; then ready=1; break; fi
+  sleep 1
+done
+if [ "$ready" != 1 ]; then tools/dev/sandbox.sh status; exit 1; fi
+tools/dev/sandbox.sh status
+# Run the group commands here, before the EXIT trap.
+```
+
+Group 1: `RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-web-slice1-sandbox-20261022-attempt3-baseline`
+
+```sh
+node --test apps/web/tests/web-host/security.test.mjs
+apps/web/node_modules/.bin/playwright test --config apps/web/tests/web-host/playwright.config.ts
+tools/dev/sandbox.sh status
+```
+
+- Security **6 pass / 0 fail** (before two extra CORS/WS tests were added).
+- Chromium **1 failed**, genuine A1 behavioral failure: nav-agents visible,
+  but `getByText('Synthetic Admin', {exact:true}).first()` absent after 5000ms.
+  Existing default frontend renders the fixture workspace; it is not browser
+  live transport. No check weakened to accept that fallback.
+- Browser trace: `apps/web/test-results/web-host-shell-A1-configur-3ee48-ll-uses-only-its-own-origin/trace.zip`.
+- `security_exit=0 browser_exit=1`. API PID 87652; engine PID 87689 by final
+  status. Initial API readiness preceded engine readiness; no engine/prompt
+  acceptance is inferred from /health. Runtime remained up for the checks.
+- Teardown preserved `...attempt3-baseline.evidence.v8R9EY` and removed sandbox.
+
+Group 2: `RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-web-slice1-sandbox-20261022-attempt3-verification`
+
+```sh
+node --test apps/web/tests/web-host/security.test.mjs
+env -u RHYTHM_WEB_HOST -u RHYTHM_WEB_PUBLIC_ORIGIN -u RHYTHM_WEB_OWNER_USER_ID -u RHYTHM_WEB_DIST_DIR \
+  apps/api_server/node_modules/.bin/vitest run --root apps/api_server \
+  src/middleware/web_host_surface_contract.test.ts \
+  src/middleware/local_agent_surface_guard.test.ts src/config/web_host.test.ts \
+  src/contract/local_agent_surface_hardening.test.ts src/__tests__/agents_ws_e2e.test.ts \
+  src/__tests__/issue_755_role_separation.test.ts src/contract/issue_1175_adversarial_followup.test.ts \
+  src/__tests__/relay_role.test.ts src/services/decision/decision_env.test.ts \
+  src/services/opencode_client_service.test.ts
+bash tools/dev/sandbox_guard_test.sh
+python3 tools/dev/sandbox_bootstrap_test.py
+tools/dev/sandbox.sh status
+```
+
+- Observed summary: **`security_exit=0 suites_exit=1 guards_exit=0 bootstrap_exit=1`**.
+  Expanded security (8 declared tests, including real permitted WS upgrades)
+  exits 0. Guards exit 0. Do not claim the focused aggregate passed.
+- Real env/config tests selected using tests importing config/env and exact
+  resolver-name search: issue_755_role_separation, relay_role, decision_env;
+  opencode_client_service additionally exercises local renderer origins.
+  No nonexistent src/config/env.test.ts filter used. Per-file result details
+  of this aggregate are unavailable to this agent; no invented counts/results.
+- Python observed `Ran 5 tests ... FAILED (failures=4)`: same four pre-existing
+  failures identified by the manager. Missing checkout-local engine triggers
+  two override subcases; literal NODE_BIN+API_DIR/dist count is 0 vs expected 4;
+  prior missing MCP literal case is the other existing source assertion.
+  Manager already established the 0 count at 894c16f and f262417. Neither the
+  launcher nor bootstrap test was edited; no baseline-failure repair attempted.
+- API PID 88670, engine 88709 remained live at final status. Teardown preserved
+  `...attempt3-verification.evidence.e6Xmhk` and removed sandbox.
+- Full combined capture:
+  `/Users/ajhochhalter/.local/share/opencode/tool-output/tool_164f22fbf001h8Zs7HbadPVfMd`.
+  **Read tool DENIED this path by host external-directory policy.** No alternate
+  tool, copy, symlink, path or rerun was used to retrieve the denied diagnostics.
+  Manager must read this evidence to identify the aggregate suite failure.
+  This is a diagnostic permission blocker, not sandbox lifetime failure and not
+  a feature-scope approval issue. Remaining implementation is not described as
+  completed or automatically excused by that denial.
+
+### Acceptance / remaining work
+
+| Criterion | Attempt 3 result | Evidence |
+|---|---|---|
+| A1 | FAIL | Real Chromium at rhythm-web.test; configured owner missing. Browser infrastructure blocker is gone. |
+| A2 | NOT RUN | No A2 spec/provider/prompt/WS reply/reload/readback proof. |
+| A3 | PASS | Expanded Node suite exits 0 against real sandbox at explicit web Host/Origin; F1 HTTP/CORS/WS cases covered. |
+| A4 | FAIL overall | API + default web tsc/build pass; focused F1/F2/default 11 pass; aggregate suites exit 1; guards exit 0; same 4 pre-existing bootstrap failures; no web CSP build/WS URL unit proof. |
+| A5 | NOT RUN (partial harness) | Realistic-origin config/helper/security reusable; only A1 exists in Chromium and fails. A2/backend-write spec still missing. |
+
+Plan corrections/limits: localhost-origin acceptance concealed the desktop/web
+union regression; use the new realistic origin. The base bootstrap source
+assertions lag the launcher and are not slice defects. Section 2's cloud
+forwarder remains explicitly deferred, not authorization to implement it here.
+No further substantive plan conclusion was verified.
+
+Smallest next action: manager reads the denied aggregate capture above and
+identifies the failed suite before any repair. Then resume the same approved
+Slice 1 scope: freeze/run A2 and WS URL contracts, finish main/index/sessions/PTY
+browser live transport and honest cloud-unavailable state, skip browser auth/me
+and ensureRhythmMcp, build separate web dist/CSP while proving Electron identity,
+and run A1–A5 with the scripted provider. Do not reinstall dependencies or redo
+scope approvals. Final AJ bar (every confirmed working feature in the web app)
+is explicitly NOT met by this partial backend repair.
+
+Final scope audit: GitNexus detect_changes(all, this worktree, Rhythm) returned
+3 indexed symbols (createApp, nested origin, shared guard), 5 tracked code/test
+files, LOW, 0 indexed affected processes; stale/untracked-module limitations
+apply. `git diff --check` passed before this appendix. Default Electron HTML
+rebuild hash is identical above. Read-only lsof audit found no sandbox listener
+rows on 4097/4098/4099 (exit 1; unrelated Time Machine SMB stat warning).
+All edits remain uncommitted for manager review. No completion claim.
