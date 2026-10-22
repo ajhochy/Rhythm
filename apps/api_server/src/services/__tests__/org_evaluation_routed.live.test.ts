@@ -47,6 +47,8 @@ async function runScenario(input: Scenario): Promise<void> {
     'dist/database/org_evaluation_schema.js')) as typeof import('../../database/org_evaluation_schema');
   const { OrgEvaluationRepository } = require(join(apiRoot,
     'dist/repositories/org_evaluation_repository.js')) as typeof import('../../repositories/org_evaluation_repository');
+  const { evaluationRelayFailureCategory } = require(join(apiRoot,
+    'dist/services/org_evaluation_provider_relay.js')) as typeof import('../org_evaluation_provider_relay');
   const ownedRoot = mkdtempSync('/private/tmp/rhythm-routed-live-');
   const db = new Database(':memory:');
   db.exec(SQLITE_ORG_EVALUATION_SCHEMA);
@@ -82,12 +84,7 @@ async function runScenario(input: Scenario): Promise<void> {
       });
     app.use((error: unknown, _request: express.Request, _response: express.Response,
       next: express.NextFunction) => {
-      const message = error instanceof Error ? error.message : '';
-      relayFailureCategories.push(message.includes('budget limit') ? 'budget-limit'
-        : message.includes('Terminal Anthropic usage') ? 'terminal-usage'
-        : message.includes('Provider returned HTTP') ? 'upstream-http'
-        : message.includes('Unsupported') || message.includes('bounded') ? 'request-gate'
-        : 'other');
+      relayFailureCategories.push(evaluationRelayFailureCategory(error));
       next(error);
     });
     const runtime: Runtime = authority.createOrgEvaluationRuntimeAdapter({

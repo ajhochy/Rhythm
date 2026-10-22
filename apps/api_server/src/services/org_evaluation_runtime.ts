@@ -661,7 +661,10 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
         input.candidate.role === 'original');
       try {
         lease = await options.createLease({
-          jobId: input.jobId, stage: input.stage, model: executionModel.modelID, maxCalls: 8,
+          // Relay maximum. Routed recipe/task/webhook arms spend 12+ calls across the
+          // primary and routed child sessions; 8 refused them mid-work. The whole-run
+          // token budget, not this per-arm loop guard, bounds spend.
+          jobId: input.jobId, stage: input.stage, model: executionModel.modelID, maxCalls: 16,
         });
         const managedToolVetting = input.candidate.kind === 'tool-install' &&
           input.candidate.role !== 'original'

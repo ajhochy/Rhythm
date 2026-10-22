@@ -34,7 +34,7 @@ interface ActiveLease extends EvaluationProviderLease {
 // Code-owned gate/relay messages are safe to report verbatim; anything that
 // could echo provider or candidate bytes (e.g. JSON.parse snippets) is not.
 const codeOwnedFailure = /^(?:Unsupported [\w ]+|Only bounded self-contained Anthropic text and function JSON are supported|Evaluation request exceeds bounded input|Invalid output token limit|Anthropic request requires a user message|Evaluation model differs from lease|Evaluation provider protocol differs from lease|Evaluation provider lease already used|Whole-run evaluation token budget limit reached|Evaluation request reservation already used|Terminal (?:Anthropic )?provider usage unavailable|Terminal Anthropic usage unavailable|Anthropic stream returned error|Provider returned HTTP \d{3}|Provider response exceeds bounded buffer|Provider ignored output token ceiling; usage cannot qualify)$/;
-function failureCategory(error: unknown): string {
+export function evaluationRelayFailureCategory(error: unknown): string {
   if (!(error instanceof Error)) return 'other';
   if (error.name === 'TimeoutError' || error.name === 'AbortError') return 'provider-timeout';
   if (error instanceof SyntaxError) return 'malformed-provider-stream';
@@ -248,7 +248,7 @@ export class OrgEvaluationProviderRelay {
       } catch (error) { lease.failed = true; throw error; }
       res.status(response.status).type(response.contentType).send(response.body);
     } catch (error) {
-      if (lease) lease.failure ??= failureCategory(error);
+      if (lease) lease.failure ??= evaluationRelayFailureCategory(error);
       next(error);
     }
   }
