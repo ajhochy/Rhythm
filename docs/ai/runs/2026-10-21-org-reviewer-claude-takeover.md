@@ -57,3 +57,13 @@ Every model fixture is scrubbed, with source hashes unchanged. Approximate spend
   - accept "inconclusive (budget)" for routed kinds at the default.
 - The ~50 leftover no-model fixtures in `/private/tmp/rhythm-ai-fixture-*` from Oct 20–21 hold only disposable `.invalid` actor tokens, with no model loans. They were left for an explicit cleanup pass because some are retained failure evidence.
 - Superseded generated Dayflow wrapper/layout roots for f7579 and 1ab737 (`/private/tmp/rhythm-dayflow-{tracked-wrapper,package-layout}-20261020-{f7579c419d,1ab737bb58}`) are still on disk; the removal command was permission-denied and was not retried. Keep a1c906 (current) and 3332856 (previous).
+
+## Default whole-run cap raised to 1.5M (`edc8e8259e`, `ea093809b2`)
+
+The user chose to raise the product default so routed kinds can finish a full Reviewer cycle.
+
+- Sizing: a full cycle per target runs `p·(c+2)` exploration arms (65% of the cap) plus 2 validation arms (35%), where p is the number of probe cases and c the number of candidates. A routed arm settles about 52–66k actual tokens. A 4-case, 2-candidate target (the shape of the 831 run) needs about 720k exploration and 120k validation, so 1.5M is the smallest round default that fits. Saved settings keep their value; a scan that finds nothing still stops near 12k.
+- RED: the API default assertion in `org_evaluation_routes.test.ts` failed against 100000 (`/private/tmp/rhythm-org-eval-default-cap-red-claude-20261021.log`). GREEN: the integrated checkpoint passed 220 tests with 1 legacy-Docker skip, plus MCP 3/3 and API/MCP/web tsc (`/private/tmp/rhythm-org-eval-default-cap-green-claude-20261021.log`).
+- The packaged settings spec had drifted since lookback was added: its expected PATCH body omitted `lookbackDays`. It now carries the preimage lookback and asserts that a fresh install starts at {1.5M, 2, 7}. **1/1 passed** on signed `edc8e8259e`, no model (`/private/tmp/rhythm-org-evaluation-packaged-settings-edc8e8259e-claude-rerun-20261021.log`). The first, failing attempt left an orphaned `opencode serve` on 4096 (parent PID 1); it was stopped manually. This is a packaged-runner teardown gap on fast failures.
+- The live and actual-snapshot specs now use the 1.5M default.
+- **Pending:** the routed 4-case, managed pair and actual-Secretary reruns on `edc8e8259e`. The model-loan prep refuses because the Personal and Team Anthropic access tokens had expired (it needs at least 30 minutes left, and loans never refresh tokens). This waits on a normal token refresh in the user's Rhythm app.

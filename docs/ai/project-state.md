@@ -6,12 +6,12 @@ Org Reviewer pre-review evaluation (Harness²-style, all improvement kinds, one 
 
 ## Active branch / PR
 
-- Worktree `/private/tmp/rhythm-feature-playwright-2026-10-19`, branch `test/feature-playwright-2026-10-19`, HEAD `a1c906158a` plus docs. No push, PR, merge, install or release. The original checkout's dirt is preserved.
-- Local signed app: exact `a1c906158a`, deep strict verified (`apps/electron/dist/Rhythm.app`).
+- Worktree `/private/tmp/rhythm-feature-playwright-2026-10-19`, branch `test/feature-playwright-2026-10-19`, HEAD `ea093809b2` plus docs. No push, PR, merge, install or release. The original checkout's dirt is preserved.
+- Local signed app: exact `edc8e8259e`, deep strict verified (`apps/electron/dist/Rhythm.app`).
 
 ## In progress
 
-- **Blocked on a user decision:** routed kinds (create-recipe, refine-recipe, refine-task, webhook-wiring) need about 120–130k actual tokens per original/candidate pair, above the 100k default whole-run cap. Options: raise the default cap; raise only the live-test cap and spend about 500k tokens; or accept inconclusive results for budget reasons.
+- Default whole-run cap is now 1.5M (`edc8e8259e`). The packaged settings check passes. The routed, managed and actual-Secretary live reruns are **waiting on a fresh Anthropic token**: the loans need at least 30 minutes of token life and never refresh.
 - The full approve → fresh-use → revert journey (plan `docs/ai/plans/2026-10-21-org-reviewer-end-to-end-playwright.md`, O1–O10) is still unrun.
 
 ## Risks / known issues
@@ -30,4 +30,4 @@ Org Reviewer pre-review evaluation (Harness²-style, all improvement kinds, one 
 
 ## Next step
 
-Get the routed-budget decision. Then qualify the routed kinds, run the packaged evaluation journey through approval and fresh use, and close the remaining per-kind gaps.
+After the user's Rhythm app refreshes the Anthropic login, rerun routed 4 cases, the managed pair and actual Secretary on `edc8e8259e`. Then qualify the routed kinds, run the packaged evaluation journey through approval and fresh use, and close the remaining per-kind gaps.
