@@ -671,6 +671,20 @@ export class AgentSessionsRepository {
     return rows.map(rowToModel);
   }
 
+  /**
+   * Backfill for scheduledRunOwnerUserId: runs (and their inheriting children)
+   * stored before scheduled sessions took the local operator as owner. Rows that
+   * already have an owner are never reassigned.
+   */
+  attributeOwnerlessScheduledSessions(ownerUserId: number): number {
+    return getDb()
+      .prepare(
+        `UPDATE agent_sessions SET owner_user_id = ?
+         WHERE owner_user_id IS NULL AND scheduled_task_id IS NOT NULL`,
+      )
+      .run(ownerUserId).changes;
+  }
+
   findById(id: string): AgentSession | null {
     const row = getDb()
       .prepare(`SELECT * FROM agent_sessions WHERE id = ?`)

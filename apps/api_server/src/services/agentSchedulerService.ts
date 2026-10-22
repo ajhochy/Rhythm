@@ -39,6 +39,16 @@ import {
   formatAgentRunFailure,
 } from './agent_run_failure_classification';
 import { sweepPostApplyLifecycleAsync } from './post_apply_lifecycle';
+import { localOperatorUserId } from './local_operator';
+
+/**
+ * Who a scheduled run acts for. Legacy schedules carry no creator, yet their
+ * runs' MCP calls authenticate as the local operator; an unowned run session
+ * then failed every owner-checked call (e.g. delegation) once a human replied.
+ */
+export function scheduledRunOwnerUserId(task: { createdByUserId: number | null }): number | null {
+  return task.createdByUserId ?? localOperatorUserId();
+}
 
 // ── scope inheritance (scheduled tasks inherit profile scope) ──────────────
 //
@@ -861,7 +871,7 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
           // FOLLOW-UP (memory injection): thread the task owner so memory
           // retrieval is OWNER-SCOPED to whoever created this scheduled task.
           // Null owner → only instance-global memory is injected (fail-safe).
-          ownerUserId: task.createdByUserId ?? null,
+          ownerUserId: scheduledRunOwnerUserId(task),
         }).then(async (result) => {
           const capacityDeferred = result.errorCode === 'capacity';
           const failure =
