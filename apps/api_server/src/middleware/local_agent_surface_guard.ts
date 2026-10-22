@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { RequestHandler } from 'express';
 
 import { env } from '../config/env';
+import { webHostConfig } from '../config/web_host';
 import { DAYFLOW_ERROR_CATALOG } from '../integrations/dayflow/public_contract';
 
 function isAllowedHost(value: string | string[] | undefined): boolean {
@@ -19,6 +20,13 @@ function isAllowedHost(value: string | string[] | undefined): boolean {
 export function isAllowedLocalAgentSurfaceRequest(
   headers: IncomingHttpHeaders,
 ): boolean {
+  if (webHostConfig) {
+    if (typeof headers.host !== 'string' || !webHostConfig.hosts.includes(headers.host)) return false;
+    if (headers.origin !== undefined &&
+      (typeof headers.origin !== 'string' || !webHostConfig.origins.includes(headers.origin))) return false;
+    const site = headers['sec-fetch-site'];
+    return site === undefined || site === 'none' || site === 'same-origin';
+  }
   if (!env.agentLocal || env.agentOriginGuardEnabled === false) {
     return true;
   }

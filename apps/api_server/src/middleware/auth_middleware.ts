@@ -7,6 +7,7 @@ import type { User } from '../models/user';
 import { env } from '../config/env';
 import { getDb } from '../database/db';
 import { UsersRepository } from '../repositories/users_repository';
+import { webHostOwner } from '../services/web_host';
 
 const authService = new AuthService();
 const mobileCloudIdentityService = new MobileCloudIdentityService();
@@ -219,6 +220,12 @@ export async function authenticateIfPresent(
 ): Promise<void> {
   const header = req.header('Authorization') ?? '';
   if (!header.trim()) {
+    const webOwner = webHostOwner();
+    if (webOwner) {
+      req.auth = { user: webOwner, sessionToken: '' };
+      next();
+      return;
+    }
     const local = soleLocalSignedInSession();
     if (local) req.auth = local;
     next();

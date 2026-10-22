@@ -106,6 +106,12 @@ relay_runtime_env=(
   "RHYTHM_RELAY_PUBLIC_URL=http://127.0.0.1:$RELAY_PORT/relay"
   "RHYTHM_RELAY_ALLOW_INSECURE_LOOPBACK_FOR_TESTS=1"
 )
+if [[ "${RHYTHM_WEB_HOST:-}" == 1 ]]; then
+  runtime_env+=("RHYTHM_ROLE=local" "RHYTHM_WEB_HOST=1"
+    "RHYTHM_WEB_PUBLIC_ORIGIN=${RHYTHM_WEB_PUBLIC_ORIGIN:-}"
+    "RHYTHM_WEB_OWNER_USER_ID=${RHYTHM_WEB_OWNER_USER_ID:-}"
+    "RHYTHM_WEB_DIST_DIR=${RHYTHM_WEB_DIST_DIR:-}")
+fi
 if [[ "$RELAY_ENABLED" == 1 ]]; then
   runtime_env+=("RHYTHM_RELAY_URLS=ws://127.0.0.1:$RELAY_PORT/relay/uplink")
 fi

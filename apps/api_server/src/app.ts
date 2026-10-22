@@ -4,6 +4,8 @@ import cors from 'cors';
 import express, { type Router } from 'express';
 
 import { env } from './config/env';
+import { webHostConfig } from './config/web_host';
+import { createWebHostRouter, webHostOwnerContext } from './services/web_host';
 import { errorHandler } from './middleware/error_handler';
 import { localAgentSurfaceGuard } from './middleware/local_agent_surface_guard';
 import { authRouter } from './routes/auth_routes';
@@ -132,6 +134,7 @@ export function createApp(options: {
   );
 
   app.use(localAgentSurfaceGuard);
+  if (webHostConfig) app.use(webHostOwnerContext);
   if (env.bridgeEnabled) {
     app.use('/agent-bridge/v1', createAgentBridgeRouter());
   }
@@ -155,7 +158,7 @@ export function createApp(options: {
           env.agentOriginGuardEnabled !== false &&
           env.agentLocal
         ) {
-          callback(null, env.localRendererOrigins.includes(origin));
+          callback(null, webHostConfig ? webHostConfig.origins.includes(origin) : env.localRendererOrigins.includes(origin));
           return;
         }
 
@@ -294,7 +297,7 @@ export function createApp(options: {
       });
     }
     app.use('/dev', devLogsRouter);
-    app.use(
+    if (!webHostConfig) app.use(
       '/mobile-gateway',
       mobileGatewayAccessLog('MobileGateway'),
       options.mobileGatewayRouter ?? createMobileGatewayRouter(),
@@ -453,6 +456,10 @@ export function createApp(options: {
     });
   }
 
+  if (webHostConfig) {
+    app.use(createWebHostRouter());
+    app.use((_req, res) => res.status(404).json({ error: { code: 'NOT_FOUND' } }));
+  }
   app.use(errorHandler);
 
   return app;
