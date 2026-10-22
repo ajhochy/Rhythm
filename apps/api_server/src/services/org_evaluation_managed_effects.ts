@@ -2,9 +2,14 @@
 import { createHash } from 'node:crypto';
 import type { ToolInstallEvaluationVettingReceipt } from './org_evaluation_external_effects';
 import type { EvaluationWorkerExecution } from './org_evaluation_worker';
+import { MANAGED_TOOL_DENIAL_TEXT } from './org_evaluation_managed_mcp_shim';
 
 const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
 type Event = EvaluationWorkerExecution['observedEffects'][number];
+// The fork's deferred MCP dispatcher records canonical <server>_<raw tool>
+// names in engine history. The signed receiver records the raw tool name.
+const LIST_DISPATCH = 'rhythm_rhythm_list_managed_tools';
+const RUN_DISPATCH = 'rhythm_rhythm_run_managed_tool';
 
 export function verifyPrivateManagedEffects(input: {
   baseline: boolean; changeJson: string; manifestJson: string;
@@ -26,14 +31,16 @@ export function verifyPrivateManagedEffects(input: {
       typeof value.callId === 'string' && input.execution.toolEvents.some((part) =>
         part.name === 'mcp_dispatch' && part.status === 'completed' &&
         part.callId === value.callId && part.dispatch?.action === 'execute' &&
-        part.dispatch.name === 'rhythm_list_managed_tools' &&
+        part.dispatch.name === LIST_DISPATCH &&
         part.resultContentHashes.includes(emptyListHash)));
     const denied = observations.find((value) => value.toolName === 'rhythm_run_managed_tool' &&
       value.status === 403 && value.denialReason === 'not-installed' &&
+      value.responseHash === sha256('not-installed') &&
       typeof value.callId === 'string' && input.execution.toolEvents.some((part) =>
-        part.name === 'mcp_dispatch' && part.status === 'error' &&
+        part.name === 'mcp_dispatch' && part.status === 'completed' &&
         part.callId === value.callId && part.dispatch?.action === 'execute' &&
-        part.dispatch.name === 'rhythm_run_managed_tool'));
+        part.dispatch.name === RUN_DISPATCH &&
+        part.resultContentHashes.includes(sha256(MANAGED_TOOL_DENIAL_TEXT))));
     const successfulRun = observations.some((value) =>
       value.toolName === 'rhythm_run_managed_tool' && value.status === 200);
     return manifest.managedTool === null && !!list && !!denied && !successfulRun
@@ -69,7 +76,7 @@ export function verifyPrivateManagedEffects(input: {
   const toolPart = input.execution.toolEvents.find((part) =>
     part.name === 'mcp_dispatch' && part.status === 'completed' &&
     part.callId === run.callId && part.dispatch?.action === 'execute' &&
-    part.dispatch.name === 'rhythm_run_managed_tool' &&
+    part.dispatch.name === RUN_DISPATCH &&
     part.resultContentHashes.includes(run.responseHash as string));
   if (!toolPart) return { events: [], reason: 'Engine tool result did not join signed Docker receipt' };
   const subject = descriptor.toolName;

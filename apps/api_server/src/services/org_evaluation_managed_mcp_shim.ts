@@ -4,6 +4,7 @@ import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const META = 'com.vcrc.rhythm/security-context';
+export const MANAGED_TOOL_DENIAL_TEXT = 'Managed tool unavailable for this signed agent';
 const TOOLS = [
   { name: 'rhythm_list_managed_tools',
     description: 'List human-approved local tools available to this signed agent.',
@@ -102,7 +103,7 @@ export async function handleManagedMcpRequest(input: JsonRpc): Promise<unknown |
       ...(ingress.blocked ? { isError: true } : {}) });
   } catch (error) {
     return reply(input.id, { isError: true,
-      content: [{ type: 'text', text: 'Managed tool unavailable for this signed agent' }] });
+      content: [{ type: 'text', text: MANAGED_TOOL_DENIAL_TEXT }] });
   }
 }
 

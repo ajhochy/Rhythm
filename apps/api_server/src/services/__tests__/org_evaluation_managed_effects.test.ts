@@ -18,12 +18,17 @@ const run = { toolName: 'rhythm_run_managed_tool', status: 200, callId: 'call', 
 const taint = { toolName: 'external-content-taint', status: 201, callId: 'call',
   responseHash, taintBlocked: false };
 const tool = { name: 'mcp_dispatch', status: 'completed', callId: 'call',
-  dispatch: { action: 'execute', name: 'rhythm_run_managed_tool' },
+  dispatch: { action: 'execute', name: 'rhythm_rhythm_run_managed_tool' },
   resultContentHashes: [responseHash], evidenceHash: hash('toolpart') };
 const execute = { toolEvents: [tool], managedReceiverObservations: [run, taint] } as any;
 const input = { baseline: false, changeJson, manifestJson: JSON.stringify({ managedTool: descriptor }),
   vetting, execution: execute };
 assert.equal(verifyPrivateManagedEffects(input).events.length, 4);
+for (const wrongName of ['rhythm_run_managed_tool', 'other_rhythm_run_managed_tool',
+  'rhythm_rhythm_run_managed_tools']) {
+  assert.deepEqual(verifyPrivateManagedEffects({ ...input, execution: { ...execute,
+    toolEvents: [{ ...tool, dispatch: { action: 'execute', name: wrongName } }] } }).events, []);
+}
 assert.deepEqual(verifyPrivateManagedEffects({ ...input, execution: { ...execute,
   managedReceiverObservations: undefined } }).events, []);
 assert.deepEqual(verifyPrivateManagedEffects({ ...input, execution: { ...execute,
@@ -42,13 +47,33 @@ const listObservation = { toolName: 'rhythm_list_managed_tools', status: 200,
 const deniedObservation = { toolName: 'rhythm_run_managed_tool', status: 403,
   callId: 'denied-call', responseHash: hash('not-installed'), denialReason: 'not-installed' };
 const listPart = { ...tool, callId: 'list-call', dispatch: {
-  action: 'execute', name: 'rhythm_list_managed_tools' }, resultContentHashes: [emptyListHash] };
-const deniedPart = { ...tool, callId: 'denied-call', status: 'error', dispatch: {
-  action: 'execute', name: 'rhythm_run_managed_tool' }, resultContentHashes: [] };
+  action: 'execute', name: 'rhythm_rhythm_list_managed_tools' }, resultContentHashes: [emptyListHash] };
+const denialHash = hash('Managed tool unavailable for this signed agent');
+const deniedPart = { ...tool, callId: 'denied-call', status: 'completed', dispatch: {
+  action: 'execute', name: 'rhythm_rhythm_run_managed_tool' }, resultContentHashes: [denialHash] };
 const baseline = { baseline: true, changeJson: '{}', manifestJson: JSON.stringify({ managedTool: null }),
   execution: { toolEvents: [listPart, deniedPart],
     managedReceiverObservations: [listObservation, deniedObservation] } } as any;
 assert.deepEqual(verifyPrivateManagedEffects(baseline).events.map(e => e.kind), ['managed-original-absent']);
+assert.deepEqual(verifyPrivateManagedEffects({ ...baseline, execution: { ...baseline.execution,
+  toolEvents: [listPart, { ...deniedPart, resultContentHashes: [hash('other denial')] }] } }).events, []);
+assert.deepEqual(verifyPrivateManagedEffects({ ...baseline, execution: { ...baseline.execution,
+  toolEvents: [listPart, { ...deniedPart, callId: 'other-call' }] } }).events, []);
+assert.deepEqual(verifyPrivateManagedEffects({ ...baseline, execution: { ...baseline.execution,
+  toolEvents: [listPart, { ...deniedPart, status: 'error' }] } }).events, []);
+assert.deepEqual(verifyPrivateManagedEffects({ ...baseline, execution: { ...baseline.execution,
+  managedReceiverObservations: [listObservation, deniedObservation, { ...deniedObservation,
+    status: 200, denialReason: undefined }] } }).events, []);
+for (const wrongName of ['rhythm_list_managed_tools', 'other_rhythm_list_managed_tools',
+  'rhythm_rhythm_list_managed_tool']) {
+  assert.deepEqual(verifyPrivateManagedEffects({ ...baseline, execution: { ...baseline.execution,
+    toolEvents: [{ ...listPart, dispatch: { action: 'execute', name: wrongName } }, deniedPart] } }).events, []);
+}
+for (const wrongName of ['rhythm_run_managed_tool', 'other_rhythm_run_managed_tool',
+  'rhythm_rhythm_run_managed_tools']) {
+  assert.deepEqual(verifyPrivateManagedEffects({ ...baseline, execution: { ...baseline.execution,
+    toolEvents: [listPart, { ...deniedPart, dispatch: { action: 'execute', name: wrongName } }] } }).events, []);
+}
 assert.deepEqual(verifyPrivateManagedEffects({ ...baseline, execution: { ...baseline.execution,
   managedReceiverObservations: [{ ...listObservation, responseHash: hash('not empty') },
     deniedObservation] } }).events, []);

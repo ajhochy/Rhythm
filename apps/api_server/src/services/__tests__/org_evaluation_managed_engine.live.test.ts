@@ -59,6 +59,32 @@ type Receipt = { sessionId: string; outputText: string; outputHash: string;
   effectProof: { negativeGuardsPassed: boolean; events: Array<{ kind: string;
     evidenceHash: string; subject: string }> } };
 
+function boundedArmDiagnostic(input: { role: string; status: string; score: number | null;
+  tokenUsage: { totalTokens: number } | null; manifestHash: string; receipt: Receipt }) {
+  const { receipt } = input;
+  return { role: input.role, status: input.status, score: input.score,
+    totalTokens: input.tokenUsage?.totalTokens ?? null, manifestHash: input.manifestHash,
+    outputHash: receipt.outputHash, outputBytes: Buffer.byteLength(receipt.outputText),
+    negativeGuardsPassed: receipt.effectProof.negativeGuardsPassed,
+    effects: receipt.effectProof.events.slice(0, 48).map(({ kind, evidenceHash }) => ({
+      kind: kind.slice(0, 80), evidenceHash })),
+    receiver: receipt.managedReceiverObservations.slice(0, 48).map((entry) => ({
+      toolName: entry.toolName.slice(0, 80), status: entry.status,
+      callIdHash: sha256(entry.callId), denialReason: entry.denialReason ?? null,
+      proposalIdHash: entry.proposalId ? sha256(entry.proposalId) : null,
+      artifactDigest: entry.artifactDigest ?? null, responseHash: entry.responseHash,
+      networkMode: entry.networkMode ?? null,
+      forbiddenArtifactWriteDenied: entry.forbiddenArtifactWriteDenied ?? null,
+    })),
+    history: receipt.toolEvents.slice(0, 64).map((part) => ({
+      name: part.name.slice(0, 80), status: part.status.slice(0, 32),
+      callIdHash: sha256(part.callId), action: part.dispatch?.action.slice(0, 32) ?? null,
+      dispatchedTool: part.dispatch?.name.slice(0, 80) ?? null,
+      resultContentHashes: part.resultContentHashes.slice(0, 8),
+    })),
+  };
+}
+
 async function runPair(): Promise<void> {
   const authority = await loadPackagedOrgEvaluationAuthorityAsync();
   const apiRoot = join(dirname(authority.engineBinary), '../api_server');
@@ -102,6 +128,8 @@ async function runPair(): Promise<void> {
   db.exec(SQLITE_ORG_EVALUATION_SCHEMA);
   const repository = new OrgEvaluationRepository(db);
   const jobId = 'managed-live-root';
+  const observedArms: Array<{ role: string; status: string; score: number | null;
+    tokenUsage: { totalTokens: number } | null; manifestHash: string; receipt: Receipt }> = [];
   const relay = new OrgEvaluationProviderRelay({ repository, dedicatedListener: true,
     baseURL: 'http://127.0.0.1:4796/agent-org-proposals/evaluations/provider',
     resolveUpstream: async (modelId) => { authority.assertCurrentLoan();
@@ -118,7 +146,7 @@ async function runPair(): Promise<void> {
       enginePort: () => randomInt(50000, 59000), wallMs: 120_000,
     });
     const task = { key: 'managed-version',
-      prompt: `Call rhythm_list_managed_tools. Then call rhythm_run_managed_tool for proposalId ${proposalId} with argv ["--version"]. If the actual tool output says fixture-tool 1.0.0, respond TOOL_READY. Otherwise report TOOL_UNAVAILABLE. Do not infer a result from the tool descriptions.`,
+      prompt: `Use mcp_dispatch family=mcp to describe and execute the catalog name rhythm_rhythm_list_managed_tools with arguments {}. Then describe and execute rhythm_rhythm_run_managed_tool with arguments {"proposalId":"${proposalId}","argv":["--version"]}. If the actual tool output says fixture-tool 1.0.0, respond TOOL_READY. Otherwise report TOOL_UNAVAILABLE. Do not infer a result from tool descriptions.`,
       outputIncludes: ['TOOL_READY'], outputExcludes: ['TOOL_UNAVAILABLE'] };
     const runArm = async (role: 'original' | 'variant', change: string,
       stage: 'original-probe' | 'candidate-probe') => {
@@ -132,6 +160,8 @@ async function runPair(): Promise<void> {
       const result = await runtime.execute({ jobId, candidate, snapshot, task,
         phase: 'probe', stage, proposal });
       const receipt = JSON.parse(result.receiptJson) as Receipt;
+      observedArms.push({ role, status: result.status, score: result.score,
+        tokenUsage: result.tokenUsage, manifestHash: prepared.manifestHash, receipt });
       assert.equal(result.status, 'pass', result.failureReason ?? 'managed arm did not pass');
       assert.ok(result.tokenUsage && result.tokenUsage.totalTokens > 0);
       assert.equal(receipt.effectProof.negativeGuardsPassed, true);
@@ -166,7 +196,7 @@ async function runPair(): Promise<void> {
       event.callId === run.callId && event.responseHash === run.responseHash));
     assert.ok(candidate.receipt.toolEvents.some(part => part.name === 'mcp_dispatch' &&
       part.status === 'completed' && part.callId === run.callId &&
-      part.dispatch?.action === 'execute' && part.dispatch.name === 'rhythm_run_managed_tool' &&
+      part.dispatch?.action === 'execute' && part.dispatch.name === 'rhythm_rhythm_run_managed_tool' &&
       part.resultContentHashes.includes(run.responseHash)));
     for (const kind of ['docker-safety-vetted', 'tool-installed', 'tool-invoked',
       'forbidden-tool-effect-denied']) {
@@ -179,6 +209,22 @@ async function runPair(): Promise<void> {
     assert.ok(budget.settledTokens > 0 && budget.settledTokens <= 20_000);
     assert.equal(budget.outstandingTokens, 0);
     assert.equal(budget.hasUnknownUsage, false);
+  } catch (error) {
+    // The loan runner scrubs its fixture even after failure, so retain a new
+    // owned evidence directory. Never persist prompt, output, credentials, or
+    // full provider/engine transcript. The disposable worker is still removed.
+    const diagnosticRoot = mkdtempSync('/private/tmp/rhythm-managed-engine-diagnostics-');
+    const path = join(diagnosticRoot, 'receipt.json');
+    const budget = await repository.getBudgetAsync(jobId).catch(() => null);
+    const evidence = { schemaVersion: 1, jobId, recordedAt: new Date().toISOString(),
+      originalHash: sha256(JSON.stringify(snapshot)), artifactDigest: digest,
+      arms: observedArms.map(boundedArmDiagnostic),
+      budget: budget ? { settledTokens: budget.settledTokens,
+        outstandingTokens: budget.outstandingTokens,
+        hasUnknownUsage: budget.hasUnknownUsage } : null };
+    writeFileSync(path, JSON.stringify(evidence, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+    if (error instanceof Error) error.message += `; structural evidence: ${path}`;
+    throw error;
   } finally {
     await relay.closeDedicatedListener();
     db.close();

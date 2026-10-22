@@ -8,6 +8,7 @@ import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import { agentOrgProposalToJson } from '../models/agent_org_proposal';
 import type { AgentSession, StructuredAgentSessionMessage } from '../models/agent_session';
 import { AgentConfigsRepository, type AgentConfig } from '../repositories/agent_configs_repository';
+import { AgentCookbookRepository } from '../repositories/agent_cookbook_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentSessionsRepository, flattenAgentSessionTree } from '../repositories/agent_sessions_repository';
@@ -230,8 +231,22 @@ function stableConfig(config: AgentConfig): JsonRecord {
 
 function profileSummary(config: AgentConfig): JsonRecord {
   const stable = stableConfig(config);
+  const scope = (raw: string | null, rawField: string, parsedField: string): JsonRecord => {
+    if (raw === null) return { [rawField]: null, [parsedField]: null };
+    if (Buffer.byteLength(raw, 'utf8') > 2_000) return { [`${rawField}Omitted`]: 'Byte bound' };
+    try {
+      return { [rawField]: raw, [parsedField]: JSON.parse(raw) as unknown };
+    } catch {
+      return { [rawField]: raw, [`${parsedField}Invalid`]: 'Malformed stored JSON' };
+    }
+  };
+  for (const key of ['allowedMcps', 'allowedSkills', 'corePermissions', 'allowedDelegates']) delete stable[key];
   return {
     ...stable,
+    ...scope(config.allowedMcpsJson, 'allowedMcpsJson', 'allowedMcps'),
+    ...scope(config.allowedSkillsJson, 'allowedSkillsJson', 'allowedSkills'),
+    ...scope(config.corePermissionsJson, 'corePermissionsJson', 'corePermissions'),
+    ...scope(config.allowedDelegatesJson, 'allowedDelegatesJson', 'allowedDelegates'),
     targetRevision: String(config.revision ?? 0),
     systemPrompt: typeof config.systemPrompt === 'string'
       ? config.systemPrompt.slice(0, 4_000)
@@ -283,8 +298,30 @@ function projectedAgentFile(profileId: string): JsonRecord {
   };
 }
 
+function reviewerMessageProjection(message: StructuredAgentSessionMessage): {
+  text: string; toolErrorCount: number; toolErrorOmitted: number;
+} {
+  const text = message.strippedText || message.rawText;
+  const facts: string[] = [];
+  let toolErrorOmitted = 0;
+  for (const part of message.parts) {
+    if (!isRecord(part) || part.type !== 'tool' || !isRecord(part.state) || part.state.status !== 'error') continue;
+    const error = part.state.error;
+    if (typeof error !== 'string' || !error.trim() || error.length > MAX_EVIDENCE_QUOTE ||
+      scanContextContent(error, 'Org Reviewer tool error').blocked) {
+      toolErrorOmitted++;
+      continue;
+    }
+    const tool = typeof part.tool === 'string' && /^[a-zA-Z0-9_.-]{1,100}$/.test(part.tool)
+      ? part.tool : 'tool';
+    facts.push(`${tool} error: ${error}`);
+  }
+  return { text: [text, ...facts].filter(Boolean).join('\n'),
+    toolErrorCount: facts.length, toolErrorOmitted };
+}
+
 function messageText(message: StructuredAgentSessionMessage): string {
-  return message.strippedText || message.rawText;
+  return reviewerMessageProjection(message).text;
 }
 
 function collectionStats(total: number, included = 0, omittedWithoutMessages?: number): CollectionStats {
@@ -735,6 +772,15 @@ export class OrgReviewerService {
     const selected: JsonRecord[] = [];
     for (const item of ordered) {
       const sessionId = item.sessionId as string;
+      const session = this.sessions.findById(sessionId);
+      if (!session || !ownerCanRead(ownerUserId, session.ownerUserId)) {
+        throw AppError.forbidden('Reviewer session evidence is outside the authorized ownership scope');
+      }
+      const statusMessage = session.statusMessage;
+      const statusMessageOmitted = statusMessage &&
+        (statusMessage.length > MAX_EVIDENCE_QUOTE ||
+          scanContextContent(statusMessage, 'Org Reviewer session status').blocked)
+        ? 'Bound or content safety' : null;
       const chunks = new Map<string, JsonRecord>();
       let cursor: string | null = null;
       let pageCount = 0;
@@ -746,27 +792,62 @@ export class OrgReviewerService {
           const prior = chunks.get(messageId);
           const text = String(part.text ?? '');
           chunks.set(messageId, { messageId, role: part.role, createdAt: part.createdAt,
-            totalChars: part.totalChars, text: String(prior?.text ?? '') + text });
+            totalChars: part.totalChars, toolErrorCount: part.toolErrorCount,
+            toolErrorOmitted: part.toolErrorOmitted,
+            text: String(prior?.text ?? '') + text });
         }
         cursor = typeof page.nextCursor === 'string' ? page.nextCursor : null;
       } while (cursor);
-      const recent = [...chunks.values()].filter((message) =>
-        String(message.text).length === Number(message.totalChars) && Number(message.totalChars) <= 4_000).slice(-2);
-      selected.push({ sessionId, profileId: item.profileId, messages: recent,
-        omittedMessages: Number(item.messageCount ?? 0) - recent.length });
+      const complete = [...chunks.values()].filter((message) =>
+        String(message.text).length === Number(message.totalChars) && Number(message.totalChars) <= 4_000 &&
+        String(message.text).trim() && !scanContextContent(String(message.text), 'Org Reviewer evaluation evidence').blocked);
+      const lastErrorFromEnd = [...complete].reverse().findIndex((message) => Number(message.toolErrorCount ?? 0) > 0);
+      const latestErrorIndex = lastErrorFromEnd < 0 ? -1 : complete.length - lastErrorFromEnd - 1;
+      const lastReplyFromEnd = [...complete].reverse().findIndex((message) =>
+        message.role === 'output' || message.role === 'assistant');
+      const latestReplyIndex = latestErrorIndex >= 0 ? latestErrorIndex
+        : lastReplyFromEnd < 0 ? -1 : complete.length - lastReplyFromEnd - 1;
+      const recent = latestReplyIndex >= 0
+        ? [
+          [...complete.slice(0, latestReplyIndex)].reverse().find((message) =>
+            message.role === 'input' || message.role === 'user') ??
+            [...complete.slice(0, latestReplyIndex)].reverse().find((message) =>
+              message.role === 'output' || message.role === 'assistant'),
+          complete[latestReplyIndex],
+        ].filter((message): message is JsonRecord => !!message)
+        : complete.slice(-2);
+      selected.push({ sessionId, profileId: item.profileId, status: session.status,
+        statusMessage: statusMessageOmitted ? null : statusMessage,
+        ...(statusMessageOmitted ? { statusMessageOmitted } : {}), messages: recent,
+        omittedMessages: Number(item.messageCount ?? 0) - recent.length,
+        toolErrorOmitted: [...chunks.values()].reduce((sum, message) => sum + Number(message.toolErrorOmitted ?? 0), 0) });
     }
+    const byProfile = new Map<string, JsonRecord[]>();
+    for (const entry of selected) {
+      const profileId = String(entry.profileId ?? '');
+      const group = byProfile.get(profileId) ?? [];
+      group.push(entry);
+      byProfile.set(profileId, group);
+    }
+    const visibleRecipes = (ownerUserId === null
+      ? await new AgentCookbookRepository().listAllAsync()
+      : await new AgentCookbookRepository().listForOwnerAsync(ownerUserId))
+      .filter((recipe) => ownerCanRead(ownerUserId, recipe.ownerUserId))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const skillBodies = new Map(new AgentSkillsRepository().list().map((skill) => [skill.id, skill.body]));
     const batches: JsonRecord[] = [];
-    for (let index = 0; index < selected.length; index += 2) {
-      const pair = selected.slice(index, index + 2);
-      if (pair.length === 1 && selected.length > 1) pair.push(selected[0]);
+    for (const group of byProfile.values()) for (let index = 0; index < group.length; index += 2) {
+      const pair = group.slice(index, index + 2);
       const profileIds = new Set(pair.map((entry) => String(entry.profileId ?? '')));
       const batch: JsonRecord = {
         sessionEvidence: pair,
         profiles: (overview.profiles as JsonRecord[]).filter((entry) => profileIds.has(String(entry.id))),
         schedules: (overview.schedules as JsonRecord[]).filter((entry) => profileIds.has(String(entry.agentConfigId))),
         skills: overview.skills,
+        recipes: [],
         liveCapabilityCatalog: overview.liveCapabilityCatalog,
-        targetRefShapes: ['agent_config:<id>', 'skill:<id-or-name>', 'scheduled_task:<id>'],
+        targetRefShapes: ['agent_config:<id>', 'skill:<id-or-name>', 'scheduled_task:<id>',
+          'recipe:<id>', 'webhook:<triggerSource>'],
         omission: 'Only two complete recent messages per session are supplied; see omittedMessages',
       };
       if (jsonBytes(batch) > 23_000) {
@@ -780,6 +861,60 @@ export class OrgReviewerService {
         batch.schedules = [];
         batch.omittedConfigurationSummaries = true;
       }
+      if (jsonBytes(batch) > 23_000) throw AppError.conflict('Reviewer evidence pair exceeds bounded model request');
+      if (Array.isArray(batch.skills)) {
+        const entries = [...batch.skills] as JsonRecord[];
+        for (let skillIndex = 0; skillIndex < entries.length; skillIndex++) {
+          const entry = entries[skillIndex];
+          const body = skillBodies.get(String(entry.id));
+          if (body === undefined) {
+            entries[skillIndex] = { ...entry, bodyOmitted: 'Source row unavailable' };
+            continue;
+          }
+          const withBody = { ...entry, body };
+          entries[skillIndex] = withBody;
+          if (jsonBytes({ ...batch, skills: entries }) > 23_000) {
+            entries[skillIndex] = { ...entry, bodyOmitted: 'Batch byte bound' };
+          }
+        }
+        batch.skills = entries;
+      }
+      let omittedRecipes = 0;
+      for (const recipe of visibleRecipes) {
+        if (recipe.boundConfigId !== null && !profileIds.has(recipe.boundConfigId)) continue;
+        const entry: JsonRecord = {
+          id: recipe.id, targetRef: `recipe:${recipe.id}`, title: recipe.title,
+          targetRevision: recipe.updatedAt, boundConfigId: recipe.boundConfigId,
+          format: recipe.format, schemaVersion: recipe.schemaVersion,
+          stepsJsonOmitted: 'Batch byte bound',
+        };
+        const entries = batch.recipes as JsonRecord[];
+        if (jsonBytes({ ...batch, recipes: [...entries, entry] }) > 23_000) {
+          omittedRecipes++;
+          continue;
+        }
+        entries.push(entry);
+        const { stepsJsonOmitted: _omitted, ...metadata } = entry;
+        const withSteps = { ...metadata, stepsJson: recipe.stepsJson };
+        entries[entries.length - 1] = withSteps;
+        if (jsonBytes(batch) > 23_000) {
+          entries[entries.length - 1] = entry;
+        } else {
+          entries[entries.length - 1] = withSteps;
+        }
+        if (recipe.definitionJson !== null) {
+          const current = entries[entries.length - 1];
+          const withDefinition = { ...current, definitionJson: recipe.definitionJson };
+          entries[entries.length - 1] = withDefinition;
+          if (jsonBytes(batch) > 23_000) {
+            entries[entries.length - 1] = current;
+            current.definitionJsonOmitted = 'Batch byte bound';
+          }
+        }
+      }
+      if (omittedRecipes) batch.omittedRecipeCount = omittedRecipes;
+      if (jsonBytes(batch) > 23_000) batch.skills = { omitted: true, reason: 'Batch byte bound' };
+      if (jsonBytes(batch) > 23_000) batch.recipes = { omitted: true, reason: 'Batch byte bound' };
       if (jsonBytes(batch) > 23_000) throw AppError.conflict('Reviewer evidence pair exceeds bounded model request');
       batches.push(batch);
     }
@@ -1244,13 +1379,16 @@ export class OrgReviewerService {
     };
     let next: SessionCursor | null = null;
     for (; index < list.length; index++, offset = 0) {
-      const full = messageText(list[index]);
+      const projection = reviewerMessageProjection(list[index]);
+      const full = projection.text;
       const item: JsonRecord = {
         messageId: idOf(list[index]),
         role: list[index].role,
         createdAt: list[index].createdAt,
         offset,
         totalChars: full.length,
+        toolErrorCount: projection.toolErrorCount,
+        toolErrorOmitted: projection.toolErrorOmitted,
         textComplete: false,
         text: '',
       };
@@ -1401,7 +1539,8 @@ export class OrgReviewerService {
       }
       // The full message text: exactly what the session tool pages out.
       const displayed = message ? messageText(message) : '';
-      if (!message || !displayed.includes(occurrence.quote)) {
+      if (!message || scanContextContent(displayed, 'Org Reviewer cited evidence').blocked ||
+        !displayed.includes(occurrence.quote)) {
         throw AppError.badRequest('Reviewer evidence could not be verified against the stored transcript');
       }
     }
