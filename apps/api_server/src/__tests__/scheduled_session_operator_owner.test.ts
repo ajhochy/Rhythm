@@ -73,6 +73,15 @@ describe('scheduled runs are attributed to the local operator', () => {
     expect(scheduledRunOwnerUserId({ createdByUserId: null })).toBe(operator);
   });
 
+  // CI 2026-10-22: a fake DB without the pairing table made the owner lookup
+  // throw inside dispatch, so the scheduled run never started.
+  it('an unreadable pairing store leaves the run unowned instead of stopping it', () => {
+    setDb({ prepare: () => { throw new Error('pairing store unavailable'); } } as unknown as Database.Database);
+    expect(scheduledRunOwnerUserId({ createdByUserId: null })).toBeNull();
+    expect(scheduledRunOwnerUserId({ createdByUserId: other })).toBe(other);
+    setDb(db);
+  });
+
   it('backfill attributes only ownerless scheduled sessions', () => {
     const ownerless = scheduledSession('ownerless');
     const othersRun = scheduledSession('others', other);
