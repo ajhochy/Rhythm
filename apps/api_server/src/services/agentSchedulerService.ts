@@ -47,7 +47,14 @@ import { localOperatorUserId } from './local_operator';
  * then failed every owner-checked call (e.g. delegation) once a human replied.
  */
 export function scheduledRunOwnerUserId(task: { createdByUserId: number | null }): number | null {
-  return task.createdByUserId ?? localOperatorUserId();
+  if (task.createdByUserId !== null) return task.createdByUserId;
+  // Attribution is optional; a failed lookup must not stop the run itself.
+  try {
+    return localOperatorUserId();
+  } catch (error) {
+    logger.warn(`[AgentScheduler] local operator lookup failed; run stays unowned: ${String(error)}`);
+    return null;
+  }
 }
 
 // ── scope inheritance (scheduled tasks inherit profile scope) ──────────────
