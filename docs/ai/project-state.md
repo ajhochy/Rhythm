@@ -30,6 +30,6 @@ Org Reviewer pre-review evaluation (Harness²-style, all improvement kinds, one 
 
 ## Next step
 
-**Testing paused 2026-10-22:** the user is using this local `edc8e8259e` build for daily work. Packaged and live runs need Rhythm quit (ports 4001/4002/4096), so resume only when the user says so.
+**Testing paused 2026-10-22:** the user is using the local signed build for daily work, now `53a2c94b8e`: `edc8e8259e` plus the PR #1619 fixes (approval field-name binding; scheduled runs owned by the local operator, with a boot backfill) and a branch-only router fix (held free-mode scheduled runs are released under the same owner instead of being dropped). Packaged and live runs need Rhythm quit (ports 4001/4002/4096), so resume only when the user says so.
 
 After the user's Rhythm app refreshes the Anthropic login, rerun routed 4 cases, the managed pair and actual Secretary on `edc8e8259e`. Then qualify the routed kinds, run the packaged evaluation journey through approval and fresh use, and close the remaining per-kind gaps.
