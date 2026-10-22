@@ -5,7 +5,7 @@
 import Database from 'better-sqlite3';
 import express from 'express';
 import { createServer } from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash, randomInt } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -55,6 +55,11 @@ async function runScenario(input: Scenario): Promise<void> {
   const app = express();
   app.use(express.json({ limit: '256kb' }));
   const server = createServer(app);
+  let activeArm: 'setup' | 'original' | 'variant' = 'setup';
+  let relayRequests = 0;
+  const leaseAudit: Array<{ stage: string; requestCount: number; settled: boolean | null }> = [];
+  const leaseIndexes = new Map<string, number>();
+  const relayFailureCategories: string[] = [];
   try {
     await new Promise<void>((ok, fail) => { server.once('error', fail); server.listen(0, '127.0.0.1', ok); });
     const address = server.address();
@@ -66,18 +71,44 @@ async function runScenario(input: Scenario): Promise<void> {
         return authority.resolveConfiguredEvaluationUpstream(modelId);
       } });
     app.post('/agent-org-proposals/evaluations/provider/:leaseId/v1/messages',
-      (request, response, next) => { void relay.handle(request, response, next); });
+      (request, response, next) => {
+        relayRequests++;
+        const index = leaseIndexes.get(String(request.params.leaseId));
+        if (index !== undefined) leaseAudit[index].requestCount++;
+        void relay.handle(request, response, next);
+      });
+    app.use((error: unknown, _request: express.Request, _response: express.Response,
+      next: express.NextFunction) => {
+      const message = error instanceof Error ? error.message : '';
+      relayFailureCategories.push(message.includes('budget limit') ? 'budget-limit'
+        : message.includes('Terminal Anthropic usage') ? 'terminal-usage'
+        : message.includes('Provider returned HTTP') ? 'upstream-http'
+        : message.includes('Unsupported') || message.includes('bounded') ? 'request-gate'
+        : 'other');
+      next(error);
+    });
     const runtime: Runtime = authority.createOrgEvaluationRuntimeAdapter({
       engineBinary: authority.engineBinary,
       workerBaseRoot: ownedRoot, model,
-      createLease: (request) => relay.createLease(request),
-      finishLease: (leaseId) => relay.finishLease(leaseId),
+      createLease: async (request) => {
+        const lease = await relay.createLease(request);
+        leaseIndexes.set(lease.leaseId, leaseAudit.push({ stage: request.stage,
+          requestCount: 0, settled: null }) - 1);
+        return lease;
+      },
+      finishLease: (leaseId) => {
+        const usage = relay.finishLease(leaseId);
+        const index = leaseIndexes.get(leaseId);
+        if (index !== undefined) leaseAudit[index].settled = usage !== null;
+        return usage;
+      },
       getObservedToolCatalog: (leaseId) => relay.getObservedToolCatalog(leaseId),
       enginePort: () => randomInt(50000, 59000), wallMs: 120_000,
     });
     const task = { key: 'routed-output', prompt: 'Execute the selected recipe, task, or webhook route and report its result.',
       outputIncludes: ['ROUTED_OK'], outputExcludes: ['BEFORE'] };
     const runArm = async (role: 'original' | 'variant', changeJson: string, stage: 'original-probe' | 'candidate-probe') => {
+      activeArm = role;
       const prepared = await runtime.prepare({ snapshot: input.original, kind: input.kind,
         targetRef: input.targetRef, changeJson, role, proposal });
       const candidate: OrgEvaluationCandidate = { id: `${role}-routed`, jobId, role,
@@ -125,6 +156,25 @@ async function runScenario(input: Scenario): Promise<void> {
     expect(budget.settledTokens).toBeLessThanOrEqual(20_000);
     expect(budget.outstandingTokens).toBe(0);
     expect(budget.hasUnknownUsage).toBe(false);
+  } catch (error) {
+    // The loan runner removes its private fixture. Retain only structural
+    // accounting evidence in a separate owned receipt, never model content.
+    const diagnosticRoot = mkdtempSync('/private/tmp/rhythm-routed-live-diagnostics-');
+    const path = join(diagnosticRoot, 'receipt.json');
+    const budget = await repository.getBudgetAsync(jobId).catch(() => null);
+    const reservations = db.prepare(`SELECT stage,status,max_tokens,actual_tokens
+      FROM org_evaluation_token_reservations WHERE job_id=? ORDER BY created_at LIMIT 16`)
+      .all(jobId) as Array<{ stage: string; status: string; max_tokens: number;
+        actual_tokens: number | null }>;
+    const evidence = { schemaVersion: 1, scenarioKind: input.kind, activeArm,
+      relayRequests, relayFailureCategories: relayFailureCategories.slice(0, 16),
+      leases: leaseAudit.slice(0, 16), reservations,
+      budget: budget ? { settledTokens: budget.settledTokens,
+        outstandingTokens: budget.outstandingTokens,
+        hasUnknownUsage: budget.hasUnknownUsage } : null };
+    writeFileSync(path, JSON.stringify(evidence, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+    if (error instanceof Error) error.message += `; structural evidence: ${path}`;
+    throw error;
   } finally {
     await new Promise<void>((ok) => server.close(() => ok()));
     db.close();

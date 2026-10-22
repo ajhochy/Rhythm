@@ -34,7 +34,7 @@ const sha256 = (bytes: Buffer | string) => createHash('sha256').update(bytes).di
 const snapshotPath = process.env.RHYTHM_ORG_EVALUATION_REAL_SNAPSHOT_PATH;
 const snapshotSha = process.env.RHYTHM_ORG_EVALUATION_REAL_SNAPSHOT_SHA256;
 const manifestPath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
-const title = '[AI Org Reviewer] packaged owner snapshot keeps real failures and counterevidence separate from qualification';
+const title = '[AI Org Reviewer] packaged owner snapshot preserves error history without claiming an improvement';
 
 const seedFields = {
   label: 'label', icon: 'icon', enabled: 'enabled', isAgent: 'is_agent',
@@ -387,6 +387,7 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
     projectedProfileIds: seedPlan!.projectedIds, unprojectedDelegateDependencies: seedPlan!.unprojectedDependencies,
     sourceToCloneRevisions: imported.revisionMap,
     selectedProjectionOperations: reprojection,
+    historicalSelectionMeaning: 'failure means stored error status; counterexample means non-error status, not a verified successful task',
     outcome: 'unrun' };
   let reviewerTaskId: string | null = null;
   let cycleId: string | null = null;
@@ -501,7 +502,35 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
       expect(batches.some(batch => secretaryFailures.every(failure =>
         batch.sessionEvidence?.some(session => session.sessionId === failure.sessionId))),
       'Both actual Secretary failures must share one complete diagnosis batch').toBe(true);
+      // The earlier packaged scan included the session IDs but dropped the
+      // useful evidence: a 4,145-character reply and terminal system errors.
+      // Derive exact bytes from the private pinned snapshot, never commit them.
+      const failureReadback: Array<{ sessionId: string; messageId: string; role: string;
+        bytes: number; sha256: string }> = [];
+      for (const item of secretaryFailures) {
+        const rows = snapshot.tables.agent_session_messages.filter(row => row.session_id === item.sessionId);
+        const storedText = (row: Row) => String(row.stripped_text || row.raw_text || '');
+        const terminal = [...rows].reverse().find(row => row.role === 'system' && storedText(row).trim());
+        const longFailureReplies = rows.filter(row => row.role === 'output' &&
+          storedText(row).length > 4_000 && Buffer.byteLength(storedText(row)) <= 8 * 1024 &&
+          /\b(?:fail(?:ed|ure)?|error|cancel(?:led|ed|lation)?|timed? out|timeout)\b/i.test(storedText(row)));
+        for (const source of [...longFailureReplies, ...(terminal ? [terminal] : [])]) {
+          const messageId = String(source.sdk_message_id ?? source.id);
+          const text = storedText(source);
+          const visible = evidence.filter(session => session.sessionId === item.sessionId)
+            .flatMap(session => session.messages ?? []).find(message => message.messageId === messageId);
+          expect(visible, `Available failure evidence ${messageId} must reach the diagnosis input`).toBeDefined();
+          expect(sha256(visible!.text), `Failure evidence ${messageId} must preserve exact stored bytes`).toBe(sha256(text));
+          failureReadback.push({ sessionId: item.sessionId, messageId, role: String(source.role),
+            bytes: Buffer.byteLength(text), sha256: sha256(text) });
+        }
+      }
+      expect(failureReadback.some(row => row.role === 'system'), 'Pinned Secretary history must include its terminal error').toBe(true);
+      expect(failureReadback.some(row => row.bytes > 4_000), 'Pinned Secretary history must include its previously omitted long failure').toBe(true);
+      report.failureEvidenceReadback = failureReadback;
     }
+    for (const batch of batches) expect(Buffer.byteLength(JSON.stringify(batch)),
+      'Failure evidence must retain the existing model-input byte limit').toBeLessThanOrEqual(23_000);
     report.contextIncludedSessionIds = evidence.map(row => row.sessionId);
     report.contextOmittedProfiles = requested.filter(id => !batches.some(batch =>
       batch.profiles?.some(profile => profile.id === id)) && batches.some(batch =>

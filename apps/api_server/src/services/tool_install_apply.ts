@@ -147,10 +147,16 @@ async function defaultRunner(argv: readonly string[], cwd: string): Promise<void
           npm_config_ignore_scripts: 'true', npm_config_audit: 'false',
           npm_config_fund: 'false', npm_config_offline: 'true',
           npm_config_update_notifier: 'false' },
-        stdio: 'ignore', shell: false,
+        // sandbox-exec denies the /dev/null write used by stdio:'ignore'.
+        // Anonymous pipes stay inside the worker; drain and discard every byte.
+        stdio: ['pipe', 'pipe', 'pipe'], shell: false,
       });
+      child.stdin.on('error', () => { /* npm never reads stdin */ });
+      child.stdin.end();
+      child.stdout.resume();
+      child.stderr.resume();
       child.once('error', reject);
-      child.once('exit', (code) => code === 0 ? resolveRun() : reject(new Error('managed installer failed')));
+      child.once('close', (code) => code === 0 ? resolveRun() : reject(new Error('managed installer failed')));
     });
   } finally {
     // These paths were created inside this exclusive staging directory only.

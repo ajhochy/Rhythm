@@ -66,6 +66,7 @@ const MAX_INDEX_NAME_CHARS = 60;
 const CATALOG_KINDS = ['profiles', 'schedules', 'queue', 'skills', 'mcpTools', 'liveSkills'] as const;
 const MAX_SUBMISSION_BYTES = 64 * 1024;
 const MAX_EVIDENCE_QUOTE = 4_000;
+const FAILURE_OUTPUT_PATTERN = /\b(?:error|fail(?:ed|ure)?|cancel(?:led|ed|lation)?|denied|timeout|timed out|incomplete)\b/i;
 const DEFAULT_WINDOW_DAYS = 7;
 const MAX_SESSION_LIMIT = 100;
 const MAX_WINDOW_DAYS = 14;
@@ -799,27 +800,58 @@ export class OrgReviewerService {
         cursor = typeof page.nextCursor === 'string' ? page.nextCursor : null;
       } while (cursor);
       const complete = [...chunks.values()].filter((message) =>
-        String(message.text).length === Number(message.totalChars) && Number(message.totalChars) <= 4_000 &&
+        String(message.text).length === Number(message.totalChars) &&
+        (Number(message.totalChars) <= 4_000 || Buffer.byteLength(String(message.text), 'utf8') <= 8_192) &&
         String(message.text).trim() && !scanContextContent(String(message.text), 'Org Reviewer evaluation evidence').blocked);
-      const lastErrorFromEnd = [...complete].reverse().findIndex((message) => Number(message.toolErrorCount ?? 0) > 0);
-      const latestErrorIndex = lastErrorFromEnd < 0 ? -1 : complete.length - lastErrorFromEnd - 1;
-      const lastReplyFromEnd = [...complete].reverse().findIndex((message) =>
+      const ordinary = complete.filter((message) => Number(message.totalChars) <= 4_000);
+      const lastErrorFromEnd = [...ordinary].reverse().findIndex((message) => Number(message.toolErrorCount ?? 0) > 0);
+      const latestErrorIndex = lastErrorFromEnd < 0 ? -1 : ordinary.length - lastErrorFromEnd - 1;
+      const lastReplyFromEnd = [...ordinary].reverse().findIndex((message) =>
         message.role === 'output' || message.role === 'assistant');
       const latestReplyIndex = latestErrorIndex >= 0 ? latestErrorIndex
-        : lastReplyFromEnd < 0 ? -1 : complete.length - lastReplyFromEnd - 1;
+        : lastReplyFromEnd < 0 ? -1 : ordinary.length - lastReplyFromEnd - 1;
       const recent = latestReplyIndex >= 0
         ? [
-          [...complete.slice(0, latestReplyIndex)].reverse().find((message) =>
+          [...ordinary.slice(0, latestReplyIndex)].reverse().find((message) =>
             message.role === 'input' || message.role === 'user') ??
-            [...complete.slice(0, latestReplyIndex)].reverse().find((message) =>
+            [...ordinary.slice(0, latestReplyIndex)].reverse().find((message) =>
               message.role === 'output' || message.role === 'assistant'),
-          complete[latestReplyIndex],
+          ordinary[latestReplyIndex],
         ].filter((message): message is JsonRecord => !!message)
-        : complete.slice(-2);
+        : ordinary.slice(-2);
+      // A failed historical run can end with a system error after its last
+      // assistant reply. Keep that exact row and one complete, bounded long
+      // failure output instead of treating the later reply as the whole story.
+      const lastReplyFromEndAll = [...complete].reverse().findIndex((message) =>
+        message.role === 'output' || message.role === 'assistant');
+      const terminalStart = lastReplyFromEndAll < 0 ? 0 : complete.length - lastReplyFromEndAll;
+      const terminalSystem = session.status === 'error'
+        ? [...complete.slice(terminalStart)].reverse().find((message) => message.role === 'system') : undefined;
+      const longFailure = session.status === 'error'
+        ? [...complete].reverse().find((message) => Number(message.totalChars) > 4_000 &&
+          (message.role === 'output' || message.role === 'assistant') &&
+          FAILURE_OUTPUT_PATTERN.test(String(message.text)))
+        : undefined;
+      const messageOrder = new Map([...chunks.keys()].map((id, index) => [id, index]));
+      const selectedIds = new Set<string>();
+      const selectedMessages = [...recent, longFailure, terminalSystem]
+        .filter((message): message is JsonRecord => !!message)
+        .filter((message) => {
+          const id = String(message.messageId);
+          if (selectedIds.has(id)) return false;
+          selectedIds.add(id);
+          return true;
+        }).sort((left, right) => (messageOrder.get(String(left.messageId)) ?? 0) -
+          (messageOrder.get(String(right.messageId)) ?? 0));
+      const largerFailureOmitted = session.status === 'error' && [...chunks.values()].some((message) =>
+        Number(message.totalChars) > 4_000 && Buffer.byteLength(String(message.text), 'utf8') > 8_192 &&
+        (message.role === 'output' || message.role === 'assistant') &&
+        FAILURE_OUTPUT_PATTERN.test(String(message.text)));
       selected.push({ sessionId, profileId: item.profileId, status: session.status,
         statusMessage: statusMessageOmitted ? null : statusMessage,
-        ...(statusMessageOmitted ? { statusMessageOmitted } : {}), messages: recent,
-        omittedMessages: Number(item.messageCount ?? 0) - recent.length,
+        ...(statusMessageOmitted ? { statusMessageOmitted } : {}), messages: selectedMessages,
+        ...(largerFailureOmitted ? { failureEvidenceOmitted: 'Message byte bound' } : {}),
+        omittedMessages: Number(item.messageCount ?? 0) - selectedMessages.length,
         toolErrorOmitted: [...chunks.values()].reduce((sum, message) => sum + Number(message.toolErrorOmitted ?? 0), 0) });
     }
     const byProfile = new Map<string, JsonRecord[]>();
@@ -851,7 +883,7 @@ export class OrgReviewerService {
         liveCapabilityCatalog: overview.liveCapabilityCatalog,
         targetRefShapes: ['agent_config:<id>', 'skill:<id-or-name>', 'scheduled_task:<id>',
           'recipe:<id>', 'webhook:<triggerSource>'],
-        omission: 'Only two complete recent messages per session are supplied; see omittedMessages',
+        omission: 'Two recent messages and bounded failure diagnostics per session are supplied; see omittedMessages',
       };
       if (jsonBytes(batch) > 23_000) {
         batch.liveCapabilityCatalog = { omitted: true, reason: 'Batch byte bound',
@@ -926,7 +958,7 @@ export class OrgReviewerService {
     const context: JsonRecord = {
       metadata: { windowDays: overview.windowDays, sessionLimit: overview.sessionLimit,
         collectionStats: overview.collectionStats, inventoryCount: indexed.length,
-        omittedMessagePolicy: 'Full messages above 4,000 characters and older messages are omitted explicitly',
+        omittedMessagePolicy: 'Recent messages use a 4,000-character bound; one scanner-checked failure output up to 8,192 UTF-8 bytes and a terminal system error may also be included',
         omittedCatalogCollections: ['mcpTools', 'liveSkills', 'queue', 'skills'] },
       batches,
     };
