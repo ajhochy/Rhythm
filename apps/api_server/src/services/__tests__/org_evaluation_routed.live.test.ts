@@ -102,6 +102,7 @@ async function runScenario(input: Scenario): Promise<void> {
         if (index !== undefined) leaseAudit[index].settled = usage !== null;
         return usage;
       },
+      describeLeaseFailure: (leaseId) => relay.describeLeaseFailure(leaseId),
       getObservedToolCatalog: (leaseId) => relay.getObservedToolCatalog(leaseId),
       enginePort: () => randomInt(50000, 59000), wallMs: 120_000,
     });

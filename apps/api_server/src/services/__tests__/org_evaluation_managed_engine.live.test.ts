@@ -142,6 +142,7 @@ async function runPair(): Promise<void> {
       engineBinary: authority.engineBinary,
       workerBaseRoot: root, model, createLease: request => relay.createLease(request),
       finishLease: leaseId => relay.finishLease(leaseId),
+      describeLeaseFailure: leaseId => relay.describeLeaseFailure(leaseId),
       getObservedToolCatalog: leaseId => relay.getObservedToolCatalog(leaseId),
       enginePort: () => randomInt(50000, 59000), wallMs: 120_000,
     });

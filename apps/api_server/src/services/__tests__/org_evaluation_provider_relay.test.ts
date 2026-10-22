@@ -14,7 +14,7 @@ const responseEvent = (text = 'OK') => new globalThis.Response(`data: ${JSON.str
   },
 })}\n\n`, { headers: { 'content-type': 'text/event-stream' } });
 
-async function setup(dedicatedListener = false) {
+async function setup(dedicatedListener = false, reply: () => globalThis.Response = () => responseEvent()) {
   const db = new Database(':memory:'); handles.push(db); db.exec(SQLITE_ORG_EVALUATION_SCHEMA);
   const repository = new OrgEvaluationRepository(db);
   await repository.createJobAsync({ id: 'root', sourceAuditRunId: null, ownerUserId: 8,
@@ -28,7 +28,7 @@ async function setup(dedicatedListener = false) {
     resolveUpstream: async () => ({ url: 'https://example.invalid/v1/responses',
       headers: { authorization: 'Bearer trusted-test-secret' }, protocol: 'openai-responses-v1',
       supportsMaxOutputTokens: true, noHiddenContext: true }),
-    fetchImpl: async (_url, init) => { contacts++; forwarded = JSON.parse(String(init?.body)); return responseEvent(); },
+    fetchImpl: async (_url, init) => { contacts++; forwarded = JSON.parse(String(init?.body)); return reply(); },
   });
   return { repository, relay, db, contacts: () => contacts, forwarded: () => forwarded };
 }
@@ -124,6 +124,57 @@ describe('ephemeral evaluation provider relay', () => {
       expect(contacts()).toBe(1);
       expect(relay.finishLease(lease.leaseId)?.totalTokens).toBe(15);
     } finally { await relay.closeDedicatedListener(); }
+  });
+
+  // Live managed/routed arms failed only as "usage was unavailable or incomplete";
+  // without the lease's own reason the next live run could not be diagnosed.
+  describe('lease failure reason', () => {
+    const body = { model: 'gpt-6-luna', input: 'owned prompt', max_output_tokens: 100 };
+
+    it('names a lease that never reached the provider, including why requests were refused', async () => {
+      const { relay } = await setup();
+      const idle = await relay.createLease({ jobId: 'root', stage: 'candidate-probe', model: 'gpt-6-luna' });
+      expect(relay.describeLeaseFailure(idle.leaseId)).toBe('no-provider-calls');
+      const refused = await relay.createLease({ jobId: 'root', stage: 'candidate-probe', model: 'gpt-6-luna' });
+      await expect(invoke(relay, refused.leaseId, refused.token, { ...body, model: 'other-model' })).rejects.toThrow();
+      expect(relay.describeLeaseFailure(refused.leaseId))
+        .toBe('no-provider-calls; rejected: Evaluation model differs from lease');
+      expect(relay.finishLease(refused.leaseId)).toBeNull();
+      expect(relay.describeLeaseFailure(refused.leaseId)).toBe('lease-missing');
+    });
+
+    it('reports the code-owned gate rejection that failed a later call', async () => {
+      const { relay } = await setup();
+      const lease = await relay.createLease({ jobId: 'root', stage: 'candidate-probe', model: 'gpt-6-luna', maxCalls: 2 });
+      await invoke(relay, lease.leaseId, lease.token, body);
+      expect(relay.describeLeaseFailure(lease.leaseId)).toBeNull();
+      await expect(invoke(relay, lease.leaseId, lease.token, { ...body, input: 'second', metadata: { a: 1 } })).rejects.toThrow();
+      expect(relay.describeLeaseFailure(lease.leaseId)).toBe('Unsupported hidden state or unbounded provider request field');
+      expect(relay.finishLease(lease.leaseId)).toBeNull();
+    });
+
+    it('distinguishes an output-ceiling stop from an upstream HTTP failure', async () => {
+      const incomplete = await setup(false, () => new globalThis.Response(`data: ${JSON.stringify({
+        type: 'response.incomplete', response: { status: 'incomplete',
+          usage: { input_tokens: 12, output_tokens: 3, total_tokens: 15 } } })}\n\n`,
+      { headers: { 'content-type': 'text/event-stream' } }));
+      const capped = await incomplete.relay.createLease({ jobId: 'root', stage: 'candidate-probe', model: 'gpt-6-luna' });
+      await invoke(incomplete.relay, capped.leaseId, capped.token, body);
+      expect(incomplete.relay.describeLeaseFailure(capped.leaseId)).toBe('output-ceiling');
+
+      const upstream = await setup(false, () => new globalThis.Response('busy', { status: 529 }));
+      const lease = await upstream.relay.createLease({ jobId: 'root', stage: 'candidate-probe', model: 'gpt-6-luna' });
+      await expect(invoke(upstream.relay, lease.leaseId, lease.token, body)).rejects.toThrow();
+      expect(upstream.relay.describeLeaseFailure(lease.leaseId)).toBe('Provider returned HTTP 529');
+    });
+
+    it('never echoes provider bytes from a malformed stream', async () => {
+      const { relay } = await setup(false, () => new globalThis.Response('data: {"secret-provider-text\n\n',
+        { headers: { 'content-type': 'text/event-stream' } }));
+      const lease = await relay.createLease({ jobId: 'root', stage: 'candidate-probe', model: 'gpt-6-luna' });
+      await expect(invoke(relay, lease.leaseId, lease.token, body)).rejects.toThrow();
+      expect(relay.describeLeaseFailure(lease.leaseId)).toBe('malformed-provider-stream');
+    });
   });
 
   it('runs diagnosis through the same budget gate and returns only terminal text', async () => {

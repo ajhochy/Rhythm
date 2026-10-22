@@ -26,7 +26,19 @@ interface ActiveLease extends EvaluationProviderLease {
   requestDigests: Set<string>;
   usages: OrgEvaluationTokenUsage[];
   failed: boolean;
+  /** First relay or provider error for this lease, as a bounded code-owned category. */
+  failure: string | null;
   catalogs: Array<{ providerRequestHash: string; toolNames: string[]; deferredCatalog: ObservedDeferredCatalog | null }>;
+}
+
+// Code-owned gate/relay messages are safe to report verbatim; anything that
+// could echo provider or candidate bytes (e.g. JSON.parse snippets) is not.
+const codeOwnedFailure = /^(?:Unsupported [\w ]+|Only bounded self-contained Anthropic text and function JSON are supported|Evaluation request exceeds bounded input|Invalid output token limit|Anthropic request requires a user message|Evaluation model differs from lease|Evaluation provider protocol differs from lease|Evaluation provider lease already used|Whole-run evaluation token budget limit reached|Evaluation request reservation already used|Terminal (?:Anthropic )?provider usage unavailable|Terminal Anthropic usage unavailable|Anthropic stream returned error|Provider returned HTTP \d{3}|Provider response exceeds bounded buffer|Provider ignored output token ceiling; usage cannot qualify)$/;
+function failureCategory(error: unknown): string {
+  if (!(error instanceof Error)) return 'other';
+  if (error.name === 'TimeoutError' || error.name === 'AbortError') return 'provider-timeout';
+  if (error instanceof SyntaxError) return 'malformed-provider-stream';
+  return codeOwnedFailure.test(error.message) ? error.message : 'other';
 }
 
 const stages = new Set<OrgEvaluationStage>([
@@ -157,11 +169,11 @@ export class OrgEvaluationProviderRelay {
       leaseId, token, baseURL: `${this.baseURL}/${leaseId}/v1`,
       jobId: input.jobId, stage: input.stage, model: input.model,
       expiresAt: new Date(Date.now() + expiresMs).toISOString(),
-      calls: 0, maxCalls, requestDigests: new Set(), usages: [], failed: false, catalogs: [],
+      calls: 0, maxCalls, requestDigests: new Set(), usages: [], failed: false, failure: null, catalogs: [],
     };
     this.leases.set(leaseId, lease);
     const { calls: _calls, maxCalls: _maxCalls, requestDigests: _digests,
-      usages: _usages, failed: _failed, catalogs: _catalogs, ...publicLease } = lease;
+      usages: _usages, failed: _failed, failure: _failure, catalogs: _catalogs, ...publicLease } = lease;
     return publicLease;
   }
 
@@ -176,6 +188,16 @@ export class OrgEvaluationProviderRelay {
       toolNames: [...item.toolNames], deferredCatalog: item.deferredCatalog }));
   }
 
+  /** Why finishLease would return null, without consuming the lease; null when usage is complete. */
+  describeLeaseFailure(leaseId: string): string | null {
+    const lease = this.leases.get(leaseId);
+    if (!lease) return 'lease-missing';
+    if (lease.failed) return lease.failure ?? 'other';
+    if (lease.calls === 0) return lease.failure ? `no-provider-calls; rejected: ${lease.failure}` : 'no-provider-calls';
+    if (lease.usages.length !== lease.calls) return 'usage-count-mismatch';
+    return null;
+  }
+
   /** Aggregate only usage settled by this lease's actual provider calls. */
   finishLease(leaseId: string): OrgEvaluationTokenUsage | null {
     const lease = this.leases.get(leaseId);
@@ -188,19 +210,22 @@ export class OrgEvaluationProviderRelay {
   }
 
   async handle(req: Request, res: Response, next: NextFunction): Promise<void> {
+    let lease: ActiveLease | undefined;
     try {
       if (this.dedicatedPort !== null && req.socket.localPort !== this.dedicatedPort)
         throw AppError.forbidden('Evaluation lease is restricted to its private relay listener');
       if (!isLoopback(req.socket.remoteAddress)) throw AppError.forbidden('Evaluation provider requires loopback peer');
-      const lease = this.leases.get(String(req.params.leaseId));
-      if (!lease || Date.parse(lease.expiresAt) <= Date.now()) throw AppError.unauthorized('Evaluation provider lease expired');
+      const requested = this.leases.get(String(req.params.leaseId));
+      if (!requested || Date.parse(requested.expiresAt) <= Date.now()) throw AppError.unauthorized('Evaluation provider lease expired');
       const authorization = req.headers.authorization;
       const supplied = authorization?.startsWith('Bearer ') ? authorization.slice(7)
         : typeof req.headers['x-api-key'] === 'string' ? req.headers['x-api-key'] : '';
       const actual = Buffer.from(supplied);
-      const expected = Buffer.from(lease.token);
+      const expected = Buffer.from(requested.token);
       if (actual.length !== expected.length || !timingSafeEqual(actual, expected))
         throw AppError.unauthorized('Evaluation provider lease bearer invalid');
+      // Only an authenticated caller may record a failure reason on the lease.
+      lease = requested;
       if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body))
         throw AppError.badRequest('Evaluation provider requires JSON request');
       const body = req.body as Record<string, unknown>;
@@ -219,10 +244,13 @@ export class OrgEvaluationProviderRelay {
         lease.usages.push(response.usage);
         lease.catalogs.push({ providerRequestHash: response.providerRequestHash, toolNames: response.toolNames,
           deferredCatalog: response.deferredCatalog });
-        if (!response.complete) lease.failed = true;
+        if (!response.complete) { lease.failed = true; lease.failure ??= 'output-ceiling'; }
       } catch (error) { lease.failed = true; throw error; }
       res.status(response.status).type(response.contentType).send(response.body);
-    } catch (error) { next(error); }
+    } catch (error) {
+      if (lease) lease.failure ??= failureCategory(error);
+      next(error);
+    }
   }
 
   async runBoundedText(input: {

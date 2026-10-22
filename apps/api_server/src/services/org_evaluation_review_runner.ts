@@ -88,6 +88,7 @@ export async function runOrgEvaluationReview(opts: AgentRunOptions): Promise<Age
       }) => relay.createLease({ jobId, stage, model, maxCalls }),
       getObservedToolCatalog: (leaseId: string) => relay.getObservedToolCatalog(leaseId),
       finishLease: (leaseId: string) => relay.finishLease(leaseId),
+      describeLeaseFailure: (leaseId: string) => relay.describeLeaseFailure(leaseId),
       enginePort: () => randomInt(45000, 60000),
       wallMs: 120_000,
     });

@@ -509,6 +509,8 @@ export interface OrgEvaluationRuntimeAdapterOptions {
   createLease(input: { jobId: string; stage: OrgEvaluationStage; model: string; maxCalls: number }):
     Promise<{ leaseId: string; baseURL: string; token: string }> | { leaseId: string; baseURL: string; token: string };
   finishLease(leaseId: string): Promise<OrgEvaluationTokenUsage | null> | OrgEvaluationTokenUsage | null;
+  /** Bounded reason finishLease will return null, read before the lease is consumed. */
+  describeLeaseFailure?(leaseId: string): string | null;
   getObservedToolCatalog(leaseId: string): Array<{ providerRequestHash: string; toolNames: string[];
     deferredCatalog: import('./org_evaluation_scope_effects').ObservedDeferredCatalog | null }> | null;
   enginePort(): number;
@@ -713,9 +715,11 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
           throw new Error('Evaluation worker mutated its parent guard sentinel');
         }
         const providerToolCatalogs = options.getObservedToolCatalog(lease.leaseId);
+        const leaseFailure = options.describeLeaseFailure?.(lease.leaseId) ?? null;
         usage = await options.finishLease(lease.leaseId);
         lease = null;
-        if (!usage) throw new Error('Evaluation provider usage was unavailable or incomplete');
+        if (!usage) throw new Error(`Evaluation provider usage was unavailable or incomplete${
+          leaseFailure ? ` (${leaseFailure})` : ''}`);
         if (execution.output.length > 16_384) {
           throw new Error('Evaluation output exceeded the bounded receipt limit');
         }
