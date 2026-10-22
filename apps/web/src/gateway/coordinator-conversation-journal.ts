@@ -25,7 +25,8 @@ export type CoordinatorJournalRejection = {
  */
 export type CoordinatorJournalRetirement = {
   command: CoordinatorJournalCommand;
-  kind: 'acknowledged' | 'reviewed_rejection';
+  /** `refused`: the server answered this exact command with a pre-write refusal. */
+  kind: 'acknowledged' | 'refused' | 'reviewed_rejection';
   reviewedConflictRevision?: number;
 };
 
@@ -225,7 +226,7 @@ function hasMatchingRetirement(
   if (!existing.pendingCommand || !retirement || !sameCommand(existing.pendingCommand, retirement.command)) {
     return false;
   }
-  if (retirement.kind === 'acknowledged') return true;
+  if (retirement.kind === 'acknowledged' || retirement.kind === 'refused') return true;
   const rejection = existing.pendingRejection;
   return existing.pendingProvenance === 'rejected' &&
     existing.pendingState === 'review' &&

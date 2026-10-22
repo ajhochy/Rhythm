@@ -83,7 +83,13 @@ function asManagedRun(value: unknown): CoordinatorPlannedWorkstream | undefined 
 
 export type CoordinatorSendResult = {
   accepted: boolean;
+  /** Why an unaccepted message was refused, for display beside the composer. */
+  reason?: string;
 };
+
+const ORDINARY_CHAT_UNAVAILABLE_REASON =
+  'Rhythm coordination cannot carry ordinary chat in this session, so this chat is back to normal. ' +
+  'Your message was not sent. Press Send to send it to the agent.';
 
 const inactive: CoordinatorConversationViewState = {
   enabled: false,
@@ -951,6 +957,7 @@ export class CoordinatorConversationController {
       });
       return { accepted: false };
     }
+    let returnedToNormal = false;
     const accepted = await this.run(
       scope,
       'sending',
@@ -985,6 +992,24 @@ export class CoordinatorConversationController {
           this.emit();
           return true;
         }
+        if (result.kind === 'model_integration_unavailable') {
+          // The server refuses this before writing anything, so the message
+          // was definitively not delivered. Holding it as a retryable pending
+          // command would block every later message on a retry that can never
+          // succeed; release it and hand the draft back to normal chat.
+          installConversation(next, result);
+          next.enabled = false;
+          next.pendingCommand = undefined;
+          next.pendingProvenance = undefined;
+          next.pendingRejection = undefined;
+          next.pendingRetirement = { kind: 'refused', command: { ...pending } };
+          next.reviewedConflictRevision = undefined;
+          next.notice = undefined;
+          next.journalRevision += 1;
+          this.emit();
+          returnedToNormal = true;
+          return false;
+        }
         installConversation(next, result);
         next.enabled = true;
         next.pendingRetirement = undefined;
@@ -1005,7 +1030,7 @@ export class CoordinatorConversationController {
       },
     );
     if (accepted) this.loadCanonicalHistory(scope);
-    return { accepted };
+    return returnedToNormal ? { accepted, reason: ORDINARY_CHAT_UNAVAILABLE_REASON } : { accepted };
   }
 
   async retry(scope: CoordinatorConversationScope): Promise<boolean> {
@@ -1291,10 +1316,9 @@ export function submitCoordinatorComposerInput(input: {
     });
   }
   if (!input.message.trim()) return Promise.resolve({ handled: true, accepted: false });
-  return input.send(input.message).then((result) => ({
-    handled: true,
-    accepted: typeof result === 'boolean' ? result : result.accepted,
-  }));
+  return input.send(input.message).then((result) => typeof result === 'boolean'
+    ? { handled: true, accepted: result }
+    : { handled: true, accepted: result.accepted, reason: result.reason });
 }
 
 /** React adapter for the durable scoped controller. */
@@ -1336,9 +1360,15 @@ export function useCoordinatorConversation(
     const requestedScope = scopeRef.current;
     return requestedScope ? controller.refresh(requestedScope) : Promise.resolve(false);
   }, [controller]);
-  const send = useCallback((message: string) => {
+  const send = useCallback(async (message: string): Promise<CoordinatorSendResult> => {
     const requestedScope = scopeRef.current;
-    return requestedScope ? controller.send(requestedScope, message) : Promise.resolve({ accepted: false });
+    if (!requestedScope) return { accepted: false };
+    const result = await controller.send(requestedScope, message);
+    // Refusals otherwise surface only in the Runs card; repeat the current
+    // notice beside the composer so a refused send is never silent.
+    return result.accepted || result.reason
+      ? result
+      : { ...result, reason: controller.get(requestedScope).notice?.message };
   }, [controller]);
   const retry = useCallback(() => {
     const requestedScope = scopeRef.current;

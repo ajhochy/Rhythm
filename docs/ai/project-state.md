@@ -11,6 +11,7 @@ Org Reviewer pre-review evaluation (Harness²-style, all improvement kinds, one 
 
 ## In progress
 
+- Draft PR (base mega): coordinator dead-end fix: a refused ordinary-chat message on a coordinated chat now returns the chat to normal with the draft kept (`docs/ai/runs/2026-10-22-coordinator-ordinary-chat-dead-end.md`). Needs manual smoke in the app.
 - Default whole-run cap is now 1.5M (`edc8e8259e`). The packaged settings check passes. The routed, managed and actual-Secretary live reruns are **waiting on a fresh Anthropic token**: the loans need at least 30 minutes of token life and never refresh.
 - The full approve → fresh-use → revert journey (plan `docs/ai/plans/2026-10-21-org-reviewer-end-to-end-playwright.md`, O1–O10) is still unrun.
 

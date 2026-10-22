@@ -287,6 +287,27 @@ scheduled_task_id FROM agent_sessions WHERE id = ?`. Compare the approval
 
 ---
 
+## 9. A chat "can't be replied to": the composer sends but nothing happens
+
+**Symptom**: the placeholder says *Message Rhythm about your work…*, and Send does nothing.
+Nothing reaches the agent and nothing is logged.
+
+**Fix**: `fix/coordinator-ordinary-chat-dead-end` (2026-10-22). A coordinator opened on an ordinary chat
+gets `model_integration_unavailable` for ordinary text. That refusal now releases the journaled command
+(`refused` retirement), returns the chat to normal and shows the reason at the composer.
+
+**Check**
+```bash
+cd apps/web && npx playwright test tests/rhythm-primary-entry.spec.ts -g "ordinary chat never strands"
+```
+
+**Trap**: the server has no record of the message, so it looks like a dead socket. The state lives in
+the client's localStorage journal (`rhythm.coordinator-conversation-journal.v1`, Electron profile
+`rhythm-electron-shell`): look for a `pendingCommand` with `pendingState: "retry"`. Also check for zero
+`coordinator_conversation_commands` rows for that `root_session_id`.
+
+---
+
 ## Updating this file
 
 Add an entry when you fix something a future investigation could mistake for
