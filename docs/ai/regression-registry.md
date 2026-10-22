@@ -254,6 +254,39 @@ Hit repeatedly. Before trusting any regression test:
 
 ---
 
+## 8. "Approval token does not match" / delegation "owned by another user"
+
+**Symptom**: after a human approved, `rhythm_create_task` returns `Blocked:
+approval token does not match the exact outbound action and payload` with an
+identical payload, or `rhythm_delegate*` returns `403 caller session is owned
+by another user` even though tool calls authenticate as you.
+
+**Fixes**
+- `eb43289ffe` (2026-10-22): the approval digest compares top-level field
+  names in one spelling. The model asks with tool argument names (`due_date`);
+  the tool consumes its API payload (`dueDate`).
+- `39737d1648` (2026-10-22): scheduled runs are owned by the schedule creator
+  or the local operator. A boot backfill attributes old ownerless runs (all
+  legacy schedules have no `created_by_user_id`; runs were ownerless from
+  2026-07-30).
+
+**Check**
+```bash
+cd apps/api_server && npx vitest run \
+  src/__tests__/issue_1134_external_content_security.test.ts \
+  src/__tests__/scheduled_session_operator_owner.test.ts
+# live: apps/web/tests/contract/approval-owner-live.spec.ts (header has the sandbox steps)
+```
+
+**Trap**: the reporting chat looks interactive but is a *scheduled run a human
+replied into* (`is_system=1`, `scheduled_task_id` set). Approval bypass does not
+apply there, and async delegation is chat-only by design (#1123). Query the
+session row before blaming payload encoding: `SELECT owner_user_id, is_system,
+scheduled_task_id FROM agent_sessions WHERE id = ?`. Compare the approval
+`preview` key names with the tool's consumed payload.
+
+---
+
 ## Updating this file
 
 Add an entry when you fix something a future investigation could mistake for

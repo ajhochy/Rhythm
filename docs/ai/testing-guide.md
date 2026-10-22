@@ -204,6 +204,13 @@ Mobile-gateway live suites also need a distinct
 `:4189`). The launcher and suite must inherit the same value; setting it only
 after the sandbox is running does not reconfigure the gateway.
 
+For approval binding and scheduled-run ownership, prefer the UI-level
+Playwright contract `apps/web/tests/contract/approval-owner-live.spec.ts`.
+`apps/web/tests/fixtures/approval-owner-scripted-provider.mjs --prepare` builds
+its synthetic fixture (scripted loopback model, throwaway approval key), and the
+spec header lists the exact `sandbox.sh up` and `playwright test` commands. It
+needs no paid model.
+
 Live suites that exercise desktop-human approval must also start the sandbox
 with `HUMAN_APPROVAL_CAPABILITY_SHA256` set to the SHA-256 digest of a
 throwaway test capability and `HUMAN_APPROVAL_PUBLIC_KEY` set to a throwaway
