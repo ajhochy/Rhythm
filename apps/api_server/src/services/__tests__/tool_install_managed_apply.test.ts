@@ -82,6 +82,10 @@ describe('D1 managed tool-install apply', () => {
     });
 
     expect(result).toEqual({ applied: true, reason: null });
+    const installed = join(managed, 'tools', `fixture-tool-${digest.slice(0, 16)}`);
+    expect(existsSync(join(installed, '.npm-cache'))).toBe(false);
+    expect(existsSync(join(installed, '.npmrc-user'))).toBe(false);
+    expect(existsSync(join(installed, '.npmrc-global'))).toBe(false);
   });
 
   it('refuses a digest mismatch before staging or process spawn', async () => {

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { ensureBuildGuard } from '../../../tools/build/ensure-guard.mjs';
 import { createHash } from 'node:crypto';
-import { access, chmod, cp, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, cp, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,7 @@ import { resolveHermesBackendArtifact } from '../src/hermes-backend-artifact.mjs
 import { EXPECTED_COLONY_ELECTRON_MAJOR, PINNED_COLONY_SOURCE_COMMIT } from '../src/colony-desktop-config.mjs';
 import { refreshColonyArtifactIntegrity, resolveColonyArtifact } from '../src/colony-desktop-artifact.mjs';
 import { stageNativeDayflow } from './stage-native-dayflow.mjs';
+import { stageNodeNpmRuntime } from './stage-node-npm-runtime.mjs';
 import { stageDayflowDesktopArtifact } from '../src/dayflow-desktop-artifact.mjs';
 
 const run = promisify(execFile);
@@ -349,9 +350,7 @@ await access(resolve(betterSqlitePrebuildDir, targetBetterSqlitePrebuild)).catch
   throw new Error(`Missing better-sqlite3 prebuild for packaged architecture: ${targetBetterSqlitePrebuild}`, { cause });
 });
 
-await mkdir(dirname(packagedNode), { recursive: true });
-await cp(process.execPath, packagedNode);
-await chmod(packagedNode, 0o755);
+await stageNodeNpmRuntime({ sourceNode: process.execPath, resources, nodeVersion: process.version });
 // Probe native addons in separate processes. Loading node-pty after creating a better-sqlite3
 // Statement can force that Statement's GC during Node 24 addon teardown and abort inside
 // RemoveEnvironmentCleanupHook even though each addon is ABI-correct.

@@ -9,6 +9,7 @@ import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import { buildToolInstallProposalFingerprint, evaluateToolInstallSafetyAsync } from './tool_install_safety_policy';
 import { LOCAL_TARBALL_INSTALL_METHOD, MANAGED_TOOL_MAX_ARCHIVE_BYTES, inspectImmutableLocalTarball, parseImmutableLocalTarballSource, validateImmutableLocalTarballBytes } from './tool_install_artifact';
 import { isSafeToolName } from './tool_install_safety';
+import { resolvePrivateEvaluationNpmCli } from './managed_npm_runtime';
 
 export type ToolInstallApplyReason =
   | 'tool_install_apply_unavailable'
@@ -130,17 +131,36 @@ function receiptMatches(receipt: ManagedInstallReceipt | null, expected: Omit<Ma
 }
 
 async function defaultRunner(argv: readonly string[], cwd: string): Promise<void> {
-  await new Promise<void>((resolveRun, reject) => {
-    const child = spawn(argv[0], [...argv.slice(1)], {
-      cwd, env: { PATH: process.env.PATH ?? '', npm_config_ignore_scripts: 'true', npm_config_audit: 'false', npm_config_fund: 'false' },
-      stdio: 'ignore', shell: false,
+  // npm must not consult the operator's home, npmrc, or cache. Each install
+  // already has a private staging directory, including in the shipping app.
+  const userConfig = join(cwd, '.npmrc-user');
+  const globalConfig = join(cwd, '.npmrc-global');
+  const cache = join(cwd, '.npm-cache');
+  try {
+    await fs.writeFile(userConfig, '', { mode: 0o600, flag: 'wx' });
+    await fs.writeFile(globalConfig, '', { mode: 0o600, flag: 'wx' });
+    await new Promise<void>((resolveRun, reject) => {
+      const child = spawn(argv[0], [...argv.slice(1)], {
+        cwd, env: { PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, HOME: cwd, TMPDIR: cwd,
+          npm_config_cache: cache,
+          npm_config_userconfig: userConfig, npm_config_globalconfig: globalConfig,
+          npm_config_ignore_scripts: 'true', npm_config_audit: 'false',
+          npm_config_fund: 'false', npm_config_offline: 'true',
+          npm_config_update_notifier: 'false' },
+        stdio: 'ignore', shell: false,
+      });
+      child.once('error', reject);
+      child.once('exit', (code) => code === 0 ? resolveRun() : reject(new Error('managed installer failed')));
     });
-    child.once('error', reject);
-    child.once('exit', (code) => code === 0 ? resolveRun() : reject(new Error('managed installer failed')));
-  });
+  } finally {
+    // These paths were created inside this exclusive staging directory only.
+    await Promise.all([fs.rm(userConfig, { force: true }),
+      fs.rm(globalConfig, { force: true }), fs.rm(cache, { recursive: true, force: true })]);
+  }
 }
 
 function npmCliPath(): string | null {
+  if (process.env.RHYTHM_EVALUATION_WORKER === '1') return resolvePrivateEvaluationNpmCli();
   try { return require.resolve('npm/bin/npm-cli.js'); } catch {
     const bundled = join(dirname(process.execPath), '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
     return existsSync(bundled) ? bundled : null;

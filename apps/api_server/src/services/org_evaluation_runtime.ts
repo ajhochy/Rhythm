@@ -27,6 +27,7 @@ import { externalSkillReceiverInput, startExternalSkillReceiverAsync } from './o
 import { vetToolInstallCandidateAsync } from './org_evaluation_external_effects';
 import { startPrivateManagedBridgeAsync } from './org_evaluation_managed_bridge_parent';
 import { stagePrivateManagedArtifact } from './org_evaluation_managed_artifact';
+import { stagePinnedNpmRuntimeForEvaluation } from './managed_npm_runtime';
 import { verifyPrivateManagedEffects } from './org_evaluation_managed_effects';
 import type {
   EvaluationExecuteRequest,
@@ -184,6 +185,7 @@ export function buildEvaluationWorkerEnvironment(
   engineBinary: string,
   relayToken: string,
   managedBridge?: { baseURL: string; token: string },
+  privateNpm?: { npmRoot: string; treeSha256: string },
 ): NodeJS.ProcessEnv {
   assertEvaluationWorkerInput(input);
   if (!temporaryPath(engineBinary) || !engineBinary.endsWith('/opencode') || !relayToken) {
@@ -194,6 +196,11 @@ export function buildEvaluationWorkerEnvironment(
       !isUnder(resolve(input.workerRoot), resolve(prepared.configPath)) ||
       !isUnder(resolve(input.workerRoot), resolve(prepared.workspacePath))) {
     throw new Error('Evaluation worker paths escaped the private root');
+  }
+  if (privateNpm && (input.kind !== 'tool-install' ||
+      resolve(privateNpm.npmRoot) !== join(resolve(input.workerRoot), 'npm-runtime') ||
+      !/^[a-f0-9]{64}$/.test(privateNpm.treeSha256))) {
+    throw new Error('Evaluation npm runtime is outside the private tool worker');
   }
   return {
     PATH: process.env.PATH,
@@ -229,6 +236,11 @@ export function buildEvaluationWorkerEnvironment(
       RHYTHM_EVALUATION_MCP_DIST: resolve(__dirname, '../../../mcp_server/dist'),
       RHYTHM_TOOL_ARTIFACT_ROOT: join(input.workerRoot, 'artifacts'),
       RHYTHM_MANAGED_TOOL_ROOT: join(input.workerRoot, 'managed-tools'),
+    } : {}),
+    ...(privateNpm ? {
+      RHYTHM_EVALUATION_WORKER_ROOT: input.workerRoot,
+      RHYTHM_EVALUATION_NPM_ROOT: privateNpm.npmRoot,
+      RHYTHM_EVALUATION_NPM_TREE_SHA256: privateNpm.treeSha256,
     } : {}),
     ...(input.externalSource ? {
       RHYTHM_EVALUATION_EXTERNAL_SOURCE_URL: input.externalSource.url,
@@ -362,12 +374,14 @@ export async function materializeCandidateInSandboxAsync(
   if (createHash('sha256').update(readFileSync(pinnedBinary)).digest('hex') !== sourceHash) {
     throw new Error('Evaluation engine binary changed while staging');
   }
+  let privateNpm: { npmRoot: string; treeSha256: string } | undefined;
   if (input.worker.kind === 'tool-install' && !input.request.baseline) {
     if (!input.request.changeJson || !input.managedToolVetting ||
         input.managedToolVetting.status !== 'observed')
       throw new Error('Private tool materialization lacks exact Docker vetting');
     stagePrivateManagedArtifact({ workerRoot: input.worker.workerRoot,
       changeJson: input.request.changeJson });
+    privateNpm = stagePinnedNpmRuntimeForEvaluation(input.worker.workerRoot);
   }
   const managedBridge = input.worker.kind === 'tool-install'
     ? await startPrivateManagedBridgeAsync({ workerRoot: input.worker.workerRoot,
@@ -376,7 +390,7 @@ export async function materializeCandidateInSandboxAsync(
       pinnedBinary }) : null;
   try {
   const environment = buildEvaluationWorkerEnvironment(
-    input.worker, prepared, pinnedBinary, input.relayToken, managedBridge ?? undefined,
+    input.worker, prepared, pinnedBinary, input.relayToken, managedBridge ?? undefined, privateNpm,
   );
   if ('execution' in input) {
     const fixtureDir = join(prepared.workspacePath, 'fixtures');

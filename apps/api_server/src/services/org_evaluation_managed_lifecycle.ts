@@ -79,7 +79,16 @@ export async function applyPrivateManagedToolAsync(input: {
       installer: (approved) => applyVettedToolInstallAsync(approved, undefined,
         { artifactRoot, managedRoot }),
     });
-  if (applied.status !== 'applied') throw Error('Private vetted candidate was not applied');
+  if (applied.status !== 'applied') {
+    const finiteReasons = new Set([
+      'tool_install_apply_unavailable', 'tool_install_apply_unsupported_method',
+      'tool_install_apply_immutable_artifact_refused', 'tool_install_apply_safety_refused',
+      'tool_install_apply_conflict', 'tool_install_apply_failed',
+    ]);
+    const reason = applied.measureReason && finiteReasons.has(applied.measureReason)
+      ? applied.measureReason : 'unclassified';
+    throw Error(`Private vetted candidate was not applied (${applied.status}; ${reason})`);
+  }
   const installed = await inspectActivatedManagedToolAsync(applied, profileId, { managedRoot });
   if (!installed || installed.proposalId !== proposalId || installed.agentConfigId !== profileId ||
       installed.artifactDigest !== artifactDigest || installed.toolName !== toolName) {

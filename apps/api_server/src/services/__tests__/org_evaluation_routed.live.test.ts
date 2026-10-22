@@ -7,9 +7,8 @@ import express from 'express';
 import { createServer } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createHash, randomInt } from 'node:crypto';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { SQLITE_ORG_EVALUATION_SCHEMA } from '../../database/org_evaluation_schema';
-import { OrgEvaluationRepository } from '../../repositories/org_evaluation_repository';
 import type { OrgEvaluationTargetSnapshot, FrozenEvaluationRecipe, FrozenEvaluationSchedule } from '../org_evaluation_fixture';
 import type { OrgEvaluationCandidate, OrgEvaluationProposalKind } from '../../models/org_evaluation';
 import { loadPackagedOrgEvaluationAuthorityAsync } from './org_evaluation_packaged_live_authority';
@@ -40,6 +39,11 @@ type Scenario = { kind: OrgEvaluationProposalKind; targetRef: string; original: 
 
 async function runScenario(input: Scenario): Promise<void> {
   const authority = await loadPackagedOrgEvaluationAuthorityAsync();
+  const apiRoot = join(dirname(authority.engineBinary), '../api_server');
+  const { SQLITE_ORG_EVALUATION_SCHEMA } = require(join(apiRoot,
+    'dist/database/org_evaluation_schema.js')) as typeof import('../../database/org_evaluation_schema');
+  const { OrgEvaluationRepository } = require(join(apiRoot,
+    'dist/repositories/org_evaluation_repository.js')) as typeof import('../../repositories/org_evaluation_repository');
   const ownedRoot = mkdtempSync('/private/tmp/rhythm-routed-live-');
   const db = new Database(':memory:');
   db.exec(SQLITE_ORG_EVALUATION_SCHEMA);

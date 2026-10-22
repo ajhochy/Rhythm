@@ -2,13 +2,14 @@
 // api_server runtime, so a standalone launch silently depends on a monorepo checkout.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { access, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { findNode, findServerEntry } from '../src/agent-server.mjs';
+import { npmRuntimeInventory } from '../scripts/stage-node-npm-runtime.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const electronRoot = resolve(here, '..');
@@ -38,6 +39,8 @@ test('issue-1402-c1: package:mac includes the complete api_server runtime shape'
     'mcp_server/package.json',
     'mcp_server/node_modules/@modelcontextprotocol/sdk/package.json',
     'node/bin/node',
+    'node/lib/node_modules/npm/bin/npm-cli.js',
+    'node/npm-runtime-manifest.json',
     'shared/production-api-base.mjs',
   ]) {
     await assert.doesNotReject(
@@ -60,6 +63,16 @@ test('issue-1402-c1: package:mac includes the complete api_server runtime shape'
   }
 
   const bundledNode = resolve(resources, 'node/bin/node');
+  const npmRoot = resolve(resources, 'node/lib/node_modules/npm');
+  const npmManifest = JSON.parse(await readFile(resolve(resources, 'node/npm-runtime-manifest.json'), 'utf8'));
+  const npmInventory = await npmRuntimeInventory(npmRoot);
+  assert.equal(npmManifest.version, 1);
+  assert.equal(npmManifest.nodeVersion, process.version);
+  assert.equal(npmManifest.npmTreeSha256, npmInventory.npmTreeSha256);
+  assert.equal(npmManifest.fileCount, npmInventory.fileCount);
+  const npmVersion = spawnSync(bundledNode, [resolve(npmRoot, 'bin/npm-cli.js'), '--version'], { encoding: 'utf8' });
+  assert.equal(npmVersion.status, 0, `bundled npm failed under bundled Node\n${npmVersion.stderr}`);
+  assert.equal(npmVersion.stdout.trim(), npmManifest.npmVersion);
   const sqliteProbe = spawnSync(bundledNode, ['-e', [
     `const root=${JSON.stringify(resolve(resources, 'api_server'))};`,
     "const Database=require(root+'/node_modules/better-sqlite3');",

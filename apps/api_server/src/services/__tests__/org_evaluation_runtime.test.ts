@@ -104,6 +104,28 @@ describe('isolated org evaluation runtime contract', () => {
     expect(environment.RHYTHM_EVALUATION_PROVIDER_RELAY_URL).toBe('http://127.0.0.1:4796/agent-org-proposals/evaluations/provider/lease_1/v1');
   });
 
+  it('passes a pinned npm tree only to a private tool worker', () => {
+    const worker = { ...base, kind: 'tool-install' as const };
+    const prepared = {
+      homePath: '/private/tmp/evaluation-worker-1/home',
+      dbPath: '/private/tmp/evaluation-worker-1/rhythm.db',
+      configPath: '/private/tmp/evaluation-worker-1/home/.config/opencode',
+      workspacePath: '/private/tmp/evaluation-worker-1/workspace',
+    };
+    const privateNpm = { npmRoot: '/private/tmp/evaluation-worker-1/npm-runtime',
+      treeSha256: 'a'.repeat(64) };
+    const environment = buildEvaluationWorkerEnvironment(worker, prepared,
+      '/private/tmp/evaluation-engine/opencode', 'ephemeral-relay-token', undefined, privateNpm);
+    expect(environment.RHYTHM_EVALUATION_NPM_ROOT).toBe(privateNpm.npmRoot);
+    expect(environment.RHYTHM_EVALUATION_NPM_TREE_SHA256).toBe(privateNpm.treeSha256);
+    expect(() => buildEvaluationWorkerEnvironment(worker, prepared,
+      '/private/tmp/evaluation-engine/opencode', 'ephemeral-relay-token', undefined,
+      { ...privateNpm, npmRoot: '/Users/user/.npm' })).toThrow('outside the private tool worker');
+    expect(() => buildEvaluationWorkerEnvironment(base, prepared,
+      '/private/tmp/evaluation-engine/opencode', 'ephemeral-relay-token', undefined,
+      privateNpm)).toThrow('outside the private tool worker');
+  });
+
   it('binds a publication receiver to only its private loopback port and synthetic token', () => {
     const worker = { ...base, publicationBaseURL: 'http://127.0.0.1:50123',
       publicationToken: 'a'.repeat(64) };
