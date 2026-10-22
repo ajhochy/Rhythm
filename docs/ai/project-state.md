@@ -4,6 +4,10 @@
 
 Complete the unfinished Rhythm scope in draft mega PR #1544: Bot Crossing inside Rhythm, shared memory, shared canonical agents/settings, native Hermes execution, and two-way delegation. AJ chose Hermes itself to run shared agents launched there. One final combined smoke; no merge, deployment or release.
 
+## Active fix (2026-10-22)
+
+`fix/approval-payload-keys-scheduled-owner`, a draft PR off `main` that is not merged. It fixes approval tokens that failed for tool-argument key names (`due_date` vs `dueDate`) and delegation 403s from scheduled-run sessions, which have been stored ownerless since 2026-07-30. 90/90 focused tests pass; the live Playwright contract (`apps/web/tests/contract/approval-owner-live.spec.ts`) passes 2/2 and is RED on unfixed code. Open decision: async delegation from a human-continued scheduled run stays chat-only (#1123). See [run](runs/2026-10-22-approval-payload-and-scheduled-owner.md) and [decision](decisions/2026-10-22-approval-field-names-and-scheduled-run-owner.md).
+
 ## Pause checkpoint
 
 AJ requested a pause after active agent turns finish. No new slices or combined smoke should begin until resumed. Accepted source remains at the heads below; helper-probe and Colony receiver candidates are preserved separately, awaiting parent review. The read-only #1540 plan is saved in the repair4 evidence folder. #1553 has a clean prepared worktree only; implementation has not started. See [pause handoff](runs/2026-09-24-orchestration-pause.md).

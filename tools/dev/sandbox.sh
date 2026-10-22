@@ -116,6 +116,14 @@ append_enabled_runtime_flag() {
 append_enabled_runtime_flag OPENCODE_DISABLE_DEFAULT_PLUGINS
 append_enabled_runtime_flag OPENCODE_PURE
 append_enabled_runtime_flag RHYTHM_NUMBAT_MONITORING_DISABLED
+# Desktop-human approval live suites export a throwaway pair before `up`
+# (docs/ai/testing-guide.md). `env -i` dropped them, so approvals always 403'd.
+if [[ -n "${HUMAN_APPROVAL_PUBLIC_KEY:-}${HUMAN_APPROVAL_CAPABILITY_SHA256:-}" ]]; then
+  [[ "${HUMAN_APPROVAL_PUBLIC_KEY:-}" =~ ^[A-Za-z0-9+/]{86}[A-Za-z0-9+/=]{2}$ &&
+    "${HUMAN_APPROVAL_CAPABILITY_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] ||
+    fail 'HUMAN_APPROVAL_PUBLIC_KEY (base64 P-256 point) and HUMAN_APPROVAL_CAPABILITY_SHA256 must be exported together'
+  runtime_env+=("HUMAN_APPROVAL_PUBLIC_KEY=$HUMAN_APPROVAL_PUBLIC_KEY" "HUMAN_APPROVAL_CAPABILITY_SHA256=$HUMAN_APPROVAL_CAPABILITY_SHA256")
+fi
 
 # Evidence is a sibling of the disposable runtime, never part of teardown.
 preserve_diagnostics() {
