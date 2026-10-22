@@ -318,9 +318,30 @@ export function requireCoordinatorGoalAdmissionShape(
   }
 }
 
+/**
+ * Agents request approval in a tool's argument names (`due_date`) while the
+ * tool consumes its API payload (`dueDate`). Both name the same signed argument
+ * (requireSecurityPayloadBoundToTrustedArguments already maps snake to camel),
+ * so the digest compares top-level field names in one spelling. Values stay
+ * exact, and a payload naming one field twice is refused rather than guessed.
+ */
+function securityPayloadFields(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+  const fields: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (value === undefined) continue;
+    const name = key.replace(/_([a-z0-9])/g, (_match, letter: string) => letter.toUpperCase());
+    if (Object.prototype.hasOwnProperty.call(fields, name)) {
+      throw AppError.badRequest(`security payload names the field ${name} more than once`);
+    }
+    fields[name] = value;
+  }
+  return fields;
+}
+
 export function securityPayloadDigest(action: SecurityAction, payload: unknown): string {
   return createHash('sha256')
-    .update(`${action}\n${canonicalJson(payload)}`)
+    .update(`${action}\n${canonicalJson(securityPayloadFields(payload))}`)
     .digest('hex');
 }
 

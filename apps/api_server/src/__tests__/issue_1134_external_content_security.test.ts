@@ -442,6 +442,53 @@ describe("#1134 external-content security boundary", () => {
     });
   });
 
+  // Regression 2026-10-22: rhythm_request_approval digested the model's
+  // security_payload in the tool's own argument names (due_date), while
+  // rhythm_create_task consumed {dueDate}. Every snake_case task approval failed
+  // with "does not match the exact outbound action and payload" (105 of 105 live).
+  it("approval minted with tool argument names binds the tool's camelCase consume payload", async () => {
+    expect((await taint(readContext, [], "gmail.message")).status).toBe(201);
+    const requested = {
+      title: "Reply to Grace De Raadt — Christmas program ideas doc",
+      notes: "Grace (Children's Ministry Co-Director) sent a Google Doc of Christmas program ideas on 2026-10-21. Work inbox (ajh@visaliacrc.com), message id 1a16028669f347f1. Review the doc and reply.",
+      due_date: "2026-10-23",
+    };
+    const consumed = { title: requested.title, notes: requested.notes, dueDate: requested.due_date };
+    const consumeAsTool = (approvalId: string, payload: Record<string, unknown>) =>
+      fetch(`${baseUrl}/agent-approvals/consume`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          // Signed arguments are exactly what the model passed to rhythm_create_task.
+          trustedCall: trustedSigner.signCall(actionContext, "rhythm_create_task", {
+            title: payload.title,
+            notes: payload.notes,
+            due_date: payload.dueDate,
+            approval_id: approvalId,
+          }),
+          context: actionContext,
+          approvalId,
+          action: "task.create",
+          payload,
+        }),
+      });
+
+    const created = await requestBoundApproval("task.create", requested);
+    expect(created.status).toBe(201);
+    const approval = (await created.json()) as PendingApproval;
+    expect((await approve(approval)).status).toBe(200);
+    // Still exact: a changed value is refused and does not burn the token.
+    expect((await consumeAsTool(approval.id, { ...consumed, title: "Injected" })).status).toBe(403);
+    expect((await consumeAsTool(approval.id, { ...consumed, dueDate: "2026-10-24" })).status).toBe(403);
+    expect((await consumeAsTool(approval.id, consumed)).status).toBe(200);
+    // Single use survives the normalization.
+    expect((await consumeAsTool(approval.id, consumed)).status).toBe(409);
+
+    // Both spellings of one field are ambiguous and cannot be approved.
+    const ambiguous = await requestBoundApproval("task.create", { ...requested, dueDate: "2026-12-25" });
+    expect(ambiguous.status).toBe(400);
+  });
+
   it("#1175 c21: internal task and reservation writes require exact signed payloads", async () => {
     expect((await taint(readContext, [], "task.list")).status).toBe(201);
     const taskPayload = { id: "task-1", title: "Reviewed task" };
