@@ -62,7 +62,7 @@ test('A3 bootstrap has exactly non-secret owner and capability metadata', async 
   assert.equal(response.status, 200);
   const body = JSON.parse(response.body);
   assert.deepEqual(Object.keys(body).sort(), ['capabilities', 'mode', 'owner']);
-  assert.deepEqual(body.owner, { id: 1, displayName: 'Synthetic Admin' });
+  assert.deepEqual(body.owner, { id: 1, displayName: 'Synthetic Admin', role: 'admin' });
   assert.equal(body.mode, 'web');
   assert.doesNotMatch(JSON.stringify(body), /token|credential|secret|password/i);
 });

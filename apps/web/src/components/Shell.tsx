@@ -8,6 +8,7 @@ import { AGENT_TOOL_DESCRIPTORS, type AgentToolDescriptor } from '../agentTools/
 import { readAgentToolPins, subscribeAgentToolPins } from '../agentTools/pins';
 import { availableAgentToolIds } from '../agentTools/hosts';
 import { useAuthUser } from '../gateway/auth';
+import { useGateway } from '../gateway/context';
 import type { PendingApproval } from '../gateway/approvals';
 import { Splitter } from './Splitter';
 import { displayAccountIdentity } from './accountIdentity';
@@ -171,6 +172,8 @@ export function Shell({ route, children }: { route: string; children: React.Reac
   ];
   const { theme, setTheme, demo, setDemo, toast, resetFixtures, notify, unreadThreads, sessionGatewayMode, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, pendingApprovals, approvalError, approvalsLoading, approvalsUpdatedAt, decidingApprovalIds, refreshPendingApprovals, decideApproval } = useFixtures();
   const live = sessionGatewayMode === 'live';
+  const gateway = useGateway();
+  const notificationsUnavailable = live && !gateway.domains.notifications && !gateway.domains.approvals;
   const entityDestination = (entityType: string, entityId: string) => ({
     task: `/tasks/task/${encodeURIComponent(entityId)}`,
     rhythm: `/rhythms/rule/${encodeURIComponent(entityId)}`,
@@ -311,7 +314,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
           </Menu>
           {live && <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="approval-queue-announcement">{pendingApprovals.length} pending approvals{approvalError ? '. Approval queue unavailable.' : ''}</span>}
           <Menu key={`${route}:notifications`} label={live ? `Notifications · ${pendingApprovals.length} pending approvals${approvalError ? ' · approval queue unavailable' : ''}` : 'Notifications'} icon="bell" testId="notifications-button" menuId="notifications" onOpenChange={onMenuOpenChange} onPopoverLayout={onPopoverLayout} popoverClassName="notifications-menu" triggerContent={live ? <><Icon name="bell" />{(pendingApprovals.length > 0 || approvalError) && <span className="unread-badge">{approvalError ? '!' : pendingApprovals.length}</span>}</> : undefined}>
-            {live ? <>
+            {notificationsUnavailable ? <div className="menu-item stacked" role="status">Notifications and approvals are unavailable in this environment.</div> : live ? <>
               <div className="menu-heading"><span>Notifications</span><small>{notificationUnreadCount} unread</small></div>
               <button role="menuitem" className="menu-item" type="button" data-menu-keep-open onClick={() => void refreshPendingApprovals()}>Refresh approvals</button>
               <div className="menu-item stacked" role="status" aria-live="polite" data-testid="approval-queue-status">{pendingApprovals.length} pending approvals · {approvalsLoading ? 'Refreshing…' : approvalError ? 'Approval queue needs attention; showing last known pending cards' : approvalsUpdatedAt ? `Updated ${new Date(approvalsUpdatedAt).toLocaleTimeString()}` : 'Not yet loaded'}</div>

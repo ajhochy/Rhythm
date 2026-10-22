@@ -2,13 +2,15 @@
 set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
-export RHYTHM_APPROVED_FIXTURE_ROOT=/private/tmp/rhythm-web-slice1-fixtures-20261022
+export RHYTHM_SANDBOX_DIR="${RHYTHM_SANDBOX_DIR:?Choose a new sandbox directory per run}"
+export RHYTHM_APPROVED_FIXTURE_ROOT="${RHYTHM_SANDBOX_DIR}-fixtures"
+node tools/dev/sandbox_fixture.mjs "$RHYTHM_APPROVED_FIXTURE_ROOT" --web-host
 export RHYTHM_LIVE_DB_PATH="$RHYTHM_APPROVED_FIXTURE_ROOT/rhythm.db"
-export RHYTHM_SANDBOX_OPENCODE_CONFIG="$RHYTHM_APPROVED_FIXTURE_ROOT/opencode.json"
-export RHYTHM_SANDBOX_DIR="${RHYTHM_SANDBOX_DIR:-/private/tmp/rhythm-web-slice1-sandbox-20261022-attempt4-a2}"
+export RHYTHM_SANDBOX_OPENCODE_CONFIG="$RHYTHM_APPROVED_FIXTURE_ROOT"
 export RHYTHM_SANDBOX_ENGINE_DIR=/private/tmp/rhythm-feature-playwright-2026-10-19/apps/opencode_fork/packages/opencode
 export RHYTHM_SANDBOX_SKIP_ENGINE_BUILD=1 RHYTHM_WEB_HOST=1
-export RHYTHM_WEB_PUBLIC_ORIGIN=http://rhythm-web.test:4098 RHYTHM_WEB_OWNER_USER_ID=1
+export RHYTHM_WEB_PUBLIC_ORIGIN=http://rhythm-web.test:4098
+export RHYTHM_WEB_OWNER_USER_ID="${RHYTHM_WEB_OWNER_USER_ID:-1}"
 export RHYTHM_WEB_DIST_DIR="$ROOT/apps/web/dist-web"
 # Live Electron env pair (sandbox.sh adds RHYTHM_MANAGED_CONTEXT_EXPORTS=1). Without it every
 # prompt is held `proof_unavailable` by the Dayflow guard before the provider: see
@@ -19,6 +21,11 @@ cleanup() {
   local result=$? teardown=0
   tools/dev/sandbox.sh down || teardown=$?
   if [[ -n "$provider" ]]; then kill "$provider" 2>/dev/null || true; wait "$provider" 2>/dev/null || true; fi
+  if lsof -nP -iTCP:4097 -iTCP:4098 -iTCP:4099 -iTCP:6996 -sTCP:LISTEN; then
+    printf 'web-host teardown: sandbox ports still occupied\n' >&2
+    teardown=1
+  fi
+  printf 'web-host teardown: exit=%s (canonical down and port audit)\n' "$teardown"
   if [[ "$result" == 0 ]]; then result=$teardown; fi
   exit "$result"
 }

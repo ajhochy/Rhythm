@@ -757,5 +757,6 @@ function LiveDashboardPage({ route, active = true }: { route: string; active?: b
 
 export function DashboardPage(props: { route: string; active?: boolean }) {
   const gateway = useGateway();
+  if (gateway.mode === 'live' && !gateway.domains.dashboard) return <StatePanel state="unavailable" onRetry={() => {}} onEmpty={() => {}} />;
   return gateway.mode === 'live' ? <LiveDashboardPage {...props} /> : <FixtureDashboardPage {...props} />;
 }

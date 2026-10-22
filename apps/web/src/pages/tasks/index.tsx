@@ -119,8 +119,8 @@ export function TasksPage({ route }: { route: string }) {
   const gateway = useGateway();
   const { members: memberOptions, status: memberStatus, currentUserId: liveUserId } = useWorkspaceMembers(workspaceMembers.map((person) => ({ ...person, userId: Number(person.id), email: '' })));
   const initialParams = useMemo(hashParams, []);
-  const [surfaceState, setSurfaceState] = useState<TasksSurfaceState>(initialSurfaceState);
-  const [tasks, setTasks] = useState<TaskFixture[]>(cloneSeededTasks);
+  const [surfaceState, setSurfaceState] = useState<TasksSurfaceState>(() => gateway.mode === 'live' ? 'loading' : initialSurfaceState());
+  const [tasks, setTasks] = useState<TaskFixture[]>(() => gateway.mode === 'live' ? [] : cloneSeededTasks());
   const [receipts, setReceipts] = useState<string[]>(() => surfaceState === 'server-error' ? ['GET /tasks → 503'] : gateway.mode === 'fixture' ? [...initialTaskReceipts] : []);
   const [view, setView] = useState<TasksView>(() => routeView(route));
   const [selectedId, setSelectedId] = useState<string | null>(() => routeSelection(route));
@@ -167,6 +167,7 @@ export function TasksPage({ route }: { route: string }) {
 
   const loadTasks = async () => {
     if (gateway.mode === 'fixture') return;
+    if (!gateway.domains.tasks) { setTasks([]); setSurfaceState('unavailable'); return; }
     setSurfaceState('loading');
     try {
       const loaded = await gateway.domains.tasks!.list();

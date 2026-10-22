@@ -96,8 +96,8 @@ try {
       .then(async response => {
         if (!response.ok) throw new Error(`Web bootstrap failed (HTTP ${response.status})`);
         const body = await response.json();
-        if (body.mode !== 'web' || !Number.isInteger(body.owner?.id) || !body.owner?.displayName) throw new Error('Invalid web bootstrap');
-        renderGateway(undefined, { id: body.owner.id, name: body.owner.displayName, email: '', role: 'member' });
+        if (body.mode !== 'web' || !Number.isInteger(body.owner?.id) || !body.owner?.displayName || typeof body.owner?.role !== 'string' || !body.owner.role) throw new Error('Invalid web bootstrap');
+        renderGateway(undefined, { id: body.owner.id, name: body.owner.displayName, email: '', role: body.owner.role });
       }).catch(renderStartupError);
   } else if (gatewayMode === 'live' && !testOnlyToken) {
     if (!apiBase || !engineBase || !productionApiBase) {

@@ -43,7 +43,7 @@ export function createWebHostRouter() {
   router.get('/web/bootstrap', (_req, res) => {
     const user = webHostOwner()!;
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ mode: 'web', owner: { id: user.id, displayName: user.name },
+    res.json({ mode: 'web', owner: { id: user.id, displayName: user.name, role: user.role },
       capabilities: { localAgents: true, cloud: false, approvals: false, mobileAccess: false } });
   });
   // Hash navigation needs only index.html at /. Never rewrite API misses to HTML.

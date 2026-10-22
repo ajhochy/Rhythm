@@ -896,7 +896,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
 
   // One queue snapshot is shared by the bell and transcript; failed reads retain the last cards.
   useEffect(() => {
-    if (!live) return;
+    if (!live || !gateway.domains.approvals) return;
     let active = true;
     const context = { gateway, generation: 0, deciding: new Set<string>(), inFlight: null as Promise<void> | null, queued: false };
     approvalContextRef.current = context;
