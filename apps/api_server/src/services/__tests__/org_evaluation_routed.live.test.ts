@@ -19,6 +19,9 @@ const proposal = { title: 'Owned routed evaluation', rationale: 'Private engine 
 const profile = { id: 'routed-profile', label: 'Owned routed profile', systemPrompt: 'Follow the selected task instructions exactly.',
   revision: 1, allowedMcpsJson: '[]', allowedSkillsJson: '[]', corePermissionsJson: '{}',
   allowedDelegatesJson: '[]', isManager: false, modelProvider: model.providerID, modelId: model.modelID };
+// Product default whole-run cap. Reservations are pessimistic (request bytes +
+// output ceiling), so a 20k cap refused the candidate arm's later calls.
+const RUN_TOKEN_CAP = 100_000;
 const recipe = (stepsJson: string): FrozenEvaluationRecipe => ({ id: 'owned-recipe', title: 'Owned recipe',
   description: null, stepsJson, boundConfigId: profile.id, schemaVersion: 1, definitionJson: null });
 const schedule = (prompt: string): FrozenEvaluationSchedule => ({ id: 'owned-task', name: 'Owned task',
@@ -50,7 +53,7 @@ async function runScenario(input: Scenario): Promise<void> {
   const repository = new OrgEvaluationRepository(db);
   const jobId = 'routed-root';
   await repository.createJobAsync({ id: jobId, sourceAuditRunId: null, ownerUserId: null,
-    maxTokens: 20_000, validationReserveTokens: 0, originalHash: 'synthetic-original',
+    maxTokens: RUN_TOKEN_CAP, validationReserveTokens: 0, originalHash: 'synthetic-original',
     targetRef: input.targetRef, targetRevision: input.original.targetRevision, inputJson: '{}' });
   const app = express();
   app.use(express.json({ limit: '256kb' }));
@@ -154,7 +157,7 @@ async function runScenario(input: Scenario): Promise<void> {
     }
     const budget = await repository.getBudgetAsync(jobId);
     expect(budget.settledTokens).toBeGreaterThan(0);
-    expect(budget.settledTokens).toBeLessThanOrEqual(20_000);
+    expect(budget.settledTokens).toBeLessThanOrEqual(RUN_TOKEN_CAP);
     expect(budget.outstandingTokens).toBe(0);
     expect(budget.hasUnknownUsage).toBe(false);
   } catch (error) {

@@ -22,6 +22,9 @@ const profile = { id: 'smoke-managed-profile', label: '[smoke] managed profile',
   allowedMcpsJson: JSON.stringify({ rhythm: ['rhythm_list_managed_tools', 'rhythm_run_managed_tool'] }),
   allowedSkillsJson: '[]', corePermissionsJson: '{}', allowedDelegatesJson: '[]', isManager: false,
   modelProvider: model.providerID, modelId: model.modelID };
+// Product default whole-run cap. Reservations are pessimistic (request bytes +
+// output ceiling), so a 20k cap refused the candidate arm's later calls.
+const RUN_TOKEN_CAP = 100_000;
 const targetRef = `agent_config:${profile.id}`;
 const proposal = { title: 'Owned immutable CLI', rationale: 'Measure a real managed command outcome',
   securityNote: 'Runs only in copied state and network-disabled Docker' };
@@ -136,7 +139,7 @@ async function runPair(): Promise<void> {
       return resolveConfiguredEvaluationUpstream(modelId); } });
   try {
     await repository.createJobAsync({ id: jobId, sourceAuditRunId: null, ownerUserId: null,
-      maxTokens: 20_000, validationReserveTokens: 0, originalHash: sha256(JSON.stringify(snapshot)),
+      maxTokens: RUN_TOKEN_CAP, validationReserveTokens: 0, originalHash: sha256(JSON.stringify(snapshot)),
       targetRef, targetRevision: 'absent', inputJson: JSON.stringify({ snapshot }) });
     const runtime = authority.createOrgEvaluationRuntimeAdapter({
       engineBinary: authority.engineBinary,
@@ -207,7 +210,7 @@ async function runPair(): Promise<void> {
     assert.equal(candidate.receipt.dockerVetting?.status, 'observed');
     assert.equal(candidate.receipt.dockerVetting?.changeHash, sha256(changeJson));
     const budget = await repository.getBudgetAsync(jobId);
-    assert.ok(budget.settledTokens > 0 && budget.settledTokens <= 20_000);
+    assert.ok(budget.settledTokens > 0 && budget.settledTokens <= RUN_TOKEN_CAP);
     assert.equal(budget.outstandingTokens, 0);
     assert.equal(budget.hasUnknownUsage, false);
   } catch (error) {
