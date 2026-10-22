@@ -1,14 +1,33 @@
 # Rhythm — project state
 
-Focus: evaluate actual configuration and known poor historical outcomes; all-kind/AI-feature qualification remains incomplete.
+## Current focus
 
-- One active task worktree `/private/tmp/rhythm-feature-playwright-2026-10-19`, branch `test/feature-playwright-2026-10-19`. Original checkout/dirt preserved. No push, PR, merge, install or release.
-- Current signed local app7722902e40 rebuilt/deep strict verified; sealed same-Node npm tree and CLI check passed. Native Dayflow281 and pinned Hermes/Bot Crossing. New pipe/evidence/diagnostic changes await next checkpoint/build.
-- Actual Secretary scan on2d passed fidelity/scan safety but produced0diagnoses/proposals (10,824/100k settled,0outstanding,unknownfalse). Source labels mean error/idle history, not reproduced task failure/success. Actual5.5 and external integrations remain unproved.
-- Found real evidence-loss gap: long4,145byte failure output and terminal108byte system errors did not reach diagnosis. Bounded scanner-checked selection repaired with exact IDs/text and unchanged23KB/two-session caps;73Reviewer tests pass. Packaged spec now requires those exact pinned messages, and prior2d report fails those new checks.
-- Managed live772 original passes; candidate install failed. Budget6,158closed. No-model actual signed-Node sandbox proves ignored stdio attempts denied `/dev/null`; anonymous pipes complete install. Narrow runner repair/source tests pass; new packaged no-model regression must run GREEN after next build. No sandbox/approval/accounting guard weakened.
-- Routed4 live772 tests fail provider-usage accounting. Usage/closure receipts unavailable in prior harness, not assumedzero. Exact hand-built relay HTTP and sandbox port probe pass without a provider. New structural failure receipts added; accounting guard retained. Primary engine is prompted even for later absent-target proof.
-- Current affected checks100backend tests passed across6files,2gated skips (Docker/private packaged regression); API/web and actual-spec typechecks pass. No full backend repeated. Source review found no blocking issue; GitNexus index337commits stale, manualHIGH installer/Reviewer blast radius reported.
-- Actual snapshot ph64hyxu retained privately,114exact skill files/141absences; live configuration/history untouched. All model loans scrubbed hashesunchanged. Keep current772/previous2d generated inputs; verified b1 outputs removed with receipts,196,884,729logicalbytes, physical recovery unmeasured.
+Org Reviewer pre-review evaluation (Harness²-style, all improvement kinds, one whole-run token cap), qualified with packaged Playwright and live private-engine tests, including a review of the actual Rhythm config. Qualification across all 18 kinds and all AI features is incomplete.
 
-Next: checkpoint/local build/sign, no-model packaged installer regression first, then managed live pair and diagnostic routed cases. Rerun actual-history Playwright with exact failure evidence assertions. All18kind gaps remain in `docs/ai/plans/2026-10-21-org-evaluation-kind-coverage.md`; run log `docs/ai/runs/2026-10-21-org-evaluation-implementation.md`.
+## Active branch / PR
+
+- Worktree `/private/tmp/rhythm-feature-playwright-2026-10-19`, branch `test/feature-playwright-2026-10-19`, HEAD `a1c906158a` plus docs. No push, PR, merge, install or release. The original checkout's dirt is preserved.
+- Local signed app: exact `a1c906158a`, deep strict verified (`apps/electron/dist/Rhythm.app`).
+
+## In progress
+
+- **Blocked on a user decision:** routed kinds (create-recipe, refine-recipe, refine-task, webhook-wiring) need about 120–130k actual tokens per original/candidate pair, above the 100k default whole-run cap. Options: raise the default cap; raise only the live-test cap and spend about 500k tokens; or accept inconclusive results for budget reasons.
+- The full approve → fresh-use → revert journey (plan `docs/ai/plans/2026-10-21-org-reviewer-end-to-end-playwright.md`, O1–O10) is still unrun.
+
+## Risks / known issues
+
+- Intermittent: on the first actual-Secretary attempt (3332856) the engine stopped answering after `ensureRhythmMcp` persisted config. Schedule creation timed out at 20 s. It did not reproduce on rerun.
+- The actual Secretary scan passes safety checks and now sees the exact failure evidence, but it yields 0 diagnoses and 0 proposals. Do not rerun it unchanged hoping for a proposal.
+- Real external MCP integrations (Gmail/PCO/Obsidian) are not reproduced in evaluation. Only the controlled `evaluation-*` fixture tools are trusted.
+- The GitNexus index is about 340 commits stale and the new org-evaluation modules are unindexed. Manual blast-radius review applies.
+- About 50 no-model fixtures from Oct 20–21 (`/private/tmp/rhythm-ai-fixture-*`, disposable actor tokens only) await an explicit cleanup pass.
+
+## Test status
+
+- Integrated org-eval checkpoint at a1c906: 220 passed, 1 legacy-Docker skip, 40 files. MCP 3/3. API, MCP and web tsc pass.
+- Live, signed bundle: managed tool original/candidate pair **passes** (1ab737 and a1c906); routed 4/4 **fail** on the whole-run budget; actual-Secretary Playwright **passes** (3332856 rerun); no-model installer sandbox **passes**.
+- Kind coverage: `docs/ai/plans/2026-10-21-org-evaluation-kind-coverage.md`. Runs: `docs/ai/runs/2026-10-21-org-reviewer-claude-takeover.md`, `2026-10-21-org-evaluation-implementation.md`.
+
+## Next step
+
+Get the routed-budget decision. Then qualify the routed kinds, run the packaged evaluation journey through approval and fresh use, and close the remaining per-kind gaps.
