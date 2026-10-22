@@ -23,7 +23,7 @@ async function host(t, signedIn = true, argv = [], extraEnv = {}) {
   const contents = Object.assign(new EventEmitter(), { mainFrame: { url: 'rhythm://app/index.html' }, isDestroyed: () => false, send: (...args) => sent.push(args), setWindowOpenHandler() {}, executeJavaScript: async () => {} });
   class Window extends EventEmitter { constructor() { super(); this.webContents = contents; } isDestroyed() { return false; } async loadURL() { contents.emit('did-finish-load'); } }
   class Server { status = { status: 'ready', owned: false }; onStatusChange() {} async start() { return this.status; } async stopForQuit() {} }
-  const context = createContext({ process: Object.assign(new EventEmitter(), { argv, env: { RHYTHM_SHELL_USER_DATA: directory, ...extraEnv }, resourcesPath: path.join(directory, 'Resources'), cwd: () => directory, stderr: { write: line => logs.push(line) } }), URL, Response, Headers, console: { log: (...args) => logs.push(args), warn: (...args) => logs.push(args), error: (...args) => logs.push(args) } });
+  const context = createContext({ process: Object.assign(new EventEmitter(), { argv, env: { RHYTHM_SHELL_USER_DATA: directory, RHYTHM_WEB_CLOUD_CREDENTIAL_PATH: file, ...extraEnv }, resourcesPath: path.join(directory, 'Resources'), cwd: () => directory, stderr: { write: line => logs.push(line) } }), URL, Response, Headers, console: { log: (...args) => logs.push(args), warn: (...args) => logs.push(args), error: (...args) => logs.push(args) } });
   const source = new URL('../src/main.mjs', import.meta.url);
   const main = new SourceTextModule(fs.readFileSync(source, 'utf8'), { context, initializeImportMeta(meta) { meta.url = source.href; meta.dirname = directory; } });
   await main.link(async name => {
@@ -43,6 +43,13 @@ async function host(t, signedIn = true, argv = [], extraEnv = {}) {
   }
   return { file, menu, item, dialogs, sent, logs, handlers, decrypts: () => decrypts, setResponse: value => { response = value; } };
 }
+
+test('C4 staff installs never show the export unless the host credential path is configured', async t => {
+  // Bug caught: every desktop build offering to write its session token to disk.
+  const h = await host(t, true, [], { RHYTHM_WEB_CLOUD_CREDENTIAL_PATH: undefined });
+  assert.equal(h.item(), undefined);
+  assert.equal(fs.existsSync(h.file), false);
+});
 
 test('C4 real main menu confirms explicit export of in-memory session to protected file, no token IPC/log/dialog', async t => {
   const h = await host(t);

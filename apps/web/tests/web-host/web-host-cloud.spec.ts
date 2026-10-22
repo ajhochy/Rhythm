@@ -27,13 +27,17 @@ test('C1–C4: cloud pages use same-origin host custody; upstream expiry leaves 
     expect(status.recorded.some((row: any) => row.url === route && row.authorization === `Bearer ${token}` && !row.cookie)).toBe(true);
   }
   const cwd = path.resolve(import.meta.dirname, '../../../../');
-  const session = await api('/agent-sessions', { method: 'POST', body: JSON.stringify({ name: 'Cloud expiry local access', cwd, isolateWorktree: false }) });
+  // Project-scoped like A2: unprojected sessions sit in the collapsed "No project" group.
+  const project = await api('/projects', { method: 'POST', body: JSON.stringify({ name: 'Cloud expiry project', cwd }) });
+  const session = await api('/agent-sessions', { method: 'POST', body: JSON.stringify({ name: 'Cloud expiry local access', cwd, projectId: project.id, isolateWorktree: false }) });
   await page.evaluate(() => { location.hash = '#/tasks'; });
   await expect(page.getByText('Synthetic cloud task', { exact: true }).first()).toBeVisible();
   await fetch('http://127.0.0.1:7097/_cloud/disconnect', { method: 'POST' });
   await page.evaluate(() => { location.hash = '#/facilities'; });
   await expect(page.getByText(/Upstream account connection problem/).first()).toBeVisible();
   await page.evaluate(() => { location.hash = '#/agents'; });
+  // In-app navigation (no reload): a project created after load starts collapsed.
+  await page.getByRole('button', { name: /^Cloud expiry project/ }).click();
   await page.getByTestId(`session-${session.id}`).click();
   await expect(page.getByTestId('composer-input')).toBeEnabled();
   const storage = await page.evaluate(() => JSON.stringify([localStorage, sessionStorage]));

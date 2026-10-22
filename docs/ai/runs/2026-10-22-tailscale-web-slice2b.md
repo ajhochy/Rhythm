@@ -369,3 +369,11 @@ Final audit: `git diff --check` PASS; `git diff --stat HEAD -- apps/opencode_for
 empty for THIS worktree (not permission to inspect external denied binary).
 Branch/HEAD unchanged; 26 modified tracked paths +9 new paths, all within assigned
 source/tests/harness/run-log scope. No smoke screenshot/dependency drift remains.
+
+## Manager integration onto slice 2a (2026-10-22)
+
+- 2b committed as e116cde in its isolated worktree, cherry-picked onto e0e4403 -> a9e4cc1. Conflicts (web_host.ts, main.tsx, sandbox_fixture.mjs, run-sandbox.sh) resolved keeping both: bootstrap has owner role AND live cloud capability; fixture supports --web-host and --web-cloud plus ports; run-sandbox.sh keeps 2a's fresh per-run fixture and port audit, adds 2b's port parametrization and, with RHYTHM_WEB_CLOUD_TEST=1, its own fake upstream + synthetic credential.
+- Manager change: Electron export menu is installed only when RHYTHM_WEB_CLOUD_CREDENTIAL_PATH is set (staff installs never offer to write their session). New exporter test for that gate; Dayflow host-hook harness taught the new import.
+- Checks (all RHYTHM_* unset): api build PASS; web build + build:web PASS; typecheck PASS; Electron CSP source == dist; api vitest 7 files 144/144; browser+fixture units 6/6; desktop gateway + cloud-browser Playwright 28/28; Electron exporter 8/8; Electron main.mjs-dependent tests 211/216 with the same 5 failures as base e0e4403 (slice-5-c3/c4/c5, alternate-ports, artifact protocol: actual Electron launch).
+- Live: standard web-host suite security 8/8, browser 16 passed / 1 skipped (cloud spec gated), teardown exit 0. Synthetic cloud (`RHYTHM_WEB_CLOUD_TEST=1`): web-host-cloud.spec.ts 1 passed, teardown exit 0, evidence /private/tmp/mgr-int-cloud4-browser/. Two earlier failures were the spec clicking a session inside a collapsed project group (fixed: project-scoped session, expand group). One manager run aborted by AJ; its sandbox removed afterwards with canonical down (exit 0).
+- Observation for slice 3: final cloud screenshot shows the environment pill at 'Connecting/checking' right after in-app navigation to Agents; web-host-status.spec asserts it reaches Live, so likely a transient re-check. Verify during porting.
