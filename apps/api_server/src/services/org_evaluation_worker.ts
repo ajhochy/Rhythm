@@ -9,6 +9,8 @@ import { join, relative, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import type { OrgEvaluationProposalKind } from '../models/org_evaluation';
 import { retiredSkillUnavailableEvent, skillNotFoundEvent } from './org_evaluation_skill_absence';
+import { asOpenCodeAgentId, asRhythmProfileId } from '../models/agent_session';
+import type { ToolInstallEvaluationVettingReceipt } from './org_evaluation_external_effects';
 
 export interface EvaluationMaterializeRequest {
   candidateId: string;
@@ -25,6 +27,7 @@ export interface EvaluationMaterializeRequest {
   bootstrapEngine?: boolean;
   workspacePath?: string;
   publicationName?: string;
+  managedToolVetting?: ToolInstallEvaluationVettingReceipt;
 }
 
 export interface EvaluationMaterializedConfiguration {
@@ -52,9 +55,10 @@ export interface EvaluationWorkerExecution {
   output: string;
   outputHash: string;
   toolEvents: Array<{ type: string; name: string; status: string; callId: string;
-    outputHash: string | null; evidenceHash: string;
+    outputHash: string | null; resultContentHashes: string[]; evidenceHash: string;
     dispatch: { family: string; action: string; name: string; argumentsHash: string | null } | null }>;
   fixtureToolEvents: Array<{ tool: string; outputHash: string }>;
+  managedReceiverObservations?: Array<Record<string, unknown>>;
   negativeGuardsPassed: boolean;
   guardDetails: { hostReadDenied: boolean; hostWriteDenied: boolean; networkDenied: boolean;
     parentApiDenied: boolean; processSignalDenied: boolean };
@@ -207,6 +211,26 @@ export function readEvaluationEffectiveManifest(
   return { manifestJson, manifestHash: sha256(manifestJson) };
 }
 
+async function effectiveManifestForRequestAsync(request: EvaluationMaterializeRequest,
+  db: Database.Database, publicationStateHash?: string): Promise<{ manifestJson: string; manifestHash: string }> {
+  const base = readEvaluationEffectiveManifest(db, process.env.HOME!, request.executionModel,
+    { kind: request.kind, targetRef: request.targetRef, publicationStateHash });
+  if (request.kind !== 'tool-install') return base;
+  const { readPrivateManagedToolDescriptorAsync } = await import('./org_evaluation_managed_lifecycle');
+  const managedTool = await readPrivateManagedToolDescriptorAsync({ db,
+    workerRoot: request.workerRoot, targetRef: request.targetRef,
+    changeJson: request.changeJson ?? '{}', baseline: request.baseline });
+  const ingressRoot = process.env.RHYTHM_EVALUATION_MCP_DIST;
+  if (!ingressRoot) throw new Error('Production managed-tool ingress is unavailable');
+  const ingressFiles = ['security/external_content_boundary.js', 'security/context_scanner.js',
+    'security/injection_patterns.js', 'security/security_context.js', 'untrusted_context.js'];
+  const managedIngressHash = sha256(JSON.stringify(ingressFiles.map((name) =>
+    [name, sha256(readFileSync(join(ingressRoot, name)))])));
+  const manifestJson = JSON.stringify({ ...JSON.parse(base.manifestJson), managedTool,
+    managedIngressHash });
+  return { manifestJson, manifestHash: sha256(manifestJson) };
+}
+
 async function readPrivatePublicationState(name: string | undefined): Promise<{
   stateHash: string; published: boolean; bodyHash: string | null;
 }> {
@@ -253,7 +277,6 @@ export async function materializeOrgEvaluationCandidateAsync(
   const externalChange = request.kind === 'external-adoption' && !request.baseline
     ? JSON.parse(request.changeJson ?? 'null') as { candidateKind?: unknown } : null;
   if (!request.baseline && (!request.changeJson ||
-      request.kind === 'tool-install' ||
       request.kind === 'external-adoption' && externalChange?.candidateKind !== 'skill')) {
     throw new Error(`Evaluation kind '${request.kind}' requires its isolated external/specialized applier`);
   }
@@ -273,7 +296,19 @@ export async function materializeOrgEvaluationCandidateAsync(
         }
       }
     }
-    if (!request.baseline) {
+    if (request.kind === 'tool-install') {
+      const { ensurePrivateEvaluationOwner, applyPrivateManagedToolAsync } =
+        await import('./org_evaluation_managed_lifecycle');
+      ensurePrivateEvaluationOwner(db);
+      if (!request.baseline) {
+        if (!request.changeJson || !request.managedToolVetting)
+          throw new Error('Private tool candidate lacks exact parent Docker vetting');
+        await applyPrivateManagedToolAsync({ db, workerRoot: request.workerRoot,
+          targetRef: request.targetRef, changeJson: request.changeJson,
+          vetting: request.managedToolVetting });
+        effectEvents.push('candidate-applied-to-worker-db');
+      }
+    } else if (!request.baseline) {
       const { registerAllProposalAppliers } = await import('./org_proposal_appliers_wiring');
       const { applyApprovedProposalAsync } = await import('./org_proposal_apply_service');
       const { AgentOrgProposalsRepository } = await import('../repositories/agent_org_proposals_repository');
@@ -306,8 +341,7 @@ export async function materializeOrgEvaluationCandidateAsync(
     }
     const publicationStateHash = request.kind === 'publish-skill-to-org'
       ? (await readPrivatePublicationState(request.publicationName)).stateHash : undefined;
-    const manifest = readEvaluationEffectiveManifest(db, process.env.HOME!, request.executionModel,
-      { kind: request.kind, targetRef: request.targetRef, publicationStateHash });
+    const manifest = await effectiveManifestForRequestAsync(request, db, publicationStateHash);
     return { ...manifest, applied: !request.baseline, effectEvents };
   } finally {
     setDb(previous);
@@ -404,9 +438,7 @@ export async function executeOrgEvaluationTaskAsync(request: EvaluationExecuteRe
     await engine.initialize({ directory: request.workspacePath });
     const publicationBefore = request.kind === 'publish-skill-to-org'
       ? await readPrivatePublicationState(request.publicationName) : undefined;
-    const projected = readEvaluationEffectiveManifest(db, process.env.HOME!, request.executionModel,
-      { kind: request.kind, targetRef: request.targetRef,
-        publicationStateHash: publicationBefore?.stateHash });
+    const projected = await effectiveManifestForRequestAsync(request, db, publicationBefore?.stateHash);
     if (projected.manifestHash !== request.expectedManifestHash) {
       throw new Error('Evaluation candidate effective configuration changed between prepare and run');
     }
@@ -420,6 +452,19 @@ export async function executeOrgEvaluationTaskAsync(request: EvaluationExecuteRe
       request.model.providerID, undefined, 'default',
     );
     if (!session.id) throw new Error(session.error ?? 'Evaluation engine did not create a session');
+    if (request.kind === 'tool-install') {
+      if (!profileId) throw new Error('Managed tool test lacks an exact profile');
+      const { ensurePrivateEvaluationOwner } = await import('./org_evaluation_managed_lifecycle');
+      const { AgentSessionsRepository } = await import('../repositories/agent_sessions_repository');
+      const ownerUserId = ensurePrivateEvaluationOwner(db);
+      const sessions = new AgentSessionsRepository();
+      const copied = sessions.insert({ agentKind: 'codex', opencodeAgentId: asOpenCodeAgentId(profileId),
+        profileId: asRhythmProfileId(profileId), taskId: null, cwd: request.workspacePath,
+        name: 'Disposable managed tool evaluation',
+        ownerUserId, mcpAllowedToolsJson: primaryScope.mcpRoleConfig?.allowedToolsJson ?? null });
+      sessions.setSdkSessionId(copied.id, session.id);
+      sessions.updateStatus(copied.id, 'working');
+    }
     const response = await engine.prompt(
       session.id, request.task.prompt, request.model, request.workspacePath,
       profileId ? { agent: profileId } : {},
@@ -453,9 +498,33 @@ export async function executeOrgEvaluationTaskAsync(request: EvaluationExecuteRe
               argumentsHash: rawInput.arguments && typeof rawInput.arguments === 'object'
                 ? sha256(JSON.stringify(rawInput.arguments)) : null }
           : null;
+        const resultContentHashes: string[] = [];
+        const recordOutput = (text: string) => {
+          resultContentHashes.push(sha256(text));
+          const open = '\n<<<UNTRUSTED_EXTERNAL_CONTENT>>>\n';
+          const close = '\n<<<END_UNTRUSTED_EXTERNAL_CONTENT>>>';
+          const start = text.indexOf(open);
+          const end = text.indexOf(close);
+          if (start >= 0 && end > start && text.indexOf(open, start + 1) < 0 &&
+              text.indexOf(close, end + 1) < 0) {
+            resultContentHashes.push(sha256(text.slice(start + open.length, end)));
+          }
+        };
+        if (typeof state.output === 'string' && state.output.length <= 32_768) {
+          recordOutput(state.output);
+          try {
+            const parsed = JSON.parse(state.output) as { content?: unknown };
+            if (Array.isArray(parsed?.content)) for (const item of parsed.content) {
+              if (item && typeof item === 'object' && !Array.isArray(item) &&
+                  typeof (item as { text?: unknown }).text === 'string') {
+                recordOutput((item as { text: string }).text);
+              }
+            }
+          } catch { /* only exact recognized output forms contribute */ }
+        }
         return { type: 'tool', name: String(value.tool ?? ''), status: String(state.status ?? ''),
           callId: String(value.callID ?? ''), outputHash: typeof state.output === 'string' ? sha256(state.output) : null,
-          evidenceHash: sha256(JSON.stringify(value)), dispatch };
+          resultContentHashes, evidenceHash: sha256(JSON.stringify(value)), dispatch };
       });
     const ledgerPath = join(request.workerRoot, 'mcp-fixture', 'effects.jsonl');
     const fixtureToolEvents = existsSync(ledgerPath)
@@ -537,9 +606,7 @@ export async function executeOrgEvaluationTaskAsync(request: EvaluationExecuteRe
     }
     const publicationAfterPrompt = request.kind === 'publish-skill-to-org'
       ? await readPrivatePublicationState(request.publicationName) : undefined;
-    const afterRun = readEvaluationEffectiveManifest(db, process.env.HOME!, request.executionModel,
-      { kind: request.kind, targetRef: request.targetRef,
-        publicationStateHash: publicationAfterPrompt?.stateHash });
+    const afterRun = await effectiveManifestForRequestAsync(request, db, publicationAfterPrompt?.stateHash);
     if (afterRun.manifestHash !== request.expectedManifestHash) {
       const before = JSON.parse(projected.manifestJson) as { tableHashes: Record<string, string>; fileHashes: Record<string, string> };
       const after = JSON.parse(afterRun.manifestJson) as typeof before;
@@ -579,8 +646,7 @@ export async function executeOrgEvaluationTaskAsync(request: EvaluationExecuteRe
         scoredOutput = routed.routedOutput;
         scoredSessionId = routed.routedSessionId;
       }
-      const afterRouted = readEvaluationEffectiveManifest(db, process.env.HOME!, request.executionModel,
-        { kind: request.kind, targetRef: request.targetRef });
+      const afterRouted = await effectiveManifestForRequestAsync(request, db);
       if (afterRouted.manifestHash !== request.expectedManifestHash) {
         throw new Error('Routed evaluation changed effective configuration');
       }

@@ -1059,6 +1059,19 @@ describe('OrgReviewerService bounded context and identity', () => {
     // Same entries as the overview reports for the same bounds.
     const overview = await service.context({}, reviewer) as { schedules: Array<{ id: string }> };
     expect(overview.schedules.map((entry) => entry.id)).toEqual(ids);
+    const skill = new AgentSkillsRepository().create({ title: `Visible skill ${randomUUID()}`,
+      body: 'Use the requested heading.', status: 'active', confidence: 1 });
+    const evaluation = await service.evaluationContext(null) as {
+      batches: Array<{ profiles?: Array<{ id: string; revision: number; targetRevision: string }>;
+        schedules?: Array<{ id: string; targetRevision: string }>;
+        skills?: Array<{ id: string; version: number; targetRevision: string }> }>;
+    };
+    const visible = evaluation.batches.find((batch) => batch.profiles?.some((entry) => entry.id === targetId));
+    expect(visible?.profiles?.find((entry) => entry.id === targetId)?.targetRevision)
+      .toBe(String(configs.getById(targetId)?.revision ?? 0));
+    expect(visible?.schedules?.find((entry) => entry.id === mine.id)?.targetRevision).toBe(mine.updatedAt);
+    expect(evaluation.batches.flatMap((batch) => batch.schedules ?? []).some((entry) => entry.id === foreign.id)).toBe(false);
+    expect(visible?.skills?.find((entry) => entry.id === skill.id)?.targetRevision).toBe(String(skill.version));
     for (const input of [
       { kind: 'sessions' }, { kind: 'profiles', cursor: '-1' }, { kind: 'profiles', cursor: '999' },
       { kind: 'profiles', extra: true }, { kind: 'profiles', windowDays: 15 },

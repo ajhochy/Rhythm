@@ -298,7 +298,7 @@ export function prepareOrgEvaluationFixture(
   snapshot: OrgEvaluationTargetSnapshot,
   options: { fixtureRoot: string; safeMcpCommand: string[]; providerRelayUrl: string;
     relayToken: string; executionModel?: { providerID: string; modelID: string };
-    publicationBaseURL?: string },
+    publicationBaseURL?: string; managedMcpCommand?: string[] },
 ): PreparedOrgEvaluationFixture {
   const root = resolve(options.fixtureRoot);
   if (!root.startsWith('/private/tmp/') || existsSync(root) || snapshot.schemaVersion !== 1 ||
@@ -307,6 +307,11 @@ export function prepareOrgEvaluationFixture(
       ![join(__dirname, 'org_evaluation_mcp_fixture.js'),
         join(__dirname, 'org_evaluation_mcp_fixture.ts')].includes(options.safeMcpCommand[1])) {
     throw new Error('Evaluation fixture inputs are not approved');
+  }
+  if (options.managedMcpCommand && (options.managedMcpCommand.length !== 2 ||
+      options.managedMcpCommand[0] !== process.execPath ||
+      options.managedMcpCommand[1] !== join(__dirname, 'org_evaluation_managed_mcp_shim.js'))) {
+    throw new Error('Evaluation managed MCP command is not code-owned');
   }
   const frozenModel = snapshot.effectiveModel;
   if (!frozenModel || !['profile', 'scheduled-task', 'mru', 'hardcoded-default'].includes(frozenModel.source)
@@ -414,7 +419,8 @@ export function prepareOrgEvaluationFixture(
     chmodSync(path, 0o400);
   }
   const config = {
-    mcp: { 'evaluation-fixture': { type: 'local', command: options.safeMcpCommand } },
+    mcp: { 'evaluation-fixture': { type: 'local', command: options.safeMcpCommand },
+      ...(options.managedMcpCommand ? { rhythm: { type: 'local', command: options.managedMcpCommand } } : {}) },
     provider: { [executionModel.providerID]: { options: {
       baseURL: options.providerRelayUrl, apiKey: options.relayToken,
     } } },

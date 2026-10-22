@@ -50,6 +50,8 @@ vi.mock('../services/opencode_engine', () => {
       assertDayflowSdkHistoryMayBeReused: vi.fn().mockResolvedValue(undefined),
       updateSessionAllowlist: vi.fn().mockResolvedValue(undefined),
       updateSessionSkillAllowlist: vi.fn().mockResolvedValue(undefined),
+      // The gateway requires a confirmed scope update before forwarding.
+      updateSessionPermissionMode: vi.fn().mockResolvedValue(true),
       ensureReady: vi.fn().mockResolvedValue(true),
     },
     opencodeSessionMap: sessionMap,

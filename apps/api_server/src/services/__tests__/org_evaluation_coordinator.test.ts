@@ -170,6 +170,11 @@ describe('pre-review coordinator sequencing and queue boundary', () => {
     const results = await repository.listResultsAsync(job.id);
     expect(results.filter(row => row.phase === 'validation').map(row => row.taskKey)).toHaveLength(2);
     const held = JSON.parse(job.inputJson).validation[0];
+    const diagnosisPrompt = calls[0].prompt!;
+    expect(diagnosisPrompt).toContain('targetRevision:string');
+    expect(diagnosisPrompt).toContain('sessionId:string,messageId:string,quote:string');
+    expect(diagnosisPrompt).toContain('outputIncludes:string[],outputExcludes:string[]');
+    expect(diagnosisPrompt).toContain('2 to 6 distinct realistic task cases');
     const generation = calls.find((call, index) => call.type === 'generator' && index > 0)!;
     expect(generation.prompt).not.toContain(held.prompt);
     expect(calls.at(-1)?.type).toBe('publish');
@@ -191,6 +196,28 @@ describe('pre-review coordinator sequencing and queue boundary', () => {
     expect(parseEvaluationDiagnoses(JSON.stringify({ diagnoses: [diagnosis] }))).toHaveLength(1);
     expect(() => parseEvaluationDiagnoses(JSON.stringify({ diagnoses: [{ ...diagnosis, evidence: [] }] }))).toThrow();
     expect(() => parseEvaluationDiagnoses(JSON.stringify({ diagnoses: [{ ...diagnosis, cases: [{ ...diagnosis.cases[0], outputIncludes: [] }] }] }))).toThrow();
+  });
+  it.each([
+    { path: 'diagnoses[0].targetRevision', value: { ...diagnosis, targetRevision: 2 } },
+    { path: 'diagnoses[0].evidence[0].sessionId', value: { ...diagnosis,
+      evidence: [{ ...diagnosis.evidence[0], sessionId: 12 }, diagnosis.evidence[1]] } },
+    { path: 'diagnoses[0].evidence[1].sessionId', value: { ...diagnosis,
+      evidence: [diagnosis.evidence[0], { ...diagnosis.evidence[1], sessionId: diagnosis.evidence[0].sessionId }] } },
+    { path: 'diagnoses[0].cases[0].outputExcludes', value: { ...diagnosis,
+      cases: [{ key: 'secret-marker', prompt: 'private marker', outputIncludes: ['Actions'] }, diagnosis.cases[1]] } },
+    { path: 'diagnoses[0].cases[0].outputIncludes', value: { ...diagnosis,
+      cases: [{ ...diagnosis.cases[0], outputIncludes: [], outputExcludes: [] }, diagnosis.cases[1]] } },
+    { path: 'diagnoses[0].cases[1].key', value: { ...diagnosis,
+      cases: [diagnosis.cases[0], { ...diagnosis.cases[1], key: diagnosis.cases[0].key }] } },
+    { path: 'diagnoses[0]', value: { ...diagnosis, secretMarker: 'private marker' } },
+  ])('returns only the invalid field path $path', ({ path, value }) => {
+    let message = '';
+    try { parseEvaluationDiagnoses(JSON.stringify({ diagnoses: [value] })); }
+    catch (error) { message = (error as Error).message; }
+    expect(message).toMatch(new RegExp(`^${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: `));
+    expect(message).not.toContain('private marker');
+    expect(message).not.toContain('secret-marker');
+    expect(message).not.toContain('secretMarker');
   });
   it('reports publication failure after tests as inconclusive instead of a successful review', async () => {
     const { coordinator } = harness({ publishFailure: true });

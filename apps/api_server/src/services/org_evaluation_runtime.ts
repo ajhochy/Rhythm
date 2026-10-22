@@ -24,6 +24,10 @@ import { startOrgEvaluationPublishReceiverAsync } from './org_evaluation_publish
 import { verifyScopeDelegationEffects } from './org_evaluation_scope_effects';
 import { unpublishedOrgSkillEvent } from './org_evaluation_skill_absence';
 import { externalSkillReceiverInput, startExternalSkillReceiverAsync } from './org_evaluation_external_source';
+import { vetToolInstallCandidateAsync } from './org_evaluation_external_effects';
+import { startPrivateManagedBridgeAsync } from './org_evaluation_managed_bridge_parent';
+import { stagePrivateManagedArtifact } from './org_evaluation_managed_artifact';
+import { verifyPrivateManagedEffects } from './org_evaluation_managed_effects';
 import type {
   EvaluationExecuteRequest,
   EvaluationMaterializeRequest,
@@ -44,6 +48,7 @@ export interface EvaluationWorkerInput {
   publicationBaseURL?: string;
   publicationToken?: string;
   externalSource?: { url: string; sha256: string; receiverURL: string; token: string };
+  managedTool?: { enabled: true };
   /** A request-scoped local relay which admits each provider request. */
   providerRelayUrl: string;
 }
@@ -178,6 +183,7 @@ export function buildEvaluationWorkerEnvironment(
   prepared: PreparedEvaluationWorkerFilesystem,
   engineBinary: string,
   relayToken: string,
+  managedBridge?: { baseURL: string; token: string },
 ): NodeJS.ProcessEnv {
   assertEvaluationWorkerInput(input);
   if (!temporaryPath(engineBinary) || !engineBinary.endsWith('/opencode') || !relayToken) {
@@ -216,6 +222,14 @@ export function buildEvaluationWorkerEnvironment(
       PROD_AUTH_TOKEN: input.publicationToken,
       RHYTHM_EVALUATION_PUBLICATION_URL: input.publicationBaseURL,
     } : {}),
+    ...(managedBridge ? {
+      RHYTHM_EVALUATION_MANAGED_RECEIVER_URL: managedBridge.baseURL,
+      RHYTHM_EVALUATION_MANAGED_RECEIVER_TOKEN: managedBridge.token,
+      RHYTHM_MANAGED_CONTEXT_EXPORTS: '1',
+      RHYTHM_EVALUATION_MCP_DIST: resolve(__dirname, '../../../mcp_server/dist'),
+      RHYTHM_TOOL_ARTIFACT_ROOT: join(input.workerRoot, 'artifacts'),
+      RHYTHM_MANAGED_TOOL_ROOT: join(input.workerRoot, 'managed-tools'),
+    } : {}),
     ...(input.externalSource ? {
       RHYTHM_EVALUATION_EXTERNAL_SOURCE_URL: input.externalSource.url,
       RHYTHM_EVALUATION_EXTERNAL_SOURCE_SHA256: input.externalSource.sha256,
@@ -236,12 +250,18 @@ function policyString(path: string): string {
  */
 export function evaluationSandboxPolicy(input: {
   workerRoot: string; programRoots: string[]; enginePort: number; relayPort: number;
-  webhookPort?: number; publicationPort?: number; externalSourcePort?: number;
+  webhookPort?: number; publicationPort?: number; externalSourcePort?: number; managedPort?: number;
+  pinnedBinary?: string;
 }): string {
   if (!temporaryPath(input.workerRoot) || input.programRoots.length === 0 ||
       !Number.isInteger(input.enginePort) || !Number.isInteger(input.relayPort)) {
     throw new Error('Evaluation sandbox roots are invalid');
   }
+  if (input.pinnedBinary &&
+      (input.pinnedBinary !== join(realpathSync(input.workerRoot), 'opencode') ||
+        !lstatSync(input.pinnedBinary).isFile() ||
+        realpathSync(input.pinnedBinary) !== input.pinnedBinary))
+    throw Error('Pinned engine binary is not an owned regular file');
   const readable = [
     '/usr', '/System', '/Library', '/private/etc', '/dev',
     realpathSync(input.workerRoot),
@@ -285,6 +305,9 @@ export function evaluationSandboxPolicy(input: {
         `(allow file-read* (subpath ${policyString(path)}))`]
       : [`(allow file-read* (literal ${policyString(path)}))`]),
     `(allow file-write* (subpath ${policyString(realpathSync(input.workerRoot))}))`,
+    ...(input.pinnedBinary ? [
+      `(deny file-write* (literal ${policyString(input.pinnedBinary)}))`,
+    ] : []),
     '(allow process-exec)',
     '(allow process-fork)',
     '(allow process-info* (target self))',
@@ -304,6 +327,7 @@ export function evaluationSandboxPolicy(input: {
     ...(input.externalSourcePort ? [
       `(allow network-outbound (remote ip "localhost:${input.externalSourcePort}"))`,
     ] : []),
+    ...(input.managedPort ? [`(allow network-outbound (remote ip \"localhost:${input.managedPort}\"))`] : []),
   ].join('\n');
 }
 
@@ -313,6 +337,7 @@ interface EvaluationSandboxRunInput {
   engineBinary: string;
   relayToken: string;
   timeoutMs?: number;
+  managedToolVetting?: import('./org_evaluation_external_effects').ToolInstallEvaluationVettingReceipt;
 }
 
 interface EvaluationSandboxExecuteInput extends EvaluationSandboxRunInput {
@@ -337,8 +362,21 @@ export async function materializeCandidateInSandboxAsync(
   if (createHash('sha256').update(readFileSync(pinnedBinary)).digest('hex') !== sourceHash) {
     throw new Error('Evaluation engine binary changed while staging');
   }
+  if (input.worker.kind === 'tool-install' && !input.request.baseline) {
+    if (!input.request.changeJson || !input.managedToolVetting ||
+        input.managedToolVetting.status !== 'observed')
+      throw new Error('Private tool materialization lacks exact Docker vetting');
+    stagePrivateManagedArtifact({ workerRoot: input.worker.workerRoot,
+      changeJson: input.request.changeJson });
+  }
+  const managedBridge = input.worker.kind === 'tool-install'
+    ? await startPrivateManagedBridgeAsync({ workerRoot: input.worker.workerRoot,
+      dbPath: prepared.dbPath, workspacePath: prepared.workspacePath,
+      enginePort: input.worker.enginePort, ownerUserId: 900_000_001,
+      pinnedBinary }) : null;
+  try {
   const environment = buildEvaluationWorkerEnvironment(
-    input.worker, prepared, pinnedBinary, input.relayToken,
+    input.worker, prepared, pinnedBinary, input.relayToken, managedBridge ?? undefined,
   );
   if ('execution' in input) {
     const fixtureDir = join(prepared.workspacePath, 'fixtures');
@@ -360,11 +398,20 @@ export async function materializeCandidateInSandboxAsync(
       ? Number(new URL(input.worker.publicationBaseURL).port) : undefined,
     externalSourcePort: input.worker.externalSource
       ? Number(new URL(input.worker.externalSource.receiverURL).port) : undefined,
+    managedPort: managedBridge?.port,
+    pinnedBinary,
     programRoots: [
       distRoot,
       resolve(apiRoot, 'package.json'),
       resolve(apiRoot, 'node_modules'),
       resolve(apiRoot, 'vendor/opencode-ai-sdk'),
+      ...(managedBridge ? [
+        'security/external_content_boundary.js',
+        'security/context_scanner.js',
+        'security/injection_patterns.js',
+        'security/security_context.js',
+        'untrusted_context.js',
+      ].map(name => resolve(apiRoot, '../mcp_server/dist', name)) : []),
       resolve(apiRoot, 'node_modules/@opencode-ai/sdk'),
       resolve(apiRoot, '../..', 'node_modules'),
       pinnedBinary,
@@ -374,13 +421,16 @@ export async function materializeCandidateInSandboxAsync(
   const request = {
     ...input.request, dbPath: prepared.dbPath, workerRoot: input.worker.workerRoot,
     workspacePath: prepared.workspacePath,
+    managedToolVetting: input.managedToolVetting,
     ...('execution' in input ? {
       ...input.execution,
       workspacePath: prepared.workspacePath,
       mode: 'execute' as const,
     } : {}),
   };
-  return await new Promise<EvaluationMaterializedConfiguration | EvaluationWorkerExecution>((resolveResult, rejectResult) => {
+  let result: EvaluationMaterializedConfiguration | EvaluationWorkerExecution;
+  let managedObservations: Array<Record<string, unknown>> = [];
+  result = await new Promise<EvaluationMaterializedConfiguration | EvaluationWorkerExecution>((resolveResult, rejectResult) => {
     const child = spawn('/usr/bin/sandbox-exec', ['-f', policyPath, process.execPath, modulePath], {
       env: environment, cwd: prepared.workspacePath, stdio: ['pipe', 'pipe', 'pipe'], detached: true,
     });
@@ -412,8 +462,27 @@ export async function materializeCandidateInSandboxAsync(
           EvaluationMaterializedConfiguration | EvaluationWorkerExecution);
       } catch { rejectResult(new Error('Evaluation sandbox returned malformed materialization receipt')); }
     });
-    child.stdin.end(JSON.stringify(request));
+    if (managedBridge) {
+      if (!child.pid) { rejectResult(Error('Private worker PID unavailable')); return; }
+      void managedBridge.bindWorker(child.pid).then(() => {
+        if (child.exitCode !== null || child.signalCode !== null || child.stdin.destroyed)
+          throw Error('Private worker exited before PID binding completed');
+        child.stdin.end(JSON.stringify(request));
+      }).catch((error) => {
+        try { process.kill(-child.pid!, 'SIGKILL'); } catch { /* already exited */ }
+        rejectResult(error);
+      });
+    } else child.stdin.end(JSON.stringify(request));
   });
+  if (managedBridge) managedObservations = await managedBridge.close();
+  if ('execution' in input && 'toolEvents' in result) {
+    result.managedReceiverObservations = managedObservations;
+  }
+  return result;
+  } finally {
+    // Success path closes above to collect observations; repeated close is safe.
+    if (managedBridge) await managedBridge.close();
+  }
 }
 
 export interface OrgEvaluationRuntimeAdapterOptions {
@@ -505,8 +574,13 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
     const externalSource = await startExternalSourceForArm(input.snapshot, input.changeJson,
       input.role === 'original');
     try {
+      const managedToolVetting = input.kind === 'tool-install' && input.role !== 'original'
+        ? await vetToolInstallCandidateAsync({ changeJson: input.changeJson,
+          workerRoot: options.workerBaseRoot }) : undefined;
       const fixture = prepareOrgEvaluationFixture(input.snapshot, {
         fixtureRoot, safeMcpCommand: [process.execPath, join(__dirname, 'org_evaluation_mcp_fixture.js')], providerRelayUrl: url,
+        managedMcpCommand: input.kind === 'tool-install'
+          ? [process.execPath, join(__dirname, 'org_evaluation_managed_mcp_shim.js')] : undefined,
         relayToken: 'prepare-only-no-provider-access', executionModel,
         publicationBaseURL: publication?.receiver.baseURL,
       });
@@ -535,6 +609,7 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
           bootstrapEngine: true,
         },
         engineBinary: options.engineBinary,
+        managedToolVetting,
         relayToken: 'prepare-only-no-provider-access', timeoutMs: options.wallMs,
       });
       return { manifestJson: result.manifestJson, manifestHash: result.manifestHash };
@@ -572,8 +647,14 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
         lease = await options.createLease({
           jobId: input.jobId, stage: input.stage, model: executionModel.modelID, maxCalls: 8,
         });
+        const managedToolVetting = input.candidate.kind === 'tool-install' &&
+          input.candidate.role !== 'original'
+          ? await vetToolInstallCandidateAsync({ changeJson: input.candidate.changeJson,
+            workerRoot: options.workerBaseRoot }) : undefined;
         const fixture = prepareOrgEvaluationFixture(input.snapshot, {
           fixtureRoot, safeMcpCommand: [process.execPath, join(__dirname, 'org_evaluation_mcp_fixture.js')],
+          managedMcpCommand: input.candidate.kind === 'tool-install'
+            ? [process.execPath, join(__dirname, 'org_evaluation_managed_mcp_shim.js')] : undefined,
           providerRelayUrl: lease.baseURL, relayToken: lease.token, executionModel,
           publicationBaseURL: publication?.receiver.baseURL,
         });
@@ -610,6 +691,7 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
             guardNetworkUrl: `http://127.0.0.1:${guardAddress.port}/guard`,
           },
           engineBinary: options.engineBinary,
+          managedToolVetting,
           relayToken: lease.token,
           timeoutMs: options.wallMs ?? 120_000,
         });
@@ -634,11 +716,18 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
           trustedFixtureServers: ['evaluation-fixture'],
         });
         execution.observedEffects.push(...scopeProof.events);
+        const managedProof = input.candidate.kind === 'tool-install'
+          ? verifyPrivateManagedEffects({ baseline: input.candidate.role === 'original',
+            changeJson: input.candidate.changeJson,
+            manifestJson: input.candidate.effectiveConfigJson,
+            vetting: managedToolVetting, execution }) : null;
+        if (managedProof) execution.observedEffects.push(...managedProof.events);
         const required = input.candidate.role === 'original'
           ? input.candidate.kind === 'create-recipe' || input.candidate.kind === 'webhook-wiring'
             ? ['target-absent']
             : input.candidate.kind === 'refine-recipe' ? ['recipe-selected']
             : input.candidate.kind === 'refine-task' ? ['scheduled-task-fired']
+            : input.candidate.kind === 'tool-install' ? ['agent-output', 'managed-original-absent']
             : ['agent-output'] : requiredEffectEvidence(input.candidate.kind, input.candidate.changeJson);
         const publicationObservations = publication
           ? await publication.receiver.observations() : null;
@@ -707,6 +796,8 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
           positiveChecksMatched: positive, forbiddenChecksMatched: forbidden,
           toolEvents: execution.toolEvents,
           fixtureToolEvents: execution.fixtureToolEvents,
+          ...(managedToolVetting ? { dockerVetting: managedToolVetting } : {}),
+          managedReceiverObservations: execution.managedReceiverObservations,
           guardDetails: execution.guardDetails,
           effectProof: {
             manifestHash: execution.manifestHash,
@@ -719,7 +810,8 @@ export function createOrgEvaluationRuntimeAdapter(options: OrgEvaluationRuntimeA
         });
         return { receiptJson, status, score, tokenUsage: usage,
           failureReason: missing.length ? `Missing actual effect proof: ${missing.join(', ')}${
-            scopeProof.reason ? `; ${scopeProof.reason}` : ''}` : null };
+            scopeProof.reason ? `; ${scopeProof.reason}` : ''}${
+            managedProof?.reason ? `; ${managedProof.reason}` : ''}` : null };
       } finally {
         await publication?.receiver.close();
         await externalSource?.receiver.close();

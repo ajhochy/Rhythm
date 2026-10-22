@@ -232,6 +232,7 @@ function profileSummary(config: AgentConfig): JsonRecord {
   const stable = stableConfig(config);
   return {
     ...stable,
+    targetRevision: String(config.revision ?? 0),
     systemPrompt: typeof config.systemPrompt === 'string'
       ? config.systemPrompt.slice(0, 4_000)
       : config.systemPrompt,
@@ -264,6 +265,7 @@ function stableSchedule(task: AgentScheduledTask): JsonRecord {
 function scheduleSummary(task: AgentScheduledTask): JsonRecord {
   return {
     ...stableSchedule(task),
+    targetRevision: task.updatedAt,
     prompt: task.prompt.slice(0, 300),
     promptTruncated: task.prompt.length > 300,
   };
@@ -927,6 +929,7 @@ export class OrgReviewerService {
         name: skill.title,
         status: skill.status,
         version: skill.version,
+        targetRevision: String(skill.version),
       }));
     const schedules = visibleSchedules
       .filter((task) => task.agentConfigId === null || relevantProfileIds.has(task.agentConfigId))

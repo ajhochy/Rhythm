@@ -267,10 +267,18 @@ export const applyWebhookWiring: ProposalApplier = async (
     }
   }
   const targetPrompt = change.targetPromptTemplate ?? undefined;
+  // The proposal title is review copy. The endpoint identity is the frozen
+  // trigger source named by the proposal target, including evaluated changes.
+  const triggerName = typeof change.triggerSource === 'string' && change.triggerSource.trim()
+    ? change.triggerSource : null;
+  if (proposal.targetRef && (!triggerName ||
+      ![triggerName, `webhook:${triggerName}`].includes(proposal.targetRef))) {
+    throw new Error('Webhook trigger source differs from the reviewed target');
+  }
 
   const repo = new AgentWebhookEndpointsRepository();
   const endpoint = await repo.createAsync({
-    name: proposal.title,
+    name: triggerName ?? proposal.title,
     eventTypesJson: JSON.stringify(change.eventTypes ?? ['*']),
     targetScheduledTaskId,
     targetRecipeId,

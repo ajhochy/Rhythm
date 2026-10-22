@@ -114,13 +114,14 @@ export function createFixtureScheduleGateway(): ScheduleGateway {
 }
 
 function grantsRhythmTools(raw: string | null | undefined): boolean {
-  if (!raw) return false;
+  if (raw == null) return true; // A resolved profile's NULL scope is unrestricted.
   try {
     const parsed: unknown = JSON.parse(raw);
     if (Array.isArray(parsed)) return parsed.includes('rhythm');
     if (parsed && typeof parsed === 'object') {
-      const tools = (parsed as Record<string, unknown>).rhythm;
-      return Array.isArray(tools) && tools.length > 0;
+      // The enforcing API treats a named server with an empty allowedTools
+      // list as server-wide access, including the expanded object form.
+      return Object.hasOwn(parsed, 'rhythm');
     }
   } catch { /* The API validates malformed scope. */ }
   return false;
@@ -142,12 +143,16 @@ export function createLiveScheduleGateway(apiBase: string, token: string | undef
         const task = await response<Pick<ScheduledTask, 'allowedMcpsJson' | 'agentConfigId'>>(
           'Load scheduled task', request(`/agent-schedules/${encodeURIComponent(id)}`));
         let scope = task.allowedMcpsJson;
+        let resolvedScope = scope != null;
         if (scope == null && task.agentConfigId) {
           const profileResponse = await request(`/agent-configs/${encodeURIComponent(task.agentConfigId)}`);
           if (profileResponse.status === 404) scope = null; // CLI kinds have no profile row.
-          else scope = (await response<{ allowedMcpsJson: string | null }>('Load scheduled profile', Promise.resolve(profileResponse))).allowedMcpsJson;
+          else {
+            scope = (await response<{ allowedMcpsJson: string | null }>('Load scheduled profile', Promise.resolve(profileResponse))).allowedMcpsJson;
+            resolvedScope = true;
+          }
         }
-        if (grantsRhythmTools(scope)) await mcpReady();
+        if (resolvedScope && grantsRhythmTools(scope)) await mcpReady();
       }
       return response<ScheduledTask>('Trigger scheduled task', request(`/agent-schedules/${encodeURIComponent(id)}/trigger-now`, { method: 'POST' }));
     },
