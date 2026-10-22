@@ -5,7 +5,7 @@ import { readQualificationFixture } from '../../../../tools/testing/qualificatio
 
 // RED packaged contract for the first UI slice. It uses only a disposable actor,
 // does not start a Reviewer/model turn, and restores its exact settings preimage.
-type Settings = { tokenLimit: number; candidateCount: 2 | 3 };
+type Settings = { tokenLimit: number; candidateCount: 2 | 3; lookbackDays: 7 | 14 };
 type EvaluationList = { jobs: unknown[] };
 const manifestPath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST;
 const title = '[AI Org Reviewer] private evaluation settings persist and empty activity is honest';
@@ -21,13 +21,14 @@ if (!manifestPath) {
   expect(await api.json<{ user: { id: number } }>('/auth/me'))
     .toMatchObject({ user: { id: manifest.ownerUserId } });
   const before = await api.json<Settings>('/agent-org-proposals/evaluations/settings');
-  expect(before.tokenLimit).toBeGreaterThan(0);
-  expect([2, 3]).toContain(before.candidateCount);
+  // Fresh fixture: catches a default too small for a routed target's full cycle.
+  expect(before, 'fresh install uses the shipped defaults').toEqual({ tokenLimit: 1_500_000, candidateCount: 2, lookbackDays: 7 });
   expect(await api.json<EvaluationList>('/agent-org-proposals/evaluations')).toEqual({ jobs: [] });
 
   const changed: Settings = {
     tokenLimit: before.tokenLimit === 100_000 ? 110_000 : 100_000,
     candidateCount: before.candidateCount === 2 ? 3 : 2,
+    lookbackDays: before.lookbackDays,
   };
   let writeAttempted = false;
   try {
