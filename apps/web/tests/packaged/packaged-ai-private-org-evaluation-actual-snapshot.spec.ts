@@ -58,7 +58,10 @@ function seedActualProfiles(snapshot: Snapshot, seedPath: string, selectedProfil
   if (!Array.isArray(original.profiles) || original.profiles.some(row => !['secretary', 'workflow-orchestrator',
       'coding-agent', 'verification-gate'].includes(row.id)))
     throw new Error('Only the untouched owned qualification profile seed may be replaced');
-  const projected = new Set([...original.profiles.map(row => row.id), ...selectedProfileIds]);
+  // The Reviewer may inspect the complete copied catalog, but this run only
+  // executes selected case profiles. Startup migrations of unrelated agents
+  // must not be mistaken for changes to the selected original behavior.
+  const projected = new Set(selectedProfileIds);
   const dependencies = [...projected].flatMap(id => {
     const profile = source.get(id);
     const parsed = JSON.parse(String(profile?.allowed_delegates_json ?? '[]')) as unknown;
@@ -66,9 +69,8 @@ function seedActualProfiles(snapshot: Snapshot, seedPath: string, selectedProfil
       throw new Error('Actual delegate catalog is malformed');
     return parsed as string[];
   });
-  for (const id of dependencies) if (projected.size < 16) projected.add(id);
   if ([...projected].some(id => !source.has(id)))
-    throw new Error('A selected actual profile or its bootstrap control is absent from the snapshot');
+    throw new Error('A selected actual profile is absent from the snapshot');
   const profiles = [...projected].map(id => {
     const row = source.get(id)!;
     const values: Record<string, unknown> = { id, revision: row.revision };
@@ -143,7 +145,7 @@ function importSnapshot(snapshot: Snapshot, dbPath: string, fixtureRoot: string,
   const selectedIds = new Set(selectedSessions.map(row => String(row.id)));
   const selectedMessages = snapshot.tables.agent_session_messages.filter(row => selectedIds.has(String(row.session_id)));
   const expected: Record<string, Row[]> = {
-    agent_configs: snapshot.tables.agent_configs,
+    agent_configs: snapshot.tables.agent_configs.map(row => ({ ...row })),
     agent_skills: snapshot.tables.agent_skills,
     agent_scheduled_tasks: snapshot.tables.agent_scheduled_tasks.map(row => ({ ...row,
       // Operational safety only: preserve every other timing/configuration field.
@@ -177,12 +179,13 @@ function importSnapshot(snapshot: Snapshot, dbPath: string, fixtureRoot: string,
             throw new Error(`Projected actual profile ${id} differs from captured semantics or revision`);
         }
         if (existing) {
-          const keys = Object.keys(row).filter(key => key !== 'id');
+          const keys = Object.keys(row).filter(key => key !== 'id' && key !== 'revision');
           if (keys.some(key => !/^[a-z_][a-z0-9_]*$/.test(key) || !columnsFor('agent_configs').has(key)))
             throw new Error('Actual profile schema differs from source');
           db.prepare(`UPDATE agent_configs SET ${keys.map(key => `${key}=?`).join(',')} WHERE id=?`)
             .run(...keys.map(key => row[key]), id);
         } else insert('agent_configs', row);
+        row.revision = db.prepare('SELECT revision FROM agent_configs WHERE id=?').get(id)!.revision;
       }
       for (const table of ['agent_skills', 'agent_scheduled_tasks', 'agent_cookbook'] as const)
         for (const row of expected[table]) {
@@ -218,14 +221,45 @@ function importSnapshot(snapshot: Snapshot, dbPath: string, fixtureRoot: string,
         const readback = db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(row.id)!;
         return Object.fromEntries(Object.keys(row).map(key => [key, readback[key]]));
       })))])), selectedSessionIds: [...selectedIds],
-      revisionMap: projectedProfileIds.map(id => {
-        const source = snapshot.tables.agent_configs.find(row => row.id === id)!;
+      revisionMap: snapshot.tables.agent_configs.map(source => {
+        const id = String(source.id);
         const clone = db.prepare('SELECT revision FROM agent_configs WHERE id=?').get(id)!;
         return { id, source: Number(source.revision), clone: Number(clone.revision) };
       }),
       pausedRecurring: expected.agent_scheduled_tasks.filter((row, index) =>
         row.next_run_at !== snapshot.tables.agent_scheduled_tasks[index].next_run_at).length };
   } finally { db.close(); }
+}
+
+/** Exercise the ordinary private recovery projection after the copied row's version advances. */
+async function resyncSelectedProfiles(snapshot: Snapshot, dbPath: string, selectedIds: string[], api: ObservedApi) {
+  const Database = requireApi('better-sqlite3') as new (path: string) => Db;
+  const source = new Map(snapshot.tables.agent_configs.map(row => [String(row.id), row]));
+  const operational: Array<{ id: string; sourceRevision: number; cloneRevision: number;
+    sourceUpdatedAt: unknown; cloneUpdatedAt: unknown }> = [];
+  for (const id of selectedIds) {
+    const original = source.get(id)!;
+    const before = await api.json<{ revision: number; systemPrompt: string | null }>(`/agent-configs/${encodeURIComponent(id)}`);
+    if (before.systemPrompt !== original.system_prompt)
+      throw new Error(`Selected ${id} prompt drifted before ordinary projection`);
+    const resynced = await api.fetch(`/agent-configs/${encodeURIComponent(id)}/resync-agent-file`, { method: 'POST' });
+    if (resynced.status !== 200) throw new Error(`Selected ${id} ordinary projection failed (${resynced.status})`);
+    const updated = await resynced.json() as { id: string; revision: number; systemPrompt: string | null };
+    if (updated.id !== id || updated.revision !== before.revision || updated.systemPrompt !== original.system_prompt)
+      throw new Error(`Selected ${id} recovery projection changed the imported semantic version`);
+    const db = new Database(dbPath);
+    try {
+      const row = db.prepare('SELECT * FROM agent_configs WHERE id=?').get(id);
+      const projection = db.prepare('SELECT projection_state,file_projected_revision FROM agent_profile_projections WHERE profile_id=?').get(id);
+      if (!row || projection?.projection_state !== 'projected' || projection.file_projected_revision !== row.revision ||
+          row.revision !== updated.revision || Object.keys(original).some(key =>
+            key !== 'revision' && key !== 'updated_at' && row[key] !== original[key]))
+        throw new Error(`Selected ${id} semantic row or durable projection differs after ordinary resync`);
+      operational.push({ id, sourceRevision: Number(original.revision), cloneRevision: Number(row.revision),
+        sourceUpdatedAt: original.updated_at, cloneUpdatedAt: row.updated_at });
+    } finally { db.close(); }
+  }
+  return operational;
 }
 
 let seedPlan: ReturnType<typeof seedActualProfiles> | null = null;
@@ -261,6 +295,11 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
   expect(await api.json<{ user: { id: number } }>('/auth/me')).toMatchObject({ user: { id: manifest.ownerUserId } });
   const existing = new Set((await api.json<{ jobs: Job[] }>('/agent-org-proposals/evaluations')).jobs.map(job => job.id));
   const imported = importSnapshot(snapshot, manifest.dbPath, manifest.fixtureRoot, requested, seedPlan!.projectedIds);
+  const reprojection = await resyncSelectedProfiles(snapshot, manifest.dbPath, requested, api);
+  for (const row of reprojection) {
+    const mapping = imported.revisionMap.find(candidate => candidate.id === row.id)!;
+    mapping.clone = row.cloneRevision;
+  }
   const settings = await api.json<{ tokenLimit: number; candidateCount: number }>('/agent-org-proposals/evaluations/settings');
   expect(settings.tokenLimit, 'The actual run must keep the shared default 100,000-token cap').toBe(100_000);
   const nonce = randomUUID().slice(0, 8);
@@ -274,6 +313,7 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
     importedSessionIds: imported.selectedSessionIds, pausedRecurringSchedules: imported.pausedRecurring,
     projectedProfileIds: seedPlan!.projectedIds, unprojectedDelegateDependencies: seedPlan!.unprojectedDependencies,
     sourceToCloneRevisions: imported.revisionMap,
+    selectedProjectionOperations: reprojection,
     outcome: 'unrun' };
   let reviewerTaskId: string | null = null;
   let cycleId: string | null = null;
@@ -341,7 +381,7 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
       context?: { metadata?: { windowDays?: number }; batches?: Array<{
         sessionEvidence?: Array<{ sessionId: string; profileId: string; status: string;
           messages?: Array<{ messageId: string; text: string }> }>;
-        profiles?: Array<{ id: string; targetRevision: string; systemPrompt: string | null;
+        profiles?: Array<{ [key: string]: unknown; id: string; targetRevision: string; systemPrompt: string | null;
           model: { providerId: string | null; modelId: string | null }; allowedMcps: unknown;
           allowedSkills: unknown; corePermissions: unknown; allowedDelegates: unknown }>;
         omittedConfigurationSummaries?: boolean }> } };
@@ -376,14 +416,20 @@ if (!manifestPath || !snapshotPath || !snapshotSha || process.env.RHYTHM_FEATURE
       const profile = batches.flatMap(batch => batch.profiles ?? []).find(row => row.id === id);
       const source = snapshot.tables.agent_configs.find(row => row.id === id)!;
       expect(profile, `Actual ${id} profile summary cannot disappear`).toBeDefined();
-      expect(profile!.targetRevision).toBe(String(source.revision));
+      const mapped = imported.revisionMap.find(row => row.id === id)!;
+      expect(profile!.targetRevision).toBe(String(mapped.clone));
       expect(profile!.systemPrompt).toBe(typeof source.system_prompt === 'string'
         ? source.system_prompt.slice(0, 4_000) : source.system_prompt);
       expect(profile!.model).toEqual({ providerId: source.model_provider, modelId: source.model_id });
-      expect(profile!.allowedMcps).toEqual(source.allowed_mcps_json === null ? null : JSON.parse(String(source.allowed_mcps_json)));
-      expect(profile!.allowedSkills).toEqual(source.allowed_skills_json === null ? null : JSON.parse(String(source.allowed_skills_json)));
-      expect(profile!.corePermissions).toEqual(source.core_permissions_json === null ? null : JSON.parse(String(source.core_permissions_json)));
-      expect(profile!.allowedDelegates).toEqual(source.allowed_delegates_json === null ? null : JSON.parse(String(source.allowed_delegates_json)));
+      for (const [parsedField, rawField] of [
+        ['allowedMcps', 'allowed_mcps_json'], ['allowedSkills', 'allowed_skills_json'],
+        ['corePermissions', 'core_permissions_json'], ['allowedDelegates', 'allowed_delegates_json'],
+      ] as const) {
+        const summaryRawField = `${parsedField}Json`;
+        if (profile![`${summaryRawField}Omitted`] === 'Byte bound') continue;
+        expect(profile![summaryRawField], `Actual ${id} ${rawField} bytes must survive context`).toBe(source[rawField]);
+        expect(profile![parsedField]).toEqual(source[rawField] === null ? null : JSON.parse(String(source[rawField])));
+      }
     }
     report.contextRecentSourceSessionIds = expectedRecent.map(item => item.sessionId);
     const proposed = await api.json<Proposal[]>('/agent-org-proposals?status=proposed');
