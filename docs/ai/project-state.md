@@ -2,11 +2,11 @@
 
 ## Current focus
 
-Browser parity is active on AJ's instruction to keep going until it works; this supersedes the earlier two-repair stop cap. The93 included cases currently have91passes (85synthetic +saved-policy91 +real-model Grid92/93/94 +primary108 +MCP109),0current failures,2paid cases unrun, with25accepted exclusions. Final acceptance is incomplete. Scope: [resume decision](decisions/2026-10-22-web-parity-resume-scope.md); exact rows/history: [inventory](contracts/web-parity-20261022.json).
+Browser parity is active on AJ's instruction to keep going until it works; this supersedes the earlier two-repair stop cap. The93 included cases currently have92passes (85synthetic +saved-policy91 +real-model Grid92/93/94 +primary108 +MCP109 +Coordinator110),0current failures,1paid case unrun(118), with25accepted exclusions. Final acceptance is incomplete. Scope: [resume decision](decisions/2026-10-22-web-parity-resume-scope.md); exact rows/history: [inventory](contracts/web-parity-20261022.json).
 
 ## Branch and candidate
 
-- Worktree `/Users/ajhochhalter/.local/share/opencode/worktree/a4784d9c54aa2929a09fdab2213ff827a3cb60a5/eager-star`, branch `feat/tailscale-web-app-20261022`, source commit96387be1dfd36c15952fa550096b6c58e1239f9a plus verified runner diagnostics and109setup metadata correction awaiting local commit. Local only; no push/PR/merge/cutover authorization.
+- Worktree `/Users/ajhochhalter/.local/share/opencode/worktree/a4784d9c54aa2929a09fdab2213ff827a3cb60a5/eager-star`, branch `feat/tailscale-web-app-20261022`, source commit66e7c44d57b600efd616ff36c71b38dbfb7e1308 plus verified110sandbox path transcription awaiting local commit. Local only; no push/PR/merge/cutover authorization.
 - Existing candidate `apps/electron/dist/Rhythm.app`0.18.83 is locally DeveloperID signed, not notarized, currently stopped and predates pending adapter/title changes. Not final-qualified. Receipt `/private/tmp/rhythm-web-6081e4fd81-artifact-receipt.json`.
 - Fallback remains untouched: `/private/tmp/rhythm-feature-playwright-2026-10-19/apps/electron/dist/Rhythm.app`, source53a2c94b8e, ancestor of this candidate. Never overwrite/remove.
 - Real SQLite backup is complete,0600/0700 with closed quick_checkok; exact path in [resume receipt](runs/2026-10-22-tailscale-web-resume.md). AJ exported the cloud credential; only metadata was inspected. Never read/log/copy credential contents.

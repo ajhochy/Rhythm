@@ -11,8 +11,8 @@
     "excludedTotal": 25,
     "excludedNativeThisPhase": 13,
     "excludedBackendOnlyClassifier": 12,
-    "currentRunPassed": 91,
-    "currentRunNotRun": 2,
+    "currentRunPassed": 92,
+    "currentRunNotRun": 1,
     "currentRunFailed": 0
   },
   "rules": {
@@ -4094,10 +4094,41 @@
       "webSpec": "apps/web/tests/web-host/web-host-paid-coordinator-two-goal.spec.ts",
       "proof": "paid_isolated",
       "currentRun": {
-        "status": "not_run",
-        "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+        "status": "passed",
+        "proof": "real Coordinator two-goal workflow; strict SDK overlap, two verified isolated one-commit worktrees, known bounded usage, one report per goal; native path expectations transcribed to canonical sandbox layout",
+        "receipt": "/private/tmp/rhythm-web-paid-case-110-PZun4F/result.jsonl",
+        "sourceRevision": "66e7c44d57b600efd616ff36c71b38dbfb7e1308",
+        "sourceSha256": "162929b1280c2ddece3829cd41ad97dc17e761a33b8cd277ca16619fbfe15b73",
+        "durationMs": 54402,
+        "attempts": 1,
+        "sourceUnchanged": true,
+        "secretsScrubbed": true,
+        "teardownExit": 0
       },
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-coordinator-two-goal.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-coordinator-two-goal.spec.ts",
+      "currentRunHistory": [
+        {
+          "status": "not_run",
+          "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+        },
+        {
+          "status": "failed",
+          "proof": "native-layout projected-agent path in browser spec is absent; actual engine already discovered all three canonical profiles; sandbox path transcription pending Confirm",
+          "receipt": "/private/tmp/rhythm-web-paid-case-110-eEZ31W/result.jsonl",
+          "sourceRevision": "66e7c44d57b600efd616ff36c71b38dbfb7e1308",
+          "sourceSha256": "8f2dde9aae8d8f623de406f6346f8ae0333f514911425d12995ac79aff2453cd",
+          "durationMs": 1369,
+          "failureSite": {
+            "path": "apps/web/tests/web-host/web-host-paid-coordinator-two-goal.spec.ts",
+            "line": 179,
+            "column": 12,
+            "errorKind": "test-error"
+          },
+          "sourceUnchanged": true,
+          "secretsScrubbed": true,
+          "teardownExit": 0
+        }
+      ]
     },
     {
       "id": 111,

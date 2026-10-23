@@ -175,7 +175,7 @@ test(title, async ({ page, sessions }, testInfo) => {
     expect(profile.systemPrompt).toBe(id === 'workflow-orchestrator'
       ? managerPrompt : original.get(id)!.systemPrompt);
     expect(engineAgents.agents.some(agent => agent.name === id), `live engine must discover ${id}`).toBe(true);
-    const file = path.join(realpathSync(manifest.fixtureRoot), 'opencode-config', 'agents', `${id}.md`);
+    const file = path.join(realpathSync(manifest.fixtureRoot), 'home', '.config', 'opencode', 'agents', `${id}.md`);
     expect(realpathSync(file)).toBe(file);
     expect(lstatSync(file).isFile() && !lstatSync(file).isSymbolicLink()).toBe(true);
     const projected = readFileSync(file, 'utf8');
@@ -408,7 +408,7 @@ test(title, async ({ page, sessions }, testInfo) => {
       conclusion: observedOverlap === null ? 'UNVERIFIED-missing-sdk-time-bound'
         : observedOverlap ? 'observed-sdk-interval-intersection' : 'no-sdk-interval-intersection-observed' };
     expect(observedOverlap, 'two exact child SDK execution intervals must intersect').toBe(true);
-    const fixtureWorktreeRoot = realpathSync(path.join(manifest.fixtureRoot, 'xdg-data', 'opencode', 'worktree'));
+    const fixtureWorktreeRoot = realpathSync(path.join(manifest.fixtureRoot, 'home', '.local', 'share', 'opencode', 'worktree'));
     for (const repo of repos) {
       const run = finalRuns.find(item => item.repoPath === repo.repo)!;
       expect(run.worktreePath).toBeTruthy();
