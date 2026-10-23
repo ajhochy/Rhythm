@@ -806,3 +806,11 @@ Actual live proposal hold with installed strict-schema/binding-spread contradict
 - Evidence: valid TLS/HTTP200, Chromium render/reload/cloud/WSS101; preserved443/8443; no writes.
 - Limit: hosting Mac only; second physical device untested.
 - Tooling: TodoWrite unavailable; ordered checks recorded in the run receipt.
+
+## 2026-10-22 — External tailnet policy repair
+
+- Result: final smoke PASS; AJ confirmed Mac mini loads Rhythm.
+- Initial cause: central policy deliberately allowed4001 only from pi-nas.
+- Repair: user-authorized all-tailnet source grant, six deny tests changed to accept with other checks preserved.
+- Evidence: successful validated save, received IPv4/IPv6 policy allows all online personal peers, actual remote page-load confirmation.
+- Follow-up: distinguish same-host HTTPS tests from central policy/peer/browser proof.

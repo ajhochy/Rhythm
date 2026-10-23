@@ -4,7 +4,7 @@
   "baselineCandidateRevision": "6081e4fd8101b9e532758b1930143a12e79ae0ea",
   "scopeDecision": "docs/ai/decisions/2026-10-22-web-parity-resume-scope.md",
   "matrix": "docs/ai/plans/2026-10-22-web-feature-parity-matrix.md",
-  "status": "local_acceptance_passed_private_https_verified_on_host",
+  "status": "acceptance_passed_private_https_remote_page_confirmed",
   "counts": {
     "previouslyConfirmedPackaged": 118,
     "includedBrowserAcceptance": 93,
@@ -5547,9 +5547,10 @@
       "cloudAvailable": true
     },
     "networkCutover": {
-      "status": "private_https_passed_on_host",
+      "status": "private_https_remote_page_confirmed",
       "receipt": "docs/testing/results/2026-10-22-web-https-cutover.json",
-      "secondDeviceTested": false
+      "secondDeviceTested": true,
+      "externalConfirmationReceipt": "docs/testing/results/2026-10-22-web-all-tailnet-access.json"
     }
   }
 }

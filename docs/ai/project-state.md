@@ -2,7 +2,7 @@
 
 ## Current focus
 
-**External access repair in progress:** Mac mini hangs before page load. Received Tailscale filter explicitly excludes4001 for all ordinary personal-tailnet peers except pi-nas. AJ authorized all personal-tailnet devices to this Mac TCP4001. Correct personal-tailnet admin requires interactive sign-in, now handed to AJ. Policy not yet changed; external acceptance pending. [Diagnosis](runs/2026-10-22-tailscale-web-external-access.md).
+**External access repaired and confirmed:** AJ confirmed Rhythm loads on Mac’s Mac mini. Personal-tailnet policy now permits all tailnet sources to this Mac TCP4001 over IPv4/IPv6. Six prior deny tests now require allow; other rules preserved. [Repair receipt](runs/2026-10-22-tailscale-web-external-access.md).
 
 Local browser acceptance passed: **93/93 included matrix cases**, with 25 AJ-approved exclusions, plus **4/4 dedicated real-account checks**. All three owned test records were deleted and read back; zero leftovers. [Final report](runs/2026-10-22-tailscale-web-final.md) · [Inventory and history](contracts/web-parity-20261022.json) · [Public evidence](../testing/results/2026-10-22-web-parity-final.json).
 
@@ -20,4 +20,4 @@ API aggregate9185 passed/7 failed/401 skipped; all seven reproduced at starting6
 
 ## Private HTTPS and next step
 
-AJ explicitly approved the separate cutover. **https://ajs-macbook-pro-3.tail3798ec.ts.net:4001/#/tasks** is active within the tailnet: raw TCP4001 retired, HTTPS4001 proxies to loopback4001, exact browser origin added, candidate restarted. Existing443/8443 mappings are byte-equivalent. Valid TLS/HTTP200, actual Chromium Tasks render/reload, cloud access and WebSocket101 passed through the MagicDNS URL; zero writes/page errors. [Cutover receipt](../testing/results/2026-10-22-web-https-cutover.json). This was tested on the hosting Mac; a second device has not been tested. Mobile4002 stays disabled. No persistence/LaunchAgent was configured. Keep candidate running and preserve fallback/data.
+AJ explicitly approved the separate cutover. **https://ajs-macbook-pro-3.tail3798ec.ts.net:4001/#/tasks** is active within the tailnet: raw TCP4001 retired, HTTPS4001 proxies to loopback4001, exact browser origin added, candidate restarted. Existing443/8443 mappings are byte-equivalent. Valid TLS/HTTP200, actual Chromium Tasks render/reload, cloud access and WebSocket101 passed through the MagicDNS URL; zero writes/page errors. [Cutover receipt](../testing/results/2026-10-22-web-https-cutover.json). AJ subsequently confirmed the page loads on Mac’s Mac mini after the central policy repair. Mobile4002 stays disabled. No persistence/LaunchAgent was configured. Keep candidate running and preserve fallback/data.

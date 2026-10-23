@@ -4,7 +4,7 @@ repo: Rhythm
 branch: feat/tailscale-web-app-20261022
 pr: null
 issues: []
-status: local-acceptance-passed-private-https-verified-on-host
+status: acceptance-passed-private-https-remote-page-confirmed
 tags: [run, rhythm, web, tailscale, parity]
 ---
 
@@ -216,3 +216,7 @@ Exact sequence and observed results:
 8. `node /private/tmp/rhythm-web-https-cutover-20261022/browser-proof.mjs` — exit0; actual MagicDNS HTTPS Tasks render and reload, owner/cloud true, native bridge absent, secure WebSocket101, zero HTTP mutations/page errors.
 
 Browser and curl checks originated on the hosting Mac and used the actual MagicDNS URL/TLS path. **A second physical tailnet device was not tested.** No claim of such evidence is made. No LaunchAgent or reboot persistence was configured; the candidate must stay running. Existing443 may point at the intentionally disabled4002 mobile gateway; its configuration was preserved as authorized. The earlier93/93 and real-account4 evidence remains valid and was not rerun merely for this config-only change.
+
+## External policy repair — remote page load now confirmed
+
+The first Mac mini attempt hung before page load. Investigation found the prior central policy deliberately excluded TCP4001 from all peers except pi-nas. AJ explicitly authorized every device on the personal tailnet. After personal admin sign-in, changed that grant source to `*` and six existing IPv4/IPv6 policy tests from deny4001 to accept4001, preserving all other rules and test checks. Save succeeded, received local policy confirms all online personal-tailnet peers allowed to both host address families, HTTPS200/TLSverify0 remains. AJ then confirmed **“Yes, Rhythm loads”** on **Mac’s Mac mini**. [Detailed repair](2026-10-22-tailscale-web-external-access.md) · [Durable confirmation](../../testing/results/2026-10-22-web-all-tailnet-access.json). Earlier notes saying no second device was tested describe the previous checkpoint; this confirmation supersedes them for page loading. No independent remote WSS/chat/paid turn claim is added.
