@@ -814,3 +814,10 @@ Actual live proposal hold with installed strict-schema/binding-spread contradict
 - Repair: user-authorized all-tailnet source grant, six deny tests changed to accept with other checks preserved.
 - Evidence: successful validated save, received IPv4/IPv6 policy allows all online personal peers, actual remote page-load confirmation.
 - Follow-up: distinguish same-host HTTPS tests from central policy/peer/browser proof.
+
+## 2026-10-22 — Login LaunchAgent
+
+- Result: smoke PASS, no divergence.
+- Evidence: plist lint/bootstrap0, launchd runs2 with automatic recovery, required flags loaded, HTTPS render/reload/cloud/WSS101/TLS200.
+- Limit: full logout/login not forced; existing candidate path retained.
+- No source rebuild or network change.

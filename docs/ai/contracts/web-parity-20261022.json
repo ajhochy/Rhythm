@@ -5551,6 +5551,11 @@
       "receipt": "docs/testing/results/2026-10-22-web-https-cutover.json",
       "secondDeviceTested": true,
       "externalConfirmationReceipt": "docs/testing/results/2026-10-22-web-all-tailnet-access.json"
+    },
+    "loginStartup": {
+      "status": "installed_launchd_start_and_automatic_recovery_verified",
+      "receipt": "docs/testing/results/2026-10-22-web-login-agent.json",
+      "fullLogoutLoginPerformed": false
     }
   }
 }
