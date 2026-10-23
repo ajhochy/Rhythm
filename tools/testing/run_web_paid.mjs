@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync, lstatSync } from 'node:fs';
 import { spawn, execFileSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
+import { userInfo } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { createQualificationFixture, readQualificationFixture } from './qualification_fixture.mjs';
@@ -20,7 +21,7 @@ const json = file => JSON.parse(stableOwnedBytes(file, { privateFile: true }).by
 const writeJson = (file, value, exclusive = true) => writeFileSync(file, JSON.stringify(value) + '\n', { mode: 0o600, flag: exclusive ? 'wx' : 'w' });
 const stages = ['buildapi', 'buildmcp', 'buildweb', 'buildengine', 'discovery', 'prepare', 'loan', 'startup', 'test', 'cleanup'];
 const failureCategories = ['build-failed', 'discovery-rejected', 'prepare-rejected', 'loan-rejected', 'startup-unavailable',
-  'startup-process-exited', 'startup-timeout', 'startup-ownership-unavailable', 'test-failed', 'test-report-invalid', 'cleanup-refused', 'source-changed', 'deadline', 'parent-exit'];
+  'startup-process-exited', 'startup-timeout', 'startup-ownership-unavailable', 'browser-launch-unavailable', 'test-failed', 'test-report-invalid', 'cleanup-refused', 'source-changed', 'deadline', 'parent-exit'];
 const diagnosticSpecs = ['grid', 'primary-model-router', 'mcp-profile-scope', 'coordinator-two-goal', 'org-actual-snapshot']
   .map(name => `apps/web/tests/web-host/web-host-paid-${name}.spec.ts`);
 const errorKinds = ['assertion', 'timeout', 'type', 'reference', 'syntax', 'interrupted', 'test-error'];
@@ -32,8 +33,16 @@ function reviewedFailureSite(location, reviewedSpecs, errorKind) {
     && [path, join(checkoutRoot, path), path.slice('apps/web/tests/web-host/'.length)].includes(location.file ?? location.path));
   return path ? { path, line: location.line, column: location.column, errorKind } : undefined;
 }
+export function installedBrowserCache() {
+  // Browser executables are tool metadata. Derive from the OS user, never sanitized HOME or caller overrides.
+  const cache = join(userInfo().homedir, 'Library/Caches/ms-playwright'), st = lstatSync(cache);
+  if (process.platform !== 'darwin' || realpathSync(cache) !== cache || !st.isDirectory() || st.isSymbolicLink()
+    || st.uid !== process.getuid() || (st.mode & 0o022)) fail('browser cache rejected');
+  return cache;
+}
 const baseEnv = root => ({ PATH: `${dirname(process.execPath)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`,
   HOME: join(root, 'home'), TMPDIR: join(root, 'tmp'), DB_CLIENT: 'sqlite', RHYTHM_OPTIMIZER_MODE: 'shadow',
+  PLAYWRIGHT_BROWSERS_PATH: installedBrowserCache(), PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
   npm_config_offline: 'true', npm_config_registry: 'http://127.0.0.1:9', npm_config_cache: join(root, 'npm-cache') });
 
 export function validatePlan(plan, identity, environment) {
@@ -168,6 +177,14 @@ async function checkedCommand(file, args, options) {
   const result = await command(file, args, options);
   if (result.code !== 0 || result.signal) fail('command failed');
   return result.output;
+}
+export async function probePaidBrowser(environment) {
+  const script = `const {chromium}=require(${JSON.stringify(join(checkoutRoot, 'apps/web/node_modules/@playwright/test'))});
+    (async()=>{let browser;try{browser=await chromium.launch({headless:true,timeout:15000});await browser.close();browser=null;
+      process.stdout.write('browser-ready');}catch{process.exitCode=1;}finally{if(browser)await browser.close().catch(()=>{});}})();`;
+  const result = await command(process.execPath, ['-e', script], { env: environment, capture: true });
+  if (result.code !== 0 || result.signal || result.output !== 'browser-ready') fail('browser launch unavailable');
+  return { category: 'blank-browser-launched' };
 }
 function portsFree(ports) {
   for (const port of Object.values(ports)) {
@@ -312,6 +329,25 @@ async function watchdog(controlRoot) {
   }
 }
 
+export function observeChildExit(child) {
+  const exit = { observed: child.exitCode !== null || child.signalCode !== null, promise: undefined };
+  exit.promise = exit.observed ? Promise.resolve() : new Promise(resolveExit => child.once('exit', () => { exit.observed = true; resolveExit(); }));
+  return exit;
+}
+export async function finishPaidControl(controlOwner, watchdogProcess, state, { stop = stopExactProcess, exit } = {}) {
+  if (watchdogProcess) {
+    try { await stop(watchdogProcess); }
+    catch (error) {
+      // Only the exact ChildProcess exit event can settle the alive→identity race.
+      if (exit && !exit.observed) await Promise.race([exit.promise, sleep(100)]);
+      if (!exit?.observed || processIsAlive(watchdogProcess.pid)) throw error;
+    }
+  }
+  if (!state.roots.length || existsSync(join(controlOwner.root, 'done.json')) && json(join(controlOwner.root, 'done.json')).secretsScrubbed) {
+    scrubOwnedRoot(controlOwner, { stopped: true, portsFree: true });
+  }
+}
+
 export async function runPlan(planPath) {
   process.umask(0o077);
   const plan = json(planPath);
@@ -321,7 +357,7 @@ export async function runPlan(planPath) {
   for (const dir of ['home', 'tmp']) mkdirSync(join(controlRoot, dir), { mode: 0o700 });
   let state = { ...currentCheckoutIdentity(), caseIds: plan.caseIds, provider: plan.provider, ports: plan.ports,
     reviewedSpecs: plan.specs.map(spec => spec.path),
-    parent: processIdentity(process.pid), roots: [], testExitCode: 1, startedAt: Date.now() }, watchdogProcess;
+    parent: processIdentity(process.pid), roots: [], testExitCode: 1, startedAt: Date.now() }, watchdogProcess, watchdogExit;
   const save = () => saveState(controlRoot, state);
   const markStage = (stage, category) => { state.stage = stage; state.failureCategory = category; save(); };
   try {
@@ -348,6 +384,8 @@ export async function runPlan(planPath) {
         state.artifacts = Object.fromEntries(Object.entries(artifactPaths()).map(([key, path]) => [key, { path, sha256: digestArtifact(path) }]));
         state.apiBuildIdentitySha256 = hash(stableOwnedBytes(join(checkoutRoot, 'apps/api_server/build-identity.json')).bytes);
         state.builtAt = Date.now();
+        markStage('discovery', 'browser-launch-unavailable');
+        await probePaidBrowser(env);
         markStage('discovery', 'discovery-rejected');
         const listed = await checkedCommand(process.execPath, [...playwrightArguments(plan), '--list'], { env, capture: true });
         if (!summarizePlaywrightReport(JSON.parse(listed), plan.caseIds, { discovery: true }).passed) fail('case discovery rejected');
@@ -374,6 +412,7 @@ export async function runPlan(planPath) {
           environment: { RHYTHM_API_URL: `http://127.0.0.1:${plan.ports.api}`, RHYTHM_API_TOKEN: actor } } } });
         seal(sourceRoot); state.sourceRootSha256 = digestArtifact(sourceRoot); save();
         const child = spawn(process.execPath, [runnerFile, 'watchdog', controlRoot], { detached: true, stdio: 'ignore', env: baseEnv(controlRoot) });
+        watchdogExit = observeChildExit(child);
         await new Promise((ok, reject) => { child.once('spawn', ok); child.once('error', reject); });
         watchdogProcess = processIdentity(child.pid); child.unref();
         return state;
@@ -452,10 +491,7 @@ export async function runPlan(planPath) {
     } else process.stdout.write(JSON.stringify(publicEvidence(state, 1, 'failed')) + '\n');
     return 1;
   } finally {
-    if (watchdogProcess) await stopExactProcess(watchdogProcess);
-    if (!state.roots.length || existsSync(join(controlRoot, 'done.json')) && json(join(controlRoot, 'done.json')).secretsScrubbed) {
-      scrubOwnedRoot(controlOwner, { stopped: true, portsFree: true });
-    }
+    await finishPaidControl(controlOwner, watchdogProcess, state, { exit: watchdogExit });
   }
 }
 

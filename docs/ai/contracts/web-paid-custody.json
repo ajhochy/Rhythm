@@ -4,7 +4,7 @@
   "kind": "supplemental-user-request-contract",
   "parentContract": "docs/ai/contracts/web-parity-20261022.json",
   "scope": "Custody adapter only for explicitly authorized browser matrix rows 91-94,108-110,118. No paid runtime or credential loan is authorized to this implementation agent.",
-  "status": "source-and-synthetic-passed-startup-repair-awaiting-retry",
+  "status": "source-and-synthetic-passed-browser-launch-repair-awaiting-retry",
   "files": {
     "newRunner": "tools/testing/run_web_paid.mjs",
     "newCustody": "tools/testing/web_paid_custody.mjs",
@@ -62,7 +62,7 @@
       "text": "No raw secret, process output, Playwright trace or log is printed or retained outside exact-created private roots. Final evidence is an allowlisted data-only receipt; generic diagnostic copying is bypassed only for the validated paid mode."
     }
   ],
-  "syntheticCommand": "node --test tools/testing/web_paid_custody.test.mjs tools/testing/web_paid_runner.test.mjs tools/testing/paid_source_database.test.mjs tools/testing/paid_runtime_readiness.test.mjs",
+  "syntheticCommand": "node --test tools/testing/web_paid_custody.test.mjs tools/testing/web_paid_runner.test.mjs tools/testing/paid_source_database.test.mjs tools/testing/paid_runtime_readiness.test.mjs tools/testing/paid_browser_environment.test.mjs",
   "red": {
     "status": "captured",
     "log": "/private/tmp/rhythm-web-paid-custody-red-20261022.log",
@@ -77,7 +77,7 @@
     "warningSent": true
   },
   "repairBudget": {
-    "used": 1,
+    "used": 2,
     "previousMaximumPerCheck": 2,
     "supersededBy": "User explicitly instructed keep going until it works; preserve attempt history without the earlier stop cap."
   },
@@ -85,19 +85,21 @@
     "caseIds": [
       91
     ],
-    "testExecuted": false,
-    "stage": "startup",
-    "category": "startup-timeout",
+    "testObserved": 1,
+    "attempts": 1,
+    "durationMs": 1,
+    "stage": "test",
+    "category": "test-failed",
     "sourceUnchanged": true,
     "canonicalDown": true,
     "secretsScrubbed": true,
-    "receipt": "/private/tmp/rhythm-web-paid-case91-first-20261022.jsonl",
-    "note": "Ordinary canonical startup does not create optional recovery JSON; readiness correction validated synthetically, actual retry pending."
+    "receipt": "/private/tmp/rhythm-web-paid-case-91-fjL1TM/result.jsonl",
+    "note": "Startup ownership checks passed; browser missing under private HOME reproduced in blank-launch RED. Cache/pre-loan browser proof and exited-watchdog cleanup correction now synthetic37/37, actual retry pending."
   },
   "syntheticLatest": {
-    "passed": 34,
+    "passed": 37,
     "failed": 0,
-    "log": "/private/tmp/rhythm-web-paid-readiness-green-20261022.log",
-    "seconds": 2.07
+    "log": "/private/tmp/rhythm-web-paid-browser-integration-green-20261022.log",
+    "seconds": 1.97
   }
 }
