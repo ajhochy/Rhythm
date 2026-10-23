@@ -343,6 +343,9 @@ test('[web-parity-044] [AI profiles] stale UI save keeps its draft and preserves
 test('[web-parity-045] [AI profiles] live profile rail and selected editor agree with GET /agent-configs', async ({ page, parity }) => {
   // Catches stale profile rail/editor data; choosing a row is local navigation and performs no save.
   await page.goto('/#/profiles');
+  // Finish the initial catalog load before observing the reload's response;
+  // otherwise the first page's response can be captured and invalidated by reload.
+  await expect(page.getByTestId('profile-label')).toBeVisible();
   const pending = responseFor(page, 'GET', '/agent-configs');
   await page.reload();
   const response = await pending;
