@@ -510,6 +510,8 @@ copy_runtime_files() {
   fi
   if [[ -d "$config_src" && -d "$config_src/skills" ]]; then
     cp -R "$config_src/skills" "$sandbox_home/.config/opencode/"
+    # Approved sources stay read-only; their private runtime copy must support normal skill seeding/edits.
+    find -P "$sandbox_home/.config/opencode/skills" \( -type d -o -type f \) -exec chmod u+w {} +
   fi
 }
 

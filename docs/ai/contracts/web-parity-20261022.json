@@ -11,8 +11,8 @@
     "excludedTotal": 25,
     "excludedNativeThisPhase": 13,
     "excludedBackendOnlyClassifier": 12,
-    "currentRunPassed": 92,
-    "currentRunNotRun": 1,
+    "currentRunPassed": 93,
+    "currentRunNotRun": 0,
     "currentRunFailed": 0
   },
   "rules": {
@@ -4456,11 +4456,76 @@
       "webSpec": "apps/web/tests/web-host/web-host-paid-org-actual-snapshot.spec.ts",
       "proof": "paid_isolated",
       "currentRun": {
-        "status": "not_run",
-        "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+        "status": "passed",
+        "proof": "real isolated actual-owner snapshot scan; selected semantics/error history, closed known-usage budget and unsafe/unqualified proposal boundary; no improvement claim; writable runtime copy with read-only source preserved",
+        "receipt": "/private/tmp/rhythm-web-paid-case-118-nuHFSi/result.jsonl",
+        "sourceRevision": "9a9d3eecd7b40ceefa218f32700726c31966c6e6",
+        "sourceSha256": "bfef721764a148c70f21bdfaf72a9de15c3033c588e32c3925ab503ae2293118",
+        "durationMs": 63866,
+        "attempts": 1,
+        "sourceUnchanged": true,
+        "secretsScrubbed": true,
+        "teardownExit": 0
       },
       "adaptation": "Pinned private snapshot/SHA and pre-bootstrap seed; bounded authorized loan; no improvement claim from scan-safety alone.",
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-org-evaluation-actual-snapshot.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-org-evaluation-actual-snapshot.spec.ts",
+      "currentRunHistory": [
+        {
+          "status": "not_run",
+          "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+        },
+        {
+          "status": "failed",
+          "proof": "code-owned Reviewer control absent from fixture schedule API; stopped before scan, bounded startup diagnostics replay pending",
+          "receipt": "/private/tmp/rhythm-web-paid-case-118-FSW8fP/result.jsonl",
+          "sourceRevision": "9a9d3eecd7b40ceefa218f32700726c31966c6e6",
+          "sourceSha256": "84882ba23e5c25f55db675b4bc80bb0becd26a6d2aabe3e58fe3be386c614660",
+          "durationMs": 1534,
+          "failureSite": {
+            "path": "apps/web/tests/web-host/web-host-paid-org-actual-snapshot.spec.ts",
+            "line": 285,
+            "column": 82,
+            "errorKind": "test-error"
+          },
+          "sourceUnchanged": true,
+          "secretsScrubbed": true,
+          "teardownExit": 0
+        },
+        {
+          "status": "failed",
+          "proof": "source skills mode500 copied unchanged to runtime; code-owned Reviewer skill mkdir failed EACCES before control/scan; canonical copy repair pending full Confirm",
+          "receipt": "/private/tmp/rhythm-web-paid-case-118-UmXskl/result.jsonl",
+          "sourceRevision": "9a9d3eecd7b40ceefa218f32700726c31966c6e6",
+          "sourceSha256": "84882ba23e5c25f55db675b4bc80bb0becd26a6d2aabe3e58fe3be386c614660",
+          "durationMs": 1520,
+          "failureSite": {
+            "path": "apps/web/tests/web-host/web-host-paid-org-actual-snapshot.spec.ts",
+            "line": 285,
+            "column": 82,
+            "errorKind": "test-error"
+          },
+          "sourceUnchanged": true,
+          "secretsScrubbed": true,
+          "teardownExit": 0
+        },
+        {
+          "status": "failed",
+          "proof": "source skills mode500 copied unchanged to runtime; code-owned Reviewer skill mkdir failed EACCES before control/scan; canonical copy repair pending full Confirm",
+          "receipt": "/private/tmp/rhythm-web-paid-case-118-NyC24U/result.jsonl",
+          "sourceRevision": "9a9d3eecd7b40ceefa218f32700726c31966c6e6",
+          "sourceSha256": "84882ba23e5c25f55db675b4bc80bb0becd26a6d2aabe3e58fe3be386c614660",
+          "durationMs": 1535,
+          "failureSite": {
+            "path": "apps/web/tests/web-host/web-host-paid-org-actual-snapshot.spec.ts",
+            "line": 285,
+            "column": 82,
+            "errorKind": "test-error"
+          },
+          "sourceUnchanged": true,
+          "secretsScrubbed": true,
+          "teardownExit": 0
+        }
+      ]
     }
   ],
   "resumeAuthorization": "2026-10-22: user says keep going until it works; earlier two-repair stop cap superseded. Existing paid scope, data ownership, native exclusions and no-push/cutover constraints remain."
