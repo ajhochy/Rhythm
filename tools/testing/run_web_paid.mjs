@@ -376,8 +376,8 @@ export async function runPlan(planPath) {
         await guard(['npm', '--prefix', join(checkoutRoot, 'apps/web'), 'run', 'build:web']);
         markStage('buildengine', 'build-failed');
         await guard(['bun', '--no-env-file', 'run', './script/build.ts', '--single', '--skip-install', '--skip-embed-web-ui'],
-          { OPENCODE_VERSION: `0.0.0-rhythm-${plan.sourceRevision}`, OPENCODE_CHANNEL: 'rhythm-qualification',
-            MODELS_DEV_API_JSON: join(checkoutRoot, 'apps/opencode_fork/packages/opencode/test/tool/fixtures/models-api.json') },
+          // Paid routing needs the normal production registry; the offline unit fixture omits GPT-6.
+          { OPENCODE_VERSION: `0.0.0-rhythm-${plan.sourceRevision}`, OPENCODE_CHANNEL: 'rhythm-qualification' },
           join(checkoutRoot, 'apps/opencode_fork/packages/opencode'));
         assertInvocation(plan, currentCheckoutIdentity(), {});
         writeBuildIdentity(join(checkoutRoot, 'apps/api_server/build-identity.json'), plan.sourceRevision);

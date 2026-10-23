@@ -11,8 +11,8 @@
     "excludedTotal": 25,
     "excludedNativeThisPhase": 13,
     "excludedBackendOnlyClassifier": 12,
-    "currentRunPassed": 85,
-    "currentRunNotRun": 7,
+    "currentRunPassed": 86,
+    "currentRunNotRun": 6,
     "currentRunFailed": 1
   },
   "rules": {
@@ -3444,14 +3444,12 @@
       "webSpec": "apps/web/tests/web-host/web-host-paid-grid.spec.ts",
       "proof": "existing_decisions_policy_no_turn",
       "currentRun": {
-        "status": "failed",
-        "proof": "qualification fixture failure before body; no saved-policy or paid-inference proof",
-        "receipt": "/private/tmp/rhythm-web-paid-case-91-fjL1TM/result.jsonl",
-        "sourceRevision": "d6470b9bfb26c920fd367786c62c6ec73f1b6b32",
-        "sourceSha256": "aa7a0c9058cce5afa26deaab41e01bcd71f6c6262a27e33c8b550398978acff6",
-        "stage": "test",
-        "category": "test-failed",
-        "durationMs": 1,
+        "status": "passed",
+        "proof": "saved Grid/Luna/consent policy matches rendered controls and reload; real isolated browser/API, no model turn",
+        "receipt": "/private/tmp/rhythm-web-paid-case-91-Q6I4SP/result.jsonl",
+        "sourceRevision": "dc0247278f70070f7f4f6acfbc9e0195017b777d",
+        "sourceSha256": "10fdf5707bf11300f95f88aa44b8114bb45bda87d1ea432987e0556b9cc30878",
+        "durationMs": 1464,
         "sourceUnchanged": true,
         "teardownExit": 0,
         "secretsScrubbed": true
@@ -3461,6 +3459,19 @@
         {
           "status": "not_run",
           "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+        },
+        {
+          "status": "failed",
+          "proof": "qualification fixture failure before body; no saved-policy or paid-inference proof",
+          "receipt": "/private/tmp/rhythm-web-paid-case-91-fjL1TM/result.jsonl",
+          "sourceRevision": "d6470b9bfb26c920fd367786c62c6ec73f1b6b32",
+          "sourceSha256": "aa7a0c9058cce5afa26deaab41e01bcd71f6c6262a27e33c8b550398978acff6",
+          "stage": "test",
+          "category": "test-failed",
+          "durationMs": 1,
+          "sourceUnchanged": true,
+          "teardownExit": 0,
+          "secretsScrubbed": true
         }
       ]
     },
@@ -3482,10 +3493,29 @@
       "webSpec": "apps/web/tests/web-host/web-host-paid-grid.spec.ts",
       "proof": "paid_isolated",
       "currentRun": {
-        "status": "not_run",
-        "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+        "status": "failed",
+        "proof": "catalog prerequisite failed before any model turn; offline build registry lacks required GPT-6 entries",
+        "receipt": "/private/tmp/rhythm-web-paid-case-92-NRMaJx/result.jsonl",
+        "sourceRevision": "dc0247278f70070f7f4f6acfbc9e0195017b777d",
+        "sourceSha256": "10fdf5707bf11300f95f88aa44b8114bb45bda87d1ea432987e0556b9cc30878",
+        "failureSite": {
+          "path": "apps/web/tests/web-host/web-host-paid-grid.spec.ts",
+          "line": 29,
+          "column": 84,
+          "errorKind": "test-error"
+        },
+        "durationMs": 1361,
+        "sourceUnchanged": true,
+        "teardownExit": 0,
+        "secretsScrubbed": true
       },
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-model-router.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-model-router.spec.ts",
+      "currentRunHistory": [
+        {
+          "status": "not_run",
+          "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+        }
+      ]
     },
     {
       "id": 93,
