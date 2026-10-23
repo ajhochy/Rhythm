@@ -91,6 +91,7 @@ function ThreadActions({ thread, readonly, onRead, onUnread, onRename, onDelete,
 
 export function MessagesPage({ route }: { route: string }) {
   const gateway = useGateway();
+  if (gateway.mode === 'live' && !gateway.domains.messages) return <StatePanel state="unavailable" onRetry={() => {}} onNew={() => {}} />;
   if (gateway.mode === 'live') return <LiveMessagesPage route={route} />;
   return <FixtureMessagesPage route={route} />;
 }

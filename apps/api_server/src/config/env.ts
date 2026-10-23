@@ -1,4 +1,5 @@
 import { loadQualificationFixtureAuthority } from '../services/qualification_fixture_authority';
+import { qualificationWebSandboxOverrides } from './qualification_web_sandbox';
 import os from 'os';
 import path from 'path';
 import { isIP } from 'node:net';
@@ -9,6 +10,7 @@ import {
 } from '../services/decision/decision_settings';
 
 const qualificationStartup=loadQualificationFixtureAuthority();
+if (process.env.RHYTHM_SANDBOX_WEB_PAID !== undefined && !qualificationStartup) throw new Error('Qualification web sandbox authority required');
 if(qualificationStartup){
   const root=qualificationStartup.fixtureRoot;
   const isolated:Record<string,string>={DB_CLIENT:'sqlite',DB_PATH:qualificationStartup.dbPath,
@@ -16,6 +18,11 @@ if(qualificationStartup){
     RHYTHM_ORG_INSTRUCTIONS_FILE:path.join(root,'org-instructions.md'),RHYTHM_MANAGED_SKILLS_DIR:path.join(root,'opencode-config','skills'),RHYTHM_MANAGED_COMMANDS_DIR:path.join(root,'opencode-config','commands'),RHYTHM_LEGACY_MANAGED_SKILLS_DIR:path.join(root,'legacy-managed-skills'),
     MEMORY_VAULT_PATH:path.join(root,'memory'),MEMORY_VAULT_SUBDIR:'',LIVE_ARTIFACT_STORAGE_DIR:path.join(root,'live-artifacts'),
     RHYTHM_ACCOUNTS_FILE:path.join(root,'anthropic-accounts.json'),RHYTHM_OPENAI_ACCOUNTS_FILE:path.join(root,'openai-accounts.json'),RHYTHM_DECISION_ROUTER_FILE:path.join(root,'decision-router.json'),RHYTHM_MANAGED_TOOL_ROOT:path.join(root,'managed-tools'),RHYTHM_TOOL_ARTIFACT_ROOT:path.join(root,'tool-artifacts')};
+  const webSandbox = qualificationWebSandboxOverrides(root, process.env);
+  if (webSandbox) {
+    delete isolated.OPENCODE_CONFIG_DIR;
+    Object.assign(isolated, webSandbox);
+  }
   for(const [key,value] of Object.entries(isolated))process.env[key]=value;
   // The engine's data/cache/state (opencode.db, auth.json) are isolated too: sharing
   // them let the 0.18.69 qualification engine write the user's regular opencode.db.

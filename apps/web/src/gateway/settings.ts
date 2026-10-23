@@ -1,12 +1,14 @@
 import type { WorkspaceMember } from './workspace-members';
+import { isTrustedBrowserFetcher } from './browser-transport';
+import { cloudAccountFailure } from './cloud-error';
 
 export interface WorkspaceSettings { id: number; name: string; role: 'admin' | 'staff'; joinCode?: string }
 
 export function createLiveSettingsGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch) {
-  if (!token?.trim()) throw new Error('Live configuration error: a settings token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: a settings token is required');
   const request = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
     const result = await fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
-    if (!result.ok) throw new Error(result.status === 403 ? 'This setting requires a workspace administrator.' : `Setting request failed (${result.status})`);
+    if (!result.ok) throw new Error(await cloudAccountFailure(result) ?? (result.status === 403 ? 'This setting requires a workspace administrator.' : `Setting request failed (${result.status})`));
     return result.status === 204 ? undefined as T : result.json();
   };
   return {

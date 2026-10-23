@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol, safeStorage, session, shell } from 'electron';
+import * as electron from 'electron';
+import { installWebCloudExportMenu } from './web-cloud-export.mjs';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
@@ -1228,6 +1230,15 @@ if (hasSingleInstanceLock) {
   app.whenReady().then(async () => {
     if (isMissingDistSmoke || !existsSync(webDist)) throw new Error(`Rhythm Electron shell requires built web assets at ${webDist}`);
     await restoreAuthentication();
+    // Opt-in per host: staff installs never show the export unless the operator launches
+    // with the same credential path the web-host server is configured to read.
+    if (process.env.RHYTHM_WEB_CLOUD_CREDENTIAL_PATH) installWebCloudExportMenu({ electron,
+      getSession: () => !accountsBlocked && accountsAuth.getSnapshot().authenticated && productionSessionToken && productionSessionUser
+        ? { productionApiBase, userId: productionSessionUser.id, sessionToken: productionSessionToken } : null,
+      disabled: () => isSmoke || isInteractiveSmoke || Boolean(qualificationFixtureManifestPath),
+      credentialPath: process.env.RHYTHM_WEB_CLOUD_CREDENTIAL_PATH,
+      dialog: modalDialog,
+    });
     colonyHost = registerColonyHost({ ipcMain, getWindow: () => mainWindow, userDataPath: app.getPath('userData'), resourcesPath: process.resourcesPath,
       home: qualificationSyntheticActor ? join(qualificationSyntheticActor.fixtureRoot, 'home') : userInfo().homedir,
       isPackaged: app.isPackaged, environment: process.env, app, shell, dialog: modalDialog,

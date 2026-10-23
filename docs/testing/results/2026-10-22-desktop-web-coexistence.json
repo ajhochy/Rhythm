@@ -1,0 +1,119 @@
+{
+  "sourceRevision": "4bd758e09508655daedcc63cda8f9384f93ed848",
+  "branch": "feat/tailscale-web-app-20261022",
+  "native": {
+    "sourceRevision": "4bd758e09508655daedcc63cda8f9384f93ed848",
+    "nativeUrl": "rhythm://app/index.html#/agents",
+    "apiHealthy": true,
+    "engineHealthy": true,
+    "catalogAndSessionErrorsAbsent": true,
+    "profilesLoaded": true,
+    "reload": true,
+    "screenshot": "/private/tmp/rhythm-web-desktop-repaired-20261022.jpg",
+    "modelTurns": 0
+  },
+  "browser": {
+    "sourceRevision": "4bd758e09508655daedcc63cda8f9384f93ed848",
+    "url": "https://ajs-macbook-pro-3.tail3798ec.ts.net:4001/#/tasks",
+    "rendered": true,
+    "reload": true,
+    "webOwnerBound": true,
+    "cloudAvailable": true,
+    "nativeBridgeAbsent": true,
+    "webSocketHandshake101": true,
+    "mutations": 0,
+    "pageErrors": 0
+  },
+  "artifact": {
+    "sourceRevision": "4bd758e09508655daedcc63cda8f9384f93ed848",
+    "branch": "feat/tailscale-web-app-20261022",
+    "appPath": "/Users/ajhochhalter/.local/share/opencode/worktree/a4784d9c54aa2929a09fdab2213ff827a3cb60a5/eager-star/apps/electron/dist/Rhythm.app",
+    "apiIdentity": {
+      "schemaVersion": 1,
+      "sourceRevision": "4bd758e09508655daedcc63cda8f9384f93ed848"
+    },
+    "engineVersion": "0.0.0-rhythm-4bd758e09508655daedcc63cda8f9384f93ed848",
+    "codesignDeepStrictExit": 0,
+    "notarized": false,
+    "signature": [
+      "Identifier=com.rhythm.desktop",
+      "CDHash=08389364e0fb54da7b0cd02c44f3b4e8f3344186",
+      "Authority=Developer ID Application: Aaron Hochhalter (56Q69NYP9H)",
+      "Authority=Developer ID Certification Authority",
+      "Authority=Apple Root CA",
+      "TeamIdentifier=56Q69NYP9H"
+    ],
+    "packagedSourceSha256": {
+      "server.js": "fe885d1d3cfd6d97b60ab1b8125a185cebd90842d4fc17939dd86ac76c470798",
+      "middleware/local_agent_surface_guard.js": "886107d652d6b181d50eb6f63f7482ea488b8b53e35c518ae39f3cbc38b9c406",
+      "services/web_host.js": "b64538d6aa6a6a8cff633018e5f7b1a6032e34f723a5b43747004f0d2889f4f1",
+      "services/web_cloud.js": "99d9e4bdf1d206b85e43ebf15437869132beb630ea5e82dd2385b56def331917",
+      "services/opencode_agent_writer.js": "c144e1e9678a88c602e5fc17f39530404b466704ffb927435d929fdea1c165a9"
+    },
+    "browserAssetSha256": {
+      "index.html": "20003d144f88ce8b46aff5f68a425464141476e2a193739bdeb9ea0a9c96b60b",
+      "desktop-capabilities.json": "656c223b8a5ca1cec4d6d0c428ded26ecba13e0388a16fbda9c3c69888dda613",
+      "assets/rhythm-logo.png": "9435659f0406341a537ffdde58165a60137df491c32d4451f013fcce9a34f402",
+      "assets/index-BsqQ3tGi.css": "2de36b39c3a22d78ad60746fd10d7bfa647fb99521fbe44715cb4657793090cb",
+      "assets/index-BAp6sClK.js": "d40bca912a0bb67bf5f04ae9db9dfb7a053a75ef84d0f6964f4830f9c0e3815d"
+    },
+    "runtimeLaunched": true,
+    "runtimePids": {
+      "api": 75478,
+      "engine": 75524,
+      "gateway": null
+    },
+    "localOwnerBound": true,
+    "cloudAvailable": true,
+    "servedBrowserAssetsMatch": true,
+    "localOriginsVerified": true
+  },
+  "runtime": {
+    "schemaVersion": 1,
+    "kind": "web-real-account-candidate-v1",
+    "appPath": "/Users/ajhochhalter/.local/share/opencode/worktree/a4784d9c54aa2929a09fdab2213ff827a3cb60a5/eager-star/apps/electron/dist/Rhythm.app",
+    "sourceRevision": "4bd758e09508655daedcc63cda8f9384f93ed848",
+    "apiPid": 75478,
+    "enginePid": 75524,
+    "localOwnerId": 1
+  },
+  "desktopPid": 75471,
+  "launchAgentRunning": true,
+  "launchAgentPlistUnchanged": true,
+  "tailscaleServeUnchanged": true,
+  "focusedUnit": {
+    "passed": 53,
+    "failed": 0,
+    "files": 5,
+    "exitCode": 0
+  },
+  "liveCollision": {
+    "redPassed": 1,
+    "redFailed": 2,
+    "greenPassed": 3,
+    "greenFailed": 0,
+    "greenExitCode": 0,
+    "canonicalTeardown": 0
+  },
+  "originalSecurity": {
+    "passed": 8,
+    "failed": 0,
+    "exitCode": 0
+  },
+  "browserRegression": {
+    "startTime": "2026-10-23T05:28:11.692Z",
+    "duration": 37275.279,
+    "expected": 19,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "priorBrowserRegression": {
+    "passed": 18,
+    "failed": 1,
+    "cause": "profile response observer raced navigation; synchronization fixed without changing assertions"
+  },
+  "newPaidCalls": 0,
+  "realTestRecordsCreated": 0,
+  "credentialContentsInspected": false
+}

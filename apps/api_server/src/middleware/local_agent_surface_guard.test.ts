@@ -35,6 +35,11 @@ describe('shared local renderer origin contract', () => {
       origin: 'https://evil.example',
       host: '127.0.0.1:4001',
     })).toBe(false);
+    // A4: installing web hosting must not grant tailnet origins by default.
+    expect(isAllowedLocalAgentSurfaceRequest({
+      origin: 'https://rhythm.example.ts.net',
+      host: 'rhythm.example.ts.net',
+    })).toBe(false);
   });
 
   it('emits ACAO for Electron and rejects an untrusted AGENT_LOCAL preflight', async () => {

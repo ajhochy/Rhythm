@@ -11,6 +11,8 @@ import { MobilePtyProxy } from './services/mobile_pty_proxy';
 import { runAdvisoryCheck, formatStartupWarning } from './security/security_advisories';
 import { env, resolveLiveArtifactStorageDir, opencodeDataFile } from './config/env';
 import { validateHumanApprovalConfiguration } from './security/human_approval_security';
+import { webHostConfig } from './config/web_host';
+import { initializeWebHost } from './services/web_host';
 
 // Load .env before deriving the AgentRunner transport guard below.
 // CI writes OAuth secrets here before bundling into the .app.
@@ -184,6 +186,7 @@ async function main() {
   // #1396: abort rather than advertise healthy when the configured mount is unusable.
   await verifyLiveArtifactStorageDir();
   await initDb();
+  await initializeWebHost();
   (await import('./services/qualification_fixture_bootstrap')).bootstrapQualificationFixture();
   let hermesNotifyServiceRef: { stop: () => void } | null = null;
   if (env.agentExecutionEnabled && env.dbClient === 'sqlite' && !env.isRelayRole) {
@@ -1096,7 +1099,7 @@ async function main() {
     );
   }
 
-  const mobileGatewayRouter = env.agentExecutionEnabled
+  const mobileGatewayRouter = env.agentExecutionEnabled && !webHostConfig
     ? createMobileGatewayRouter({ workstreamCoordinator, coordinatorConversationService })
     : undefined;
   // Dayflow's private config/ledger live beside the app database. Selection is
@@ -1204,7 +1207,7 @@ async function main() {
   const mobileGatewayServer = mobileGatewayRouter
     ? http.createServer(createMobileGatewaySurface(mobileGatewayRouter))
     : null;
-  const mobilePtyProxy = env.agentExecutionEnabled
+  const mobilePtyProxy = env.agentExecutionEnabled && !webHostConfig
     ? new MobilePtyProxy()
     : undefined;
   if (mobileGatewayServer && mobilePtyProxy) {

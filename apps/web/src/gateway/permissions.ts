@@ -48,8 +48,9 @@ export function createFixturePermissionGateway(): PermissionGateway {
   return { mode: 'fixture', pending: unsupported, reply: unsupported, replyQuestion: unsupported, rejectQuestion: unsupported };
 }
 
+import { isTrustedBrowserFetcher } from './browser-transport';
 export function createLivePermissionGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): PermissionGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: an explicit live token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: an explicit live token is required');
   const request = (path: string, init: RequestInit = {}) => fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   return {
     mode: 'live',

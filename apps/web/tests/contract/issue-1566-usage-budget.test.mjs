@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
+import { sourceModuleUrl } from '../helpers/source-module.mjs';
 
 const compile = (url) => ts.transpileModule(readFileSync(url, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const dataModule = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
-const usage = await import(dataModule(compile(new URL('../../src/gateway/usage-budget.ts', import.meta.url))));
+const usage = await import(sourceModuleUrl(new URL('../../src/gateway/usage-budget.ts', import.meta.url)));
 const timestamps = await import(dataModule(compile(new URL('../../src/timestamps.ts', import.meta.url))));
 
 const sample = {

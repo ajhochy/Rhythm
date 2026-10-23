@@ -200,15 +200,16 @@ export function SettingsPage() {
 
   const inspectorFeedback = <>
     {busy && <p className="settings-feedback" role="status">Saving workspace setting…</p>}
-    {loadError && <div className="settings-load-error" role="alert"><p>{loadError}</p><button className="secondary-button" type="button" onClick={() => void loadWorkspace(true)}>Try again</button></div>}
+    {settings && loadError && <div className="settings-load-error" role="alert"><p>{loadError}</p><button className="secondary-button" type="button" onClick={() => void loadWorkspace(true)}>Try again</button></div>}
     {actionError && <p className="settings-feedback error" role="alert">{actionError}</p>}
   </>;
 
   const renderInspector = (item: ListInspectorItem | null): ReactNode => {
     if (!item) return <p className="settings-empty">Select a settings section to inspect its current values and actions.</p>;
 
-    const workspaceDependent = ['workspace', 'members', 'join-code', 'facilities-access'].includes(item.id);
+    const workspaceDependent = ['workspace', 'members', 'join-code', 'facilities-access', 'notifications'].includes(item.id);
     const workspaceError = workspaceDependent && loadError ? <div className="settings-load-error" role="alert" data-testid="settings-workspace-error"><p>{loadError}</p><button className="secondary-button" type="button" onClick={() => void loadWorkspace(true)}>Try again</button></div> : null;
+    if (!settings && workspaceDependent) return workspaceError;
 
     let content: ReactNode;
     switch (item.id) {
@@ -384,7 +385,7 @@ export function SettingsPage() {
       selectedId={selectedId}
       onSelect={selectSetting}
       loading={loading}
-      error={loadError && selectedId !== 'bot-crossing' ? <div className="settings-load-error"><p>{loadError}</p><button className="secondary-button" type="button" onClick={() => void loadWorkspace(true)}>Try again</button></div> : undefined}
+      error={settings && loadError && selectedId !== 'bot-crossing' ? <div className="settings-load-error"><p>{loadError}</p><button className="secondary-button" type="button" onClick={() => void loadWorkspace(true)}>Try again</button></div> : undefined}
       emptyState={<p>No settings sections are available.</p>}
       inspector={renderInspector}
       className="settings-list-inspector"

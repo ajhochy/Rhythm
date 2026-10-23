@@ -1,0 +1,401 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-22",
+  "branch": "feat/tailscale-web-app-20261022",
+  "codeRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+  "scope": "local browser acceptance receipt; subsequent approved private HTTPS cutover recorded separately",
+  "matrix": {
+    "passed": 93,
+    "excluded": 25,
+    "failed": 0,
+    "unrunRequired": 0,
+    "proofCounts": {
+      "no_model": 77,
+      "excluded": 25,
+      "scripted_ui_transport_only": 8,
+      "existing_decisions_policy_no_turn": 1,
+      "paid_isolated": 7
+    }
+  },
+  "artifact": {
+    "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+    "branch": "feat/tailscale-web-app-20261022",
+    "appPath": "/Users/ajhochhalter/.local/share/opencode/worktree/a4784d9c54aa2929a09fdab2213ff827a3cb60a5/eager-star/apps/electron/dist/Rhythm.app",
+    "apiIdentity": {
+      "schemaVersion": 1,
+      "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7"
+    },
+    "engineVersion": "0.0.0-rhythm-89596fc186fa2662da66e0ba2f19413cbf6559c7",
+    "nodeVersion": "v22.23.0",
+    "codesignDeepStrictExit": 0,
+    "signature": [
+      "Identifier=com.rhythm.desktop",
+      "CDHash=cd4e76e7a83058da440a008bdeb1c43c110f1d04",
+      "Authority=Developer ID Application: Aaron Hochhalter (56Q69NYP9H)",
+      "Authority=Developer ID Certification Authority",
+      "Authority=Apple Root CA",
+      "TeamIdentifier=56Q69NYP9H"
+    ],
+    "packagedSourceSha256": {
+      "main.mjs": "a8c99a6d4c86d7e9954fe9309978e314bf1a61e9ce3497435421bd4b7598308f",
+      "agent-server.mjs": "afb3a691c25bc07bf0ed371d8c82ccdf2b753855f85f21f30aa4317286690a05",
+      "web-cloud-export.mjs": "0d460bd609baf8d08a58f321ed8c4e35075977381895876f0eb41f241f08ac8d",
+      "api/server.js": "fe885d1d3cfd6d97b60ab1b8125a185cebd90842d4fc17939dd86ac76c470798",
+      "api/services/web_host.js": "b64538d6aa6a6a8cff633018e5f7b1a6032e34f723a5b43747004f0d2889f4f1",
+      "api/services/web_cloud.js": "99d9e4bdf1d206b85e43ebf15437869132beb630ea5e82dd2385b56def331917",
+      "api/services/opencode_agent_writer.js": "c144e1e9678a88c602e5fc17f39530404b466704ffb927435d929fdea1c165a9"
+    },
+    "browserAssetSha256": {
+      "assets/index-BAp6sClK.js": "d40bca912a0bb67bf5f04ae9db9dfb7a053a75ef84d0f6964f4830f9c0e3815d",
+      "assets/index-BsqQ3tGi.css": "2de36b39c3a22d78ad60746fd10d7bfa647fb99521fbe44715cb4657793090cb",
+      "assets/rhythm-logo.png": "9435659f0406341a537ffdde58165a60137df491c32d4451f013fcce9a34f402",
+      "desktop-capabilities.json": "656c223b8a5ca1cec4d6d0c428ded26ecba13e0388a16fbda9c3c69888dda613",
+      "index.html": "20003d144f88ce8b46aff5f68a425464141476e2a193739bdeb9ea0a9c96b60b"
+    },
+    "notarized": false,
+    "runtimeLaunched": true,
+    "portsFreeBeforeLaunch": {
+      "4001": [],
+      "4002": [],
+      "4096": []
+    },
+    "credentialMetadataOnly": {
+      "uidMatches": true,
+      "mode": "0600",
+      "parentMode": "0700",
+      "regularSingleLink": true
+    },
+    "runtimePids": {
+      "api": 58946,
+      "engine": 58995,
+      "gateway": null
+    },
+    "localOwnerBound": true,
+    "cloudAvailable": true,
+    "servedBrowserAssetsMatch": true,
+    "localOriginsVerified": true
+  },
+  "realAccount": {
+    "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+    "exitCode": 0,
+    "reportRoot": "/private/tmp/rhythm-web-final-real-report-wx_78edn",
+    "stats": {
+      "startTime": "2026-10-23T02:52:23.110Z",
+      "duration": 13218.502999999999,
+      "expected": 4,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "cases": [
+      {
+        "title": "real local Cookbook: UI create, exact-owned API edit, reload and UI delete; never run",
+        "status": "expected",
+        "expectedStatus": "passed",
+        "attempts": 1,
+        "durationMs": 2539
+      },
+      {
+        "title": "real AJ cloud task: private UI create, edit, complete, reload and exact-ID delete",
+        "status": "expected",
+        "expectedStatus": "passed",
+        "attempts": 1,
+        "durationMs": 4566
+      },
+      {
+        "title": "real cloud navigation: narrow Tasks route and reload use the authenticated proxy without writes",
+        "status": "expected",
+        "expectedStatus": "passed",
+        "attempts": 1,
+        "durationMs": 2690
+      },
+      {
+        "title": "real private live artifact: API create and revision update, standalone browser render and tombstone cleanup",
+        "status": "expected",
+        "expectedStatus": "passed",
+        "attempts": 1,
+        "durationMs": 2620
+      }
+    ]
+  },
+  "cleanup": {
+    "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+    "realAccountPassed": 4,
+    "createdRecords": 3,
+    "deletionReadbacksVerified": 3,
+    "leftovers": 0,
+    "pendingCreates": 0,
+    "blockedWrites": 0,
+    "ledgerAttachment": "/private/tmp/rhythm-web-final-real-report-wx_78edn/output/real-account-real-private--a1dc1-ender-and-tombstone-cleanup/attachments/owned-record-ledger-e04f23862c87f24aaef0c4fbab02d515ebf27804.json",
+    "reportRoot": "/private/tmp/rhythm-web-final-real-report-wx_78edn"
+  },
+  "localhost": {
+    "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+    "url": "http://localhost:4001/#/tasks",
+    "rendered": true,
+    "reload": true,
+    "webOwnerBound": true,
+    "cloudAvailable": true,
+    "nativeBridgeAbsent": true,
+    "webSocketHandshake101": true,
+    "mutations": 0,
+    "pageErrors": 0
+  },
+  "paidAndPolicyReceipts": {
+    "91": {
+      "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+      "sourceSha256": "ffe0842092e4247c9b4b8ae7a0ec334de99802d07449b599ddb4c01ce1d8b94e",
+      "caseIds": [
+        91
+      ],
+      "exitCode": 0,
+      "sourceUnchanged": true,
+      "canonicalDown": true,
+      "secretsScrubbed": true,
+      "caseResults": [
+        {
+          "caseId": 91,
+          "observed": 1,
+          "status": "passed",
+          "attempts": 1,
+          "durationMs": 1482,
+          "failureFacts": []
+        }
+      ]
+    },
+    "92": {
+      "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+      "sourceSha256": "ffe0842092e4247c9b4b8ae7a0ec334de99802d07449b599ddb4c01ce1d8b94e",
+      "caseIds": [
+        92
+      ],
+      "exitCode": 0,
+      "sourceUnchanged": true,
+      "canonicalDown": true,
+      "secretsScrubbed": true,
+      "caseResults": [
+        {
+          "caseId": 92,
+          "observed": 1,
+          "status": "passed",
+          "attempts": 1,
+          "durationMs": 8188,
+          "failureFacts": []
+        }
+      ]
+    },
+    "93": {
+      "sourceRevision": "840679c045431e8d85a342a81bf6e286b4bfdee6",
+      "sourceSha256": "87986a2d82dc14027dc9f21f616c1db6496fbbdf720d30356bb7f9bfe3080c4f",
+      "caseIds": [
+        93
+      ],
+      "exitCode": 0,
+      "sourceUnchanged": true,
+      "canonicalDown": true,
+      "secretsScrubbed": true,
+      "caseResults": [
+        {
+          "caseId": 93,
+          "observed": 1,
+          "status": "passed",
+          "attempts": 1,
+          "durationMs": 5826
+        }
+      ]
+    },
+    "94": {
+      "sourceRevision": "840679c045431e8d85a342a81bf6e286b4bfdee6",
+      "sourceSha256": "87986a2d82dc14027dc9f21f616c1db6496fbbdf720d30356bb7f9bfe3080c4f",
+      "caseIds": [
+        94
+      ],
+      "exitCode": 0,
+      "sourceUnchanged": true,
+      "canonicalDown": true,
+      "secretsScrubbed": true,
+      "caseResults": [
+        {
+          "caseId": 94,
+          "observed": 1,
+          "status": "passed",
+          "attempts": 1,
+          "durationMs": 5735
+        }
+      ]
+    },
+    "108": {
+      "sourceRevision": "840679c045431e8d85a342a81bf6e286b4bfdee6",
+      "sourceSha256": "4766056035c7d5f64427e6fb59414625bfb634a1ea393bffee16f9f17276253a",
+      "caseIds": [
+        108
+      ],
+      "exitCode": 0,
+      "sourceUnchanged": true,
+      "canonicalDown": true,
+      "secretsScrubbed": true,
+      "caseResults": [
+        {
+          "caseId": 108,
+          "observed": 1,
+          "status": "passed",
+          "attempts": 1,
+          "durationMs": 5605
+        }
+      ]
+    },
+    "109": {
+      "sourceRevision": "96387be1dfd36c15952fa550096b6c58e1239f9a",
+      "sourceSha256": "a62d439c5e9397fe3d51c40cc4d018e00482c350afb1e1c3ef7c3234d126cd1e",
+      "caseIds": [
+        109
+      ],
+      "exitCode": 0,
+      "sourceUnchanged": true,
+      "canonicalDown": true,
+      "secretsScrubbed": true,
+      "caseResults": [
+        {
+          "caseId": 109,
+          "observed": 1,
+          "status": "passed",
+          "attempts": 1,
+          "durationMs": 28963,
+          "failureFacts": []
+        }
+      ]
+    },
+    "110": {
+      "sourceRevision": "66e7c44d57b600efd616ff36c71b38dbfb7e1308",
+      "sourceSha256": "162929b1280c2ddece3829cd41ad97dc17e761a33b8cd277ca16619fbfe15b73",
+      "caseIds": [
+        110
+      ],
+      "exitCode": 0,
+      "sourceUnchanged": true,
+      "canonicalDown": true,
+      "secretsScrubbed": true,
+      "caseResults": [
+        {
+          "caseId": 110,
+          "observed": 1,
+          "status": "passed",
+          "attempts": 1,
+          "durationMs": 54402,
+          "failureFacts": []
+        }
+      ]
+    },
+    "118": {
+      "sourceRevision": "9a9d3eecd7b40ceefa218f32700726c31966c6e6",
+      "sourceSha256": "bfef721764a148c70f21bdfaf72a9de15c3033c588e32c3925ab503ae2293118",
+      "caseIds": [
+        118
+      ],
+      "exitCode": 0,
+      "sourceUnchanged": true,
+      "canonicalDown": true,
+      "secretsScrubbed": true,
+      "caseResults": [
+        {
+          "caseId": 118,
+          "observed": 1,
+          "status": "passed",
+          "attempts": 1,
+          "durationMs": 63866,
+          "failureFacts": []
+        }
+      ]
+    }
+  },
+  "nonpaidCommands": {
+    "standard": {
+      "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+      "argv": [
+        "bash",
+        "apps/web/tests/web-host/run-sandbox.sh",
+        "bash",
+        "-c",
+        "node --test apps/web/tests/web-host/security.test.mjs && ./apps/web/node_modules/.bin/playwright test --config apps/web/tests/web-host/playwright.config.ts web-host-approvals.spec.ts web-host-catalogs.spec.ts web-host-cloud-live-artifact.spec.ts web-host-cloud-navigation.spec.ts web-host-cloud-tasks.spec.ts web-host-cloud-unavailable.spec.ts web-host-cloud.spec.ts web-host-conversation-blank.spec.ts web-host-cookbook.spec.ts web-host-coordinator.spec.ts web-host-gallery-research.spec.ts web-host-gallery-unavailable.spec.ts web-host-memory-metadata.spec.ts web-host-memory-paging.spec.ts web-host-memory-skills-read.spec.ts web-host-owned-history.spec.ts web-host-owner-identity.spec.ts web-host-playbooks.spec.ts web-host-profiles.spec.ts web-host-quality-settings.spec.ts web-host-schedules.spec.ts web-host-scripted-autoname.spec.ts web-host-scripted-conversation.spec.ts web-host-scripted-extraction.spec.ts web-host-scripted-natural-once.spec.ts web-host-scripted-profile-policy.spec.ts web-host-session-project-scope.spec.ts web-host-session.spec.ts web-host-sessions.spec.ts web-host-shell.spec.ts web-host-skills-managed.spec.ts web-host-status.spec.ts web-host-tool-pins.spec.ts --output=/private/tmp/rhythm-web-postpaid-standard-20261022-out --reporter=line,json"
+      ],
+      "env": {
+        "RHYTHM_LIVE_E2E": "1",
+        "RHYTHM_WEB_SCRIPTED_DEFAULTS": "1",
+        "RHYTHM_SANDBOX_DIR": "/private/tmp/rhythm-web-postpaid-standard-20261022",
+        "RHYTHM_SANDBOX_ENGINE_DIR": "/Users/ajhochhalter/.local/share/opencode/worktree/a4784d9c54aa2929a09fdab2213ff827a3cb60a5/eager-star/apps/opencode_fork/packages/opencode",
+        "PLAYWRIGHT_JSON_OUTPUT_FILE": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json"
+      }
+    },
+    "cloud": {
+      "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+      "argv": [
+        "bash",
+        "apps/web/tests/web-host/run-sandbox.sh",
+        "./apps/web/node_modules/.bin/playwright",
+        "test",
+        "--config",
+        "apps/web/tests/web-host/playwright.config.ts",
+        "web-host-cloud-live-artifact.spec.ts",
+        "web-host-cloud-navigation.spec.ts",
+        "web-host-cloud-tasks.spec.ts",
+        "web-host-cloud.spec.ts",
+        "--output=/private/tmp/rhythm-web-postpaid-cloud-20261022-out",
+        "--reporter=line,json"
+      ],
+      "env": {
+        "RHYTHM_LIVE_E2E": "1",
+        "RHYTHM_WEB_SCRIPTED_DEFAULTS": "1",
+        "RHYTHM_SANDBOX_DIR": "/private/tmp/rhythm-web-postpaid-cloud-20261022",
+        "RHYTHM_SANDBOX_ENGINE_DIR": "/Users/ajhochhalter/.local/share/opencode/worktree/a4784d9c54aa2929a09fdab2213ff827a3cb60a5/eager-star/apps/opencode_fork/packages/opencode",
+        "PLAYWRIGHT_JSON_OUTPUT_FILE": "/private/tmp/rhythm-web-postpaid-cloud-20261022-report.json",
+        "RHYTHM_WEB_CLOUD_TEST": "1"
+      }
+    }
+  },
+  "realAccountCommand": {
+    "argv": [
+      "./apps/web/node_modules/.bin/playwright",
+      "test",
+      "--config",
+      "apps/web/tests/web-real-account/playwright.config.ts",
+      "--reporter=json",
+      "--output",
+      "/private/tmp/rhythm-web-final-real-report-wx_78edn/output"
+    ],
+    "env": {
+      "RHYTHM_WEB_REAL_ACCOUNT": "1",
+      "RHYTHM_LIVE_E2E": "1",
+      "RHYTHM_WEB_PUBLIC_ORIGIN": "http://rhythm-web.test:4001",
+      "RHYTHM_WEB_REAL_EXPECTED_REVISION": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+      "RHYTHM_WEB_REAL_CANDIDATE_RECEIPT": "/private/tmp/rhythm-web-final-real-launch-w7i9zu2b/real-candidate.json",
+      "PLAYWRIGHT_JSON_OUTPUT_FILE": "/private/tmp/rhythm-web-final-real-report-wx_78edn/report.json",
+      "PLAYWRIGHT_HTML_OUTPUT_DIR": "/private/tmp/rhythm-web-final-real-report-wx_78edn/html"
+    }
+  },
+  "regressionLimits": {
+    "api": {
+      "passed": 9185,
+      "failed": 7,
+      "skipped": 401,
+      "exitCode": 1,
+      "allFailuresReproducedOnStartingRevision": true
+    },
+    "electron": {
+      "passed": 591,
+      "failed": 0,
+      "skipped": 5,
+      "exitCode": 0,
+      "typecheck": "known TS7053 at hermes-backend-artifact.mjs:58; exit 2"
+    },
+    "genericWorkflowWrapper": "not run; scoped commands executed; unrelated Flutter/mobile suites not claimed"
+  },
+  "network": {
+    "changed": false,
+    "proposedOrigin": "https://ajs-macbook-pro-3.tail3798ec.ts.net:4001",
+    "requiresExplicitApproval": true,
+    "existing443And8443": "preserve",
+    "mobile4002": "disabled in running web mode",
+    "supersededBy": "docs/testing/results/2026-10-22-web-https-cutover.json",
+    "historicalPreApprovalCheckpoint": true
+  }
+}

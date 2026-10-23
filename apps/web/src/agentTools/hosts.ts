@@ -13,6 +13,7 @@ type DayflowDesktopShell = { dayflowDesktop?: { getDayflowDesktopStatus?: unknow
 export function availableAgentToolIds(): string[] {
   const dayflow = (window as Window & { rhythmShell?: DayflowDesktopShell }).rhythmShell?.dayflowDesktop;
   return [
+    'cookbook',
     ...(hermesShell()?.hermes?.enabled === true ? ['hermes'] : []),
     ...(colonyShell()?.colonyView ? ['bot-crossing'] : []),
     ...(openDesignShell()?.openDesignView ? ['open-design'] : []),

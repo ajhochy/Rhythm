@@ -1,5 +1,5 @@
 export type AgentToolDescriptor = Readonly<{
-  id: 'hermes' | 'bot-crossing' | 'open-design' | 'dayflow';
+  id: 'hermes' | 'bot-crossing' | 'open-design' | 'dayflow' | 'cookbook';
   label: string;
   route: string;
   description: string;

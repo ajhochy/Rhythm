@@ -64,8 +64,9 @@ export function createFixtureCommandGateway(): CommandGateway {
   return { mode: 'fixture', list: unsupported, content: unsupported, create: unsupported, update: unsupported, remove: unsupported };
 }
 
+import { isTrustedBrowserFetcher } from './browser-transport';
 export function createLiveCommandGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): CommandGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: a commands token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: a commands token is required');
   const request = (path: string, init: RequestInit = {}) =>
     fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   return {

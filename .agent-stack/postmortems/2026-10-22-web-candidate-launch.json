@@ -1,0 +1,75 @@
+{
+  "run_id": "2026-10-22-web-candidate-launch",
+  "issue": null,
+  "date": "2026-10-22",
+  "smoke_result": "pass",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "scope": "Desktop candidate launch checkpoint only; not browser feature parity, credential handoff completion, or the full verification gate.",
+  "source_revision": "6081e4fd8101b9e532758b1930143a12e79ae0ea",
+  "branch": "feat/tailscale-web-app-20261022",
+  "criteria_results": [
+    {
+      "criterion_id": "web-candidate-desktop-launch-checkpoint",
+      "text": "Launch the candidate with RHYTHM_WEB_CLOUD_CREDENTIAL_PATH set to an absolute host path outside the repo (default suggestion: <userData>/web-cloud/credential.json).",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Direct handoff launch checkpoint; not one of the browser parity inventory cases and no executable launch contract was claimed. Root independently repeated codesign --verify --deep --strict with exit 0 and confirmed ports 4001/4002/4096 vacant with lsof and direct socket checks. Root launched the exact candidate executable via Python Popen at 2026-10-22T22:02:09Z (PID 72005), after clearing inherited RHYTHM_*, VITE_*, ELECTRON_RUN_AS_NODE and NODE_OPTIONS, setting the protected credential destination and the workstreams/managed-context pair. Native accessibility inspection showed Environment Live, API 4001 healthy, engine 4096 healthy and the Browser access menu. RHYTHM_WEB_HOST was not set. AJ credential export remained pending; the latest metadata-only check found no credential file. No web feature result follows from this launch observation."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "dependency-projection",
+      "description": "Initial packaging projected only top-level fork package dependency directories, omitting packages/sdk/js/node_modules. Vite then could not resolve @tsconfig/node22/tsconfig.json. Added six missing nested dependency wrappers without installations or product changes; package attempt 2 and signing exited 0. One bounded infrastructure repair.",
+      "detected_by": "/private/tmp/rhythm-web-6081e4fd81-build-attempt1.log; explicit SDK require.resolve probe; /private/tmp/rhythm-web-6081e4fd81-driver-attempt2.log and package/sign guard receipts."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "verification-gate",
+      "failure-triage",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "verification-gate",
+      "failure-triage",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W3",
+        "affected_skill": "verification-gate, failure-triage, failure-postmortem",
+        "description": "These skills request TodoWrite checklists, but the tool is unavailable in this host. No TodoWrite calls are fabricated; scoped assignments, command results and durable receipts track this checkpoint instead.",
+        "detected_by": "Available tool inventory and this build/postmortem transcript."
+      }
+    ],
+    "notes": "Expected and observed chains describe this delegated build/manual-launch checkpoint only, rather than inventing a complete implementation workflow. The verification-gate skill supplied build-evidence discipline; the full static/unit/PR/live gate was not executed and no full-gate PASS is claimed. Root coordinated the manual launch and dispatched this postmortem. Existing inventory and earlier slice receipts are historical evidence, not current browser qualification."
+  },
+  "implementation_files": [],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Include nested workspace dependency directories in candidate projections, then continue the authorized credential handoff and executable browser contracts while keeping all unrun parity cases explicitly not_run.",
+  "evidence": {
+    "run_log": "docs/ai/runs/2026-10-22-tailscale-web-resume.md",
+    "artifact_receipt": "/private/tmp/rhythm-web-6081e4fd81-artifact-receipt.json",
+    "source_of_launch_observations": "Root agent tool observations, recorded in the canonical run log; this postmortem worker did not launch processes or read real data/credentials.",
+    "candidate_app": "/Users/ajhochhalter/.local/share/opencode/worktree/a4784d9c54aa2929a09fdab2213ff827a3cb60a5/eager-star/apps/electron/dist/Rhythm.app",
+    "signature": "Developer ID signed, not notarized",
+    "peak_package_bytes": 10315676702,
+    "build_limit_bytes": 10737418240
+  },
+  "remaining_acceptance": {
+    "contract": "docs/ai/contracts/web-parity-20261022.json",
+    "contract_status": "inventory_only_not_run",
+    "included_browser_cases": 93,
+    "current_run_included_passed": 0,
+    "current_run_included_not_run": 93,
+    "excluded_cases": 25,
+    "slice_2c_executable_contract": "not yet authored",
+    "credential_export": "pending AJ native confirmation; credential contents never inspected",
+    "full_parity_complete": false
+  }
+}

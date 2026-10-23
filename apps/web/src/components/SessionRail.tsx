@@ -380,7 +380,9 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     if (!advancedOpen || sessionGatewayMode !== 'live') return;
     let active = true;
     setLiveTasks([]); setTasksError('');
-    void gateway.domains.tasks!.list().then(rows => { if (active) setLiveTasks(rows.filter(task => task.status !== 'done')); }).catch(() => { if (active) setTasksError('Task catalog unavailable'); });
+    const tasks = gateway.domains.tasks;
+    if (!tasks) setTasksError('Task catalog unavailable');
+    else void tasks.list().then(rows => { if (active) setLiveTasks(rows.filter(task => task.status !== 'done')); }).catch(() => { if (active) setTasksError('Task catalog unavailable'); });
     const projectId = advancedContextProject?.id ?? selected.projectId;
     setLiveBranches(null);
     if (projectId) void gateway.domains.sessions!.branches(projectId)
@@ -627,7 +629,7 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     <FocusDialog open={advancedOpen} onClose={closeAdvanced} title="New agent session" description="Choose the task and working context. Model and agent are selected after the session starts." testId="advanced-session-dialog" wide>
       <form className="form-grid advanced-session-form" onSubmit={startSession}>
         <label className="field span-2">Session name<span>Required</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Fix auth bug" required data-autofocus data-testid="advanced-name" /></label>
-        <label className="field span-2">Linked task<span>Optional · non-done tasks</span><select value={taskId} onChange={(event) => setTaskId(event.target.value)} data-testid="advanced-task"><option value="">No task linked</option>{liveHistory ? liveTasks.map(task => <option key={task.id} value={task.id}>{task.title}</option>) : <><option value="task-review-handoff">Review service handoff</option><option value="task-check-relay">Check relay recovery</option></>}</select>{liveHistory && tasksError && <span role="alert">{tasksError}</span>}</label>
+        <label className="field span-2">Linked task<span>Optional · non-done tasks</span><select value={taskId} onChange={(event) => setTaskId(event.target.value)} disabled={liveHistory && !gateway.domains.tasks} data-testid="advanced-task"><option value="">No task linked</option>{liveHistory ? liveTasks.map(task => <option key={task.id} value={task.id}>{task.title}</option>) : <><option value="task-review-handoff">Review service handoff</option><option value="task-check-relay">Check relay recovery</option></>}</select>{liveHistory && tasksError && <span role="alert">{tasksError}</span>}</label>
         {liveHistory && <label className="field span-2">Agent profile<span>Required</span><select value={profileId} onChange={(event) => setProfileId(event.target.value)} required data-testid="advanced-profile"><option value="" disabled>Choose an enabled profile</option>{eligibleProfiles.map((profile) => <option value={profile.id} key={profile.id}>{profile.label}</option>)}</select></label>}
         <label className="field span-2">Working directory<div className="field-with-action"><input value={cwd} onChange={(event) => { setCwd(event.target.value); setBranch(''); setNewBranchMode(false); setNewBranch(''); setPendingBranch(null); }} required data-testid="advanced-cwd" /><button type="button" disabled={liveHistory && !window.rhythmShell?.selectDirectory} title={liveHistory ? 'Native folder browsing is unavailable; enter the directory path' : undefined} onClick={async () => {
           if (window.rhythmShell?.selectDirectory) {

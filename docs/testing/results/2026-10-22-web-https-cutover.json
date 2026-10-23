@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-22",
+  "verifiedAt": "2026-10-23T04:54:25.321525+00:00",
+  "authorization": "AJ: Yes, enable private HTTPS on port 4001",
+  "codeRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+  "branch": "feat/tailscale-web-app-20261022",
+  "url": "https://ajs-macbook-pro-3.tail3798ec.ts.net:4001/#/tasks",
+  "changes": {
+    "removedRawTcp4001": true,
+    "privateHttps4001Proxy": "http://127.0.0.1:4001",
+    "addedExactOrigin": "https://ajs-macbook-pro-3.tail3798ec.ts.net:4001",
+    "candidateRestarted": true,
+    "existing443And8443Unchanged": true,
+    "funnelEnabled": false,
+    "launchAgentChanged": false,
+    "mobile4002": "disabled"
+  },
+  "tls": {
+    "httpStatus": 200,
+    "certificateVerificationResult": 0,
+    "ignoredCertificateErrors": false
+  },
+  "browser": {
+    "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+    "url": "https://ajs-macbook-pro-3.tail3798ec.ts.net:4001/#/tasks",
+    "rendered": true,
+    "reload": true,
+    "webOwnerBound": true,
+    "cloudAvailable": true,
+    "nativeBridgeAbsent": true,
+    "webSocketHandshake101": true,
+    "mutations": 0,
+    "pageErrors": 0
+  },
+  "runtime": {
+    "schemaVersion": 1,
+    "kind": "web-real-account-candidate-v1",
+    "appPath": "/Users/ajhochhalter/.local/share/opencode/worktree/a4784d9c54aa2929a09fdab2213ff827a3cb60a5/eager-star/apps/electron/dist/Rhythm.app",
+    "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+    "apiPid": 64835,
+    "enginePid": 64887,
+    "localOwnerId": 1
+  },
+  "desktopPid": 64828,
+  "testedFrom": "Chromium and curl on the hosting Mac through the actual MagicDNS HTTPS URL",
+  "secondDeviceTested": false,
+  "credentialContentsInspected": false,
+  "commands": [
+    {
+      "argv": [
+        "/usr/local/bin/tailscale",
+        "serve",
+        "--tcp=4001",
+        "off"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "python3",
+        "-I",
+        "/private/tmp/rhythm-web-https-cutover-20261022/restart-candidate.py"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "/usr/local/bin/tailscale",
+        "serve",
+        "--bg",
+        "--https=4001",
+        "--yes",
+        "http://127.0.0.1:4001"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "python3",
+        "-I",
+        "/private/tmp/rhythm-web-final-candidate-ready.py"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "node",
+        "/private/tmp/rhythm-web-https-cutover-20261022/browser-proof.mjs"
+      ],
+      "exitCode": 0
+    }
+  ]
+}

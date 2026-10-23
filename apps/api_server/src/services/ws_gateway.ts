@@ -28,6 +28,7 @@ import {
 } from './org_proposal_experiment_service';
 import type { ExperimentEnrollment } from '../models/agent_org_experiment_enrollment';
 import { normalizePartAttachments } from './attachment_hosting';
+import { webHostOwner } from './web_host';
 
 export interface WsMessage {
   v: 1;
@@ -178,7 +179,7 @@ export function attachWsGateway(
     }
     if (legacyAgentSocket) {
       const token = req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1].trim();
-      const actor = token ? await resolveLocalOrCloudBearer(token) : null;
+      const actor = token ? await resolveLocalOrCloudBearer(token) : webHostOwner();
       wss.handleUpgrade(req, socket, head, (ws) => {
         if (actor) attachmentActors.set(ws, actor.id);
         wss.emit('connection', ws, req);

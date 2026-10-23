@@ -8,7 +8,8 @@ import { AGENT_TOOL_DESCRIPTORS, type AgentToolDescriptor } from '../agentTools/
 import { readAgentToolPins, subscribeAgentToolPins } from '../agentTools/pins';
 import { availableAgentToolIds } from '../agentTools/hosts';
 import { useAuthUser } from '../gateway/auth';
-import type { PendingApproval } from '../gateway/approvals';
+import { useGateway } from '../gateway/context';
+import { isBrowserApproval, type PendingApproval } from '../gateway/approvals';
 import { Splitter } from './Splitter';
 import { displayAccountIdentity } from './accountIdentity';
 
@@ -52,7 +53,9 @@ function ApprovalCard({ approval, deciding, onDecide }: { approval: PendingAppro
   const title = task?.title ?? approval.action;
   const summary = task ? task.notes : approval.preview;
   const detailsId = `approval-details-${approval.id}`;
-  const disabled = !approval.decisionNonce || deciding;
+  const browser = approval.decisionMode === 'trusted-tailnet-web';
+  const canDecide = browser ? isBrowserApproval(approval) : Boolean(approval.decisionNonce?.trim());
+  const disabled = !canDecide || deciding;
   return (
     <div className="menu-item stacked approval-card" data-testid={`approval-card-${approval.id}`}>
       <div className="approval-heading">
@@ -69,7 +72,7 @@ function ApprovalCard({ approval, deciding, onDecide }: { approval: PendingAppro
         <button type="button" role="menuitem" className="approval-details-toggle" aria-expanded={detailsOpen} aria-controls={detailsId} data-menu-keep-open onClick={() => setDetailsOpen((open) => !open)}>{detailsOpen ? 'Hide details' : 'Show details'}</button>
         <div id={detailsId} className="approval-details" hidden={!detailsOpen}>{detailsOpen && <pre>{approval.preview}</pre>}</div>
       </>}
-      {!approval.decisionNonce && <small>This legacy approval cannot be signed. Ask the agent to request approval again.</small>}
+      {!canDecide && <small>{browser ? 'Approval details could not be confirmed. Refresh approvals and retry.' : 'This legacy approval cannot be signed. Ask the agent to request approval again.'}</small>}
     </div>
   );
 }
@@ -171,6 +174,8 @@ export function Shell({ route, children }: { route: string; children: React.Reac
   ];
   const { theme, setTheme, demo, setDemo, toast, resetFixtures, notify, unreadThreads, sessionGatewayMode, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, pendingApprovals, approvalError, approvalsLoading, approvalsUpdatedAt, decidingApprovalIds, refreshPendingApprovals, decideApproval } = useFixtures();
   const live = sessionGatewayMode === 'live';
+  const gateway = useGateway();
+  const notificationsUnavailable = live && !gateway.domains.notifications && !gateway.domains.approvals;
   const entityDestination = (entityType: string, entityId: string) => ({
     task: `/tasks/task/${encodeURIComponent(entityId)}`,
     rhythm: `/rhythms/rule/${encodeURIComponent(entityId)}`,
@@ -311,19 +316,17 @@ export function Shell({ route, children }: { route: string; children: React.Reac
           </Menu>
           {live && <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="approval-queue-announcement">{pendingApprovals.length} pending approvals{approvalError ? '. Approval queue unavailable.' : ''}</span>}
           <Menu key={`${route}:notifications`} label={live ? `Notifications · ${pendingApprovals.length} pending approvals${approvalError ? ' · approval queue unavailable' : ''}` : 'Notifications'} icon="bell" testId="notifications-button" menuId="notifications" onOpenChange={onMenuOpenChange} onPopoverLayout={onPopoverLayout} popoverClassName="notifications-menu" triggerContent={live ? <><Icon name="bell" />{(pendingApprovals.length > 0 || approvalError) && <span className="unread-badge">{approvalError ? '!' : pendingApprovals.length}</span>}</> : undefined}>
-            {live ? <>
+            {notificationsUnavailable ? <div className="menu-item stacked" role="status">Notifications and approvals are unavailable in this environment.</div> : live ? <>
               <div className="menu-heading"><span>Notifications</span><small>{notificationUnreadCount} unread</small></div>
               <button role="menuitem" className="menu-item" type="button" data-menu-keep-open onClick={() => void refreshPendingApprovals()}>Refresh approvals</button>
               <div className="menu-item stacked" role="status" aria-live="polite" data-testid="approval-queue-status">{pendingApprovals.length} pending approvals · {approvalsLoading ? 'Refreshing…' : approvalError ? 'Approval queue needs attention; showing last known pending cards' : approvalsUpdatedAt ? `Updated ${new Date(approvalsUpdatedAt).toLocaleTimeString()}` : 'Not yet loaded'}</div>
               {approvalError && <div className="menu-item stacked" role="alert" data-testid="approval-queue-error">{approvalError} Retry with Refresh approvals. Rhythm approvals are in this outer queue, not embedded engine permissions.</div>}
               {!approvalError && !approvalsLoading && approvalsUpdatedAt && notifications.length === 0 && pushNotifications.length === 0 && pendingApprovals.length === 0 && <div className="menu-item stacked"><small>No notifications</small></div>}
-              {/* post-m1-phase-7 c4d: pending approvals as actionable cards, not just a read-only row —
-                  Approve/Reject attempt the real decide() boundary; see decideApproval's doc comment in
-                  store.tsx for why that boundary is presently an honest rejection (no native signer yet). */}
+              {/* Decisions use the displayed card and the current environment's approval gateway. */}
               {pendingApprovals.map((approval) => <ApprovalCard key={`approval-${approval.id}`} approval={approval} deciding={decidingApprovalIds.includes(approval.id)} onDecide={(id, status) => void decideApproval(id, status)} />)}
               {notifications.map((item) => <button key={`domain-${item.id}`} role="menuitem" className="menu-item stacked" type="button" onClick={() => openDomainNotification(item.id, item.entityType, item.entityId)}><strong>{item.message}</strong><small>{item.type}</small></button>)}
               {pushNotifications.map((item) => <button key={`push-${item.id}`} role="menuitem" className="menu-item stacked" type="button" onClick={openPushNotification}><strong>{item.title}</strong><small>{item.body}</small></button>)}
-              <button role="menuitem" className="menu-item stacked" type="button" onClick={markAllNotificationsRead}><strong>Mark all read</strong><small>Clears unread status</small></button>
+              {gateway.domains.notifications && <button role="menuitem" className="menu-item stacked" type="button" onClick={markAllNotificationsRead}><strong>Mark all read</strong><small>Clears unread status</small></button>}
             </> : <>
               <div className="menu-heading"><span>Notifications</span><small>2 unread</small></div>
               <button role="menuitem" className="menu-item stacked" type="button" onClick={() => { navigate('/agents'); setDemo('permission'); }}><strong>Permission needed</strong><small>Prepare release worktree</small></button>

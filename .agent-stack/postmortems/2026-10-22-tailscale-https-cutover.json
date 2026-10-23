@@ -1,0 +1,59 @@
+{
+  "run_id": "2026-10-22-tailscale-https-cutover",
+  "issue": null,
+  "date": "2026-10-22",
+  "smoke_result": "pass",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "private-https-browser",
+      "text": "Private HTTPS4001 renders the real app, reloads, uses cloud and completes secure WebSocket handshake",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Actual MagicDNS URL in Chromium; no certificate bypass, zero page errors or writes; second device not tested."
+    },
+    {
+      "criterion_id": "preserve-services",
+      "text": "Preserve443/8443 and avoid Funnel/LaunchAgent changes",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Parsed pre/post config equality assertions; no Funnel/LaunchAgent operation."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "tooling-availability",
+      "description": "TodoWrite is unavailable in this host; the ordered operation/check sequence is recorded in the run receipt.",
+      "detected_by": "Enabled tools inventory"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "docs/ai/contracts/web-parity-20261022.json",
+    "docs/ai/project-state.md",
+    "docs/ai/runs/2026-10-22-tailscale-web-final.md",
+    "docs/testing/results/2026-10-22-web-https-cutover.json"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Verify this URL from a second tailnet device when available; do not infer that evidence from same-host HTTPS checks."
+}

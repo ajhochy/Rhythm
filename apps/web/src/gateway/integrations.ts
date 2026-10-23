@@ -1,4 +1,6 @@
 import type { GatewayMode } from '.';
+import { isTrustedBrowserFetcher } from './browser-transport';
+import { cloudAccountFailure } from './cloud-error';
 import type { CreateProjectTemplateInput, CreateProjectTemplateStepInput, ProjectTemplate, ProjectTemplateStep } from './projects';
 import type { CreateRhythmInput, RhythmRule } from './rhythms';
 import type { CreateTaskInput, Task } from './planner';
@@ -37,7 +39,7 @@ export interface IntegrationsGateway {
 
 export class IntegrationsGatewayError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 const failureText = (status: number, operation: string) => ({ 0: 'Integrations service unavailable', 401: 'Authentication required', 403: 'Forbidden', 404: 'Integration record not found' })[status] ?? `${operation} failed (${status})`;
-async function response<T>(operation: string, pending: Promise<Response>): Promise<T> { try { const result = await pending; if (!result.ok) throw new IntegrationsGatewayError(result.status, failureText(result.status, operation)); return result.status === 204 ? undefined as T : await result.json() as T; } catch (error) { if (error instanceof IntegrationsGatewayError) throw error; throw new IntegrationsGatewayError(0, failureText(0, operation)); } }
+async function response<T>(operation: string, pending: Promise<Response>): Promise<T> { try { const result = await pending; if (!result.ok) throw new IntegrationsGatewayError(result.status, await cloudAccountFailure(result) ?? failureText(result.status, operation)); return result.status === 204 ? undefined as T : await result.json() as T; } catch (error) { if (error instanceof IntegrationsGatewayError) throw error; throw new IntegrationsGatewayError(0, failureText(0, operation)); } }
 
 export function createFixtureIntegrationsGateway(_fetcher?: typeof fetch): IntegrationsGateway {
   const unsupported = async (..._args: unknown[]): Promise<never> => { throw new IntegrationsGatewayError(0, 'Fixture integrations gateway is unsupported'); };
@@ -46,7 +48,7 @@ export function createFixtureIntegrationsGateway(_fetcher?: typeof fetch): Integ
 }
 
 export function createLiveIntegrationsGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): IntegrationsGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: an explicit integrations token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: an explicit integrations token is required');
   const request = (path: string, init: RequestInit = {}) => fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   const json = (value: unknown) => JSON.stringify(value);
   return {
@@ -55,6 +57,7 @@ export function createLiveIntegrationsGateway(apiBase: string, token: string | u
     accounts: () => response<IntegrationAccount[]>('Load integration accounts', request('/integrations/accounts')),
     // apps/api_server/src/routes/auth_routes.ts:20,23-25. These navigation endpoints require sessionToken by query contract rather than Authorization.
     authorizationUrl: (kind) => {
+      if (!token) throw new IntegrationsGatewayError(0, 'Connect integrations in the signed-in desktop app.');
       const params = new URLSearchParams({ sessionToken: token });
       if (kind === 'google_agent') params.set('intent', 'agent');
       const path = kind === 'planning_center' ? '/auth/planning-center/begin' : '/auth/google/begin';
