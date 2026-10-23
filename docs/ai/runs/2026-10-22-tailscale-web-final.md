@@ -4,7 +4,7 @@ repo: Rhythm
 branch: feat/tailscale-web-app-20261022
 pr: null
 issues: []
-status: local-acceptance-passed
+status: local-acceptance-passed-private-https-verified-on-host
 tags: [run, rhythm, web, tailscale, parity]
 ---
 
@@ -12,11 +12,11 @@ tags: [run, rhythm, web, tailscale, parity]
 
 ## Result and provenance
 
-The local browser acceptance bar passed: **93 PASS, 25 EXCLUDED, 0 FAIL, 0 unrun required rows**. The signed candidate is running at **http://localhost:4001/#/tasks**, with real cloud access, reload, and an observed WebSocket 101 handshake. The dedicated real-account suite passed **4/4**; all three newly created, nonce-marked records were deleted and deletion readbacks verified. No existing account configuration was edited. Private HTTPS/Tailscale cutover has not been performed and is not claimed working remotely.
+The local browser acceptance bar passed: **93 PASS, 25 EXCLUDED, 0 FAIL, 0 unrun required rows**. The signed candidate is running at **http://localhost:4001/#/tasks**, with real cloud access, reload, and an observed WebSocket 101 handshake. The dedicated real-account suite passed **4/4**; all three newly created, nonce-marked records were deleted and deletion readbacks verified. No existing account configuration was edited. The separately approved private HTTPS cutover is now active at **https://ajs-macbook-pro-3.tail3798ec.ts.net:4001/#/tasks**. Chromium render/reload, cloud access and secure WebSocket101 passed through that actual URL on the hosting Mac; a second device has not been tested.
 
 Code/build revision: `89596fc186fa2662da66e0ba2f19413cbf6559c7`. This report is committed separately after the build; a later documentation-only HEAD does not change the candidate's code identity. Worktree: `/Users/ajhochhalter/.local/share/opencode/worktree/a4784d9c54aa2929a09fdab2213ff827a3cb60a5/eager-star`. Branch: `feat/tailscale-web-app-20261022`. All commits remain local; no push, PR, merge, install, deployment, LaunchAgent, or network configuration change.
 
-Candidate: `apps/electron/dist/Rhythm.app`, version 0.18.83, Developer ID signed, deep/strict signature verification exit 0; **not notarized**. API PID 58946 owns loopback 4001; engine PID 58995 owns 4096 and reports `0.0.0-rhythm-89596fc186fa2662da66e0ba2f19413cbf6559c7`. Desktop PID 58940. Executables reside inside this candidate. Seven packaged source/build files and served browser asset hashes match the final build. Port 4002 has no listener: mobile gateway is disabled during this web-mode session, as disclosed before launch.
+Candidate: `apps/electron/dist/Rhythm.app`, version 0.18.83, Developer ID signed, deep/strict signature verification exit 0; **not notarized**. API PID 58946 owns loopback 4001; engine PID 58995 owns 4096 and reports `0.0.0-rhythm-89596fc186fa2662da66e0ba2f19413cbf6559c7`. Desktop PID 58940 at original acceptance; after approved restart the current PIDs are desktop64828/API64835/engine64887. Executables reside inside this candidate. Seven packaged source/build files and served browser asset hashes match the final build. Port 4002 has no listener: mobile gateway is disabled during this web-mode session, as disclosed before launch.
 
 Durable public evidence: [final receipt](../../testing/results/2026-10-22-web-parity-final.json). Per-row evidence and all prior failed attempts remain in [the inventory](../contracts/web-parity-20261022.json). Scope approvals: [recorded decision](../decisions/2026-10-22-web-parity-resume-scope.md). Diagnosis, exact earlier checks, and repair history: [continuation](2026-10-22-web-parity-continued.md). No credential contents, private snapshots, raw real-account logs, or browser captures are included in these committed receipts.
 
@@ -69,7 +69,7 @@ The source/build/package are separate evidence from installation/notarization an
 
 Preserved fallback: `/private/tmp/rhythm-feature-playwright-2026-10-19/apps/electron/dist/Rhythm.app`, source `53a2c94b8ec4fb9d10d43df9fc57c9c6d9b5e0d3`, with its worktree. Real SQLite backup remains under the existing app-data `backups/tailscale-web-20261022T215323Z/rhythm.db` (0600, parent0700, immutable quick_check OK before candidate launch). No destructive cleanup or manual live-DB edits.
 
-## Separate cutover proposal — not executed
+## Separate cutover proposal — pre-approval checkpoint (subsequently completed)
 
 Read-only Tailscale status showed Running, DNS `ajs-macbook-pro-3.tail3798ec.ts.net`, existing raw TCP4001 forwarding to loopback4001, and separate existing services443/8443. Proposed private URL: **https://ajs-macbook-pro-3.tail3798ec.ts.net:4001**. Replace only the raw TCP4001 mapping with private HTTPS4001 to `http://127.0.0.1:4001`; preserve443/8443. Add that exact origin to candidate allowed origins and restart only this candidate. Keep mobile4002 disabled for this session. No Funnel or LaunchAgent change is proposed here. Any later LaunchAgent must include `RHYTHM_WORKSTREAMS_ENABLED=true`.
 
@@ -199,3 +199,20 @@ Exclusions use AJ's recorded scope decision linked above; they remain unrun and 
 | 116 | [AI Org Reviewer] private evaluation settings persist and empty activity is honest | PASS | no_model |
 | 117 | [private Hermes actual turn] one authorized static OpenAI API Luna turn persists under the exact provider | EXCLUDED | AJ-approved native exclusion for this phase |
 | 118 | [AI Org Reviewer] packaged owner snapshot preserves error history without claiming an improvement | PASS | paid_isolated |
+
+## Approved private HTTPS cutover — completed after the local report
+
+AJ answered **“Yes, enable private HTTPS on port 4001.”** The earlier “not performed” sections above describe the pre-approval checkpoint and remain historical. Current state: **https://ajs-macbook-pro-3.tail3798ec.ts.net:4001/#/tasks** is active within the tailnet. [Durable cutover receipt](../../testing/results/2026-10-22-web-https-cutover.json). No source/package changes or rebuild were needed; code remains89596fc186fa2662da66e0ba2f19413cbf6559c7.
+
+Exact sequence and observed results:
+
+1. Saved pre-change Serve configuration privately. Before cutover, HTTPS4001 failed TLS (curl35/HTTP000), while raw TCP4001 was configured.
+2. `/usr/local/bin/tailscale serve --tcp=4001 off` — exit0.
+3. `python3 -I /private/tmp/rhythm-web-https-cutover-20261022/restart-candidate.py` — exit0; verified original PID/executable/build identity, graceful exact-candidate shutdown and free4001/4002/4096, relaunched the same signed binary with the added exact HTTPS origin and existing workstreams flags. Credential path passed without opening contents. Desktop64828/API64835/engine64887 now own this runtime.
+4. `/usr/local/bin/tailscale serve --bg --https=4001 --yes http://127.0.0.1:4001` — exit0, private tailnet URL announced. No Funnel.
+5. Parsed post-change Serve configuration and compared both443/8443 TCP and Web handlers to pre-change JSON: exact equality, raw4001 absent, HTTPS4001 correct.
+6. `/usr/bin/curl --noproxy '*' --connect-timeout 4 --max-time 10 -sS -o /dev/null -w 'HTTPS status=%{http_code} cert_verify=%{ssl_verify_result}\n' https://ajs-macbook-pro-3.tail3798ec.ts.net:4001/` — exit0, HTTP200, certificate verification0. No certificate-error bypass.
+7. `python3 -I /private/tmp/rhythm-web-final-candidate-ready.py` — exit0, same exact code/engine, bundled executables, owner/cloud ready, served asset hashes match, mobile4002 absent.
+8. `node /private/tmp/rhythm-web-https-cutover-20261022/browser-proof.mjs` — exit0; actual MagicDNS HTTPS Tasks render and reload, owner/cloud true, native bridge absent, secure WebSocket101, zero HTTP mutations/page errors.
+
+Browser and curl checks originated on the hosting Mac and used the actual MagicDNS URL/TLS path. **A second physical tailnet device was not tested.** No claim of such evidence is made. No LaunchAgent or reboot persistence was configured; the candidate must stay running. Existing443 may point at the intentionally disabled4002 mobile gateway; its configuration was preserved as authorized. The earlier93/93 and real-account4 evidence remains valid and was not rerun merely for this config-only change.

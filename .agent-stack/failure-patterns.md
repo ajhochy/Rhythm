@@ -798,3 +798,11 @@ Actual live proposal hold with installed strict-schema/binding-spread contradict
 - **Root cause**: the initial package dependency projection omitted nested SDK dependencies; six local wrappers repaired resolution and package/sign attempt 2 exited 0. No product code changed.
 - **Suggested fix**: include nested workspace dependency directories in projections and preserve the distinction between launch evidence, pending native credential export and browser qualification.
 - **Remaining**: all 93 included browser cases remain `not_run`; Slice 2c has no executable contract yet. No full parity or credential-export completion is claimed. Structured receipt: `.agent-stack/postmortems/2026-10-22-web-candidate-launch.json`.
+
+## 2026-10-22 — Private HTTPS cutover
+
+- Result: smoke PASS; no claimed remote pass before evidence.
+- Category: none; no divergence.
+- Evidence: valid TLS/HTTP200, Chromium render/reload/cloud/WSS101; preserved443/8443; no writes.
+- Limit: hosting Mac only; second physical device untested.
+- Tooling: TodoWrite unavailable; ordered checks recorded in the run receipt.
