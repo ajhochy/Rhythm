@@ -4,6 +4,7 @@ import test from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
+import { sourceModuleUrl } from './helpers/source-module.mjs';
 
 const compile = (url) => ts.transpileModule(readFileSync(url, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
@@ -38,7 +39,7 @@ const transcriptSource = compile(new URL('../src/components/Transcript.tsx', imp
   .replace('function RichBlock(', 'export function RichBlock(');
 const renderer = await import(dataModule(transcriptSource));
 
-const sessionsUrl = dataModule(compile(new URL('../src/gateway/sessions.ts', import.meta.url)));
+const sessionsUrl = sourceModuleUrl(new URL('../src/gateway/sessions.ts', import.meta.url));
 const reducerSource = compile(new URL('../src/gateway/transcript-reducer.ts', import.meta.url))
   .replace("from './sessions'", `from '${sessionsUrl}'`);
 const reducer = await import(dataModule(reducerSource));

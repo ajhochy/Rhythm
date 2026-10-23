@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
+import { sourceModuleUrl } from '../helpers/source-module.mjs';
 
 const compile = (url) => ts.transpileModule(readFileSync(url, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const dataModule = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
-const sessionsUrl = dataModule(compile(new URL('../../src/gateway/sessions.ts', import.meta.url)));
+const sessionsUrl = sourceModuleUrl(new URL('../../src/gateway/sessions.ts', import.meta.url));
 const reducer = await import(dataModule(compile(new URL('../../src/gateway/transcript-reducer.ts', import.meta.url))
   .replace("from './sessions'", `from '${sessionsUrl}'`)));
 
