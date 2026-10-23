@@ -2,11 +2,11 @@
 
 ## Current focus
 
-Browser parity is active on AJ's instruction to keep going until it works; this supersedes the earlier two-repair stop cap. The93 included cases currently have87passes (85synthetic +saved-policy91 +real-model Grid92),0current failures,6paid cases unrun, with25accepted exclusions. Final acceptance is incomplete. Scope: [resume decision](decisions/2026-10-22-web-parity-resume-scope.md); exact rows/history: [inventory](contracts/web-parity-20261022.json).
+Browser parity is active on AJ's instruction to keep going until it works; this supersedes the earlier two-repair stop cap. The93 included cases currently have90passes (85synthetic +saved-policy91 +real-model Grid92/93/94 +primary108),0current failures,3paid cases unrun, with25accepted exclusions. Final acceptance is incomplete. Scope: [resume decision](decisions/2026-10-22-web-parity-resume-scope.md); exact rows/history: [inventory](contracts/web-parity-20261022.json).
 
 ## Branch and candidate
 
-- Worktree `/Users/ajhochhalter/.local/share/opencode/worktree/a4784d9c54aa2929a09fdab2213ff827a3cb60a5/eager-star`, branch `feat/tailscale-web-app-20261022`, source commit ee62595f35218d7267cd11841269f5e4fcf13053 plus verified qualification profile-path repair awaiting local commit. Local only; no push/PR/merge/cutover authorization.
+- Worktree `/Users/ajhochhalter/.local/share/opencode/worktree/a4784d9c54aa2929a09fdab2213ff827a3cb60a5/eager-star`, branch `feat/tailscale-web-app-20261022`, source commit840679c045431e8d85a342a81bf6e286b4bfdee6 plus live-verified HTTP Coordinator key repair awaiting local commit. Local only; no push/PR/merge/cutover authorization.
 - Existing candidate `apps/electron/dist/Rhythm.app`0.18.83 is locally DeveloperID signed, not notarized, currently stopped and predates pending adapter/title changes. Not final-qualified. Receipt `/private/tmp/rhythm-web-6081e4fd81-artifact-receipt.json`.
 - Fallback remains untouched: `/private/tmp/rhythm-feature-playwright-2026-10-19/apps/electron/dist/Rhythm.app`, source53a2c94b8e, ancestor of this candidate. Never overwrite/remove.
 - Real SQLite backup is complete,0600/0700 with closed quick_checkok; exact path in [resume receipt](runs/2026-10-22-tailscale-web-resume.md). AJ exported the cloud credential; only metadata was inspected. Never read/log/copy credential contents.
@@ -22,6 +22,8 @@ Browser parity is active on AJ's instruction to keep going until it works; this 
 - Dedicated real-account4 authored/strict-static/discovery checked; actual execution unrun. Only newly marked AJ-only inert Cookbook/cloud task/artifact and readonly navigation; exact-ID cleanup gates, no existing settings/profile/provider/schedule/MCP changes.
 
 - Paid92 real-model browser Confirm passed after qualification agent files were bound to canonical engine config path. Focused real-file RED1fail thenGREEN2/2, affected99/99, original92 actualCLI0 with allcleanupflags true. Detailed failure/repair history preserved in continuation.
+
+- Original primary108 real-model Confirm passed after replacing HTTP timestamp/Math.random command IDs with cryptographic UUIDv4; exact retry identity preserved. New actual-controller RED, related45/45, originalpaid108CLI0/allcleanuptrue. Grid93/94 also passed originalrealmodelchecks.
 
 ## Limits and next step
 

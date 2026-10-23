@@ -973,3 +973,32 @@ test('Refresh replaces the dispatch-time planned snapshot with the authoritative
   await controller.reconcileManagedRun(scope);
   assert.equal(controller.get(scope).plannedWorkstream.workstream.state, 'ready');
 });
+
+
+test('HTTP primary commands keep UUID identities and reuse the exact key after an uncertain send', async () => {
+  const previousCrypto = context.crypto;
+  // HTTP origins expose getRandomValues without the secure-context randomUUID API.
+  context.crypto = { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) };
+  const commands = [];
+  const gateway = {
+    open: async () => ({ kind: 'replay', conversation: conversation() }),
+    status: async () => contextResult(),
+    message: async input => {
+      commands.push({ ...input });
+      if (commands.length === 1) throw new Error('Synthetic uncertain transport');
+      return { kind: 'created', conversation: conversation(2) };
+    },
+  };
+  try {
+    const controller = new CoordinatorConversationController(() => gateway, createMemoryCoordinatorConversationJournal());
+    assert.equal(await controller.open(scope), true);
+    assert.equal((await controller.send(scope, 'Synthetic HTTP command')).accepted, false);
+    assert.match(commands[0].commandKey, /^coordinator:[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
+    assert.equal(await controller.retry(scope), true);
+    assert.deepEqual(commands[1], commands[0]);
+    const next = new CoordinatorConversationController(() => gateway, createMemoryCoordinatorConversationJournal());
+    assert.equal(await next.open(scope), true);
+    assert.equal((await next.send(scope, 'Another synthetic HTTP command')).accepted, true);
+    assert.notEqual(commands[2].commandKey, commands[0].commandKey);
+  } finally { context.crypto = previousCrypto; }
+});

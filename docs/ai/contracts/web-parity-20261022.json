@@ -11,8 +11,8 @@
     "excludedTotal": 25,
     "excludedNativeThisPhase": 13,
     "excludedBackendOnlyClassifier": 12,
-    "currentRunPassed": 87,
-    "currentRunNotRun": 6,
+    "currentRunPassed": 90,
+    "currentRunNotRun": 3,
     "currentRunFailed": 0
   },
   "rules": {
@@ -3594,10 +3594,24 @@
       "webSpec": "apps/web/tests/web-host/web-host-paid-grid.spec.ts",
       "proof": "paid_isolated",
       "currentRun": {
-        "status": "not_run",
-        "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+        "status": "passed",
+        "proof": "real model arithmetic browser answer, eligible actual Grid route and rendered routing receipt",
+        "receipt": "/private/tmp/rhythm-web-paid-case-93-XaiJTB/result.jsonl",
+        "sourceRevision": "840679c045431e8d85a342a81bf6e286b4bfdee6",
+        "sourceSha256": "87986a2d82dc14027dc9f21f616c1db6496fbbdf720d30356bb7f9bfe3080c4f",
+        "durationMs": 5826,
+        "attempts": 1,
+        "sourceUnchanged": true,
+        "secretsScrubbed": true,
+        "teardownExit": 0
       },
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-model-router.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-model-router.spec.ts",
+      "currentRunHistory": [
+        {
+          "status": "not_run",
+          "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+        }
+      ]
     },
     {
       "id": 94,
@@ -3617,10 +3631,24 @@
       "webSpec": "apps/web/tests/web-host/web-host-paid-grid.spec.ts",
       "proof": "paid_isolated",
       "currentRun": {
-        "status": "not_run",
-        "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+        "status": "passed",
+        "proof": "real model one-literal inline edit browser answer, routine Grid tier/model/account and reload persistence",
+        "receipt": "/private/tmp/rhythm-web-paid-case-94-9Qsf3u/result.jsonl",
+        "sourceRevision": "840679c045431e8d85a342a81bf6e286b4bfdee6",
+        "sourceSha256": "87986a2d82dc14027dc9f21f616c1db6496fbbdf720d30356bb7f9bfe3080c4f",
+        "durationMs": 5735,
+        "attempts": 1,
+        "sourceUnchanged": true,
+        "secretsScrubbed": true,
+        "teardownExit": 0
       },
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-model-router.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-model-router.spec.ts",
+      "currentRunHistory": [
+        {
+          "status": "not_run",
+          "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+        }
+      ]
     },
     {
       "id": 95,
@@ -3944,10 +3972,41 @@
       "webSpec": "apps/web/tests/web-host/web-host-paid-primary-model-router.spec.ts",
       "proof": "paid_isolated",
       "currentRun": {
-        "status": "not_run",
-        "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+        "status": "passed",
+        "proof": "real primary-chat model answer, UUID command identity, router/account/effort/usage and history reload; source fingerprint includes HTTP key repair",
+        "receipt": "/private/tmp/rhythm-web-paid-case-108-KRHg7v/result.jsonl",
+        "sourceRevision": "840679c045431e8d85a342a81bf6e286b4bfdee6",
+        "sourceSha256": "4766056035c7d5f64427e6fb59414625bfb634a1ea393bffee16f9f17276253a",
+        "durationMs": 5605,
+        "attempts": 1,
+        "sourceUnchanged": true,
+        "secretsScrubbed": true,
+        "teardownExit": 0
       },
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts",
+      "currentRunHistory": [
+        {
+          "status": "not_run",
+          "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+        },
+        {
+          "status": "failed",
+          "proof": "HTTP primary command key falls back to timestamp/Math.random and violates original desktop UUID assertion; foreground dispatch accepted before assertion",
+          "receipt": "/private/tmp/rhythm-web-paid-case-108-xntD23/result.jsonl",
+          "sourceRevision": "840679c045431e8d85a342a81bf6e286b4bfdee6",
+          "sourceSha256": "87986a2d82dc14027dc9f21f616c1db6496fbbdf720d30356bb7f9bfe3080c4f",
+          "durationMs": 2098,
+          "failureSite": {
+            "path": "apps/web/tests/web-host/web-host-paid-primary-model-router.spec.ts",
+            "line": 103,
+            "column": 34,
+            "errorKind": "test-error"
+          },
+          "sourceUnchanged": true,
+          "secretsScrubbed": true,
+          "teardownExit": 0
+        }
+      ]
     },
     {
       "id": 109,
