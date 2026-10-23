@@ -11,9 +11,9 @@
     "excludedTotal": 25,
     "excludedNativeThisPhase": 13,
     "excludedBackendOnlyClassifier": 12,
-    "currentRunPassed": 86,
+    "currentRunPassed": 87,
     "currentRunNotRun": 6,
-    "currentRunFailed": 1
+    "currentRunFailed": 0
   },
   "rules": {
     "historicalPassesAreCurrentRunProof": false,
@@ -3493,27 +3493,86 @@
       "webSpec": "apps/web/tests/web-host/web-host-paid-grid.spec.ts",
       "proof": "paid_isolated",
       "currentRun": {
-        "status": "failed",
-        "proof": "catalog prerequisite failed before any model turn; offline build registry lacks required GPT-6 entries",
-        "receipt": "/private/tmp/rhythm-web-paid-case-92-NRMaJx/result.jsonl",
-        "sourceRevision": "dc0247278f70070f7f4f6acfbc9e0195017b777d",
-        "sourceSha256": "10fdf5707bf11300f95f88aa44b8114bb45bda87d1ea432987e0556b9cc30878",
-        "failureSite": {
-          "path": "apps/web/tests/web-host/web-host-paid-grid.spec.ts",
-          "line": 29,
-          "column": 84,
-          "errorKind": "test-error"
-        },
-        "durationMs": 1361,
+        "status": "passed",
+        "proof": "real model browser turn, actual Grid routing/account/effort and reload route reuse; source fingerprint includes profile-path repair",
+        "receipt": "/private/tmp/rhythm-web-paid-case-92-W6pV8H/result.jsonl",
+        "sourceRevision": "ee62595f35218d7267cd11841269f5e4fcf13053",
+        "sourceSha256": "500b8412b583db89bab601e14bea467db257d423fddc03690c8c41d8c2f08230",
+        "durationMs": 7434,
         "sourceUnchanged": true,
-        "teardownExit": 0,
-        "secretsScrubbed": true
+        "secretsScrubbed": true,
+        "teardownExit": 0
       },
       "plannedWebSpec": "apps/web/tests/web-host/web-host-model-router.spec.ts",
       "currentRunHistory": [
         {
           "status": "not_run",
           "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+        },
+        {
+          "status": "failed",
+          "proof": "catalog prerequisite failed before any model turn; offline build registry lacks required GPT-6 entries",
+          "receipt": "/private/tmp/rhythm-web-paid-case-92-NRMaJx/result.jsonl",
+          "sourceRevision": "dc0247278f70070f7f4f6acfbc9e0195017b777d",
+          "sourceSha256": "10fdf5707bf11300f95f88aa44b8114bb45bda87d1ea432987e0556b9cc30878",
+          "failureSite": {
+            "path": "apps/web/tests/web-host/web-host-paid-grid.spec.ts",
+            "line": 29,
+            "column": 84,
+            "errorKind": "test-error"
+          },
+          "durationMs": 1361,
+          "sourceUnchanged": true,
+          "teardownExit": 0,
+          "secretsScrubbed": true
+        },
+        {
+          "status": "failed",
+          "receipt": "/private/tmp/rhythm-web-paid-case-92-vSPbWv/result.jsonl",
+          "sourceRevision": "ee62595f35218d7267cd11841269f5e4fcf13053",
+          "durationMs": 123747,
+          "failureSite": {
+            "path": "apps/web/tests/web-host/web-host-paid-grid.spec.ts",
+            "line": 64,
+            "column": 115,
+            "errorKind": "test-error"
+          },
+          "sourceUnchanged": true,
+          "secretsScrubbed": true,
+          "teardownExit": 0,
+          "proof": "engine coding-agent absent: qualification projection path bypassed canonical sandbox config"
+        },
+        {
+          "status": "failed",
+          "receipt": "/private/tmp/rhythm-web-paid-case-92-WJjPTj/result.jsonl",
+          "sourceRevision": "ee62595f35218d7267cd11841269f5e4fcf13053",
+          "durationMs": 123763,
+          "failureSite": {
+            "path": "apps/web/tests/web-host/web-host-paid-grid.spec.ts",
+            "line": 64,
+            "column": 115,
+            "errorKind": "test-error"
+          },
+          "sourceUnchanged": true,
+          "secretsScrubbed": true,
+          "teardownExit": 0,
+          "proof": "engine coding-agent absent: qualification projection path bypassed canonical sandbox config"
+        },
+        {
+          "status": "failed",
+          "receipt": "/private/tmp/rhythm-web-paid-case-92-bDIy4U/result.jsonl",
+          "sourceRevision": "ee62595f35218d7267cd11841269f5e4fcf13053",
+          "durationMs": 123813,
+          "failureSite": {
+            "path": "apps/web/tests/web-host/web-host-paid-grid.spec.ts",
+            "line": 64,
+            "column": 115,
+            "errorKind": "test-error"
+          },
+          "sourceUnchanged": true,
+          "secretsScrubbed": true,
+          "teardownExit": 0,
+          "proof": "engine coding-agent absent: qualification projection path bypassed canonical sandbox config"
         }
       ]
     },
