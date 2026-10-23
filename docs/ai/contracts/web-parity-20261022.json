@@ -4,7 +4,7 @@
   "baselineCandidateRevision": "6081e4fd8101b9e532758b1930143a12e79ae0ea",
   "scopeDecision": "docs/ai/decisions/2026-10-22-web-parity-resume-scope.md",
   "matrix": "docs/ai/plans/2026-10-22-web-feature-parity-matrix.md",
-  "status": "in_progress",
+  "status": "local_acceptance_passed_cutover_not_performed",
   "counts": {
     "previouslyConfirmedPackaged": 118,
     "includedBrowserAcceptance": 93,
@@ -69,11 +69,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 3037,
         "teardownExit": 0,
-        "durationMs": 3055,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -91,8 +92,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 3055,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 2,
@@ -113,11 +124,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 882,
         "teardownExit": 0,
-        "durationMs": 1025,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -135,8 +147,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 1025,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 3,
@@ -157,11 +179,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 3003,
         "teardownExit": 0,
-        "durationMs": 3027,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -179,8 +202,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 3027,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 4,
@@ -201,11 +234,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 2933,
         "teardownExit": 0,
-        "durationMs": 2943,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -223,8 +257,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 2943,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 5,
@@ -245,11 +289,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 3004,
         "teardownExit": 0,
-        "durationMs": 3008,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -267,8 +312,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 3008,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 6,
@@ -289,11 +344,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 3179,
         "teardownExit": 0,
-        "durationMs": 3156,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -311,9 +367,19 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 3156,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-sessions.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-sessions.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 7,
@@ -334,11 +400,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 3107,
         "teardownExit": 0,
-        "durationMs": 3084,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -356,9 +423,19 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 3084,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-sessions.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-sessions.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 8,
@@ -379,11 +456,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 3018,
         "teardownExit": 0,
-        "durationMs": 3035,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -401,9 +479,19 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 3035,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-conversation.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-conversation.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 9,
@@ -425,11 +513,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 623,
         "teardownExit": 0,
-        "durationMs": 621,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -439,8 +528,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 621,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 10,
@@ -462,11 +561,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 757,
         "teardownExit": 0,
-        "durationMs": 759,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -476,8 +576,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 759,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 11,
@@ -499,11 +609,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 664,
         "teardownExit": 0,
-        "durationMs": 666,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -513,8 +624,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 666,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 12,
@@ -536,11 +657,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 640,
         "teardownExit": 0,
-        "durationMs": 637,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -550,8 +672,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 637,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 13,
@@ -573,11 +705,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 610,
         "teardownExit": 0,
-        "durationMs": 606,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -587,8 +720,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 606,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 14,
@@ -610,11 +753,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 619,
         "teardownExit": 0,
-        "durationMs": 615,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -624,8 +768,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 615,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 15,
@@ -647,11 +801,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 608,
         "teardownExit": 0,
-        "durationMs": 607,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -661,8 +816,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 607,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 16,
@@ -684,11 +849,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 615,
         "teardownExit": 0,
-        "durationMs": 614,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -698,8 +864,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 614,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 17,
@@ -721,11 +897,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 608,
         "teardownExit": 0,
-        "durationMs": 607,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -743,8 +920,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 607,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 18,
@@ -766,11 +953,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 584,
         "teardownExit": 0,
-        "durationMs": 586,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -780,8 +968,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 586,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 19,
@@ -803,11 +1001,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 637,
         "teardownExit": 0,
-        "durationMs": 635,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -817,8 +1016,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 635,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 20,
@@ -840,11 +1049,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 660,
         "teardownExit": 0,
-        "durationMs": 629,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -854,8 +1064,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 629,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 21,
@@ -877,11 +1097,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 596,
         "teardownExit": 0,
-        "durationMs": 598,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -891,8 +1112,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 598,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 22,
@@ -914,11 +1145,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 581,
         "teardownExit": 0,
-        "durationMs": 580,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -928,8 +1160,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 580,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 23,
@@ -951,11 +1193,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 592,
         "teardownExit": 0,
-        "durationMs": 588,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -965,8 +1208,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 588,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 24,
@@ -988,11 +1241,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 584,
         "teardownExit": 0,
-        "durationMs": 576,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1002,8 +1256,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 576,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 25,
@@ -1025,11 +1289,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 581,
         "teardownExit": 0,
-        "durationMs": 572,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1039,8 +1304,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 572,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 26,
@@ -1062,11 +1337,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 576,
         "teardownExit": 0,
-        "durationMs": 578,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1084,8 +1360,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 578,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 27,
@@ -1106,11 +1392,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 747,
         "teardownExit": 0,
-        "durationMs": 752,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1120,8 +1407,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 752,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 28,
@@ -1142,11 +1439,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 841,
         "teardownExit": 0,
-        "durationMs": 845,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1156,8 +1454,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 845,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 29,
@@ -1178,11 +1486,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 652,
         "teardownExit": 0,
-        "durationMs": 671,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1192,8 +1501,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 671,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 30,
@@ -1214,11 +1533,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 622,
         "teardownExit": 0,
-        "durationMs": 613,
         "aggregateRerun": true
       },
       "plannedWebSpec": "apps/web/tests/web-host/web-host-gallery-research.spec.ts",
@@ -1229,8 +1549,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 613,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 31,
@@ -1251,11 +1581,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 826,
         "teardownExit": 0,
-        "durationMs": 808,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1265,8 +1596,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 808,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 32,
@@ -1287,11 +1628,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 975,
         "teardownExit": 0,
-        "durationMs": 952,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1301,8 +1643,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 952,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 33,
@@ -1323,11 +1675,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 886,
         "teardownExit": 0,
-        "durationMs": 898,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1345,8 +1698,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 898,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 34,
@@ -1367,11 +1730,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 1053,
         "teardownExit": 0,
-        "durationMs": 1023,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1389,9 +1753,19 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 1023,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-skills-playbooks.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-skills-playbooks.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 35,
@@ -1412,11 +1786,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 1143,
         "teardownExit": 0,
-        "durationMs": 1124,
         "aggregateRerun": true
       },
       "plannedWebSpec": "apps/web/tests/web-host/web-host-skills-playbooks.spec.ts",
@@ -1427,8 +1802,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 1124,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 36,
@@ -1449,11 +1834,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 756,
         "teardownExit": 0,
-        "durationMs": 763,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1466,9 +1852,19 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 763,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-skills-playbooks.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-skills-playbooks.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 37,
@@ -1489,11 +1885,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 763,
         "teardownExit": 0,
-        "durationMs": 759,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1514,9 +1911,19 @@
           "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
           "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 759,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-memory.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-memory.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 38,
@@ -1537,11 +1944,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
-        "teardownExit": 0,
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
         "durationMs": 653,
+        "teardownExit": 0,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1562,9 +1970,19 @@
           "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
           "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 653,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-memory.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-memory.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 39,
@@ -1585,11 +2003,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 771,
         "teardownExit": 0,
-        "durationMs": 763,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1610,9 +2029,19 @@
           "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
           "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 763,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-memory.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-memory.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 40,
@@ -1633,11 +2062,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 3511,
         "teardownExit": 0,
-        "durationMs": 3548,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1658,9 +2088,19 @@
           "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
           "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 3548,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-memory.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-memory.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 41,
@@ -1681,11 +2121,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 813,
         "teardownExit": 0,
-        "durationMs": 827,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1703,8 +2144,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 827,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 42,
@@ -1725,11 +2176,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 916,
         "teardownExit": 0,
-        "durationMs": 922,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1739,8 +2191,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 922,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 43,
@@ -1761,11 +2223,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 962,
         "teardownExit": 0,
-        "durationMs": 943,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1783,8 +2246,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 943,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 44,
@@ -1805,11 +2278,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 796,
         "teardownExit": 0,
-        "durationMs": 788,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1827,8 +2301,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 788,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 45,
@@ -1849,11 +2333,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 636,
         "teardownExit": 0,
-        "durationMs": 639,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1863,8 +2348,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 639,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 46,
@@ -1885,11 +2380,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 601,
         "teardownExit": 0,
-        "durationMs": 599,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1899,8 +2395,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 599,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 47,
@@ -1921,11 +2427,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 651,
         "teardownExit": 0,
-        "durationMs": 638,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -1943,8 +2450,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 638,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 48,
@@ -1965,11 +2482,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 636,
         "teardownExit": 0,
-        "durationMs": 639,
         "aggregateRerun": true
       },
       "adaptation": "Connected tools must be nonempty and contain rhythm_ping; no fixed count of 114.",
@@ -1980,8 +2498,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 639,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 49,
@@ -2002,11 +2530,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 593,
         "teardownExit": 0,
-        "durationMs": 591,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2016,8 +2545,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 591,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 50,
@@ -2038,11 +2577,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 673,
         "teardownExit": 0,
-        "durationMs": 746,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2052,8 +2592,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 746,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 51,
@@ -2074,11 +2624,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 718,
         "teardownExit": 0,
-        "durationMs": 722,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2088,8 +2639,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 722,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 52,
@@ -2110,11 +2671,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 1020,
         "teardownExit": 0,
-        "durationMs": 927,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2124,8 +2686,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 927,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 53,
@@ -2146,11 +2718,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 900,
         "teardownExit": 0,
-        "durationMs": 908,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2160,8 +2733,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 908,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 54,
@@ -2182,11 +2765,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 2377,
         "teardownExit": 0,
-        "durationMs": 2404,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2196,8 +2780,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 2404,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 55,
@@ -2218,11 +2812,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 659,
         "teardownExit": 0,
-        "durationMs": 674,
         "aggregateRerun": true
       },
       "adaptation": "Pin Cookbook; existing browser page is not yet in pin descriptors. Add browser pin support before testing; preserve owner-local key/reset/preimage behavior.",
@@ -2233,8 +2828,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 674,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 56,
@@ -2255,11 +2860,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 631,
         "teardownExit": 0,
-        "durationMs": 634,
         "aggregateRerun": true
       },
       "plannedWebSpec": "apps/web/tests/web-host/web-host-shell.spec.ts",
@@ -2270,8 +2876,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 634,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 57,
@@ -2292,11 +2908,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 911,
         "teardownExit": 0,
-        "durationMs": 889,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2314,9 +2931,19 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 889,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 58,
@@ -2337,11 +2964,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 3017,
         "teardownExit": 0,
-        "durationMs": 3031,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2359,9 +2987,19 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 3031,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 59,
@@ -2382,11 +3020,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 971,
         "teardownExit": 0,
-        "durationMs": 964,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2404,9 +3043,19 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 964,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 60,
@@ -2427,11 +3076,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 3125,
         "teardownExit": 0,
-        "durationMs": 3159,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2457,9 +3107,19 @@
           "log": "/private/tmp/rhythm-web-coordinator-repair2-20261022T2340.log",
           "report": "/private/tmp/rhythm-web-coordinator-repair2-20261022T2340-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 3159,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 61,
@@ -2480,11 +3140,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 5431,
         "teardownExit": 0,
-        "durationMs": 5310,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2502,9 +3163,19 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 5310,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 62,
@@ -2525,11 +3196,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
-        "teardownExit": 0,
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
         "durationMs": 607,
+        "teardownExit": 0,
         "aggregateRerun": true
       },
       "adaptation": "Truthful readiness for web-supported runtimes; native Hermes readiness excluded this phase.",
@@ -2541,8 +3213,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 607,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 63,
@@ -2563,11 +3245,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-cloud-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-cloud-20261022.log",
+        "durationMs": 942,
         "teardownExit": 0,
-        "durationMs": 956,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2580,9 +3263,19 @@
           "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
           "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 956,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 64,
@@ -2603,11 +3296,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-cloud-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-cloud-20261022.log",
+        "durationMs": 761,
         "teardownExit": 0,
-        "durationMs": 776,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2620,9 +3314,19 @@
           "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
           "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 776,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 65,
@@ -2643,11 +3347,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-cloud-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-cloud-20261022.log",
+        "durationMs": 679,
         "teardownExit": 0,
-        "durationMs": 745,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2660,9 +3365,19 @@
           "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
           "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 745,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 66,
@@ -2683,11 +3398,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-cloud-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-cloud-20261022.log",
+        "durationMs": 711,
         "teardownExit": 0,
-        "durationMs": 812,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2700,9 +3416,19 @@
           "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
           "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 812,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 67,
@@ -2723,11 +3449,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-cloud-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-cloud-20261022.log",
+        "durationMs": 826,
         "teardownExit": 0,
-        "durationMs": 809,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2740,9 +3467,19 @@
           "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
           "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 809,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 68,
@@ -2763,11 +3500,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-cloud-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-cloud-20261022.log",
+        "durationMs": 606,
         "teardownExit": 0,
-        "durationMs": 613,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2780,9 +3518,19 @@
           "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
           "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 613,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 69,
@@ -2803,11 +3551,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-cloud-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-cloud-20261022.log",
+        "durationMs": 665,
         "teardownExit": 0,
-        "durationMs": 656,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2820,9 +3569,19 @@
           "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
           "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 656,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 70,
@@ -2843,11 +3602,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-cloud-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-cloud-20261022.log",
+        "durationMs": 590,
         "teardownExit": 0,
-        "durationMs": 634,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2860,9 +3620,19 @@
           "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
           "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 634,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 71,
@@ -2883,11 +3653,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-cloud-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-cloud-20261022.log",
+        "durationMs": 973,
         "teardownExit": 0,
-        "durationMs": 1019,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2900,9 +3671,19 @@
           "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
           "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 1019,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-live-artifacts.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-live-artifacts.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 72,
@@ -2923,11 +3704,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 729,
         "teardownExit": 0,
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
-        "durationMs": 910,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2936,8 +3718,18 @@
           "proof": "synthetic real API + engine + rendered browser; no paid inference",
           "log": "/private/tmp/rhythm-web-2c-live-repair2-20261022.log",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "teardownExit": 0,
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "durationMs": 910,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 73,
@@ -2958,11 +3750,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 735,
         "teardownExit": 0,
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
-        "durationMs": 743,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -2971,8 +3764,18 @@
           "proof": "synthetic real API + engine + rendered browser; no paid inference",
           "log": "/private/tmp/rhythm-web-2c-live-repair2-20261022.log",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "teardownExit": 0,
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "durationMs": 743,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 74,
@@ -2993,11 +3796,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 715,
         "teardownExit": 0,
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
-        "durationMs": 710,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -3006,8 +3810,18 @@
           "proof": "synthetic real API + engine + rendered browser; no paid inference",
           "log": "/private/tmp/rhythm-web-2c-live-repair2-20261022.log",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "teardownExit": 0,
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "durationMs": 710,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 75,
@@ -3028,11 +3842,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 699,
         "teardownExit": 0,
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
-        "durationMs": 707,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -3041,8 +3856,18 @@
           "proof": "synthetic real API + engine + rendered browser; no paid inference",
           "log": "/private/tmp/rhythm-web-2c-live-repair2-20261022.log",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "teardownExit": 0,
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "durationMs": 707,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 76,
@@ -3063,7 +3888,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 77,
@@ -3084,7 +3910,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 78,
@@ -3105,7 +3932,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 79,
@@ -3126,7 +3954,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 80,
@@ -3147,7 +3976,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 81,
@@ -3168,7 +3998,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 82,
@@ -3189,7 +4020,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 83,
@@ -3210,7 +4042,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 84,
@@ -3231,7 +4064,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 85,
@@ -3252,7 +4086,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 86,
@@ -3273,7 +4108,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 87,
@@ -3294,7 +4130,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 88,
@@ -3315,11 +4152,12 @@
       "proof": "scripted_ui_transport_only",
       "currentRun": {
         "status": "passed",
-        "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 3866,
         "teardownExit": 0,
-        "durationMs": 3870,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -3332,9 +4170,19 @@
           "log": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350.log",
           "report": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350-remaining-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 3870,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-session.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-session.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 89,
@@ -3355,12 +4203,12 @@
       "proof": "scripted_ui_transport_only",
       "currentRun": {
         "status": "passed",
-        "proof": "scripted UI/transport only; real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 4267,
         "teardownExit": 0,
-        "repairAttempt": 1,
-        "durationMs": 4197,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -3382,9 +4230,20 @@
           "report": "/private/tmp/rhythm-web-scripted-repair1-20261023T0010-report.json",
           "teardownExit": 0,
           "repairAttempt": 1
+        },
+        {
+          "status": "passed",
+          "proof": "scripted UI/transport only; real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "repairAttempt": 1,
+          "durationMs": 4197,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-conversation.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-conversation.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 90,
@@ -3405,11 +4264,12 @@
       "proof": "scripted_ui_transport_only",
       "currentRun": {
         "status": "passed",
-        "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 3177,
         "teardownExit": 0,
-        "durationMs": 3144,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -3422,9 +4282,19 @@
           "log": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350.log",
           "report": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350-remaining-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 3144,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-conversation.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-conversation.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 91,
@@ -3445,14 +4315,15 @@
       "proof": "existing_decisions_policy_no_turn",
       "currentRun": {
         "status": "passed",
-        "proof": "saved Grid/Luna/consent policy matches rendered controls and reload; real isolated browser/API, no model turn",
-        "receipt": "/private/tmp/rhythm-web-paid-case-91-Q6I4SP/result.jsonl",
-        "sourceRevision": "dc0247278f70070f7f4f6acfbc9e0195017b777d",
-        "sourceSha256": "10fdf5707bf11300f95f88aa44b8114bb45bda87d1ea432987e0556b9cc30878",
-        "durationMs": 1464,
+        "proof": "saved Grid policy/no inference",
+        "receipt": "/private/tmp/rhythm-web-paid-case-91-UtAhnR/result.jsonl",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "sourceSha256": "ffe0842092e4247c9b4b8ae7a0ec334de99802d07449b599ddb4c01ce1d8b94e",
+        "durationMs": 1482,
+        "attempts": 1,
         "sourceUnchanged": true,
-        "teardownExit": 0,
-        "secretsScrubbed": true
+        "secretsScrubbed": true,
+        "teardownExit": 0
       },
       "plannedWebSpec": "apps/web/tests/web-host/web-host-model-router.spec.ts",
       "currentRunHistory": [
@@ -3472,8 +4343,20 @@
           "sourceUnchanged": true,
           "teardownExit": 0,
           "secretsScrubbed": true
+        },
+        {
+          "status": "passed",
+          "proof": "saved Grid/Luna/consent policy matches rendered controls and reload; real isolated browser/API, no model turn",
+          "receipt": "/private/tmp/rhythm-web-paid-case-91-Q6I4SP/result.jsonl",
+          "sourceRevision": "dc0247278f70070f7f4f6acfbc9e0195017b777d",
+          "sourceSha256": "10fdf5707bf11300f95f88aa44b8114bb45bda87d1ea432987e0556b9cc30878",
+          "durationMs": 1464,
+          "sourceUnchanged": true,
+          "teardownExit": 0,
+          "secretsScrubbed": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 92,
@@ -3494,11 +4377,12 @@
       "proof": "paid_isolated",
       "currentRun": {
         "status": "passed",
-        "proof": "real model browser turn, actual Grid routing/account/effort and reload route reuse; source fingerprint includes profile-path repair",
-        "receipt": "/private/tmp/rhythm-web-paid-case-92-W6pV8H/result.jsonl",
-        "sourceRevision": "ee62595f35218d7267cd11841269f5e4fcf13053",
-        "sourceSha256": "500b8412b583db89bab601e14bea467db257d423fddc03690c8c41d8c2f08230",
-        "durationMs": 7434,
+        "proof": "real-model Grid cheap route/account/effort plus reload reuse",
+        "receipt": "/private/tmp/rhythm-web-paid-case-92-IIeQtB/result.jsonl",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "sourceSha256": "ffe0842092e4247c9b4b8ae7a0ec334de99802d07449b599ddb4c01ce1d8b94e",
+        "durationMs": 8188,
+        "attempts": 1,
         "sourceUnchanged": true,
         "secretsScrubbed": true,
         "teardownExit": 0
@@ -3573,8 +4457,20 @@
           "secretsScrubbed": true,
           "teardownExit": 0,
           "proof": "engine coding-agent absent: qualification projection path bypassed canonical sandbox config"
+        },
+        {
+          "status": "passed",
+          "proof": "real model browser turn, actual Grid routing/account/effort and reload route reuse; source fingerprint includes profile-path repair",
+          "receipt": "/private/tmp/rhythm-web-paid-case-92-W6pV8H/result.jsonl",
+          "sourceRevision": "ee62595f35218d7267cd11841269f5e4fcf13053",
+          "sourceSha256": "500b8412b583db89bab601e14bea467db257d423fddc03690c8c41d8c2f08230",
+          "durationMs": 7434,
+          "sourceUnchanged": true,
+          "secretsScrubbed": true,
+          "teardownExit": 0
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 93,
@@ -3611,7 +4507,8 @@
           "status": "not_run",
           "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 94,
@@ -3648,7 +4545,8 @@
           "status": "not_run",
           "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 95,
@@ -3669,11 +4567,12 @@
       "proof": "scripted_ui_transport_only",
       "currentRun": {
         "status": "passed",
-        "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 3941,
         "teardownExit": 0,
-        "durationMs": 3936,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -3686,9 +4585,19 @@
           "log": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350.log",
           "report": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350-remaining-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 3936,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-model-router.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-model-router.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 96,
@@ -3710,7 +4619,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 97,
@@ -3732,7 +4642,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 98,
@@ -3754,7 +4665,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 99,
@@ -3776,7 +4688,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 100,
@@ -3798,7 +4711,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 101,
@@ -3820,7 +4734,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 102,
@@ -3842,7 +4757,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 103,
@@ -3864,7 +4780,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 104,
@@ -3886,7 +4803,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 105,
@@ -3908,7 +4826,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 106,
@@ -3930,7 +4849,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 107,
@@ -3952,7 +4872,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 108,
@@ -4006,7 +4927,8 @@
           "secretsScrubbed": true,
           "teardownExit": 0
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 109,
@@ -4074,7 +4996,8 @@
           "secretsScrubbed": true,
           "teardownExit": 0
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 110,
@@ -4128,7 +5051,8 @@
           "secretsScrubbed": true,
           "teardownExit": 0
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 111,
@@ -4149,11 +5073,12 @@
       "proof": "scripted_ui_transport_only",
       "currentRun": {
         "status": "passed",
-        "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
-        "log": "/private/tmp/rhythm-web-final-standard-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-20261022-extraction-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 102453,
         "teardownExit": 0,
-        "durationMs": 102806,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -4166,9 +5091,19 @@
           "log": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350.log",
           "report": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350-extraction-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+          "log": "/private/tmp/rhythm-web-final-standard-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-20261022-extraction-report.json",
+          "teardownExit": 0,
+          "durationMs": 102806,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-skill-extraction.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-skill-extraction.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 112,
@@ -4189,14 +5124,12 @@
       "proof": "scripted_ui_transport_only",
       "currentRun": {
         "status": "passed",
-        "proof": "scripted UI/transport only; real candidate API + rebuilt own engine + rendered browser; no inference quality claim",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 2504,
         "teardownExit": 0,
-        "repairAttempt": 3,
-        "engineBinarySha256": "527068d00ceea3baab875ddca233d5e78a2ef1aed63117c037e4ab2a3ad416fb",
-        "engineSourcePromptSha256": "848b40bf5a783d2714a9adcbcc46e575a1d1434375521501d14387d2475c098b",
-        "durationMs": 2511,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -4240,9 +5173,22 @@
           "repairAttempt": 3,
           "engineBinarySha256": "527068d00ceea3baab875ddca233d5e78a2ef1aed63117c037e4ab2a3ad416fb",
           "engineSourcePromptSha256": "848b40bf5a783d2714a9adcbcc46e575a1d1434375521501d14387d2475c098b"
+        },
+        {
+          "status": "passed",
+          "proof": "scripted UI/transport only; real candidate API + rebuilt own engine + rendered browser; no inference quality claim",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "repairAttempt": 3,
+          "engineBinarySha256": "527068d00ceea3baab875ddca233d5e78a2ef1aed63117c037e4ab2a3ad416fb",
+          "engineSourcePromptSha256": "848b40bf5a783d2714a9adcbcc46e575a1d1434375521501d14387d2475c098b",
+          "durationMs": 2511,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-sessions.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-sessions.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 113,
@@ -4263,11 +5209,12 @@
       "proof": "scripted_ui_transport_only",
       "currentRun": {
         "status": "passed",
-        "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 117966,
         "teardownExit": 0,
-        "durationMs": 116991,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -4280,9 +5227,19 @@
           "log": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350.log",
           "report": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350-remaining-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 116991,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-natural-once.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-natural-once.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 114,
@@ -4303,11 +5260,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 650,
         "teardownExit": 0,
-        "durationMs": 642,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -4325,8 +5283,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 642,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 115,
@@ -4347,12 +5315,12 @@
       "proof": "scripted_ui_transport_only",
       "currentRun": {
         "status": "passed",
-        "proof": "scripted UI/transport only; real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 3749,
         "teardownExit": 0,
-        "repairAttempt": 1,
-        "durationMs": 3876,
         "aggregateRerun": true
       },
       "currentRunHistory": [
@@ -4374,9 +5342,20 @@
           "report": "/private/tmp/rhythm-web-scripted-repair1-20261023T0010-report.json",
           "teardownExit": 0,
           "repairAttempt": 1
+        },
+        {
+          "status": "passed",
+          "proof": "scripted UI/transport only; real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "repairAttempt": 1,
+          "durationMs": 3876,
+          "aggregateRerun": true
         }
       ],
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-profiles.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-profiles.spec.ts",
+      "finalDisposition": "PASS"
     },
     {
       "id": 116,
@@ -4397,11 +5376,12 @@
       "proof": "no_model",
       "currentRun": {
         "status": "passed",
-        "proof": "synthetic real API + engine + rendered browser; no paid inference",
-        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
-        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "proof": "synthetic real API + engine + rendered browser; scripted substitutions prove UI/transport only",
+        "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+        "report": "/private/tmp/rhythm-web-postpaid-standard-20261022-report.json",
+        "log": "/private/tmp/rhythm-web-postpaid-standard-20261022.log",
+        "durationMs": 679,
         "teardownExit": 0,
-        "durationMs": 677,
         "aggregateRerun": true
       },
       "adaptation": "Use tokenless browser and validated-owner bootstrap; no auth expansion. Assert PATCH/reload/empty activity and exact restore.",
@@ -4412,8 +5392,18 @@
           "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
           "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
           "teardownExit": 0
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+          "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+          "teardownExit": 0,
+          "durationMs": 677,
+          "aggregateRerun": true
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     },
     {
       "id": 117,
@@ -4434,7 +5424,8 @@
       "proof": "excluded",
       "currentRun": {
         "status": "not_run"
-      }
+      },
+      "finalDisposition": "EXCLUDED"
     },
     {
       "id": 118,
@@ -4525,8 +5516,36 @@
           "secretsScrubbed": true,
           "teardownExit": 0
         }
-      ]
+      ],
+      "finalDisposition": "PASS"
     }
   ],
-  "resumeAuthorization": "2026-10-22: user says keep going until it works; earlier two-repair stop cap superseded. Existing paid scope, data ownership, native exclusions and no-push/cutover constraints remain."
+  "resumeAuthorization": "2026-10-22: user says keep going until it works; earlier two-repair stop cap superseded. Existing paid scope, data ownership, native exclusions and no-push/cutover constraints remain.",
+  "finalVerification": {
+    "codeRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+    "parity": "passed",
+    "matrixPassed": 93,
+    "excluded": 25,
+    "nonpaidFinalRerun": "/private/tmp/rhythm-web-postpaid-synthetic-matrix-20261022.json",
+    "securityPassed": 8,
+    "candidate": "passed_signed_running",
+    "realAccount": {
+      "status": "passed",
+      "required": 4,
+      "passed": 4,
+      "exitCode": 0,
+      "createdRecords": 3,
+      "deletionReadbacksVerified": 3,
+      "leftovers": 0
+    },
+    "candidateReceipt": "docs/testing/results/2026-10-22-web-parity-final.json",
+    "localhost": {
+      "url": "http://localhost:4001/#/tasks",
+      "rendered": true,
+      "reload": true,
+      "webSocketHandshake101": true,
+      "cloudAvailable": true
+    },
+    "networkCutover": "not_performed_requires_explicit_approval"
+  }
 }

@@ -4,7 +4,7 @@ repo: Rhythm
 branch: feat/tailscale-web-app-20261022
 pr: null
 issues: []
-status: in-progress
+status: local-acceptance-passed
 tags: [run, rhythm, web, parity]
 ---
 
@@ -158,3 +158,13 @@ Failure-triage starts with deterministic lower-layer reproduction of automatic-t
 - Original118Confirm nuHFSi nowteststage. Seedmetadata provesprofile200(enabledtrue,isAgenttrue,isManagerfalse,lockedfalse,autoApprovefalse,schedulabletrue), canonicalcontrol1, actualseededweeklyReviewer, noEACCES. `/private/tmp/rhythm-web-paid118-seed-copy-fixed-20261022.jsonl`. Actualscan outcome pending; no acceptance/improvementclaimyet.
 
 - Original118 actualscan Confirm passed1/1,1attempt,63866ms,CLI0; sourceUnchanged/canonicalDown/secretsScrubbed true `/private/tmp/rhythm-web-paid-case-118-nuHFSi/result.jsonl`. Original snapshot semantics/history/skillbytes, code-ownedcontrol, actualscan, closedknownusage/budget/candidate/proposal safety andexact-ownedcleanup assertionsretained. No improvementclaim. Sourcefingerprint includescanonicalcopierfix/newunit. All93includedrowsnowhavepassingcurrentevidence;25acceptedexclusionsunchanged. Finalfreshbrowserbar/candidatebuild/sign/real-account4remainpending, nooverallhandoffclaim.
+
+### Final frozen-source regression and package
+
+- Sandboxcopy correction committed locally89596fc186fa2662da66e0ba2f19413cbf6559c7; bash-n/diff--check0, GitNexus4trackedfiles6indexedsymbols0processesLOW, shell/newtestunindexedmanualcaveat. No push. Final91policy refreshed1attempt1482ms/CLI0 `/private/tmp/rhythm-web-paid-case-91-UtAhnR/result.jsonl`; originalrealGrid92 refreshed1attempt8188ms/CLI0 `/private/tmp/rhythm-web-paid-case-92-IIeQtB/result.jsonl`. Bothallcleanup/sourceflags true onexactcommitted89596.
+- Final standard canonical browser partition includesoriginal111thisrun: security8/8, Playwright95passed/10cloud-gatedskipped/0unexpected/0flaky,364457.735ms,CLI0; separatefreshfakecloud10/10,CLI0; bothcanonicalteardown/ports0. `/private/tmp/rhythm-web-postpaid-{standard,cloud}-20261022{.log,-command.json,-report.json}`. Everyexact85nonpaidrequiredtitle/filematchedoneexpectedpass (cloudskipsnotcounted), `/private/tmp/rhythm-web-postpaid-synthetic-matrix-20261022.json`. Reconciler firstmutationassertionusedgenericexcludedlabelbutactualschemahas2specificexcludedlabels; noinventorywriteoccurred; correctedonlylabelmappingthen93PASS/25EXCLUDED/0FAIL validated. Existinghistoriespreserved.
+- Finalpackage/signrecipe startedfor89596, `/private/tmp/rhythm-web-89596fc186-final-build-sign.sh`, logsbuild/web-build/signprefixsame. All93matrixrowsPASSonreviewedsource/workingfingerprintreceipts; finalcandidate/real4stillpending. Do notcommitwhileexact-revisionbuildruns. Fallbackuntouched.
+
+### Final signed runtime and real-account acceptance
+
+Final code89596fc186fa2662da66e0ba2f19413cbf6559c7 packaged and Developer ID signed (deep strict0, sign-only/unnotarized), launched via exact candidate. API4001/engine4096 are bundled executables with exact source identity; cloud and all browser asset hashes verified. Dedicated real-account suite4/4, CLI0, zero skips/flakes, 13218.503ms; three owned creates/deletions with readback, zero leftovers/pending/blocked writes. Localhost Tasks render/reload and WebSocket101 passed with zero HTTP mutations/pageerrors. Candidate remains running;4002 absent. Final [report](2026-10-22-tailscale-web-final.md) and [public receipt](../../testing/results/2026-10-22-web-parity-final.json) retain exact commands, counts and provenance. Matrix93PASS/25EXCLUDED/0FAIL. No Tailscale/network/LaunchAgent change; separate privateHTTPS4001 proposal awaits explicit approval. Known baseline API failures and Electron typecheck retained, not a universal repository-green claim.

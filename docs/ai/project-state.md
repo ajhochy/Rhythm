@@ -2,21 +2,20 @@
 
 ## Current focus
 
-All93 included browser parity rows now have current passing evidence:85synthetic UI/transport, saved-policy91, and real-model92/93/94/108/109/110/118.25accepted exclusions remain. Final handoff is still incomplete until the final browser rerun, signed candidate, and dedicated AJ-only real-account4 checks pass. [Inventory/history](contracts/web-parity-20261022.json) · [continuation receipt](runs/2026-10-22-web-parity-continued.md).
+Local browser acceptance passed: **93/93 included matrix cases**, with 25 AJ-approved exclusions, plus **4/4 dedicated real-account checks**. All three owned test records were deleted and read back; zero leftovers. [Final report](runs/2026-10-22-tailscale-web-final.md) · [Inventory and history](contracts/web-parity-20261022.json) · [Public evidence](../testing/results/2026-10-22-web-parity-final.json).
 
-## Branch and candidate
+## Branch and running candidate
 
-Feature worktree eager-star, branch feat/tailscale-web-app-20261022, localonly. HEAD9a9d3eecd7b40ceefa218f32700726c31966c6e6 plus live-verified sandbox skill-copy repair awaiting local commit. Product changes last at96387be1df; later changes qualify fixtures/runner. No push/PR/merge/networking/LaunchAgent authorization.
+Feature worktree eager-star, branch `feat/tailscale-web-app-20261022`, local commits only. Code/build `89596fc186fa2662da66e0ba2f19413cbf6559c7`; final documentation is committed separately. Signed, unnotarized `apps/electron/dist/Rhythm.app` v0.18.83 is running: desktop58940, API58946 on loopback4001, engine58995 on4096. **http://localhost:4001/#/tasks** passed rendered Chromium, reload, real cloud and WebSocket101 checks. Mobile gateway4002 is disabled in this web session. No install, push, PR, merge, deployment or network changes.
 
-Candidate at this worktree's apps/electron/dist/Rhythm.app is still the older signed6081build and stopped; final rebuild pending. Preserve fallback /private/tmp/rhythm-feature-playwright-2026-10-19/apps/electron/dist/Rhythm.app source53a2c94b8e and its worktree. RealSQLitebackup0600/0700 andquick_checkok recorded in originalresume. Cloudcredential exported; contents neverread/logged/copied, metadataonly.
+Fallback `/private/tmp/rhythm-feature-playwright-2026-10-19/apps/electron/dist/Rhythm.app` at53a2c94b8e and its worktree remain intact. Existing SQLite backup metadata/integrity verified before launch. Exported real cloud credential contents were never inspected; metadata only. No existing profiles/providers/settings/schedules/MCP configuration was edited.
 
 ## Evidence and limits
 
-- Browser adapters/approvals and85synthetic cases pass. Shared title scheduling fixed without changing guard admission;3positive contracts/mutationRED,125affectedpass/4oldoptionalartifactskips, fullforktypecheck0, original112livepass.
-- Paid custody builds before bounded access-only loan, checks exactsource/spec/artifact/PID/start/ancestry, validatesbrowsercachebeforeloan and scrubs oncanonical teardown. Allpaidcasespass. Latest118 foundread-onlyskills mode copiedtoruntime; realcopierREDthenGREEN withsource/mode/linktarget preservation, sandboxguards24/24; actual118scanpass. No model-quality or org-improvement claim inferred.
-- Final API aggregate9185pass/7fail/401skip,9593tests; all7 reproduced incleanstartingHEAD6081source-only comparison. Includes one inheritedprojection-boundary architectural defect; no unrelatedrepairs. Electron591pass/0fail/5skip; typecheck retainsknownTS7053hermes-backend-artifact.mjs58. Desktop/cloudgateway28/28,browserapproval1/1,invalidlive1/1,focused18/18. Exactreceiptsincontinuation.
-- Dedicated real-account4 authored/staticchecked, notexecuted yet. Onlynewnonce-markedAJ-onlyinertCookbook/cloudtask/artifact plusreadonlynavigation; strictowner/ID/deletionreadback. Neverexistingprofile/provider/settings/schedule/MCPchanges.
+Final895 synthetic partition: security8/8; standard95 passes/10 cloud-gated skips; fresh cloud10/10, no flakes. Exactly85 nonpaid included rows mapped to passing results. Saved policy91 and seven paid isolated cases pass, with exact per-run revision/working-source provenance retained. Scripted providers prove UI/transport only; Org Reviewer scan is not an improvement claim.
 
-## Next step
+API aggregate9185 passed/7 failed/401 skipped; all seven reproduced at starting6081, including one inherited projection-boundary architectural defect. Electron591 passed/0 failed/5 skipped; known TS7053 remains. Gateway30 and focused18 passed. API/web builds and final deep-strict signing passed. This is not a universal repository-green claim; generic workflow wrapper, unrelated Flutter/mobile and strict MCP checks are not claimed passing. See final report for commands and source/package/runtime boundaries.
 
-Commit sandboxrepairlocally; refresh91/92 andfinalsyntheticbar onfrozen source, rebuild/signcandidate, launchwebmode andrunreal-account4, thenwritefinalreceipt. Onlycandidateowns4001/4096; webmodedisables4002/iOS, warnAJbeforelaunch. Nevermanualapi_server. Buildguard10GiBunchanged. No successclaim untilrequiredreal-accountflows andfinalapp are verified.
+## Next step and authorization
+
+Local acceptance is complete; proposed separate private HTTPS cutover awaits AJ's explicit yes under the original handoff rule. Replace existing raw TCP4001 with HTTPS4001 to127.0.0.1:4001 at `ajs-macbook-pro-3.tail3798ec.ts.net`, add the exact HTTPS origin and restart only the candidate; preserve existing443/8443, no Funnel/LaunchAgent. Actual peer/browser reachability remains unverified. Do not infer remote access from localhost health. Keep candidate running and preserve fallback/data.
