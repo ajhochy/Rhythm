@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import type { AgentConfig } from '../../repositories/agent_configs_repository';
 
 const binding = vi.hoisted(() => ({ root: '', configFile: '' }));
@@ -19,7 +20,7 @@ describe('qualification profile projection uses the engine configuration directo
     if (binding.root) rmSync(binding.root, { recursive: true, force: true });
   });
   it.each(['native', 'web-sandbox'])('makes a saved profile discoverable in %s configuration', async layout => {
-    binding.root = mkdtempSync('/private/tmp/rhythm-profile-projection-');
+    binding.root = mkdtempSync(join(tmpdir(), 'rhythm-profile-projection-'));
     const engineConfig = layout === 'native' ? join(binding.root, 'opencode-config')
       : join(binding.root, 'home/.config/opencode');
     binding.configFile = join(engineConfig, 'opencode.json');
