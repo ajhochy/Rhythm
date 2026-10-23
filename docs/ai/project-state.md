@@ -2,6 +2,8 @@
 
 ## Current focus
 
+**External access repair in progress:** Mac mini hangs before page load. Received Tailscale filter explicitly excludes4001 for all ordinary personal-tailnet peers except pi-nas. AJ authorized all personal-tailnet devices to this Mac TCP4001. Correct personal-tailnet admin requires interactive sign-in, now handed to AJ. Policy not yet changed; external acceptance pending. [Diagnosis](runs/2026-10-22-tailscale-web-external-access.md).
+
 Local browser acceptance passed: **93/93 included matrix cases**, with 25 AJ-approved exclusions, plus **4/4 dedicated real-account checks**. All three owned test records were deleted and read back; zero leftovers. [Final report](runs/2026-10-22-tailscale-web-final.md) · [Inventory and history](contracts/web-parity-20261022.json) · [Public evidence](../testing/results/2026-10-22-web-parity-final.json).
 
 ## Branch and running candidate
