@@ -18,6 +18,16 @@ function installWindow(storageGetter) {
 
 const DEFAULTS = ['hermes', 'bot-crossing', 'open-design'];
 
+test('AT-PIN-07 Cookbook can be pinned per owner without changing the defaults', () => {
+  const storage = memoryStorage();
+  const pinned = toggleAgentToolPin('web-owner', 'cookbook', storage);
+  assert.deepEqual(pinned.ids, [...DEFAULTS, 'cookbook']);
+  assert.equal(JSON.parse(storage.getItem(agentToolPinsKey('web-owner'))).includes('cookbook'), true);
+  assert.deepEqual(readAgentToolPins('other-owner', storage).ids, DEFAULTS);
+  assert.equal(resetAgentToolPins('web-owner', storage).ok, true);
+  assert.deepEqual(readAgentToolPins('web-owner', storage).ids, DEFAULTS);
+});
+
 test('AT-PIN-01 defaults keep existing tabs and leave Dayflow unpinned', () => {
   assert.deepEqual(readAgentToolPins('u1', memoryStorage()), { scope: 'u1', ids: DEFAULTS, error: false });
 });

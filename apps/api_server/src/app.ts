@@ -6,6 +6,7 @@ import express, { type Router } from 'express';
 import { env } from './config/env';
 import { webHostConfig } from './config/web_host';
 import { createWebHostRouter, webHostOwnerContext } from './services/web_host';
+import { createWebApprovalsRouter } from './routes/web_approvals_routes';
 import { errorHandler } from './middleware/error_handler';
 import { localAgentSurfaceGuard } from './middleware/local_agent_surface_guard';
 import { authRouter } from './routes/auth_routes';
@@ -98,7 +99,7 @@ import {
 } from './routes/shared_transcripts_routes';
 import { createAgentBridgeRouter } from './routes/agent_bridge_routes';
 import { sharedAgentsCatalogRouter } from './shared_agents/bridge/catalog';
-import { requireLocalOrCloudAuth } from './middleware/auth_middleware';
+import { requireWebOwnerOrLocalOrCloudAuth } from './middleware/web_owner_auth';
 import { createAgentWorkstreamsRouter } from './routes/agent_workstreams_routes';
 import { createCoordinatorConversationsRouter } from './routes/coordinator_conversations_routes';
 import { createCoordinatorAgentToolsRouter } from './routes/coordinator_agent_tools_routes';
@@ -343,7 +344,7 @@ export function createApp(options: {
     app.use('/agents/models', agentsModelsRouter);
     app.use('/agent-configs', agentConfigsRouter);
     if (env.bridgeEnabled) {
-      app.use('/shared-agents/v1', requireLocalOrCloudAuth, sharedAgentsCatalogRouter);
+      app.use('/shared-agents/v1', requireWebOwnerOrLocalOrCloudAuth, sharedAgentsCatalogRouter);
     }
     app.use('/agent-delegation', agentDelegationRouter);
     app.use('/agent-skills', agentSkillsRouter);
@@ -460,6 +461,7 @@ export function createApp(options: {
   }
 
   if (webHostConfig) {
+    app.use('/web/approvals', createWebApprovalsRouter());
     app.use(createWebHostRouter());
     app.use((_req, res) => res.status(404).json({ error: { code: 'NOT_FOUND' } }));
   }

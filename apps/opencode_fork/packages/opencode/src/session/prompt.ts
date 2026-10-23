@@ -2403,6 +2403,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         const slog = elog.with({ sessionID })
         let structured: unknown
         let step = 0
+        let pendingTitle: Parameters<typeof title>[0] | undefined
         const internalUserMessageIDs = new Set<MessageID>()
         const autoCompactedAssistantIDs = new Set<MessageID>()
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
@@ -2464,12 +2465,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
           step++
           if (step === 1)
-            yield* title({
+            pendingTitle = {
               session,
               modelID: lastUser.model.modelID,
               providerID: lastUser.model.providerID,
               history: msgs,
-            }).pipe(Effect.ignore, Effect.forkIn(scope))
+            }
 
           const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
           const task = tasks.pop()
@@ -2686,7 +2687,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         }
 
         yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
-        return yield* lastAssistant(sessionID)
+        const answer = yield* lastAssistant(sessionID)
+        // Auxiliary naming must not replace an answer/tool attempt's pending
+        // admission frame, or outlive the runner that proves its own request.
+        if (pendingTitle && answer.info.role === "assistant" && answer.info.time.completed && !answer.info.error) {
+          yield* title(pendingTitle).pipe(
+            Effect.catchCause((cause) =>
+              Cause.hasInterrupts(cause)
+                ? Effect.interrupt
+                : elog.error("failed to generate title", { error: Cause.squash(cause) }),
+            ),
+          )
+        }
+        return answer
       },
     )
 

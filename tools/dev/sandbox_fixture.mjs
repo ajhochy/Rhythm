@@ -8,6 +8,10 @@ import { spawnSync } from 'node:child_process';
 const file = fileURLToPath(import.meta.url);
 const root = resolve(dirname(file), '../..');
 const fixture = resolve(process.argv[2] || '/');
+const webScriptedDefaults = process.argv.includes('--web-scripted-defaults');
+if (webScriptedDefaults && !process.argv.includes('--web-host')) {
+  throw new Error('--web-scripted-defaults requires --web-host');
+}
 const apiPort = Number(process.argv.find(value => value.startsWith('--api-port='))?.split('=')[1] ?? 4098);
 const cloudPort = Number(process.argv.find(value => value.startsWith('--cloud-port='))?.split('=')[1] ?? 7097);
 for (const port of [apiPort, cloudPort]) if (!Number.isInteger(port) || port < 1024 || port > 65535 || [4001, 4002, 4096].includes(port)) throw new Error('Fixture port must be unprivileged and not live');
@@ -49,6 +53,11 @@ if (process.argv.includes('--web-host')) {
     VALUES ('local-lean','Synthetic local lean','flask','',1,1,1,'build',
       'web-scripted','s0-local','[]','[]','[]','{"*":"deny"}')`);
 }
+if (webScriptedDefaults) {
+  // Normal curation input: the managed cheap route must be eligible before engine startup.
+  db.prepare('INSERT INTO agent_model_visibility (provider,model_id,visible) VALUES (?,?,1)')
+    .run('web-scripted', 's0-local');
+}
 if (process.argv.includes('--web-cloud')) {
   db.prepare("UPDATE users SET google_sub = 'web-cloud-synthetic-owner' WHERE id = 1").run();
   mkdirSync(`${fixture}/private`, { mode: 0o700 });
@@ -59,6 +68,9 @@ db.pragma('wal_checkpoint(TRUNCATE)');
 db.pragma('journal_mode = DELETE');
 db.close();
 writeFileSync(`${fixture}/opencode.json`, JSON.stringify({
+  // Explicit synthetic background/title routes only; ordinary fixtures keep their defaults.
+  ...(webScriptedDefaults ? { model: 'web-scripted/s0-local', small_model: 'web-scripted/s0-local',
+    enabled_providers: ['web-scripted'] } : {}),
   ...(process.argv.includes('--web-host') ? {
     provider: { 'web-scripted': { npm: '@ai-sdk/openai-compatible', name: 'Scripted loopback only',
       options: { baseURL: 'http://127.0.0.1:6996/v1', apiKey: 's0-local-synthetic-key' },

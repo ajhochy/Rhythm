@@ -1,0 +1,4228 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-22",
+  "baselineCandidateRevision": "6081e4fd8101b9e532758b1930143a12e79ae0ea",
+  "scopeDecision": "docs/ai/decisions/2026-10-22-web-parity-resume-scope.md",
+  "matrix": "docs/ai/plans/2026-10-22-web-feature-parity-matrix.md",
+  "status": "in_progress",
+  "counts": {
+    "previouslyConfirmedPackaged": 118,
+    "includedBrowserAcceptance": 93,
+    "excludedTotal": 25,
+    "excludedNativeThisPhase": 13,
+    "excludedBackendOnlyClassifier": 12,
+    "currentRunPassed": 85,
+    "currentRunNotRun": 8,
+    "currentRunFailed": 0
+  },
+  "rules": {
+    "historicalPassesAreCurrentRunProof": false,
+    "scriptedSubstitutions": "UI/transport only; no real inference or semantic-quality claim",
+    "browserIdentity": "validated existing owner server-side; no browser login or bearer",
+    "paidGridAuthorizedIds": [
+      91,
+      92,
+      93,
+      94,
+      108
+    ],
+    "additionalPaidIsolatedAuthorizedIds": [
+      109,
+      110,
+      118
+    ],
+    "nativeServices": "excluded for this phase; user wants services available later",
+    "realCloudWritesDecision": "docs/ai/decisions/2026-10-22-web-cloud-test-records.md",
+    "implementationStarts": "after candidate handoff"
+  },
+  "outsideAcceptanceDenominator": {
+    "historicalOnly": {
+      "count": 2,
+      "sourceSection": "matrix section 5"
+    },
+    "unconfirmed": {
+      "count": 15,
+      "sourceSection": "matrix section 6"
+    },
+    "inventoryMarkers": {
+      "count": 78,
+      "sourceSection": "matrix section 6"
+    }
+  },
+  "cases": [
+    {
+      "id": 1,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-sessions.spec.ts",
+        "line": 4,
+        "title": "[P0] sessions: named session persists correct cwd/profile and deletes from API, DB and engine",
+        "titleLine": 4
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-sessions.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 3055,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "TimeoutError: locator.selectOption: Timeout 10000ms exceeded."
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-sessions.spec.ts",
+        "line": 36,
+        "title": "[P0] sessions: blank names, cancel and reload cannot allocate an unnamed session",
+        "titleLine": 36
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-sessions.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 1025,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "TimeoutError: locator.selectOption: Timeout 10000ms exceeded."
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-sessions.spec.ts",
+        "line": 55,
+        "title": "[P0] sessions: failed creation keeps the name and permits recovery",
+        "titleLine": 55
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-sessions.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 3027,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "TimeoutError: locator.selectOption: Timeout 10000ms exceeded."
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-sessions.spec.ts",
+        "line": 77,
+        "title": "[P0] sessions: long Unicode name persists without truncating stored identity",
+        "titleLine": 77
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-sessions.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 2943,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "TimeoutError: locator.selectOption: Timeout 10000ms exceeded."
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-sessions.spec.ts",
+        "line": 89,
+        "title": "[P0] sessions: cancel permanent deletion leaves the owned session intact",
+        "titleLine": 89
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-sessions.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 3008,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "TimeoutError: locator.selectOption: Timeout 10000ms exceeded."
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-session-project-scope.spec.ts",
+        "line": 7,
+        "title": "[P0] session project scope: owned project and session survive a collapsed-group reload",
+        "titleLine": 7
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-session-project-scope.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 3156,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "TimeoutError: locator.selectOption: Timeout 10000ms exceeded."
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-sessions.spec.ts"
+    },
+    {
+      "id": 7,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-owned-history.spec.ts",
+        "line": 23,
+        "title": "[P0] owned session history keeps three real engine children across cursor pages, search, and the parent rail",
+        "titleLine": 18
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-owned-history.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 3084,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "TimeoutError: locator.selectOption: Timeout 10000ms exceeded."
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-sessions.spec.ts"
+    },
+    {
+      "id": 8,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-conversation.spec.ts",
+        "line": 53,
+        "title": "[P0] conversation: blank send and discarded draft leave the backend transcript unchanged",
+        "titleLine": 53
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-conversation-blank.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 3035,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "TimeoutError: locator.selectOption: Timeout 10000ms exceeded."
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-conversation.spec.ts"
+    },
+    {
+      "id": 9,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 5,
+        "title": "[AI catalog:brain] real collection renders and survives reload",
+        "titleLine": 5,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:10"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 621,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 5,
+        "title": "[AI catalog:skills] real collection renders and survives reload",
+        "titleLine": 5,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:11"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 759,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 5,
+        "title": "[AI catalog:playbooks] real collection renders and survives reload",
+        "titleLine": 5,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:12"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 666,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 5,
+        "title": "[AI catalog:tasks] real collection renders and survives reload",
+        "titleLine": 5,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:13"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 637,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 5,
+        "title": "[AI catalog:cookbook] real collection renders and survives reload",
+        "titleLine": 5,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:14"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 606,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 5,
+        "title": "[AI catalog:review] real collection renders and survives reload",
+        "titleLine": 5,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:15"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 615,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 5,
+        "title": "[AI catalog:report-card] real collection renders and survives reload",
+        "titleLine": 5,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:16"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 607,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 5,
+        "title": "[AI catalog:gallery] real collection renders and survives reload",
+        "titleLine": 5,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:17"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 614,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 5,
+        "title": "[AI catalog:deep-research] real collection renders and survives reload",
+        "titleLine": 5,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:18"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 607,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "Error: deep-research collection failed"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 18,
+        "title": "[AI catalog:brain] unavailable backend is visible and a real reload recovers",
+        "titleLine": 18,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:10"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 586,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 18,
+        "title": "[AI catalog:skills] unavailable backend is visible and a real reload recovers",
+        "titleLine": 18,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:11"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 635,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 18,
+        "title": "[AI catalog:playbooks] unavailable backend is visible and a real reload recovers",
+        "titleLine": 18,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:12"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 629,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 18,
+        "title": "[AI catalog:tasks] unavailable backend is visible and a real reload recovers",
+        "titleLine": 18,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:13"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 598,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 18,
+        "title": "[AI catalog:cookbook] unavailable backend is visible and a real reload recovers",
+        "titleLine": 18,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:14"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 580,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 18,
+        "title": "[AI catalog:review] unavailable backend is visible and a real reload recovers",
+        "titleLine": 18,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:15"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 588,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 18,
+        "title": "[AI catalog:report-card] unavailable backend is visible and a real reload recovers",
+        "titleLine": 18,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:16"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 576,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 18,
+        "title": "[AI catalog:gallery] unavailable backend is visible and a real reload recovers",
+        "titleLine": 18,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:17"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 572,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-catalogs.spec.ts",
+        "line": 18,
+        "title": "[AI catalog:deep-research] unavailable backend is visible and a real reload recovers",
+        "titleLine": 18,
+        "parameterSource": "apps/web/tests/packaged/ai-surfaces.ts:18"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-catalogs.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 578,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "Error: deep-research collection failed"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-cookbook.spec.ts",
+        "line": 27,
+        "title": "[AI cookbook] creates real inert recipe with ordered steps and persists after reload",
+        "titleLine": 27
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-cookbook.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 752,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-cookbook.spec.ts",
+        "line": 51,
+        "title": "[AI cookbook] failed save retains the owned draft and retry persists exactly one inert recipe",
+        "titleLine": 51
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-cookbook.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 845,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-cookbook.spec.ts",
+        "line": 107,
+        "title": "[AI cookbook] blank validation and cancelling a draft leave the backend unchanged",
+        "titleLine": 107
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-cookbook.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 671,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-followon.spec.ts",
+        "line": 97,
+        "title": "[AI Gallery] missing media row remains inspectable and unavailable without changing its record",
+        "titleLine": 97
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-gallery-unavailable.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 613,
+        "aggregateRerun": true
+      },
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-gallery-research.spec.ts",
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-gallery-research.spec.ts",
+        "line": 178,
+        "title": "[AI Gallery] private image preview decodes and missing media remains inspectable",
+        "titleLine": 171
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-gallery-research.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 808,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-gallery-research.spec.ts",
+        "line": 221,
+        "title": "[AI Gallery] private folder move/rename persists and catalog error recovers",
+        "titleLine": 172
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-gallery-research.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 952,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-gallery-research.spec.ts",
+        "line": 266,
+        "title": "[AI Research] private empty report inspector, archive, and catalog recovery persist",
+        "titleLine": 173
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-gallery-research.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 898,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "Error: GET /agent-research/projects"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-playbook.spec.ts",
+        "line": 47,
+        "title": "[AI Playbooks] private managed command survives create, edit and reload in the real engine catalog",
+        "titleLine": 12
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-playbooks.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 1023,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-skills-playbooks.spec.ts"
+    },
+    {
+      "id": 35,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-skills.spec.ts",
+        "line": 15,
+        "title": "[AI skills] private managed SKILL.md create, edit, reload, and delete reach both primed engine catalogs",
+        "titleLine": 11
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-skills-managed.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 1124,
+        "aggregateRerun": true
+      },
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-skills-playbooks.spec.ts",
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-tools.spec.ts",
+        "line": 82,
+        "title": "[AI skills] engine content matches the selected skill; cancel and blank save make no write",
+        "titleLine": 82
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-memory-skills-read.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 763,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-skills-playbooks.spec.ts"
+    },
+    {
+      "id": 37,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-tools.spec.ts",
+        "line": 9,
+        "title": "[AI memory] selected inspector contains authoritative content and kind filtering and reload stay truthful",
+        "titleLine": 9
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-memory-skills-read.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 759,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0,
+          "failure": "Error: ENOENT: no such file or directory, open '/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325/vault/memory/memory/fact/smoke-legacy-memory-inspector-6400c982-7ac7-4729-b0ff-d6007c.md'"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
+          "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-memory.spec.ts"
+    },
+    {
+      "id": 38,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-tools.spec.ts",
+        "line": 60,
+        "title": "[AI memory] no-match search is empty and clearing it restores real rows",
+        "titleLine": 60
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-memory-skills-read.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 653,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0,
+          "failure": "Error: ENOENT: no such file or directory, open '/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325/vault/memory/memory/fact/smoke-legacy-memory-inspector-e8a83cef-0726-44aa-a944-569ada.md'"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
+          "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-memory.spec.ts"
+    },
+    {
+      "id": 39,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-memory-metadata.spec.ts",
+        "line": 14,
+        "title": "[AI memory] private source and created/updated metadata agree in API, SQLite, vault, and selected Details",
+        "titleLine": 10
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-memory-metadata.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 763,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0,
+          "failure": "Error: ENOENT: no such file or directory, open '/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325/vault/memory/memory/fact/smoke-legacy-memory-inspector-0032ff6c-f772-4ae8-845d-68c081.md'"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
+          "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-memory.spec.ts"
+    },
+    {
+      "id": 40,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-memory-paging.spec.ts",
+        "line": 70,
+        "title": "[AI memory] 51 private vault notes page into the inspector and deleting the selected last-page note clears it",
+        "titleLine": 12
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-memory-paging.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 3548,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0,
+          "failure": "Error: ENOENT: no such file or directory, open '/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325/vault/memory/memory/fact/smoke-00-2f061543-e7c0-488a-9081-4bfafbf2458b-memory-paging.md'"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
+          "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-memory.spec.ts"
+    },
+    {
+      "id": 41,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-followon.spec.ts",
+        "line": 24,
+        "title": "[AI profiles] discarding a new smoke draft leaves the saved profile catalog unchanged",
+        "titleLine": 24
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-profiles.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 827,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "invalidated": "Initial discard check did not assert new-draft identity; trace proves crypto.randomUUID creation failed. Strengthened test must rerun."
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-profile-dirty-switch.spec.ts",
+        "line": 14,
+        "title": "[AI profiles] private existing-profile dirty switch keeps or discards without saving",
+        "titleLine": 10
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-profiles.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 922,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-profile-save.spec.ts",
+        "line": 12,
+        "title": "[AI profiles] owned draft survives a failed save, then revisioned retry persists across reload",
+        "titleLine": 8
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-profiles.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 943,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "TimeoutError: page.waitForResponse: Timeout 20000ms exceeded while waiting for event \"response\""
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-profile-save.spec.ts",
+        "line": 96,
+        "title": "[AI profiles] stale UI save keeps its draft and preserves the newer API revision",
+        "titleLine": 93
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-profiles.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 788,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "TimeoutError: page.waitForResponse: Timeout 20000ms exceeded while waiting for event \"response\""
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-settings.spec.ts",
+        "line": 58,
+        "title": "[AI profiles] live profile rail and selected editor agree with GET /agent-configs",
+        "titleLine": 58
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-profiles.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 639,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 46,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-settings.spec.ts",
+        "line": 8,
+        "title": "[AI settings] selected MCP inspector agrees with the real server status and tools",
+        "titleLine": 8
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-quality-settings.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 599,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 47,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-settings.spec.ts",
+        "line": 34,
+        "title": "[AI settings] model curation reflects real visibility and search clears back to catalog rows",
+        "titleLine": 34
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-quality-settings.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 638,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "Error: response.json: Protocol error (Network.getResponseBody): No resource with given identifier found"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 48,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-mcp-stdio.spec.ts",
+        "line": 40,
+        "title": "[AI MCP] private inspector advertises the bundled tools",
+        "titleLine": 10
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-quality-settings.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 639,
+        "aggregateRerun": true
+      },
+      "adaptation": "Connected tools must be nonempty and contain rhythm_ping; no fixed count of 114.",
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 49,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-tools.spec.ts",
+        "line": 112,
+        "title": "[AI quality] changing time window changes the API rollup and displayed evidence",
+        "titleLine": 112
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-quality-settings.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 591,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 50,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-tools.spec.ts",
+        "line": 134,
+        "title": "[AI quality] empty agent kind keeps its authoritative Unknown agent identity and exact counts",
+        "titleLine": 134
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-quality-settings.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 746,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 51,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-retention-settings.spec.ts",
+        "line": 14,
+        "title": "[AI settings] private retention On cancel writes nothing and Off persists until owned restore",
+        "titleLine": 8
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-quality-settings.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 722,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 52,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-disabled-schedule.spec.ts",
+        "line": 26,
+        "title": "[AI schedules] private disabled once-only job keeps owner and disabled state through edit and reload",
+        "titleLine": 21
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-schedules.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 927,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-schedule-delete.spec.ts",
+        "line": 24,
+        "title": "[AI schedules] private disabled schedule Cancel retains and Confirm deletes",
+        "titleLine": 21
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-schedules.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 908,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-schedule-timing.spec.ts",
+        "line": 19,
+        "title": "[AI schedules] private editor creates future due schedules and preserves timing through edit and reload",
+        "titleLine": 15
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-schedules.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 2404,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 55,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-tool-pins.spec.ts",
+        "line": 11,
+        "title": "[AI tools] private owner pins Dayflow, reloads, and resets only its preference",
+        "titleLine": 7
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-tool-pins.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 674,
+        "aggregateRerun": true
+      },
+      "adaptation": "Pin Cookbook; existing browser page is not yet in pin descriptors. Add browser pin support before testing; preserve owner-local key/reset/preimage behavior.",
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 56,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-owner-identity.spec.ts",
+        "line": 11,
+        "title": "[P0] synthetic signed-in identity appears in the shell account and Agents rail",
+        "titleLine": 7
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-owner-identity.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 634,
+        "aggregateRerun": true
+      },
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-shell.spec.ts",
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 57,
+      "category": "A-gated",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-rhythm-primary-chat.spec.ts",
+        "line": 5,
+        "title": "[P0] primary: permanent entry reopens the server-designated root and canonical history",
+        "titleLine": 5
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-coordinator.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 889,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoMatchObject\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts"
+    },
+    {
+      "id": 58,
+      "category": "A-gated",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-rhythm-primary-chat.spec.ts",
+        "line": 22,
+        "title": "[P0] primary: failed resolve preserves the ordinary session and visibly retries",
+        "titleLine": 22
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-coordinator.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 3031,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoMatchObject\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts"
+    },
+    {
+      "id": 59,
+      "category": "A-gated",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-rhythm-primary-chat.spec.ts",
+        "line": 41,
+        "title": "[P0] primary: rapid entry and reload keep one canonical root",
+        "titleLine": 41
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-coordinator.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 964,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoMatchObject\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts"
+    },
+    {
+      "id": 60,
+      "category": "A-gated",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-000-primary-first-use.spec.ts",
+        "line": 14,
+        "title": "[P0] primary first use chooses a profile before creating one private canonical root",
+        "titleLine": 8
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-coordinator.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 3159,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "TimeoutError: locator.selectOption: Timeout 10000ms exceeded."
+        },
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0,
+          "failure": "TimeoutError: page.waitForResponse: Timeout 20000ms exceeded while waiting for event \"response\""
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-coordinator-repair2-20261022T2340.log",
+          "report": "/private/tmp/rhythm-web-coordinator-repair2-20261022T2340-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts"
+    },
+    {
+      "id": 61,
+      "category": "A-gated",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-001-primary-missing-cwd.spec.ts",
+        "line": 14,
+        "title": "[P0] private missing primary cwd fails visibly without changing the canonical journal or ordinary chat",
+        "titleLine": 10
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-coordinator.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 5310,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "TimeoutError: locator.selectOption: Timeout 10000ms exceeded."
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts"
+    },
+    {
+      "id": 62,
+      "category": "A-gated",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-tools.spec.ts",
+        "line": 227,
+        "title": "[AI shared agents] canonical revision and runtime readiness match the real catalog",
+        "titleLine": 227
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-coordinator.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 607,
+        "aggregateRerun": true
+      },
+      "adaptation": "Truthful readiness for web-supported runtimes; native Hermes readiness excluded this phase.",
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-shared-agents.spec.ts",
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 63,
+      "category": "B",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-tasks.spec.ts",
+        "line": 4,
+        "title": "[P0] tasks: create, edit, complete, reload and permanently delete",
+        "titleLine": 4
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-cloud-tasks.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 956,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
+          "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts"
+    },
+    {
+      "id": 64,
+      "category": "B",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-tasks.spec.ts",
+        "line": 41,
+        "title": "[P0] tasks: blank/whitespace and cancel/reload never create a record",
+        "titleLine": 41
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-cloud-tasks.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 776,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
+          "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts"
+    },
+    {
+      "id": 65,
+      "category": "B",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-tasks.spec.ts",
+        "line": 64,
+        "title": "[P0] tasks: rapid repeat submit persists exactly one task",
+        "titleLine": 64
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-cloud-tasks.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 745,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
+          "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts"
+    },
+    {
+      "id": 66,
+      "category": "B",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-tasks.spec.ts",
+        "line": 79,
+        "title": "[P0] tasks: failed create retains the draft and can be retried",
+        "titleLine": 79
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-cloud-tasks.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 812,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
+          "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts"
+    },
+    {
+      "id": 67,
+      "category": "B",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-tasks.spec.ts",
+        "line": 110,
+        "title": "[P0] tasks: delete cancellation preserves a long title after reload",
+        "titleLine": 110
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-cloud-tasks.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 809,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
+          "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts"
+    },
+    {
+      "id": 68,
+      "category": "B",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-navigation.spec.ts",
+        "line": 3,
+        "title": "[P0] navigation: Tasks route shows real collection content after direct navigation and reload",
+        "titleLine": 3
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-cloud-navigation.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 613,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
+          "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts"
+    },
+    {
+      "id": 69,
+      "category": "B",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-navigation.spec.ts",
+        "line": 29,
+        "title": "[P0] navigation: narrow More menu reaches a real data page and Agents remains usable",
+        "titleLine": 29
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-cloud-navigation.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 656,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
+          "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts"
+    },
+    {
+      "id": 70,
+      "category": "B",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-navigation.spec.ts",
+        "line": 49,
+        "title": "[P0] navigation: failed collection read is visible and recovers after retry",
+        "titleLine": 49
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-cloud-navigation.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 634,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
+          "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-tasks.spec.ts"
+    },
+    {
+      "id": 71,
+      "category": "B",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-live-artifact.spec.ts",
+        "line": 16,
+        "title": "[AI live artifacts] private HTML import, sandboxed render, revisioned edit and picker use one owned artifact",
+        "titleLine": 10
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-cloud-live-artifact.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-cloud-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-cloud-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 1019,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real local API + engine + rendered browser; cloud upstream fixture; no paid inference",
+          "log": "/private/tmp/rhythm-web-cloud-memory-20261022T2337.log",
+          "report": "/private/tmp/rhythm-web-cloud-memory-20261022T2337-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-live-artifacts.spec.ts"
+    },
+    {
+      "id": 72,
+      "category": "C",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-approval-expiry.spec.ts",
+        "line": 27,
+        "title": "[P0] approvals: signed pending snapshot matches real visible cards",
+        "titleLine": 27
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-approvals.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "teardownExit": 0,
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "durationMs": 910,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-2c-live-repair2-20261022.log",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 73,
+      "category": "C",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-approval-expiry.spec.ts",
+        "line": 46,
+        "title": "[P0] approvals: failed refresh is visible, retains cards and recovers",
+        "titleLine": 46
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-approvals.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "teardownExit": 0,
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "durationMs": 743,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-2c-live-repair2-20261022.log",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 74,
+      "category": "C",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-approvals.spec.ts",
+        "line": 42,
+        "title": "[AI approvals] private native Reject clears an inert owned card without a continuation",
+        "titleLine": 11
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-approvals.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "teardownExit": 0,
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "durationMs": 710,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-2c-live-repair2-20261022.log",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 75,
+      "category": "C",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-approvals.spec.ts",
+        "line": 69,
+        "title": "[AI approvals] controlled stale card denies Approve and leaves the owned decision unconsumed",
+        "titleLine": 12
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-approvals.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "teardownExit": 0,
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "durationMs": 707,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-2c-live-repair2-20261022.log",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 76,
+      "category": "D",
+      "disposition": "excluded_native_this_phase",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-companions.spec.ts",
+        "line": 112,
+        "title": "[AI CROSS] cold Hermes startup remains usable across immediate Colony inventory",
+        "titleLine": 112
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 77,
+      "category": "D",
+      "disposition": "excluded_native_this_phase",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-companions.spec.ts",
+        "line": 139,
+        "title": "[AI Hermes] real Desktop opens saved history through its actual gateway",
+        "titleLine": 139
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 78,
+      "category": "D",
+      "disposition": "excluded_native_this_phase",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-companions.spec.ts",
+        "line": 162,
+        "title": "[AI Hermes] an unsent draft survives tab switches without creating a backend session",
+        "titleLine": 162
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 79,
+      "category": "D",
+      "disposition": "excluded_native_this_phase",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-companions.spec.ts",
+        "line": 189,
+        "title": "[AI Hermes] notification overlay preserves a usable native workspace and restores it",
+        "titleLine": 189
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 80,
+      "category": "D",
+      "disposition": "excluded_native_this_phase",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-companions.spec.ts",
+        "line": 216,
+        "title": "[AI CROSS] Hermes remains responsive after Colony inventory while hidden beyond the backend timeout",
+        "titleLine": 216
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 81,
+      "category": "D",
+      "disposition": "excluded_native_this_phase",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-companions.spec.ts",
+        "line": 273,
+        "title": "[AI Bot Crossing] actual pinned scene reads paged local inventory",
+        "titleLine": 273
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 82,
+      "category": "D",
+      "disposition": "excluded_native_this_phase",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-companions.spec.ts",
+        "line": 306,
+        "title": "[AI Bot Crossing] tab switch preserves one scene and restores usable inventory",
+        "titleLine": 306
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 83,
+      "category": "D",
+      "disposition": "excluded_native_this_phase",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-companions.spec.ts",
+        "line": 330,
+        "title": "[AI Bot Crossing] no-match search clears back to the retained populated scene and live inventory",
+        "titleLine": 330
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 84,
+      "category": "D",
+      "disposition": "excluded_native_this_phase",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-companions.spec.ts",
+        "line": 382,
+        "title": "[AI Dayflow] advertised native workspace actually attaches",
+        "titleLine": 382
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 85,
+      "category": "D",
+      "disposition": "excluded_native_this_phase",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-companions.spec.ts",
+        "line": 394,
+        "title": "[AI Dayflow] original signed application artifact is ready",
+        "titleLine": 394
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 86,
+      "category": "D",
+      "disposition": "excluded_native_this_phase",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-hermes-provider-setup.spec.ts",
+        "line": 34,
+        "title": "[AI Hermes] private bundled native provider setup cards match backend fields",
+        "titleLine": 7
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 87,
+      "category": "D",
+      "disposition": "excluded_native_this_phase",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-mcp-stdio.spec.ts",
+        "line": 54,
+        "title": "[AI MCP] bundled stdio tools list and ping through the observed local API",
+        "titleLine": 11
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:83"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 88,
+      "category": "E",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-conversation.spec.ts",
+        "line": 15,
+        "title": "[P0] conversation: real answer, canonical transcript and reload agree without duplicate user messages",
+        "titleLine": 15
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-scripted-conversation.spec.ts",
+      "proof": "scripted_ui_transport_only",
+      "currentRun": {
+        "status": "passed",
+        "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 3870,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "passed",
+          "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+          "log": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350.log",
+          "report": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350-remaining-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-session.spec.ts"
+    },
+    {
+      "id": 89,
+      "category": "E",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-conversation.spec.ts",
+        "line": 71,
+        "title": "[P0] conversation: two owned sessions retain independent answers across switching and reload",
+        "titleLine": 71
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-scripted-conversation.spec.ts",
+      "proof": "scripted_ui_transport_only",
+      "currentRun": {
+        "status": "passed",
+        "proof": "scripted UI/transport only; real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "repairAttempt": 1,
+        "durationMs": 4197,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "failed",
+          "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+          "log": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350.log",
+          "report": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350-remaining-report.json",
+          "teardownExit": 0,
+          "failure": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoHaveLength\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m"
+        },
+        {
+          "status": "passed",
+          "proof": "scripted UI/transport only; real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-scripted-repair1-20261023T0010.log",
+          "report": "/private/tmp/rhythm-web-scripted-repair1-20261023T0010-report.json",
+          "teardownExit": 0,
+          "repairAttempt": 1
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-conversation.spec.ts"
+    },
+    {
+      "id": 90,
+      "category": "E",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-conversation.spec.ts",
+        "line": 99,
+        "title": "[P0] conversation: cancel stops an observed real engine turn and restores sending",
+        "titleLine": 99
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-scripted-conversation.spec.ts",
+      "proof": "scripted_ui_transport_only",
+      "currentRun": {
+        "status": "passed",
+        "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 3144,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "passed",
+          "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+          "log": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350.log",
+          "report": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350-remaining-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-conversation.spec.ts"
+    },
+    {
+      "id": 91,
+      "category": "E",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-model-router.spec.ts",
+        "line": 139,
+        "title": "[P0] model router: saved Grid/Luna/consent settings agree with the rendered controls",
+        "titleLine": 139
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-paid-grid.spec.ts",
+      "proof": "existing_decisions_policy_no_turn",
+      "currentRun": {
+        "status": "not_run",
+        "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+      },
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-model-router.spec.ts"
+    },
+    {
+      "id": 92,
+      "category": "E",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-model-router.spec.ts",
+        "line": 159,
+        "title": "[P0] model router: trivial Auto work stays cheap, applies the actual route, and reuses it after reload",
+        "titleLine": 159
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-paid-grid.spec.ts",
+      "proof": "paid_isolated",
+      "currentRun": {
+        "status": "not_run",
+        "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+      },
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-model-router.spec.ts"
+    },
+    {
+      "id": 93,
+      "category": "E",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-model-router.spec.ts",
+        "line": 209,
+        "title": "[P0] model router qualification: routine arithmetic retains an eligible tier 3 or 4 route",
+        "titleLine": 209
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-paid-grid.spec.ts",
+      "proof": "paid_isolated",
+      "currentRun": {
+        "status": "not_run",
+        "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+      },
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-model-router.spec.ts"
+    },
+    {
+      "id": 94,
+      "category": "E",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-model-router.spec.ts",
+        "line": 231,
+        "title": "[P0] model router: a one-literal edit is served by a routine-tier model",
+        "titleLine": 231
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-paid-grid.spec.ts",
+      "proof": "paid_isolated",
+      "currentRun": {
+        "status": "not_run",
+        "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+      },
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-model-router.spec.ts"
+    },
+    {
+      "id": 95,
+      "category": "E",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-model-router.spec.ts",
+        "line": 255,
+        "title": "[P0] model router: explicit session model pin serves Luna without a Grid attempt",
+        "titleLine": 255
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-scripted-conversation.spec.ts",
+      "proof": "scripted_ui_transport_only",
+      "currentRun": {
+        "status": "passed",
+        "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 3936,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "passed",
+          "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+          "log": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350.log",
+          "report": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350-remaining-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-model-router.spec.ts"
+    },
+    {
+      "id": 96,
+      "category": "E",
+      "disposition": "excluded_backend_only_classifier",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-model-router.spec.ts",
+        "line": 279,
+        "title": "[P0] model router classifier: formatting is tier 4",
+        "titleLine": 279,
+        "parameterSource": "apps/web/tests/packaged/router-calibration-cases.ts:3"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 97,
+      "category": "E",
+      "disposition": "excluded_backend_only_classifier",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-model-router.spec.ts",
+        "line": 279,
+        "title": "[P0] model router classifier: extraction is tier 4",
+        "titleLine": 279,
+        "parameterSource": "apps/web/tests/packaged/router-calibration-cases.ts:4"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 98,
+      "category": "E",
+      "disposition": "excluded_backend_only_classifier",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-model-router.spec.ts",
+        "line": 279,
+        "title": "[P0] model router classifier: one literal edit does not become tier 2",
+        "titleLine": 279,
+        "parameterSource": "apps/web/tests/packaged/router-calibration-cases.ts:5"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 99,
+      "category": "E",
+      "disposition": "excluded_backend_only_classifier",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-model-router.spec.ts",
+        "line": 279,
+        "title": "[P0] model router classifier: hard architecture reaches tier 1",
+        "titleLine": 279,
+        "parameterSource": "apps/web/tests/packaged/router-calibration-cases.ts:6"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 100,
+      "category": "E",
+      "disposition": "excluded_backend_only_classifier",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-model-router.spec.ts",
+        "line": 279,
+        "title": "[P0] model router classifier: one parameter rename stays routine",
+        "titleLine": 279,
+        "parameterSource": "apps/web/tests/packaged/router-calibration-cases.ts:7"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 101,
+      "category": "E",
+      "disposition": "excluded_backend_only_classifier",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-model-router.spec.ts",
+        "line": 279,
+        "title": "[P0] model router classifier: one documentation typo stays routine",
+        "titleLine": 279,
+        "parameterSource": "apps/web/tests/packaged/router-calibration-cases.ts:8"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 102,
+      "category": "E",
+      "disposition": "excluded_backend_only_classifier",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-model-router.spec.ts",
+        "line": 279,
+        "title": "[P0] model router classifier: one CSS spacing edit stays routine",
+        "titleLine": 279,
+        "parameterSource": "apps/web/tests/packaged/router-calibration-cases.ts:9"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 103,
+      "category": "E",
+      "disposition": "excluded_backend_only_classifier",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-model-router.spec.ts",
+        "line": 279,
+        "title": "[P0] model router classifier: one obvious bounds fix stays routine",
+        "titleLine": 279,
+        "parameterSource": "apps/web/tests/packaged/router-calibration-cases.ts:10"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 104,
+      "category": "E",
+      "disposition": "excluded_backend_only_classifier",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-model-router.spec.ts",
+        "line": 279,
+        "title": "[P0] model router classifier: a routine email stays routine",
+        "titleLine": 279,
+        "parameterSource": "apps/web/tests/packaged/router-calibration-cases.ts:11"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 105,
+      "category": "E",
+      "disposition": "excluded_backend_only_classifier",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-model-router.spec.ts",
+        "line": 279,
+        "title": "[P0] model router classifier: a multi-file feature retains a capable tier",
+        "titleLine": 279,
+        "parameterSource": "apps/web/tests/packaged/router-calibration-cases.ts:12"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 106,
+      "category": "E",
+      "disposition": "excluded_backend_only_classifier",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-model-router.spec.ts",
+        "line": 279,
+        "title": "[P0] model router classifier: moderate research retains a capable tier",
+        "titleLine": 279,
+        "parameterSource": "apps/web/tests/packaged/router-calibration-cases.ts:13"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 107,
+      "category": "E",
+      "disposition": "excluded_backend_only_classifier",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-model-router.spec.ts",
+        "line": 279,
+        "title": "[P0] model router classifier: hard debugging retains a capable tier",
+        "titleLine": 279,
+        "parameterSource": "apps/web/tests/packaged/router-calibration-cases.ts:14"
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 108,
+      "category": "E",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-primary-model-router.spec.ts",
+        "line": 21,
+        "title": "[AI primary] private main Auto serves a routine same-tier Grid model and retains it after reload",
+        "titleLine": 14
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-paid-primary-model-router.spec.ts",
+      "proof": "paid_isolated",
+      "currentRun": {
+        "status": "not_run",
+        "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+      },
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-primary.spec.ts"
+    },
+    {
+      "id": 109,
+      "category": "E",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-mcp-profile-scope.spec.ts",
+        "line": 90,
+        "title": "[AI MCP] private profile scopes allow owned task calls and deny forbidden canonical calls",
+        "titleLine": 8
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:108"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-paid-mcp-profile-scope.spec.ts",
+      "proof": "paid_isolated",
+      "currentRun": {
+        "status": "not_run",
+        "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+      },
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-mcp-scope.spec.ts"
+    },
+    {
+      "id": 110,
+      "category": "E",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-coordinator-two-goal.spec.ts",
+        "line": 30,
+        "title": "[P0] Coordinator two owned goals finish with overlapping SDK work and one marked report each",
+        "titleLine": 20
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:89"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-paid-coordinator-two-goal.spec.ts",
+      "proof": "paid_isolated",
+      "currentRun": {
+        "status": "not_run",
+        "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+      },
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-coordinator-two-goal.spec.ts"
+    },
+    {
+      "id": 111,
+      "category": "E",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-skill-extraction.spec.ts",
+        "line": 38,
+        "title": "[P0] private chat sources one real Luna skill extraction and no duplicate after a third turn",
+        "titleLine": 21
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:95"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-scripted-extraction.spec.ts",
+      "proof": "scripted_ui_transport_only",
+      "currentRun": {
+        "status": "passed",
+        "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+        "log": "/private/tmp/rhythm-web-final-standard-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-20261022-extraction-report.json",
+        "teardownExit": 0,
+        "durationMs": 102806,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "passed",
+          "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+          "log": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350.log",
+          "report": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350-extraction-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-skill-extraction.spec.ts"
+    },
+    {
+      "id": 112,
+      "category": "E",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-session-autoname.spec.ts",
+        "line": 53,
+        "title": "[AI sessions] one private untitled real turn generates a durable visible session name",
+        "titleLine": 41
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:96"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-scripted-autoname.spec.ts",
+      "proof": "scripted_ui_transport_only",
+      "currentRun": {
+        "status": "passed",
+        "proof": "scripted UI/transport only; real candidate API + rebuilt own engine + rendered browser; no inference quality claim",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "repairAttempt": 3,
+        "engineBinarySha256": "527068d00ceea3baab875ddca233d5e78a2ef1aed63117c037e4ab2a3ad416fb",
+        "engineSourcePromptSha256": "848b40bf5a783d2714a9adcbcc46e575a1d1434375521501d14387d2475c098b",
+        "durationMs": 2511,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "failed",
+          "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+          "log": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350.log",
+          "report": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350-remaining-report.json",
+          "teardownExit": 0,
+          "failure": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m"
+        },
+        {
+          "status": "failed",
+          "proof": "scripted UI/transport only; real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-scripted-repair1-20261023T0010.log",
+          "report": "/private/tmp/rhythm-web-scripted-repair1-20261023T0010-report.json",
+          "teardownExit": 0,
+          "repairAttempt": 1,
+          "failure": "Main answer and summary both held proof_unavailable; provider hits remained zero, title placeholder/API name blank. Bounded field-only diagnostic retained."
+        },
+        {
+          "status": "failed",
+          "proof": "scripted UI/transport only; real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-scripted-repair2-20261022T2355.log",
+          "report": "/private/tmp/rhythm-web-scripted-repair2-20261022T2355-report.json",
+          "teardownExit": 0,
+          "repairAttempt": 2,
+          "failure": "Final unchanged replay failed before main answer: answer and summary held proof_unavailable, zero provider hits, engine default title/API blank. Actual API and engine workstreams=true, managed exports=1, agent URL exact loopback; synthetic owner1/projectless/no retained marker. Stop per two-repair limit.",
+          "metadata": "/private/tmp/rhythm-web-scripted-repair2-20261022T2355-metadata.json",
+          "guardTimestamps": "/private/tmp/rhythm-web-scripted-repair2-20261022T2355-guard-timestamps.json"
+        },
+        {
+          "status": "passed",
+          "proof": "scripted UI/transport only; real candidate API + rebuilt own engine + rendered browser; no inference quality claim",
+          "log": "/private/tmp/rhythm-web-title-fixed-live-20261022.log",
+          "report": "/private/tmp/rhythm-web-title-fixed-live-20261022-report.json",
+          "teardownExit": 0,
+          "repairAttempt": 3,
+          "engineBinarySha256": "527068d00ceea3baab875ddca233d5e78a2ef1aed63117c037e4ab2a3ad416fb",
+          "engineSourcePromptSha256": "848b40bf5a783d2714a9adcbcc46e575a1d1434375521501d14387d2475c098b"
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-sessions.spec.ts"
+    },
+    {
+      "id": 113,
+      "category": "E",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-natural-once.spec.ts",
+        "line": 85,
+        "title": "[AI schedules] private UI-created Once job fires on a natural local tick; disabled twin does not",
+        "titleLine": 85
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:98"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-scripted-natural-once.spec.ts",
+      "proof": "scripted_ui_transport_only",
+      "currentRun": {
+        "status": "passed",
+        "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 116991,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "passed",
+          "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+          "log": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350.log",
+          "report": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350-remaining-report.json",
+          "teardownExit": 0
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-natural-once.spec.ts"
+    },
+    {
+      "id": 114,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-org-reviewer-entry.spec.ts",
+        "line": 23,
+        "title": "[AI Org Reviewer] private canonical entry shows exact review policy and an available manual trigger",
+        "titleLine": 19
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:106"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-schedules.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 642,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "failed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0,
+          "failure": "Error: canonical reviewer must be safely in the future before this check"
+        },
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325-report.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 115,
+      "category": "E",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-profile-policy.spec.ts",
+        "line": 36,
+        "title": "[AI profile policy] saved model, permissions, skills and tools survive reload and bind a new session",
+        "titleLine": 11
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:122"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-scripted-profile-policy.spec.ts",
+      "proof": "scripted_ui_transport_only",
+      "currentRun": {
+        "status": "passed",
+        "proof": "scripted UI/transport only; real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "repairAttempt": 1,
+        "durationMs": 3876,
+        "aggregateRerun": true
+      },
+      "currentRunHistory": [
+        {
+          "status": "not_run"
+        },
+        {
+          "status": "failed",
+          "proof": "scripted loopback provider; real local API + engine + rendered UI/transport only; no paid inference or model quality proof",
+          "log": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350.log",
+          "report": "/private/tmp/rhythm-web-scripted-repair1-20261022T2350-remaining-report.json",
+          "teardownExit": 0,
+          "failure": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m"
+        },
+        {
+          "status": "passed",
+          "proof": "scripted UI/transport only; real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-scripted-repair1-20261023T0010.log",
+          "report": "/private/tmp/rhythm-web-scripted-repair1-20261023T0010-report.json",
+          "teardownExit": 0,
+          "repairAttempt": 1
+        }
+      ],
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-profiles.spec.ts"
+    },
+    {
+      "id": 116,
+      "category": "A",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-org-evaluation.spec.ts",
+        "line": 15,
+        "title": "[AI Org Reviewer] private evaluation settings persist and empty activity is honest",
+        "titleLine": 11
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "edc8e8259e",
+        "receipt": "docs/ai/runs/2026-10-21-org-reviewer-claude-takeover.md:67"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-quality-settings.spec.ts",
+      "proof": "no_model",
+      "currentRun": {
+        "status": "passed",
+        "proof": "synthetic real API + engine + rendered browser; no paid inference",
+        "log": "/private/tmp/rhythm-web-final-standard-partition-20261022.log",
+        "report": "/private/tmp/rhythm-web-final-standard-partition-20261022-report.json",
+        "teardownExit": 0,
+        "durationMs": 677,
+        "aggregateRerun": true
+      },
+      "adaptation": "Use tokenless browser and validated-owner bootstrap; no auth expansion. Assert PATCH/reload/empty activity and exact restore.",
+      "currentRunHistory": [
+        {
+          "status": "passed",
+          "proof": "synthetic real API + engine + rendered browser; no paid inference",
+          "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+          "report": "/private/tmp/rhythm-web-parity-batch1-report-20261022.json",
+          "teardownExit": 0
+        }
+      ]
+    },
+    {
+      "id": 117,
+      "category": "D",
+      "disposition": "excluded_native_this_phase",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-hermes-openai-luna.spec.ts",
+        "line": 718,
+        "title": "[private Hermes actual turn] one authorized static OpenAI API Luna turn persists under the exact provider",
+        "titleLine": 17
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "20471a238ecd2b56a75f0bccba235306dd08b0e2",
+        "receipt": "docs/ai/runs/2026-10-21-ai-repair-local-rebuild.md:97"
+      },
+      "webSpec": null,
+      "proof": "excluded",
+      "currentRun": {
+        "status": "not_run"
+      }
+    },
+    {
+      "id": 118,
+      "category": "E",
+      "disposition": "included",
+      "source": {
+        "spec": "apps/web/tests/packaged/packaged-ai-private-org-evaluation-actual-snapshot.spec.ts",
+        "line": 354,
+        "title": "[AI Org Reviewer] packaged owner snapshot preserves error history without claiming an improvement",
+        "titleLine": 37
+      },
+      "priorEvidence": {
+        "status": "passed",
+        "build": "3332856559",
+        "receipt": "/private/tmp/rhythm-org-evaluation-actual-secretary-3332856559-rerun-claude-20261021.log:9",
+        "meaning": "scan-safety-passed-improvement-unqualified; not browser proof",
+        "identityReceipt": "/private/tmp/rhythm-org-eval-actual-secretary-rerun-3332856559-claude-20261021/playwright-results.json"
+      },
+      "webSpec": "apps/web/tests/web-host/web-host-paid-org-actual-snapshot.spec.ts",
+      "proof": "paid_isolated",
+      "currentRun": {
+        "status": "not_run",
+        "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+      },
+      "adaptation": "Pinned private snapshot/SHA and pre-bootstrap seed; bounded authorized loan; no improvement claim from scan-safety alone.",
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-org-evaluation-actual-snapshot.spec.ts"
+    }
+  ],
+  "resumeAuthorization": "2026-10-22: user says keep going until it works; earlier two-repair stop cap superseded. Existing paid scope, data ownership, native exclusions and no-push/cutover constraints remain."
+}

@@ -22,12 +22,13 @@ export function relayCardHash(approval: AgentApproval, ownerUserId: number, revi
     approval.boundAgent, approval.expiresAt, approval.createdAt]);
 }
 
-function requireFreshCard(approval: AgentApproval): void {
+function requireFreshCard(approval: AgentApproval, expiredForbidden = false): void {
   const createdAt = approval.createdAt.includes('T') ? approval.createdAt : `${approval.createdAt.replace(' ', 'T')}Z`;
   const expiry = approval.expiresAt == null ? Date.parse(createdAt) + 600_000 : Date.parse(approval.expiresAt);
-  if (!Number.isFinite(expiry) || expiry <= Date.now() || approval.consumedAt) {
-    throw AppError.conflict('Approval has expired or has already been consumed');
+  if (!Number.isFinite(expiry) || expiry <= Date.now()) {
+    throw (expiredForbidden ? AppError.forbidden : AppError.conflict)('Approval has expired; ask for a new proposal');
   }
+  if (approval.consumedAt) throw AppError.conflict('Approval has already been consumed');
   if (approval.securityAction) {
     const taint = getDb().prepare('SELECT taint_id, tainted_turn_id FROM agent_external_taint_state WHERE session_id = ?')
       .get(approval.sessionId) as { taint_id: string; tainted_turn_id: string } | undefined;
@@ -37,16 +38,39 @@ function requireFreshCard(approval: AgentApproval): void {
   }
 }
 
-export function pendingRelayCard(id: string, ownerUserId: number) {
+export function pendingRelayCard(id: string, ownerUserId: number, expiredForbidden = false) {
   const approval = approvals.getById(id);
   if (!approval || approvalOwnerId(approval) !== ownerUserId) throw AppError.notFound('pending approval');
   if (approval.status !== 'pending' || !approval.decisionNonce) throw AppError.conflict('Approval is no longer pending');
-  requireFreshCard(approval);
+  requireFreshCard(approval, expiredForbidden);
   const revision = hash(['rhythm-relay-revision-v1', approval.id, approval.decisionNonce]);
   return { id: approval.id, revision, cardHash: relayCardHash(approval, ownerUserId, revision),
     action: approval.action, preview: approval.preview, consequence: approval.consequence,
     securityAction: approval.securityAction, payloadDigest: approval.payloadDigest,
     expiresAt: approval.expiresAt, createdAt: approval.createdAt };
+}
+
+/** Host-owner decisions reuse the exact card/nonce binding, with distinct provenance. */
+export function decideWebCard(user: User, id: string, input: Record<string, unknown>) {
+  if (!input || typeof input !== 'object' || Array.isArray(input) ||
+    Object.keys(input).some(key => !['revision', 'cardHash', 'status'].includes(key)) ||
+    (input.status !== 'approved' && input.status !== 'rejected') ||
+    typeof input.revision !== 'string' || !/^[a-f0-9]{64}$/.test(input.revision) ||
+    typeof input.cardHash !== 'string' || !/^[a-f0-9]{64}$/.test(input.cardHash)) {
+    throw AppError.badRequest('An exact card revision/hash and approve or reject status are required');
+  }
+  return getDb().transaction(() => {
+    const card = pendingRelayCard(id, user.id, true);
+    if (input.revision !== card.revision || input.cardHash !== card.cardHash) throw AppError.conflict('Approval revision or hash changed');
+    const audit = { kind: 'trusted-tailnet-web-decision-v1', ownerUserId: user.id, ownerName: user.name,
+      displayIdentity: `${user.name} via browser`, source: 'trusted-tailnet-web', assurance: 'trusted-tailnet',
+      attestation: 'owner_chose_in_browser', decision: input.status as 'approved' | 'rejected',
+      revision: card.revision, cardHash: card.cardHash };
+    const existing = approvals.getById(id)!;
+    const updated = approvals.decideWithNonce(id, audit.decision, JSON.stringify(audit), existing.decisionNonce!);
+    if (!updated) throw AppError.conflict('Approval was decided concurrently');
+    return { approval: updated, result: { id, status: updated.status, decidedAt: updated.decidedAt, audit } };
+  }).immediate();
 }
 
 export function listPendingRelayCards(ownerUserId: number) {
@@ -87,7 +111,11 @@ export function requireUnchangedRelayApproval(id: string): void {
   if (!approval?.actor?.startsWith('{')) return;
   let audit: Record<string, unknown>;
   try { audit = JSON.parse(approval.actor); } catch { throw AppError.forbidden('Approval receipt is invalid'); }
-  if (audit.kind !== 'hermes-chat-decision-v1' || audit.assurance !== 'relay-attested' ||
+  const hermes = audit.kind === 'hermes-chat-decision-v1' && audit.assurance === 'relay-attested'
+    && audit.source === 'hermes' && audit.attestation === 'owner_chose_in_chat';
+  const web = audit.kind === 'trusted-tailnet-web-decision-v1' && audit.assurance === 'trusted-tailnet'
+    && audit.source === 'trusted-tailnet-web' && audit.attestation === 'owner_chose_in_browser';
+  if ((!hermes && !web) ||
     audit.decision !== 'approved' || typeof audit.ownerUserId !== 'number' || typeof audit.revision !== 'string' ||
     approvalOwnerId(approval) !== audit.ownerUserId ||
     relayCardHash(approval, audit.ownerUserId, audit.revision) !== audit.cardHash) {

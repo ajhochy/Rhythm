@@ -17,7 +17,7 @@ test('C3 cloud capability composes real cloud factories over tokenless same-orig
     const gateway = createLiveGateway({ browserOrigin: origin, cloud: true });
     expect(gateway.domains.tasks).toBeDefined();
     expect(gateway.domains.projects).toBeDefined();
-    expect(gateway.domains.approvals).toBeUndefined();
+    expect(gateway.domains.approvals).toBeDefined();
     await expect(gateway.domains.tasks!.list()).resolves.toEqual([]);
     await gateway.domains.projects!.templates();
     expect(recorded).toEqual([{ url: '/cloud/tasks?status=all', authorization: undefined }, { url: '/cloud/project-templates', authorization: undefined }]);

@@ -16,6 +16,7 @@ test('AT-REG-01 registry is frozen static metadata mapped to the real existing r
     ['open-design', '/open-design'],
     // Frozen Dayflow owner packet: ToolWorkspace slug `dayflow` mounts the owner's named export DayflowTool.
     ['dayflow', '/tools/dayflow'],
+    ['cookbook', '/tools/cookbook'],
   ]);
   assert.equal(AGENT_TOOLS_CATALOG_ROUTE, '/tools/agent-tools');
   for (const tool of AGENT_TOOL_DESCRIPTORS) {
@@ -27,7 +28,7 @@ test('AT-REG-01 registry is frozen static metadata mapped to the real existing r
 
 test('AT-REG-02 defaults keep existing tabs pinned and Dayflow unpinned; coordinator is never a tool', () => {
   assert.deepEqual(Object.fromEntries(AGENT_TOOL_DESCRIPTORS.map((tool) => [tool.id, tool.defaultPinned])), {
-    hermes: true, 'bot-crossing': true, 'open-design': true, dayflow: false,
+    hermes: true, 'bot-crossing': true, 'open-design': true, dayflow: false, cookbook: false,
   });
   assert.equal(findAgentTool('coordinator'), null);
   assert.ok(!AGENT_TOOL_DESCRIPTORS.some((tool) => /coordinator/i.test(`${tool.id} ${tool.label}`)));

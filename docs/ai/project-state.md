@@ -2,34 +2,27 @@
 
 ## Current focus
 
-Org Reviewer pre-review evaluation (Harness²-style, all improvement kinds, one whole-run token cap), qualified with packaged Playwright and live private-engine tests, including a review of the actual Rhythm config. Qualification across all 18 kinds and all AI features is incomplete.
+Browser parity is active on AJ's instruction to keep going until it works; this supersedes the earlier two-repair stop cap. The93 included cases currently have85synthetic passes and8paid cases unrun, with25accepted exclusions. Final acceptance is incomplete. Scope: [resume decision](decisions/2026-10-22-web-parity-resume-scope.md); exact rows/history: [inventory](contracts/web-parity-20261022.json).
 
-## Active branch / PR
+## Branch and candidate
 
-- Worktree `/private/tmp/rhythm-feature-playwright-2026-10-19`, branch `test/feature-playwright-2026-10-19`, HEAD `ea093809b2` plus docs. No push, PR, merge, install or release. The original checkout's dirt is preserved.
-- Local signed app: exact `edc8e8259e`, deep strict verified (`apps/electron/dist/Rhythm.app`).
+- Worktree `/Users/ajhochhalter/.local/share/opencode/worktree/a4784d9c54aa2929a09fdab2213ff827a3cb60a5/eager-star`, branch `feat/tailscale-web-app-20261022`, HEAD6081e4fd8101b9e532758b1930143a12e79ae0ea plus owned uncommitted implementation/tests/docs. Local only; no push/PR/merge/cutover authorization.
+- Existing candidate `apps/electron/dist/Rhythm.app`0.18.83 is locally DeveloperID signed, not notarized, currently stopped and predates pending adapter/title changes. Not final-qualified. Receipt `/private/tmp/rhythm-web-6081e4fd81-artifact-receipt.json`.
+- Fallback remains untouched: `/private/tmp/rhythm-feature-playwright-2026-10-19/apps/electron/dist/Rhythm.app`, source53a2c94b8e, ancestor of this candidate. Never overwrite/remove.
+- Real SQLite backup is complete,0600/0700 with closed quick_checkok; exact path in [resume receipt](runs/2026-10-22-tailscale-web-resume.md). AJ exported the cloud credential; only metadata was inspected. Never read/log/copy credential contents.
 
-## In progress
+## Completed source and current evidence
 
-- Default whole-run cap is now 1.5M (`edc8e8259e`). The packaged settings check passes. The routed, managed and actual-Secretary live reruns are **waiting on a fresh Anthropic token**: the loans need at least 30 minutes of token life and never refresh.
-- The full approve → fresh-use → revert journey (plan `docs/ai/plans/2026-10-21-org-reviewer-end-to-end-playwright.md`, O1–O10) is still unrun.
+- Browser approvals, narrow validated-owner Coordinator/shared-catalog ingress, Cookbook pins, profile draft/skill-policy synchronization and advanced-session absence handling implemented;85included cases passed real sandbox API/engine/browser proof. Scripted substitutions prove UI/transport only.
+- Automatic naming112 repaired in shared prompt loop: auxiliary title waits for canonical answer completion while current runner still exists; guard admission logic unchanged. Positive contracts3/3 with mutationRED2fail, affected125pass/4pre-existing optional-artifact skips, full fork typecheck0, own engine rebuilt, original browser112pass.
+- New paid custody adapter: fixed source/spec/artifact hashes, build-before-loan, unchanged access-only loan validators, bounded watchdog, canonical teardown/exact scrub and allowlisted public receipts. Synthetic34/34 and layout23pass. First no-turn91 actual startup reached both healthy services but runner wrongly required optional recovery receipt; failed before test/model turn. Sources unchanged, canonicalDown and secretsScrubbed true. Readiness correction frozen; actual retry pending.
+- Final API serial aggregate:9185pass/7fail/401skip,9593total,1149.99s,exit1. Clean starting-HEAD source archive reproduced all7failures across5unchanged legacy files; no browser regression inferred from them and no unrelated repairs. Logs `/private/tmp/rhythm-web-final-api-unit-20261022.log` and `/private/tmp/rhythm-web-api-head-baseline-4kcdz688/receipt/`.
+- Final Electron591pass/0fail/5skip; all5historical launch failures pass here. Electron typecheck retains only knownTS7053 hermes-backend-artifact.mjs58. Desktop/cloud gateway28/28, browser approvals1/1, invalid-live1/1, focused gateway/pins18/18; ports released. Receipts in [continuation](runs/2026-10-22-web-parity-continued.md).
+- Final synthetic security8/8, dedicated extraction111pass, proper standard94pass/10cloud-gated skips and separate cloud10/10pass, all canonical teardown0. Exact85included nonpaid IDs reconciled from actual expected passes. Initial paid118 missing-authority invocation failure retained separately; paid8 run only through the isolated runner.
+- Dedicated real-account4 authored/strict-static/discovery checked; actual execution unrun. Only newly marked AJ-only inert Cookbook/cloud task/artifact and readonly navigation; exact-ID cleanup gates, no existing settings/profile/provider/schedule/MCP changes.
 
-## Risks / known issues
+## Limits and next step
 
-- Intermittent: on the first actual-Secretary attempt (3332856) the engine stopped answering after `ensureRhythmMcp` persisted config. Schedule creation timed out at 20 s. It did not reproduce on rerun.
-- The actual Secretary scan passes safety checks and now sees the exact failure evidence, but it yields 0 diagnoses and 0 proposals. Do not rerun it unchanged hoping for a proposal.
-- Real external MCP integrations (Gmail/PCO/Obsidian) are not reproduced in evaluation. Only the controlled `evaluation-*` fixture tools are trusted.
-- The GitNexus index is about 340 commits stale and the new org-evaluation modules are unindexed. Manual blast-radius review applies.
-- About 50 no-model fixtures from Oct 20–21 (`/private/tmp/rhythm-ai-fixture-*`, disposable actor tokens only) await an explicit cleanup pass.
+Commit source locally for exact revision, execute paid8, build/sign final candidate, run AJ-only real-account4 and capture all118row dispositions/final receipts. No success claim until complete.
 
-## Test status
-
-- Integrated org-eval checkpoint at edc8e8: 220 passed, 1 legacy-Docker skip, 40 files. MCP 3/3. API, MCP and web tsc pass. Packaged settings spec 1/1 (no model).
-- Live, signed bundle: managed tool original/candidate pair **passes** (1ab737 and a1c906); routed 4/4 **fail** on the old 100k budget (a1c906; not yet rerun at 1.5M); actual-Secretary Playwright **passes** (3332856 rerun); no-model installer sandbox **passes**.
-- Kind coverage: `docs/ai/plans/2026-10-21-org-evaluation-kind-coverage.md`. Runs: `docs/ai/runs/2026-10-21-org-reviewer-claude-takeover.md`, `2026-10-21-org-evaluation-implementation.md`.
-
-## Next step
-
-**Testing paused 2026-10-22:** the user is using the local signed build for daily work, now `53a2c94b8e`: `edc8e8259e` plus the PR #1619 fixes (approval field-name binding; scheduled runs owned by the local operator, with a boot backfill) and a branch-only router fix (held free-mode scheduled runs are released under the same owner instead of being dropped). Packaged and live runs need Rhythm quit (ports 4001/4002/4096), so resume only when the user says so.
-
-After the user's Rhythm app refreshes the Anthropic login, rerun routed 4 cases, the managed pair and actual Secretary on `edc8e8259e`. Then qualify the routed kinds, run the packaged evaluation journey through approval and fresh use, and close the remaining per-kind gaps.
+Only one real-data app may own4001/4096; web mode disables4002/iOS and AJ must be reminded before launch. No Tailscale/network/LaunchAgent/push/PR/merge changes. Use canonical sandbox only for synthetic runs, never manual api_server. Guard cap10GiB unchanged; peak10,374,959,926bytes, tight headroom. Known unrelated62desktop-page/four sandbox-bootstrap failures remain outside selected bar; ElectronTS7053 remains. Detailed historical failures/repair attempts remain in prior run receipts.

@@ -196,8 +196,8 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       notifications: cloudEnabled ? createLiveNotificationsGateway(productionApiBase, config.taskToken, cloudFetcher) : undefined,
       memory: createLiveMemoryGateway(apiBase, config.taskToken, localFetcher),
       permissions: createLivePermissionGateway(apiBase, config.taskToken, localFetcher),
-      // Human approval surfaces skip the AGENT_LOCAL bypass and require the cloud bearer (agent_approvals_routes.ts).
-      approvals: browser ? undefined : createLiveApprovalGateway(apiBase, config.taskToken, fetcher),
+      // Browser decisions use the trusted web host; desktop decisions retain the native signed route.
+      approvals: browser ? createBrowserApprovalGateway(apiBase, localFetcher) : createLiveApprovalGateway(apiBase, config.taskToken, fetcher),
       delegation: createLiveDelegationGateway(apiBase, config.taskToken, localFetcher),
       mcp: createLiveMcpGateway(apiBase, config.taskToken, localFetcher, config.mcpReady),
       skills: createLiveSkillGateway(apiBase, config.taskToken, localFetcher),
@@ -216,7 +216,9 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       settings: cloudEnabled ? createLiveSettingsGateway(productionApiBase, config.taskToken, cloudFetcher) : undefined,
       runtime: createLiveRuntimeGateway(apiBase, localFetcher),
       dayflow: createLiveDayflowGateway(apiBase, localFetcher),
-      sharedAgents: browser ? undefined : createLiveSharedAgentsPort(apiBase, config.taskToken, createLiveSessionsGateway(apiBase, config.taskToken, localFetcher), fetcher),
+      sharedAgents: createLiveSharedAgentsPort(apiBase, config.taskToken,
+        createLiveSessionsGateway(apiBase, config.taskToken, localFetcher), browser ? localFetcher : fetcher,
+        undefined, browser ? 'trusted-tailnet-web' : 'bearer'),
       // #1374 — undefined outside the Electron shell (plain browser preview, or a build with the
       // RHYTHM_REMOTE_ATTACH kill switch off); the gateway itself reports `enabled: false` then.
       remoteSessions: createLiveRemoteSessionsGateway(
@@ -224,10 +226,9 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
           : (window as unknown as { rhythmShell?: { remoteEnvironments?: RemoteEnvironmentsBridge } }).rhythmShell?.remoteEnvironments,
       ),
       workstreams: createLiveWorkstreamsGateway(apiBase, config.taskToken, browser ? localFetcher : fetcher),
-      // Coordinator is the one protected local surface that requires the
-      // signed-in bearer (requireLocalOrCloudAuth). Keep localFetcher for all
-      // established local routes, where its credential stripping is required.
-      coordinatorConversations: createLiveCoordinatorConversationGateway(apiBase, fetcher, undefined, config.taskToken),
+      // The web host validates its configured owner; desktop keeps its bearer.
+      coordinatorConversations: createLiveCoordinatorConversationGateway(apiBase,
+        browser ? localFetcher : fetcher, undefined, config.taskToken, browser ? 'trusted-tailnet-web' : 'bearer'),
       // This is another protected local route. It intentionally keeps the
       // signed-in bearer while established local routes continue to strip it.
       dayflowSourceConsent: createLiveDayflowSourceConsentGateway(apiBase, fetcher, config.taskToken),
@@ -277,7 +278,7 @@ import { createLiveUserPreferencesGateway } from './user-preferences';
 import { createLiveNotificationsGateway } from './notifications';
 import { createLiveMemoryGateway } from './memory';
 import { createLivePermissionGateway, type PermissionGateway } from './permissions';
-import { createLiveApprovalGateway, type ApprovalGateway } from './approvals';
+import { createBrowserApprovalGateway, createLiveApprovalGateway, type ApprovalGateway } from './approvals';
 import { createLiveDelegationGateway, type DelegationGateway } from './delegation';
 import { createLiveMcpGateway, type McpGateway } from './mcp';
 import { createLiveSkillGateway, type SkillGateway } from './skills';

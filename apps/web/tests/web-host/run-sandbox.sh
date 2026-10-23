@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Every synthetic config and generated sandbox directory is private from birth.
+umask 077
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 export RHYTHM_SANDBOX_DIR="${RHYTHM_SANDBOX_DIR:?Choose a new sandbox directory per run}"
@@ -7,6 +9,12 @@ export RHYTHM_SANDBOX_API_PORT="${RHYTHM_SANDBOX_API_PORT:-4098}" RHYTHM_SANDBOX
 cloud_port=7097
 export RHYTHM_APPROVED_FIXTURE_ROOT="${RHYTHM_SANDBOX_DIR}-fixtures"
 fixture_flags=(--web-host "--api-port=$RHYTHM_SANDBOX_API_PORT")
+# Explicitly pin title/extraction defaults only in the dedicated scripted proof run.
+case "${RHYTHM_WEB_SCRIPTED_DEFAULTS:-}" in
+  '') ;;
+  1) fixture_flags+=(--web-scripted-defaults) ;;
+  *) printf 'RHYTHM_WEB_SCRIPTED_DEFAULTS must be unset or 1\n' >&2; exit 2 ;;
+esac
 # Synthetic cloud custody (slice 2b): fake loopback upstream, protected synthetic credential.
 if [[ "${RHYTHM_WEB_CLOUD_TEST:-}" == 1 ]]; then fixture_flags+=(--web-cloud "--cloud-port=$cloud_port"); fi
 node tools/dev/sandbox_fixture.mjs "$RHYTHM_APPROVED_FIXTURE_ROOT" "${fixture_flags[@]}"
@@ -27,6 +35,8 @@ fi
 # prompt is held `proof_unavailable` by the Dayflow guard before the provider: see
 # docs/ai/runs/2026-10-10-router-sandbox-stop-handoff.md. Set explicitly; never inherit it.
 export RHYTHM_WORKSTREAMS_ENABLED=true
+# Catalog parity includes opt-in Research; sandbox.sh forwards only this exact safe value.
+export RHYTHM_RESEARCH_PROJECTS_ENABLED=true
 provider='' fake=''
 cleanup() {
   local result=$? teardown=0
@@ -50,7 +60,7 @@ tools/dev/sandbox.sh up --foreground > apps/web/tests/web-host/sandbox.log 2>&1 
 ready=0
 for n in {1..180}; do
   kill -0 "$holder" 2>/dev/null || break
-  if curl -sf "http://127.0.0.1:$RHYTHM_SANDBOX_API_PORT/health" >/dev/null && curl -sf "http://127.0.0.1:$RHYTHM_SANDBOX_ENGINE_PORT/global/health" >/dev/null; then ready=1; break; fi
+  if curl --connect-timeout 1 --max-time 2 -sf "http://127.0.0.1:$RHYTHM_SANDBOX_API_PORT/health" >/dev/null && curl --connect-timeout 1 --max-time 2 -sf "http://127.0.0.1:$RHYTHM_SANDBOX_ENGINE_PORT/global/health" >/dev/null; then ready=1; break; fi
   sleep 1
 done
 if [[ "$ready" != 1 ]]; then tools/dev/sandbox.sh status; exit 1; fi

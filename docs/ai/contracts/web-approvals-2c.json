@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "request": "tailscale-web-slice2c",
+  "generated": "2026-10-22",
+  "schemaNote": "Supplemental user-request contract, not a numbered GitHub issue; no issue number is fabricated. Criterion fields follow the acceptance-contract schema.",
+  "sourcePlan": "/Users/ajhochhalter/Documents/Obsidian Vault/Projects/rhythm/Tailscale Web App Plan.md#4-make-approvals-work-without-a-desktop-signature-prompt",
+  "parentContract": "docs/ai/contracts/web-parity-20261022.json",
+  "stack": "typescript",
+  "not_tested": [],
+  "liveProofRequiredSeparately": "apps/web/tests/web-host/web-host-approvals.spec.ts must cover matrix rows 72-75 and actual engine continuation; these HTTP tests do not start an engine or claim live UI proof.",
+  "transport": {
+    "list": "GET /web/approvals?status=pending returns a pending-card array with decisionMode trusted-tailnet-web, sessionId, display fields, revision and cardHash; no raw nonce or signing material",
+    "decision": "PATCH /web/approvals/:id accepts exactly status, revision and cardHash",
+    "result": "id, status, decidedAt and audit",
+    "serverAudit": {
+      "kind": "trusted-tailnet-web-decision-v1",
+      "source": "trusted-tailnet-web",
+      "assurance": "trusted-tailnet",
+      "attestation": "owner_chose_in_browser",
+      "owner": "configured ownerUserId and ownerName",
+      "displayIdentity": "<ownerName> via browser",
+      "binding": "decision, revision and cardHash from the transactionally revalidated card"
+    }
+  },
+  "criteria": [
+    {
+      "criterion_id": "web-approvals-2c-c01",
+      "text": "Web-mode bootstrap advertises approvals; the API works without bearer or signing material and returns exact pending card fields.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/web_approvals_contract.test.ts",
+      "test_id": "web-approvals-2c-c01: tokenless web capability lists exact pending cards without signing material",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "web-approvals-2c-c02",
+      "text": "List and decision exclude foreign, NULL-owner and sessionless cards without changing ownership.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/web_approvals_contract.test.ts",
+      "test_id": "web-approvals-2c-c02: foreign, ownerless and sessionless cards are neither listed nor decidable",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "web-approvals-2c-c03",
+      "text": "Changed displayed or execution fields and rotated nonces invalidate the old card revision or hash without mutating its decision state.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/web_approvals_contract.test.ts",
+      "test_id": "web-approvals-2c-c03: changed display, execution bindings and nonce refuse a stale card without mutation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "web-approvals-2c-c04",
+      "text": "Explicit, fallback and malformed expiry refuse Approve with 403 while the original nonce and unconsumed pending state remain intact.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/web_approvals_contract.test.ts",
+      "test_id": "web-approvals-2c-c04: expired and malformed cards refuse Approve with 403 and retain their nonce unconsumed",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "web-approvals-2c-c05",
+      "text": "Concurrent, duplicate and opposite decisions persist exactly one decision and consume the nonce once.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/web_approvals_contract.test.ts",
+      "test_id": "web-approvals-2c-c05: concurrent decisions persist one result and replay or opposite decisions cannot consume twice",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "web-approvals-2c-c06",
+      "text": "Unknown request keys fail; owner and honest trusted-tailnet-web provenance are authored by the server and persisted exactly as returned.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/web_approvals_contract.test.ts",
+      "test_id": "web-approvals-2c-c06: exact body keys and server-authored trusted-tailnet-web receipt prevent provenance spoofing",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "web-approvals-2c-c07",
+      "text": "The real signed consumption route accepts an unchanged web-approved security card once and rejects a changed card or receipt without consumption.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/web_approvals_contract.test.ts",
+      "test_id": "web-approvals-2c-c07: downstream signed consumption accepts an unchanged web receipt once and rejects changed cards or receipts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "web-approvals-2c-c08",
+      "text": "Host and Origin guards reject foreign requests, the adapter is absent outside web mode, and signed desktop and Hermes authority remain intact.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/web_approvals_contract.test.ts",
+      "test_id": "web-approvals-2c-c08: Host/Origin guards, web-off absence and existing native/Hermes authority remain intact",
+      "status": "pass"
+    }
+  ],
+  "baseline": {
+    "status": "six_behavioral_red_one_existing_guard_pass_one_fixture_failure",
+    "command": "cd apps/api_server; with all inherited RHYTHM_* unset: ./node_modules/.bin/vitest run src/__tests__/web_approvals_contract.test.ts --no-file-parallelism",
+    "log": "/private/tmp/rhythm-web-approvals-contract-red-20261022.log",
+    "exitCode": 1,
+    "durationSeconds": 5.14,
+    "tests": {
+      "failed": 7,
+      "passed": 1,
+      "genuineMissingFeatureFailures": 6,
+      "fixtureFailures": 1
+    },
+    "genuineRedIds": [
+      "web-approvals-2c-c01",
+      "web-approvals-2c-c02",
+      "web-approvals-2c-c03",
+      "web-approvals-2c-c04",
+      "web-approvals-2c-c05",
+      "web-approvals-2c-c06"
+    ],
+    "preservedGuardPass": [
+      "web-approvals-2c-c08"
+    ],
+    "fixtureFailure": {
+      "criterion": "web-approvals-2c-c07",
+      "observed": "Internal taint POST returned 401 before web adapter was reached",
+      "diagnosis": "Internal routes captured their bearer requirement at module import before beforeEach sets agentLocal",
+      "repair": "Add the real synthetic owner bearer only to internal taint, bound-card creation and signed consumption calls; browser GET and PATCH remain tokenless"
+    },
+    "repairAttempts": 1,
+    "caveat": "c07 was not behaviorally RED-proven before implementation; its first valid-fixture execution passed after the root backend implementation landed."
+  },
+  "currentRun": {
+    "status": "pass",
+    "proof": "real HTTP, migrated in-memory SQLite and production services; no running engine or browser",
+    "command": "cd apps/api_server; with all inherited RHYTHM_* unset: ./node_modules/.bin/vitest run src/__tests__/web_approvals_contract.test.ts --no-file-parallelism",
+    "log": "/private/tmp/rhythm-web-approvals-contract-red2-20261022.log",
+    "logNameNote": "The second log kept its planned red2 filename; it actually records GREEN because backend implementation landed before this run.",
+    "exitCode": 0,
+    "durationSeconds": 3.61,
+    "tests": {
+      "passed": 8,
+      "failed": 0
+    },
+    "repairAttempts": 1,
+    "sourceChangedAfterRun": true,
+    "pendingVerification": "Root-coordinated API build and contract rerun after the inert fixture status correction; no subagent checks run.",
+    "buildRepair": {
+      "attempt": 1,
+      "failureLog": "/private/tmp/rhythm-web-2c-api-build-20261022.log",
+      "observed": "TS2345 at web_approvals_contract.test.ts:76: completed is not an AgentSessionStatus",
+      "diagnosis": "The test used an invalid synthetic terminal status; Vitest transpilation did not typecheck it.",
+      "correction": "Use the declared closed status for the inert no-SDK fixture; assertions and production source are unchanged."
+    },
+    "unverified": [
+      "live browser matrix rows 72-75",
+      "actual engine continuation",
+      "packaged desktop regression"
+    ]
+  }
+}

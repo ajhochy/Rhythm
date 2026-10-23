@@ -173,7 +173,7 @@ export function Profiles() {
   // draft. Navigation explicitly resets the draft and binds it to the chosen ID.
   useEffect(() => {
     if (dirty || saving) return;
-    setDraft(structuredClone(selected)); setBaseline(draftSignature(selected)); setSelectedId(selected.id);
+    setDraft(structuredClone(selected)); setSkillMode(skillModeFor(selected.allowedSkillsJson)); setBaseline(draftSignature(selected)); setSelectedId(selected.id);
   }, [selected.id, selected.updatedAt, selected.isDefault, saving, dirty]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { if (retryTimer.current) window.clearTimeout(retryTimer.current); }, []);
   useEffect(() => {

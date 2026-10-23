@@ -788,3 +788,13 @@ Bounded owned-session fixture c7 passed, while fresh native UI creation produced
 ## 2026-10-11 installed69 isolated closeout
 
 Actual live proposal hold with installed strict-schema/binding-spread contradiction (C3 inference); native repairedskills absent in fresh HOME (C5); owned unenrolled fixture missed normal ownerNULL UI creation (C2); irrelevant Memory excerpt admitted (C3); Dayflow fixture primary_designation setup refuses after ordinaryroot designation (C5); planning receipt/status display lacks accurate sync coverage (C1); sign-in modelcatalog stale until normal relaunch (C5). Keep current8passes/6setuprefusals separate from earlierfresh14passes. True bare retired Memory continuation abstains but misexplains olderhiddenevidence. Routing choice persists restart; supported Reconnect required, no addedturn. No full deliverable PASS or current platformevaluatorhold; coding artifact/delivery/cancellation gates blocked. Evidence: docs/ai/runs/2026-10-11-installed-69-isolated-closeout.md and private current receipts.
+
+
+## 2026-10-22 — Web candidate desktop launch checkpoint
+
+- **Result**: smoke PASS for the candidate desktop launch only; full verification claim unknown, no divergence.
+- **Category**: none for launch behavior; process category `dependency-projection`; W3 records unavailable TodoWrite tooling without fabricated calls.
+- **Criteria affected**: `web-candidate-desktop-launch-checkpoint`. Native accessibility showed Environment Live, healthy API 4001/engine 4096 and the Browser access menu on signed source `6081e4fd81`.
+- **Root cause**: the initial package dependency projection omitted nested SDK dependencies; six local wrappers repaired resolution and package/sign attempt 2 exited 0. No product code changed.
+- **Suggested fix**: include nested workspace dependency directories in projections and preserve the distinction between launch evidence, pending native credential export and browser qualification.
+- **Remaining**: all 93 included browser cases remain `not_run`; Slice 2c has no executable contract yet. No full parity or credential-export completion is claimed. Structured receipt: `.agent-stack/postmortems/2026-10-22-web-candidate-launch.json`.

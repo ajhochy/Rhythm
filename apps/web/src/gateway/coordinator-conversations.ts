@@ -636,15 +636,16 @@ function isAbort(error: unknown): boolean {
 }
 
 /**
- * Coordinator desktop adapter. This one local API surface is protected by
- * requireLocalOrCloudAuth, so it deliberately receives the signed-in bearer
- * from the live gateway. It never reaches the SDK or journals that credential.
+ * Desktop keeps the signed-in bearer. The explicit browser mode is composed
+ * with trustedBrowserFetcher and uses the server's validated owner context.
+ * Neither transport sends a credential to the SDK or journal.
  */
 export function createLiveCoordinatorConversationGateway(
   apiBase: string,
   fetcher: typeof fetch,
   timeoutMs?: number,
   taskToken?: string,
+  transport: 'bearer' | 'trusted-tailnet-web' = 'bearer',
 ): CoordinatorConversationGateway {
   const authorization = taskToken?.trim();
   // The trailing comma keeps this generic arrow unambiguous when a consumer
@@ -655,7 +656,7 @@ export function createLiveCoordinatorConversationGateway(
     parse: (value: unknown, status: number) => Result | undefined,
     signal?: AbortSignal,
   ): Promise<Result> => {
-    if (!authorization) {
+    if (!authorization && transport !== 'trusted-tailnet-web') {
       throw new CoordinatorTransportError('Coordinator sign-in is required. Your draft is still here.', 401, false);
     }
     const controller = new AbortController();
@@ -672,7 +673,7 @@ export function createLiveCoordinatorConversationGateway(
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          authorization: `Bearer ${authorization}`,
+          ...(transport === 'bearer' ? { authorization: `Bearer ${authorization}` } : {}),
         },
         body: JSON.stringify(payload),
         signal: controller.signal,

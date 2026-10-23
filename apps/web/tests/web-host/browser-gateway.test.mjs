@@ -40,7 +40,7 @@ test('A4 browser composition rejects desktop assumptions, omits cloud and sends 
     const gateway = createLiveGateway({ browserOrigin: origin });
     assert.equal(gateway.mode, 'live');
     assert.equal(gateway.domains.tasks, undefined);
-    assert.equal(gateway.domains.approvals, undefined);
+    assert.ok(gateway.domains.approvals);
     assert.equal(gateway.domains.settings, undefined);
     await gateway.health.api();
     await gateway.health.engine();
