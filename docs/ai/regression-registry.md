@@ -292,3 +292,13 @@ scheduled_task_id FROM agent_sessions WHERE id = ?`. Compare the approval
 Add an entry when you fix something a future investigation could mistake for
 new. Keep each to: symptom the user reports, fixing commit, one runnable
 check, and the trap that makes it look like something else.
+
+## Desktop offline while browser works with web hosting enabled
+
+**Symptom** — native window shows API4001/engine4096 errors and unavailable session/project/model catalogs, while the HTTPS browser works.
+
+**Cause** — real `RHYTHM_WEB_PUBLIC_ORIGIN` includes localhost and127.0.0.1 alongside the remote browser origin. The shared surface guard enters the browser branch first for those loopback Hosts and rejects the trusted native `rhythm://app` Origin. Earlier positive contracts used only the remote browser Host and missed the collision.
+
+**Fix** — `e8a8f09441`: validate the existing trusted-native Origin plus valid loopback Host before browser-origin handling. All browser/foreign/null/remote-native rejection paths remain. Signed build `4bd758e095` independently shows nativeAPI/engine healthy, loaded existing session and reload, concurrent HTTPS/cloud/WSS101.
+
+**Check** — `web_host_surface_contract.test.ts` overlapping-host cases; gated `apps/web/tests/web-host/desktop-coexistence-live.test.mjs` via canonical sandbox with both loopback origins configured. Mutationoldguard fails nativeHTTP/preflight+WS; fixedguard3/3. See [exact live commands and packaged proof](runs/2026-10-22-desktop-web-coexistence.md). Do not treat remote-only webHost tests or originless main-process health checks as native-renderer proof.

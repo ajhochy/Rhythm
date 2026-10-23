@@ -821,3 +821,11 @@ Actual live proposal hold with installed strict-schema/binding-spread contradict
 - Evidence: plist lint/bootstrap0, launchd runs2 with automatic recovery, required flags loaded, HTTPS render/reload/cloud/WSS101/TLS200.
 - Limit: full logout/login not forced; existing candidate path retained.
 - No source rebuild or network change.
+
+## 2026-10-22 — Native renderer blocked by overlapping web Hosts
+
+- Initial smoke FAIL despite passing F1/F2/security checks: C2 wrong contract input (remote-only browser Host versus real loopback aliases).
+- Root cause: browser branch preempted existing native loopback trust, rejectingrhythm://app.
+- Fix: preserve trusted-native+loopback path first; no remote native-origin allowance or browser/CSRF relaxation.
+- Contract RED3failed/11passed, focusedGREEN53/53; real API/engine collision mutationRED2failed/1passed→GREEN3/3. Originalsecurity8/8; browser selection18/19 dueobserver race→fresh19/19 with assertions retained.
+- Final smoke PASS: actual signed4bd native API/engine healthy, session loaded and reload works; concurrent HTTPSbrowser/cloud/WSS101. Existing LaunchAgent and Serve preserved.

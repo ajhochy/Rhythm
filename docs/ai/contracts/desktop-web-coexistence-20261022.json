@@ -30,8 +30,8 @@
       "criterion_id": "desktop-web-c4",
       "text": "desktop window fails while browser window works/?",
       "mode": "manual",
-      "status": "pending",
-      "reason": "Verify the rebuilt signed candidate through native accessibility/screenshot and the actual HTTPS browser; no real account mutation or paid turn."
+      "status": "pass",
+      "reason": "Actual signed native desktop shows API/engine healthy, profiles and existing session loaded; reloaded and captured. Concurrent actual HTTPS browser render/reload/cloud/WSS101 passed. No real account mutation or new model turn."
     }
   ],
   "stack": "typescript",

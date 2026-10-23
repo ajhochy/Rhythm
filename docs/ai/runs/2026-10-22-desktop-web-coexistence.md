@@ -4,7 +4,7 @@ repo: Rhythm
 branch: feat/tailscale-web-app-20261022
 pr: null
 issues: []
-status: unverified-packaged-runtime
+status: repaired-and-packaged-verified
 tags: [run, rhythm, regression, desktop, web]
 ---
 
@@ -39,3 +39,16 @@ Packaged repair remains UNVERIFIED until rebuilt/signed and native UI plus HTTPS
 ### Browser regression observer correction
 
 Original security8/8 passed. Additional Playwright selection initially18passed/1failed (19tests,37.803s), zero retries/skips/flakes, canonicaldown0. Only #45 failed with Chromium `Network.getResponseBody: No resource with given identifier found`, explicitly reporting a response invalidated by navigation. Source registered its response waiter after initial goto while the first page catalog could still finish, then reloaded before reading that body. Following the already recorded #41 recon pattern, wait for initial profile-label visibility (catalog/editor loaded) before registering the reload observer. Added only this synchronization; retained every catalog/UI equality assertion. This is an observer/codify race, not an app behavior fix. Fresh full19 selection running; first failure retained in `/private/tmp/rhythm-web-desktop-fix-browser-20261022-report.json`.
+
+## Final packaged and coexistence proof
+
+Code commit `e8a8f094417f876843cc51cf61f751813ffcfe9d` fixes native precedence; observer-only follow-up/build revision **4bd758e09508655daedcc63cda8f9384f93ed848**. Fresh19 browser selection **19passed/0failed/0skip/0flaky**,37.275s, actualCLI0, originalsecurity8/8 and canonicaldown0. `/private/tmp/rhythm-web-desktop-fix-browser-confirm-20261022-report.json`.
+
+- `bash /private/tmp/rhythm-web-desktop-final-build-sign.sh` — actualCLI0; exact-source full API/engine/Electron package, web TypeScript/Vite build, normalized four owned packaged spawn helpers, Developer ID sign-only. Deep/strict signature verification0; still unnotarized. Logs `/private/tmp/rhythm-web-desktop-4bd758e095-final-{build,web-build,sign}.log`. Unchanged shared10GiB guard; fallback53 preserved. Existing login job was booted out only during replacement of its owned app bundle; no second API started by hand.
+- `python3 -I /private/tmp/rhythm-web-desktop-verify-launch.py` — actualCLI0; API build stamp and engine version exact4bd, five packaged API source/build hashes match (including changed guard), signature valid, browser asset hashes recorded. Existing LaunchAgent plist byte-for-byte unchanged; bootstrap0. Current desktop75471/API75478/engine75524.
+- `python3 -I /private/tmp/rhythm-web-desktop-repair-20261022/ready.py` — actualCLI0; exact bundled executables own4001/4096, engine version4bd, owner/cloud ready, served browser assets match, mobile4002 absent.
+- **Actual native UI**, using CUA against the running Rhythm window, before and after reload: `rhythm://app/index.html#/agents`, **Environment: Live · API :4001 healthy · Engine :4096 healthy**, profiles loaded, existing session loaded, New session enabled; previous session/project/model/account errors absent. Captured settled AX+screenshot together after reload completed, replacing the intermediate checking-state screenshot. Private screenshot `/private/tmp/rhythm-web-desktop-repaired-20261022.jpg`; no raw private UI tree committed. No message sent/model turn.
+- `node /private/tmp/rhythm-web-desktop-repair-20261022/browser-proof.mjs` — actualCLI0; actual MagicDNS HTTPS Tasks render/reload, cloud/owner ready, secure WebSocket101, native bridge absent, zero mutations/page errors. Both clients are now working concurrently.
+- Final launchctl state running with matching desktopPID. LaunchAgent configuration and Tailscale Serve are unchanged from accepted setup. No ACL/Funnel/LaunchAgent changes beyond unloading/reloading the same existing job for the owned bundle replacement.
+
+[Durable public receipt](../../testing/results/2026-10-22-desktop-web-coexistence.json). Earlier93/93 matrix, real-account4, paid cases and large API/Electron gates remain historical evidence at their recorded revisions; they were not all rerun or relabeled at4bd. This change has53focused units,3real-engine collision checks,8original security checks,19rendered browser regressions, fresh exact signed package, and actual native+HTTPS proof. No universal repository-green claim; known baseline API/Electron typecheck failures remain recorded. No extra paid calls, real test creates, profile/provider/settings/schedule/MCP edits, push, PR or merge.

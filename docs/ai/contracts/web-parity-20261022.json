@@ -5556,6 +5556,14 @@
       "status": "installed_launchd_start_and_automatic_recovery_verified",
       "receipt": "docs/testing/results/2026-10-22-web-login-agent.json",
       "fullLogoutLoginPerformed": false
+    },
+    "desktopCoexistenceRepair": {
+      "status": "passed",
+      "codeRevision": "4bd758e09508655daedcc63cda8f9384f93ed848",
+      "receipt": "docs/testing/results/2026-10-22-desktop-web-coexistence.json",
+      "nativeActualUi": true,
+      "httpsBrowser": true,
+      "historicalMatrixRowsNotRerun": true
     }
   }
 }

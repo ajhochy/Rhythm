@@ -1,0 +1,48 @@
+{
+  "run_id": "2026-10-22-desktop-web-coexistence-initial",
+  "issue": null,
+  "date": "2026-10-22",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "F1-native-web-coexistence",
+      "text": "Preserve desktop API and WebSocket access while browser hosting is enabled.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Previous guard/HTTP/WS contracts configured only a remote browser Host; real launch included localhost/127.0.0.1 browser hosts, causing the browser branch to reject the trusted native origin. Actual native screenshot and AX show API/engine errors; actual HTTP native Origin403 versus browser200."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/middleware/local_agent_surface_guard.ts",
+    "apps/api_server/src/middleware/web_host_surface_contract.test.ts",
+    "apps/web/tests/web-host/desktop-coexistence-live.test.mjs"
+  ],
+  "failure_output": "Origin rhythm://app with Host127.0.0.1:4001 orlocalhost:4001: HTTP403 FORBIDDEN_ORIGIN; native API and engine indicators error while browser200.",
+  "overall_category": "C2",
+  "suggested_follow_up": "Use the actual combined browser/native Host and Origin configuration in coexistence contracts; fixed in e8a8f09441 and qualified on signed4bd758e095."
+}

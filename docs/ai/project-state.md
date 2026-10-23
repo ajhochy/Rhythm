@@ -2,13 +2,15 @@
 
 ## Current focus
 
+**Desktop/browser coexistence repaired:** trusted native origin was rejected when its loopback Host also appeared in the browser allowlist. Narrow guard precedence fix, unit/live RED→GREEN, signed4bd candidate now shows native API/engine healthy and existing session loaded; concurrent HTTPS browser render/reload/cloud/WSS passed. [Repair receipt](runs/2026-10-22-desktop-web-coexistence.md).
+
 **External access repaired and confirmed:** AJ confirmed Rhythm loads on Mac’s Mac mini. Personal-tailnet policy now permits all tailnet sources to this Mac TCP4001 over IPv4/IPv6. Six prior deny tests now require allow; other rules preserved. [Repair receipt](runs/2026-10-22-tailscale-web-external-access.md).
 
 Local browser acceptance passed: **93/93 included matrix cases**, with 25 AJ-approved exclusions, plus **4/4 dedicated real-account checks**. All three owned test records were deleted and read back; zero leftovers. [Final report](runs/2026-10-22-tailscale-web-final.md) · [Inventory and history](contracts/web-parity-20261022.json) · [Public evidence](../testing/results/2026-10-22-web-parity-final.json).
 
 ## Branch and running candidate
 
-Feature worktree eager-star, branch `feat/tailscale-web-app-20261022`, local commits only. Code/build `89596fc186fa2662da66e0ba2f19413cbf6559c7`; final documentation is committed separately. Signed, unnotarized `apps/electron/dist/Rhythm.app` v0.18.83 is running: desktop68041, API68048 on loopback4001, engine68094 on4096. **http://localhost:4001/#/tasks** passed rendered Chromium, reload, real cloud and WebSocket101 checks. Mobile gateway4002 is disabled in this web session. No install, push, PR or merge. The separately approved private HTTPS cutover is complete; no Funnel changes. AJ subsequently authorized the login LaunchAgent, now installed and verified.
+Feature worktree eager-star, branch `feat/tailscale-web-app-20261022`, local commits only. Current code/build `4bd758e09508655daedcc63cda8f9384f93ed848` (original93-row acceptance used89596fc186fa2662da66e0ba2f19413cbf6559c7); final documentation is committed separately. Signed, unnotarized `apps/electron/dist/Rhythm.app` v0.18.83 is running: desktop75471, API75478 on loopback4001, engine75524 on4096. **http://localhost:4001/#/tasks** passed rendered Chromium, reload, real cloud and WebSocket101 checks. Mobile gateway4002 is disabled in this web session. No install, push, PR or merge. The separately approved private HTTPS cutover is complete; no Funnel changes. AJ subsequently authorized the login LaunchAgent, now installed and verified.
 
 Fallback `/private/tmp/rhythm-feature-playwright-2026-10-19/apps/electron/dist/Rhythm.app` at53a2c94b8e and its worktree remain intact. Existing SQLite backup metadata/integrity verified before launch. Exported real cloud credential contents were never inspected; metadata only. No existing profiles/providers/settings/schedules/MCP configuration was edited.
 
