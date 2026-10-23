@@ -5,8 +5,6 @@
   "candidateRun": 39980537383,
   "baseFailingTests": 52,
   "candidateFailingTests": 54,
-  "baseFailedSuites": 1,
-  "candidateFailedSuites": 1,
   "candidateOnlyFailures": [
     "src/services/__tests__/qualification_agent_projection.test.ts > qualification profile projection uses the engine configuration directory > makes a saved profile discoverable in native configuration",
     "src/services/__tests__/qualification_agent_projection.test.ts > qualification profile projection uses the engine configuration directory > makes a saved profile discoverable in web-sandbox configuration"
@@ -68,5 +66,21 @@
     "src/services/qualification_model_loan_authority.test.ts > API authority revalidates the private credential projection and deadline even when routing changes"
   ],
   "repair": "Use os.tmpdir() for the two qualification profile test roots; product source and assertions unchanged.",
-  "repairCiPending": true
+  "repairCiPending": false,
+  "baseCollectionFailures": 1,
+  "candidateCollectionFailures": 1,
+  "finalRevision": "b52db3e10319a3afab823b366e572fe28b2c682a",
+  "finalRun": 39983102272,
+  "finalFailingTests": 52,
+  "finalPassingTests": 9082,
+  "finalSkippedTests": 418,
+  "finalCollectionFailures": 1,
+  "finalFailureSetMatchesBase": true,
+  "finalCandidateOnlyFailures": [],
+  "otherFinalChecks": {
+    "web-unit": "success",
+    "foundation": "success",
+    "fork-checks": "success",
+    "live-postgres-bootstrap": "success"
+  }
 }
