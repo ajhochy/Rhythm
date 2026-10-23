@@ -25,12 +25,21 @@ const failureCategories = ['build-failed', 'discovery-rejected', 'prepare-reject
 const diagnosticSpecs = ['grid', 'primary-model-router', 'mcp-profile-scope', 'coordinator-two-goal', 'org-actual-snapshot']
   .map(name => `apps/web/tests/web-host/web-host-paid-${name}.spec.ts`);
 const errorKinds = ['assertion', 'timeout', 'type', 'reference', 'syntax', 'interrupted', 'test-error'];
+const diagnosticHelpers = ['paid-parity-fixture.ts', 'paid-task-setup-api.ts'].map(name => `apps/web/tests/web-host/${name}`);
+const diagnosticFacts = { 'browser-uuid-unavailable': 'crypto.randomUUID is not a function',
+  'browser-type-error': 'TypeError:', 'browser-page-error': 'pageerror',
+  'locator-error': 'locator.', 'assert-equal': 'toEqual', 'assert-object': 'toMatchObject',
+  'assert-value': 'toBe(', 'assert-visible': 'toBeVisible', 'assert-length': 'toHaveLength',
+  'runtime-timeout': 'TimeoutError', 'fixture-assertion': 'AssertionError' };
+const safeFacts = value => Array.isArray(value) ? Object.keys(diagnosticFacts).filter(key => value.includes(key)) : [];
+
 
 function reviewedFailureSite(location, reviewedSpecs, errorKind) {
   if (!location || !Number.isSafeInteger(location.line) || location.line <= 0
     || !Number.isSafeInteger(location.column) || location.column <= 0 || !errorKinds.includes(errorKind)) return undefined;
-  const path = diagnosticSpecs.find(path => Array.isArray(reviewedSpecs) && reviewedSpecs.includes(path)
-    && [path, join(checkoutRoot, path), path.slice('apps/web/tests/web-host/'.length)].includes(location.file ?? location.path));
+  const selected = Array.isArray(reviewedSpecs) ? diagnosticSpecs.filter(path => reviewedSpecs.includes(path)) : [];
+  const path = [...selected, ...(selected.length ? diagnosticHelpers : [])].find(path =>
+    [path, join(checkoutRoot, path), path.slice('apps/web/tests/web-host/'.length)].includes(location.file ?? location.path));
   return path ? { path, line: location.line, column: location.column, errorKind } : undefined;
 }
 export function installedBrowserCache() {
@@ -121,7 +130,8 @@ export function publicEvidence(state, exitCode, reason) {
     caseResults: (Array.isArray(state.caseResults) ? state.caseResults : []).filter(row => selected.includes(row.caseId)).map(row => ({ caseId: row.caseId,
       observed: number(row.observed), status: ['passed', 'failed', 'missing', 'duplicate'].includes(row.status) ? row.status : 'failed',
       attempts: number(row.attempts), durationMs: number(row.durationMs),
-      failureSite: reviewedFailureSite(row.failureSite, state.reviewedSpecs, row.failureSite?.errorKind) })),
+      failureSite: reviewedFailureSite(row.failureSite, state.reviewedSpecs, row.failureSite?.errorKind),
+      failureFacts: safeFacts(row.failureFacts) })),
     startedAt: number(state.startedAt), testStartedAt: number(state.testStartedAt), testFinishedAt: number(state.testFinishedAt),
     issuedAt: number(state.issuedAt), stopAt: number(state.stopAt), finishedAt: Date.now() };
 }
@@ -144,16 +154,28 @@ export function summarizePlaywrightReport(report, caseIds, { discovery = false, 
     const passed = tests.length === 1 && (discovery || tests[0].expectedStatus === 'passed' && tests[0].status === 'expected'
       && results.length === 1 && results[0].status === 'passed');
     let failureSite;
+    const failureFacts = new Set();
     if (!passed && !discovery) for (const result of results) {
       if (result.status === 'passed') continue;
       for (const error of result.errors ?? (result.error ? [result.error] : [])) {
         const errorKind = result.status === 'timedOut' ? 'timeout' : result.status === 'interrupted' ? 'interrupted'
           : ({ AssertionError: 'assertion', TimeoutError: 'timeout', TypeError: 'type', ReferenceError: 'reference', SyntaxError: 'syntax' }[error.name] ?? 'test-error');
         failureSite ??= reviewedFailureSite(error.location, reviewedSpecs, errorKind);
+        if (!failureSite && typeof error.stack === 'string') {
+          for (const path of [...diagnosticSpecs, ...diagnosticHelpers]) {
+            const at = error.stack.indexOf(path + ':');
+            if (at < 0) continue;
+            const coordinates = /^(\d+):(\d+)(?:\D|$)/.exec(error.stack.slice(at + path.length + 1));
+            if (coordinates) failureSite ??= reviewedFailureSite({ file: path, line: Number(coordinates[1]),
+              column: Number(coordinates[2]) }, reviewedSpecs, errorKind);
+          }
+        }
+        const diagnostic = JSON.stringify(error).slice(0, 1_000_000);
+        for (const [key, needle] of Object.entries(diagnosticFacts)) if (diagnostic.includes(needle)) failureFacts.add(key);
       }
     }
     return { caseId, observed: tests.length, status: passed ? (discovery ? 'listed' : 'passed') : tests.length === 0 ? 'missing' : tests.length > 1 ? 'duplicate' : 'failed',
-      attempts: results.length, durationMs: results.reduce((sum, result) => sum + (Number.isFinite(result.duration) ? result.duration : 0), 0), failureSite };
+      attempts: results.length, durationMs: results.reduce((sum, result) => sum + (Number.isFinite(result.duration) ? result.duration : 0), 0), failureSite, failureFacts: safeFacts([...failureFacts]) };
   });
   return { caseResults, passed: !unexpected && !(report.errors?.length) && caseResults.every(row => row.status === (discovery ? 'listed' : 'passed')) };
 }

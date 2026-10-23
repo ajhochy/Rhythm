@@ -11,8 +11,8 @@
     "excludedTotal": 25,
     "excludedNativeThisPhase": 13,
     "excludedBackendOnlyClassifier": 12,
-    "currentRunPassed": 90,
-    "currentRunNotRun": 3,
+    "currentRunPassed": 91,
+    "currentRunNotRun": 2,
     "currentRunFailed": 0
   },
   "rules": {
@@ -4026,10 +4026,55 @@
       "webSpec": "apps/web/tests/web-host/web-host-paid-mcp-profile-scope.spec.ts",
       "proof": "paid_isolated",
       "currentRun": {
-        "status": "not_run",
-        "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+        "status": "passed",
+        "proof": "four real fixed-Luna browser turns; inherited/selected allowed owned task call and selected/none canonical denies, actual SDK tool parts and provenance, exact-owned cleanup",
+        "receipt": "/private/tmp/rhythm-web-paid-case-109-R6j410/result.jsonl",
+        "sourceRevision": "96387be1dfd36c15952fa550096b6c58e1239f9a",
+        "sourceSha256": "a62d439c5e9397fe3d51c40cc4d018e00482c350afb1e1c3ef7c3234d126cd1e",
+        "durationMs": 28963,
+        "attempts": 1,
+        "sourceUnchanged": true,
+        "secretsScrubbed": true,
+        "teardownExit": 0
       },
-      "plannedWebSpec": "apps/web/tests/web-host/web-host-mcp-scope.spec.ts"
+      "plannedWebSpec": "apps/web/tests/web-host/web-host-mcp-scope.spec.ts",
+      "currentRunHistory": [
+        {
+          "status": "not_run",
+          "reason": "Authored/static checks only; not executed before naming112 reached repair limit."
+        },
+        {
+          "status": "failed",
+          "proof": "original MCP scope case stopped during setup; shared-helper failure location omitted by earlier allowlist, cause pending bounded diagnostic replay",
+          "receipt": "/private/tmp/rhythm-web-paid-case-109-CIB7TC/result.jsonl",
+          "sourceRevision": "96387be1dfd36c15952fa550096b6c58e1239f9a",
+          "sourceSha256": "0b02789acab104af0a325b4be4df6262e9573c1e1c3b00d4dc7751ac10d2120c",
+          "durationMs": 5160,
+          "sourceUnchanged": true,
+          "secretsScrubbed": true,
+          "teardownExit": 0
+        },
+        {
+          "status": "failed",
+          "proof": "test setup truncated API session response to id/name/profile before strict owner/cwd adoption; canonical ownership assertion remains intact",
+          "receipt": "/private/tmp/rhythm-web-paid-case-109-RpoHrZ/result.jsonl",
+          "sourceRevision": "96387be1dfd36c15952fa550096b6c58e1239f9a",
+          "sourceSha256": "8d6ebed6c49d76a55c8f27c228293325c39264646cf913ea15ac29b78df62daf",
+          "durationMs": 5162,
+          "failureSite": {
+            "path": "apps/web/tests/web-host/paid-parity-fixture.ts",
+            "line": 190,
+            "column": 67,
+            "errorKind": "test-error"
+          },
+          "failureFacts": [
+            "assert-value"
+          ],
+          "sourceUnchanged": true,
+          "secretsScrubbed": true,
+          "teardownExit": 0
+        }
+      ]
     },
     {
       "id": 110,

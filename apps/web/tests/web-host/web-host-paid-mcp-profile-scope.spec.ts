@@ -257,7 +257,8 @@ if (!manifestPath) {
       if (typeof createdSession.id !== 'string' || typeof createdSession.name !== 'string'
         || typeof createdSession.profileId !== 'string')
         throw new Error('UNVERIFIED: created SDK session lacks an owned ID, name or profile');
-      const session = { id: createdSession.id, name: createdSession.name, profileId: createdSession.profileId };
+      const session = { id: createdSession.id, name: createdSession.name, profileId: createdSession.profileId,
+        ownerUserId: createdSession.ownerUserId, cwd: createdSession.cwd };
       expect(sessions.owns(session.name)).toBe(true);
       sessions.remember(session);
       await page.getByTestId(`session-${session.id}`).click();

@@ -192,3 +192,25 @@ test('custody-10 successful canonical cleanup retains the bounded originating st
   assert.equal(receipt.stage, 'startup'); assert.equal(receipt.category, 'startup-process-exited');
   assert.equal(receipt.canonicalDown, true); assert.equal(receipt.secretsScrubbed, true);
 });
+
+
+test('custody-10 shared-fixture failures expose bounded sites and known categories without raw strings', () => {
+  const path = 'apps/web/tests/web-host/web-host-paid-mcp-profile-scope.spec.ts';
+  const helper = 'apps/web/tests/web-host/paid-parity-fixture.ts';
+  const report = { suites: [{ specs: [{ title: '[web-parity-109] synthetic', tests: [{ expectedStatus: 'passed', status: 'unexpected',
+    results: [{ status: 'failed', errors: [{ message: `TypeError: crypto.randomUUID is not a function ${fake}`,
+      location: { file: join(checkoutRoot, helper), line: 295, column: 13 } }] }] }] }] }] };
+  const summary = summarizePlaywrightReport(report, [109], { reviewedSpecs: [path] });
+  assert.deepEqual(summary.caseResults[0].failureSite, { path: helper, line: 295, column: 13, errorKind: 'test-error' });
+  assert.deepEqual(summary.caseResults[0].failureFacts, ['browser-uuid-unavailable', 'browser-type-error']);
+  const receipt = publicEvidence({ caseIds: [109], reviewedSpecs: [path], caseResults: summary.caseResults }, 1, 'failed');
+  assert.deepEqual(receipt.caseResults[0].failureFacts, ['browser-uuid-unavailable', 'browser-type-error']);
+  assert(!JSON.stringify(receipt).includes(fake));
+  const error = report.suites[0].specs[0].tests[0].results[0].errors[0];
+  delete error.location; error.stack = `${fake}\n at hiddenFunction (${join(checkoutRoot, helper)}:295:13)`;
+  const fromStack = summarizePlaywrightReport(report, [109], { reviewedSpecs: [path] });
+  assert.deepEqual(fromStack.caseResults[0].failureSite, summary.caseResults[0].failureSite);
+  assert(!JSON.stringify(fromStack).includes(fake));
+  const forged = publicEvidence({ caseIds: [109], reviewedSpecs: [path], caseResults: [{ caseId: 109, failureFacts: [fake] }] }, 1, 'failed');
+  assert(!JSON.stringify(forged).includes(fake));
+});
