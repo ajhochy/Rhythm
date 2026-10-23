@@ -27,3 +27,7 @@ AJ explicitly approved the separate cutover. **https://ajs-macbook-pro-3.tail379
 ## Integration checks
 
 Web Unit CI passes after resolving real gateway dependencies in test loaders (98/98 locally and CI). Web TypeScript/Vite build passes. Five additional Node contract failures reproduce exactly on mega (current71/76). Linux API CI baseline is52 failing tests plus one failed suite at exact mega base; two new setup-only failures from literal `/private/tmp` were repaired with Node os.tmpdir(), local2/2. Final b52 CI: web/mobile/fork/Postgres green; full server9082pass/52fail/418skip, exact same failure-name set as mega with zero new failures. See the integration run and public CI comparison. The earlier macOS API aggregate7 failures and Linux52 are separate evidence. No universal repository-green claim.
+
+## Open draft PR
+
+[PR1620](https://github.com/ajhochy/Rhythm/pull/1620) (base mega): a coordinator-refused ordinary-chat message now returns the chat to normal with the draft kept. [Run](runs/2026-10-22-coordinator-ordinary-chat-dead-end.md). Needs manual smoke in the app.
