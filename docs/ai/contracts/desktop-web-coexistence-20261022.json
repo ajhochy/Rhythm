@@ -1,0 +1,41 @@
+{
+  "issue": null,
+  "generated": "2026-10-22",
+  "criteria": [
+    {
+      "criterion_id": "desktop-web-c1",
+      "text": "Desktop API and engine remain reachable when loopback browser origins are configured.",
+      "mode": "integration",
+      "test_file": "apps/web/tests/web-host/desktop-coexistence-live.test.mjs",
+      "test_id": "desktop-web-c1: overlapping loopback browser hosts retain actual native API/engine readiness and preflight",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "desktop-web-c2",
+      "text": "Desktop and browser WebSocket connections both succeed in the combined configuration.",
+      "mode": "integration",
+      "test_file": "apps/web/tests/web-host/desktop-coexistence-live.test.mjs",
+      "test_id": "desktop-web-c2: actual native and browser WebSocket upgrades both work with overlapping hosts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "desktop-web-c3",
+      "text": "Foreign/null origins and native origins on remote hosts remain rejected.",
+      "mode": "integration",
+      "test_file": "apps/web/tests/web-host/desktop-coexistence-live.test.mjs",
+      "test_id": "desktop-web-c3: foreign/null origins and native origins on remote hosts remain rejected",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "desktop-web-c4",
+      "text": "desktop window fails while browser window works/?",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Verify the rebuilt signed candidate through native accessibility/screenshot and the actual HTTPS browser; no real account mutation or paid turn."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "desktop-web-c4"
+  ]
+}

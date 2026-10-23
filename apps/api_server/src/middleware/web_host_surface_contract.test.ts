@@ -47,6 +47,9 @@ describe('F1/F2 additive web-host contract (real guard and HTTP CORS)', () => {
   const cases: [string, IncomingHttpHeaders, boolean][] = [
     ['loopback MCP without Origin', { host: '127.0.0.1:4098' }, true],
     ['loopback Electron', { host: '127.0.0.1:4098', origin: 'rhythm://app' }, true],
+    ['foreign Origin on loopback', { host: '127.0.0.1:4098', origin: 'https://evil.example' }, false],
+    ['null Origin on loopback', { host: '127.0.0.1:4098', origin: 'null' }, false],
+    ['Electron Origin on remote browser Host', { host: 'rhythm-web.example.ts.net', origin: 'rhythm://app' }, false],
     ['web same-origin', { host: 'rhythm-web.example.ts.net', origin: 'https://rhythm-web.example.ts.net' }, true],
     ['web originless same-origin', { host: 'rhythm-web.example.ts.net', 'sec-fetch-site': 'same-origin' }, true],
     ['foreign Origin', { host: 'rhythm-web.example.ts.net', origin: 'https://evil.example' }, false],
@@ -58,8 +61,24 @@ describe('F1/F2 additive web-host contract (real guard and HTTP CORS)', () => {
     expect(isAllowedLocalAgentSurfaceRequest(headers)).toBe(expected);
   });
 
+  it.each(['127.0.0.1:4098', 'localhost:4098'])('F1 trusted Electron survives browser Host overlap: %s', host => {
+    webHostConfig!.hosts.push(host);
+    webHostConfig!.origins.push(`http://${host}`);
+    try {
+      expect(isAllowedLocalAgentSurfaceRequest({ host, origin: 'rhythm://app', 'sec-fetch-site': 'cross-site' })).toBe(true);
+      expect(isAllowedLocalAgentSurfaceRequest({ host, origin: `http://${host}`, 'sec-fetch-site': 'same-origin' })).toBe(true);
+      expect(isAllowedLocalAgentSurfaceRequest({ host, origin: 'https://evil.example' })).toBe(false);
+    } finally {
+      webHostConfig!.hosts.pop();
+      webHostConfig!.origins.pop();
+    }
+  });
+
   it('F2 preserves Electron CORS alongside web CORS', async () => {
     const server = await startTestServer(createApp());
+    const host = new URL(server.baseUrl).host;
+    webHostConfig!.hosts.push(host);
+    webHostConfig!.origins.push(server.baseUrl);
     try {
       for (const [host, origin] of [
         [new URL(server.baseUrl).host, 'rhythm://app'],
@@ -76,6 +95,10 @@ describe('F1/F2 additive web-host contract (real guard and HTTP CORS)', () => {
         expect(response.statusCode).toBe(204);
         expect(response.headers['access-control-allow-origin']).toBe(origin);
       }
-    } finally { await server.close(); }
+    } finally {
+      webHostConfig!.hosts.pop();
+      webHostConfig!.origins.pop();
+      await server.close();
+    }
   });
 });
