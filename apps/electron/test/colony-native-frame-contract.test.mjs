@@ -43,7 +43,7 @@ before(async () => {
   assert.deepEqual(await fs.readdir(path.join(root, 'hermes')), ['state.db'])
 }, { timeout: 100000 })
 after(async () => { if (root) await fs.rm(root, { recursive: true, force: true }) })
-for (const name of ['asset-and-private-state', 'sandbox-and-network', 'foreign-actual-frame', 'navigation-revokes-document', 'sibling-and-stale-actual-frame']) {
+for (const name of ['initial-ready-epoch', 'asset-and-private-state', 'sandbox-and-network', 'foreign-actual-frame', 'navigation-revokes-document', 'sibling-and-stale-actual-frame']) {
   test(`native Electron ${name}`, () => {
     assert.equal(typeof view?.registerColonyView, 'function', 'Required actual Colony native view/receiver is missing')
     assert.equal(receipt?.results?.[name]?.pass, true, JSON.stringify(receipt?.results))

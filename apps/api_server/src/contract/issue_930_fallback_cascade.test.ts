@@ -91,7 +91,7 @@ describe('issue #930 fallback cascade contract', () => {
     decideHandoff(SID, 'google', 'gemini-2.5-pro', 'gemini');
 
     expect(await redispatchTurn(SID, d)).toBe(true);
-    expect(d.prepare).toHaveBeenCalledWith(SDK, null, 'google');
+    expect(d.prepare).toHaveBeenCalledWith(SDK, null, 'google', 'retained prompt');
     expect(d.prepare.mock.invocationCallOrder[0]).toBeLessThan(
       (d.prompt as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
     );

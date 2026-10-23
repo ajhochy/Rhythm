@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
+import { sourceModuleUrl } from './helpers/source-module.mjs';
+
+const {
   localUserPreferencesKey,
   readLocalUserPreferences,
   shouldEscalatePermission,
   USER_PREFERENCES_CHANGED_EVENT,
   writeLocalUserPreferences,
-} from '../src/gateway/user-preferences.ts';
+} = await import(sourceModuleUrl(new URL('../src/gateway/user-preferences.ts', import.meta.url)));
 
 const storageWith = (value) => ({
   value,

@@ -30,6 +30,7 @@ interface CodexAccountsFile {
   accounts?: CodexAccount[]
   defaultAccountId?: string | null
   routing?: Record<string, string>
+  pinned?: Record<string, true>
 }
 
 // Env read lazily so tests can point at temp files.
@@ -71,7 +72,8 @@ export function resolveCodexAccount(sessionId: string | undefined): {
   fallbacks: CodexAccount[]
 } {
   const store = readCodexStore()
-  let override = sessionId ? overrides.get(sessionId) : undefined
+  const pinned = !!sessionId && store.pinned?.[sessionId] === true
+  let override = sessionId && !pinned ? overrides.get(sessionId) : undefined
   if (override && cache.mtimeMs > override.storeMtimeMs) {
     overrides.delete(sessionId!)
     override = undefined
@@ -79,8 +81,9 @@ export function resolveCodexAccount(sessionId: string | undefined): {
   const usable = (store.accounts ?? []).filter((a) => a.status === "ok" && a.access)
   if (usable.length === 0) return { account: undefined, fallbacks: [] }
   const wanted = override?.accountId || (sessionId && store.routing?.[sessionId]) || store.defaultAccountId
-  const account = usable.find((a) => a.id === wanted) ?? usable[0]
-  return { account, fallbacks: usable.filter((a) => a.id !== account.id) }
+  const account = usable.find((a) => a.id === wanted) ?? (pinned ? undefined : usable[0])
+  if (!account) return { account: undefined, fallbacks: [] }
+  return { account, fallbacks: pinned ? [] : usable.filter((a) => a.id !== account.id) }
 }
 
 /** Record failover in memory and notify api_server (fire-and-forget; it persists routing). */

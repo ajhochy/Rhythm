@@ -25,7 +25,8 @@ import {
   rememberToVault,
   verifyMemory,
   deprecateMemory,
-  forgetFromVault,
+  forgetCanonicalMemoryById,
+  forgetCanonicalMemoryAtPath,
   findMemoryRowByRememberId,
   updateMemoryInVault,
   readNoteFull,
@@ -42,6 +43,11 @@ import {
   MEMORY_CONSOLIDATION_PROMPT,
   MEMORY_CONSOLIDATION_SEED_NAME,
 } from './memory_consolidation_seed';
+import {
+  searchMemoryReferencesWithReceipts,
+  EXPLICIT_REFERENCE_MAX_SERIALIZED_CHARS,
+} from './memory_retrieval';
+import { isGenericMemoryAdmissionAllowed } from './automatic_memory_preface';
 
 const memRepo = new AgentMemoryRepository();
 const schedRepo = new AgentScheduledTasksRepository();
@@ -73,7 +79,55 @@ export const agentMemoryService = {
 
   /** Search memories by text query. */
   async search(query: string, ownerUserId?: number, limit = 20) {
-    return memRepo.searchAsync(query, ownerUserId, limit);
+    // Admission is applied in the query (before LIMIT) so withheld rows cannot
+    // starve the shortlist; the JS predicate stays as the authoritative check.
+    return (await memRepo.searchAsync(query, ownerUserId, limit, { genericAdmissionOnly: true }))
+      .filter(isGenericMemoryAdmissionAllowed);
+  },
+
+  /** Explicit native-ranked evidence; intentionally distinct from legacy row search. */
+  async searchReferences(query: string, ownerUserId?: number, limit?: number) {
+    const searched = await searchMemoryReferencesWithReceipts(query, ownerUserId ?? null, {
+      limit,
+      releaseAdmission: isGenericMemoryAdmissionAllowed,
+    });
+    const result = searched.result;
+    const references = result.references.map(reference => {
+      const receipt = searched.canonicalReceipts.find(r => r.indexMemoryId === reference.id && r.sourceId === reference.sourceId);
+      return receipt && receipt.sourceNamespace === 'memory-vault' &&
+        (receipt.indexOwnerUserId === null || receipt.indexOwnerUserId === ownerUserId) &&
+        /^sha256:[a-f0-9]{64}$/.test(receipt.observedVersion)
+        ? { ...reference, referenceSourceId: `memory:${receipt.indexMemoryId}`, referenceVersion: receipt.observedVersion }
+        : reference;
+    });
+    if (limit !== 0) {
+      const envelope = { ...result, references, returned: references.length };
+      while (JSON.stringify(envelope).length > EXPLICIT_REFERENCE_MAX_SERIALIZED_CHARS && references.length > 0) {
+        references.pop();
+        envelope.returned = references.length;
+        envelope.truncated = true;
+      }
+      return envelope;
+    }
+    return { ...result, references: [], returned: 0, truncated: result.hitCount > 0 };
+  },
+
+  /** Internal managed-search form; canonical receipts never enter the public DTO. */
+  async searchReferencesWithReceipts(query: string, ownerUserId?: number, limit?: number) {
+    const result = await searchMemoryReferencesWithReceipts(query, ownerUserId ?? null, {
+      limit,
+      releaseAdmission: isGenericMemoryAdmissionAllowed,
+    });
+    if (limit !== 0) return result;
+    return {
+      result: {
+        ...result.result,
+        references: [],
+        returned: 0,
+        truncated: result.result.hitCount > 0,
+      },
+      canonicalReceipts: [],
+    };
   },
 
   /** List memories, optionally filtered by kind. */
@@ -83,12 +137,16 @@ export const agentMemoryService = {
     limit = 50,
     options: MemoryListOptions = {},
   ) {
-    return memRepo.listAsync(ownerUserId, kind, limit, options);
+    return (await memRepo.listAsync(ownerUserId, kind, limit, { ...options, genericAdmissionOnly: true }))
+      .filter(isGenericMemoryAdmissionAllowed);
   },
 
-  /** Per-kind row counts (ignores the kind filter so every chip gets a number). */
+  /**
+   * Per-kind row counts (ignores the kind filter so every chip gets a number),
+   * over the same generic-admitted collection `list` pages through.
+   */
   async countByKind(ownerUserId?: number, includeDeprecated = true) {
-    return memRepo.countByKindAsync(ownerUserId, includeDeprecated);
+    return memRepo.countByKindAsync(ownerUserId, includeDeprecated, true);
   },
 
   /** Resolve either the derived index-row id or the frontmatter id returned by remember(). */
@@ -98,6 +156,15 @@ export const agentMemoryService = {
       row = await findMemoryRowByRememberId(id, memRepo, options);
     }
     return row;
+  },
+
+  /**
+   * Generic API/MCP reads use this visibility boundary. Internal qualified
+   * Dayflow validation deliberately uses the raw repository path instead.
+   */
+  async getGeneric(id: string, options?: MemoryVaultWriteOptions) {
+    const row = await this.get(id, options);
+    return row && isGenericMemoryAdmissionAllowed(row) ? row : null;
   },
 
   /**
@@ -123,12 +190,16 @@ export const agentMemoryService = {
     if (!row) {
       row = await findMemoryRowByRememberId(id, memRepo, options);
     }
-    if (!row) return false;
+    if (!row) {
+      // The canonical vault is authoritative. A missing disposable index row
+      // must not turn a real frontmatter-id deletion into a false 404.
+      return forgetCanonicalMemoryById(id, options);
+    }
     // Vault-sourced rows carry source='obsidian-memory' and source_id=<vault
     // path>. Delete the note file first (confined to the memory dir), then the
     // derived row. Legacy rows from other sources (no vault file) just drop.
     if (row.source === 'obsidian-memory' && row.sourceId) {
-      await forgetFromVault(row.sourceId, options);
+      return forgetCanonicalMemoryAtPath(row.sourceId, options, id);
     }
     return memRepo.deleteAsync(row.id);
   },

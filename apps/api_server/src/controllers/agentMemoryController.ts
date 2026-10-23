@@ -13,12 +13,16 @@ import {
   formatActor,
 } from '../services/memory_note_format';
 import { logger } from '../utils/logger';
+import {
+  ManagedMemorySearchRefusal,
+  type ManagedMemorySearchService,
+} from '../services/managed_workstream_evidence_capture';
 
 const repo = new AgentMemoryRepository();
 const sessionsRepo = new AgentSessionsRepository();
 
 async function memoryWithAudit(id: string) {
-  const item = await agentMemoryService.get(id);
+  const item = await agentMemoryService.getGeneric(id);
   if (!item) return null;
   return {
     ...item,
@@ -46,6 +50,8 @@ function resolveHumanActor(req: Request): {
 }
 
 export class AgentMemoryController {
+  constructor(private readonly managedMemorySearch?: ManagedMemorySearchService) {}
+
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = req.auth?.user.id;
@@ -73,10 +79,55 @@ export class AgentMemoryController {
       const q = typeof req.query.q === 'string' ? req.query.q : '';
       if (!q.trim()) throw AppError.badRequest('q (search query) is required');
       const userId = req.auth?.user.id;
+      const view = req.query.view;
+      if (view !== undefined && view !== 'references') throw AppError.badRequest('view must be references');
+      if (view === 'references') {
+        const rawLimit = req.query.limit;
+        if (rawLimit !== undefined && (typeof rawLimit !== 'string' || rawLimit.trim() === '')) {
+          throw AppError.badRequest('limit must be a non-negative integer');
+        }
+        const parsed = rawLimit === undefined ? undefined : Number(rawLimit);
+        if (parsed !== undefined && (!Number.isFinite(parsed) || parsed < 0 || !Number.isInteger(parsed))) {
+          throw AppError.badRequest('limit must be a non-negative integer');
+        }
+        res.json(await agentMemoryService.searchReferences(q, userId, parsed));
+        return;
+      }
       const limit = req.query.limit ? Math.min(100, parseInt(String(req.query.limit), 10)) : 20;
       const results = await agentMemoryService.search(q, userId, limit);
       res.json(results);
     } catch (err) { next(err); }
+  }
+
+  async searchManaged(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!this.managedMemorySearch) throw AppError.notFound('Managed memory search');
+      if (!req.auth) throw AppError.unauthorized();
+      res.json(await this.managedMemorySearch.search(req.auth, req.body));
+    } catch (err) {
+      next(err instanceof ManagedMemorySearchRefusal
+        ? AppError.forbidden('Managed memory search refused')
+        : err);
+    }
+  }
+
+  /**
+   * Shared-process selector.  It returns only private routing metadata; the
+   * MCP tool performs the unchanged ordinary search when this says ordinary.
+   */
+  async selectManagedOrOrdinary(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.auth) throw AppError.unauthorized();
+      if (!this.managedMemorySearch) {
+        res.json({ schemaVersion: 1, mode: 'ordinary' });
+        return;
+      }
+      res.json(await this.managedMemorySearch.select(req.auth, req.body));
+    } catch (err) {
+      next(err instanceof ManagedMemorySearchRefusal
+        ? AppError.forbidden('Managed memory search refused')
+        : err);
+    }
   }
 
   /**

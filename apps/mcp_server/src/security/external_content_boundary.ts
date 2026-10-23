@@ -72,6 +72,7 @@ export const SECURITY_ACTIONS = [
 export type SecurityAction = (typeof SECURITY_ACTIONS)[number];
 
 export type ExternalContentSource =
+  | "managed-tool.run"
   | "gmail.search"
   | "gmail.message"
   | "message-thread.list"

@@ -12,13 +12,17 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync
 import { join } from 'path';
 import { tmpdir } from 'os';
 
-const { mockResolveSmallModel, mockFindAllAsync } = vi.hoisted(() => ({
+const { mockResolveSmallModel, mockFindAllAsync, mockGetRoutableModels } = vi.hoisted(() => ({
   mockResolveSmallModel: vi.fn(),
   mockFindAllAsync: vi.fn(),
+  mockGetRoutableModels: vi.fn(),
 }));
 
 vi.mock('../services/agent_model_resolver', () => ({
   resolveSmallModel: mockResolveSmallModel,
+}));
+vi.mock('../services/decision/model_catalog', () => ({
+  getRoutableModels: mockGetRoutableModels,
 }));
 
 vi.mock('../repositories/users_repository', () => ({
@@ -41,6 +45,7 @@ describe('ensureManagedDefaults', () => {
     vaultDir = mkdtempSync(join(tmpdir(), 'managed-defaults-vault-'));
     process.env.MEMORY_VAULT_PATH = vaultDir;
     mockResolveSmallModel.mockResolvedValue({ providerID: 'anthropic', modelID: 'claude-haiku-4-5' });
+    mockGetRoutableModels.mockResolvedValue({ source: 'static', models: [] });
     mockFindAllAsync.mockResolvedValue([{ name: 'AJ', email: 'aj@example.com' }]);
   });
 
@@ -67,6 +72,24 @@ describe('ensureManagedDefaults', () => {
     await ensureManagedDefaults(configPath);
     const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
     expect(parsed.small_model).toBeUndefined();
+  });
+
+  it('clears a stale managed small_model only after a live catalog proves it ineligible', async () => {
+    writeFileSync(configPath, JSON.stringify({ small_model: 'openai/gpt-5.6-luna' }));
+    mockResolveSmallModel.mockResolvedValue(undefined);
+    mockGetRoutableModels.mockResolvedValue({
+      source: 'live', models: [{ providerID: 'openai', modelID: 'gpt-6.1-sol', tier: 'frontier' }],
+    });
+    expect(await ensureManagedDefaults(configPath)).toBe(true);
+    expect(JSON.parse(readFileSync(configPath, 'utf8')).small_model).toBeUndefined();
+  });
+
+  it('keeps the prior managed small_model when engine catalog authority is transiently unavailable', async () => {
+    writeFileSync(configPath, JSON.stringify({ small_model: 'openai/gpt-5.6-luna' }));
+    mockResolveSmallModel.mockResolvedValue(undefined);
+    mockGetRoutableModels.mockResolvedValue({ source: 'static', models: [] });
+    await ensureManagedDefaults(configPath);
+    expect(JSON.parse(readFileSync(configPath, 'utf8')).small_model).toBe('openai/gpt-5.6-luna');
   });
 
   it('preserves user-edited compaction/tool_output values across restarts (absent-only)', async () => {

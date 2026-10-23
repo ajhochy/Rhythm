@@ -1,0 +1,44 @@
+{
+  "run_id": "2026-10-22-tailscale-external-access",
+  "date": "2026-10-22",
+  "issue": null,
+  "smoke_result": "pass",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "all-tailnet-access",
+      "text": "Any device on the personal tailnet can access Rhythm TCP4001",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Received policy allow IPv4/IPv6 for all six online personal peers; AJ confirmed actual Mac mini page load. Initial old policy intentionally excluded all but pi-nas; repaired to changed user requirement."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "external personal Tailscale grant2 and six policy tests"
+  ],
+  "failure_output": "Initial grant-only save rejected six old deny tests: want Drop, got Accept; no policy update until rule+tests saved together.",
+  "overall_category": "none",
+  "suggested_follow_up": "Include received tailnet policy and actual external-device page load in future network cutover acceptance; same-host HTTPS is a separate boundary."
+}

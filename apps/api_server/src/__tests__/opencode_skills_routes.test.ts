@@ -215,6 +215,31 @@ describe('/opencode/skills', () => {
       rmSync(externalDir, { recursive: true, force: true });
     });
 
+    it('returns engine content for a discovered compiled built-in without a local file', async () => {
+      listSkills.mockResolvedValueOnce([
+        { name: 'customize-opencode', description: 'Built in', location: '<built-in>' },
+      ]);
+      listSkillsWithContent.mockResolvedValueOnce([
+        { name: 'customize-opencode', description: 'Built in', location: '<built-in>', content: '# Customize OpenCode\n\nEngine-owned guidance.' },
+      ]);
+      const res = await fetch(`${baseUrl}/opencode/skills/customize-opencode/content`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        name: 'customize-opencode', content: '# Customize OpenCode\n\nEngine-owned guidance.',
+      });
+    });
+
+    it('keeps missing filesystem skill content unavailable', async () => {
+      listSkills.mockResolvedValueOnce([
+        { name: 'lost-file', location: join(MANAGED_DIR, 'lost-file', 'SKILL.md') },
+      ]);
+      listSkillsWithContent.mockResolvedValueOnce([
+        { name: 'lost-file', location: join(MANAGED_DIR, 'lost-file', 'SKILL.md'), content: 'stale engine cache' },
+      ]);
+      const res = await fetch(`${baseUrl}/opencode/skills/lost-file/content`);
+      expect(res.status).toBe(404);
+    });
+
     it('returns 404 for a skill name not in the live set', async () => {
       listSkills.mockResolvedValue([
         { name: 'present', description: 'x', location: join(MANAGED_DIR, 'present', 'SKILL.md') },

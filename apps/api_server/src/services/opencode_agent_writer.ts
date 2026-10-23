@@ -1,3 +1,4 @@
+import { loadQualificationFixtureAuthority } from './qualification_fixture_authority';
 /**
  * Opencode Agent Writer — Agent Profile → opencode `.md` (consolidation)
  *
@@ -25,10 +26,10 @@
  */
 
 import { homedir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import { logger } from '../utils/logger';
-import { env } from '../config/env';
+import { env, opencodeConfigFile } from '../config/env';
 import { scanContextContent } from '../security/context_scanner';
 import {
   AgentConfigsRepository,
@@ -46,7 +47,7 @@ import { opencodeClient } from './opencode_engine';
 
 export type EffectivePermissionMap = Record<string, string | Record<string, string>>;
 
-function permissionPatternMatches(value: string, pattern: string): boolean {
+export function permissionPatternMatches(value: string, pattern: string): boolean {
   const escaped = pattern
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
     .replace(/\*/g, '.*')
@@ -95,8 +96,16 @@ export function computeEffectivePermissionMap(
       ? applyAuthoredTaskRestrictions(generatedTask, authoredTask)
       : generatedTask;
   }
-  if (config.isManager === true && config.sessionSelectable) {
-    if (permissions.rhythm_delegate_async === undefined) permissions.rhythm_delegate_async = 'allow';
+  // Deliberate binding: manager status implies async-delegation capability, and
+  // the two must never drift apart — a manager without async falls back to the
+  // `task` tool, which is the defect class this derivation prevents. Not gated
+  // on sessionSelectable, and a blanket authored 'deny'/'allow' string cannot
+  // override it. An authored per-target pattern object (e.g. denying one
+  // delegate by id) is preserved — that's scoping, not the top-level gate.
+  if (config.isManager === true) {
+    if (typeof permissions.rhythm_delegate_async !== 'object' || permissions.rhythm_delegate_async === null) {
+      permissions.rhythm_delegate_async = 'allow';
+    }
   } else {
     permissions.rhythm_delegate_async = 'deny';
   }
@@ -141,10 +150,12 @@ const HUB_PREAMBLE_MARKER = '## Routing (mandatory — hub)';
  */
 const CODING_HANDOFF_BODY =
   'For any coding, development, implementation, debugging, refactor, or PR/issue task, ' +
-  'you MUST hand off to the workflow-orchestrator by calling the `task` tool with ' +
-  '`subagent_type="workflow-orchestrator"` — name that delegate explicitly; never use ' +
-  '`"general"` and never omit `subagent_type`. Do this regardless of how the request is ' +
-  'phrased.';
+  'you MUST hand off to the workflow-orchestrator. In an interactive chat with AJ, call ' +
+  '`rhythm_delegate_async` with `targetAgentConfigId="workflow-orchestrator"`. In a ' +
+  'scheduled, headless, or system run, call the `task` tool with ' +
+  '`subagent_type="workflow-orchestrator"`. Name that delegate explicitly; never use ' +
+  '`"general"` and never omit the delegate target. Do this regardless of how the ' +
+  'request is phrased.';
 
 const WORKFLOW_ORCHESTRATOR_CODING_BODY =
   'Own the coding workflow in this session. Delegate implementation work through the ' +
@@ -404,7 +415,8 @@ function isTestEnv(): boolean {
 }
 
 function agentsDir(): string {
-  return join(homedir(), '.config', 'opencode', 'agents');
+  const fixture=loadQualificationFixtureAuthority();
+  return fixture ? join(dirname(opencodeConfigFile()), 'agents') : join(homedir(), '.config', 'opencode', 'agents');
 }
 
 function agentFilePath(id: string): string {
@@ -707,17 +719,11 @@ export function writeAgentProfileFile(config: AgentConfig): AgentProfileWriteRes
       // #1138 — the merge path used to only UPSERT permission keys, never
       // remove ones no longer in the config, so a file once polluted with
       // stale/garbage keys never converged even after the config was corrected.
-      // Prune every existing `permission:` sub-key that this projection will
-      // NOT re-write — i.e. not in the current corePermissions and not one of
-      // the writer-injected keys (image_generation / task / write) appended
-      // below. Those injected keys are conditional, so a profile that stops
-      // being a manager (task) or loses image_generation also sheds them.
-      const keep = new Set<string>(Object.keys(corePermissions));
-      if (config.imageGenerationEnabled === true) keep.add('image_generation');
-      keep.add('task'); // #1322 — projected for every profile now
-      keep.add('rhythm_delegate_async');
-      if (config.id === 'workflow-orchestrator') keep.add('write');
-      fm = pruneStalePermissionKeys(fm, keep);
+      // #1138 owns this entire permission block. Rebuild it in the effective
+      // map's order: the fork uses the last matching rule, so retaining old
+      // subtree positions can change authority when a wildcard is added.
+      // Non-permission frontmatter and the body remain untouched.
+      fm = pruneStalePermissionKeys(fm, new Set());
     } else {
       // Fresh file authored from the profile.
       fm = `description: ${yamlQuotedString(config.label)}\nmode: ${mode}`;

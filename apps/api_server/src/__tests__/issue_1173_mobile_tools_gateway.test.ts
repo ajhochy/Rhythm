@@ -7,12 +7,16 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../app';
+import { env } from '../config/env';
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { UsersRepository } from '../repositories/users_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { WorkspaceRepository } from '../repositories/workspace_repository';
+import { AgentResearchRepository } from '../repositories/agent_research_repository';
+import { ProjectsRepository } from '../repositories/projects_repository';
+import { ResearchProjectOrchestrator } from '../services/research_project_orchestrator';
 import {
   isMobileToolOperationAllowed,
 } from '../routes/mobile_tools_routes';
@@ -112,6 +116,11 @@ describe('#1173 mobile tools gateway', () => {
     expect(isMobileToolOperationAllowed('agents/run-quality', 'POST', '/tool-events')).toBe(false);
     expect(isMobileToolOperationAllowed('opencode/skills', 'DELETE', '/external')).toBe(true);
     expect(isMobileToolOperationAllowed('opencode/commands', 'PUT', '/managed')).toBe(true);
+    expect(isMobileToolOperationAllowed('agent-decisions', 'GET', '/config')).toBe(true);
+    expect(isMobileToolOperationAllowed('agent-decisions', 'PUT', '/config')).toBe(true);
+    expect(isMobileToolOperationAllowed('agent-decisions', 'POST', '/config/test')).toBe(true);
+    expect(isMobileToolOperationAllowed('agent-decisions', 'GET', '/')).toBe(false);
+    expect(isMobileToolOperationAllowed('agent-decisions', 'DELETE', '/config')).toBe(false);
     expect(isMobileToolOperationAllowed('unknown', 'GET', '/')).toBe(false);
   });
 
@@ -189,6 +198,198 @@ describe('#1173 mobile tools gateway', () => {
     expect(
       db.prepare('SELECT id FROM agent_research_jobs WHERE id = ?').get(created.id),
     ).toBeUndefined();
+  });
+
+  describe('primary Research project/run extension', () => {
+    let previousEnabled: boolean;
+    beforeEach(() => {
+      previousEnabled = env.researchProjectsEnabled;
+      env.researchProjectsEnabled = true;
+      // Exercise real routes/repositories without starting model-backed work.
+      vi.spyOn(ResearchProjectOrchestrator.prototype, 'start').mockResolvedValue(undefined as never);
+      vi.spyOn(opencodeClient, 'abortSession').mockResolvedValue(true);
+    });
+    afterEach(() => { env.researchProjectsEnabled = previousEnabled; });
+
+    async function primaryFixture() {
+      const owner = await pair(`primary-${randomUUID()}@example.com`);
+      const mac = new ProjectsRepository().insert({
+        name: 'Registered Mac project', cwd: sandboxRoot, icon: null,
+        vcs: { vcsRoot: null, vcsBranch: null, vcsDirty: false, vcsCheckedAt: null },
+      });
+      const headers = {
+        Authorization: `Device ${owner.deviceToken}`, 'Content-Type': 'application/json',
+        'X-Rhythm-Project-ID': mac.id,
+      };
+      const repo = new AgentResearchRepository();
+      const project = await repo.createProject(owner.userId, {
+        name: 'Sources', question: 'What changed?', goals: [], domain: null, profileId: 'research',
+        passConfig: [], modelPolicy: {}, criticConfig: {}, synthesisConfig: {}, scheduleRef: null,
+        budget: { maxPasses: 3, maxTokens: 5_000_000, maxCostUsd: 5, maxWallClockMs: 1_800_000 },
+      });
+      const run = (await repo.createProjectRun(project.id, owner.userId, 'manual'))!;
+      const runRow = db.prepare('SELECT * FROM agent_research_project_runs WHERE id=?').get(run.id);
+      const prefix = `${baseUrl}/mobile-gateway/tools/agent-research/projects`;
+      return { owner, mac, headers, repo, project, run, runRow, prefix };
+    }
+
+    it('serves all eleven primary operations through the canonical owner-bound handlers', async () => {
+      const f = await primaryFixture();
+      const create = await fetch(f.prefix, {
+        method: 'POST', headers: f.headers,
+        body: JSON.stringify({ name: 'New project', question: 'Why?', ownerUserId: f.owner.userId + 1 }),
+      });
+      expect(create.status).toBe(201);
+      const project = await create.json() as { id: string; ownerUserId: number };
+      expect(project.ownerUserId).toBe(f.owner.userId);
+      const list = await fetch(f.prefix, { headers: f.headers });
+      expect(list.status).toBe(200);
+      expect(await list.json()).toEqual(expect.arrayContaining([expect.objectContaining({ id: project.id })]));
+      const detail = await fetch(`${f.prefix}/${project.id}`, { headers: f.headers });
+      expect(detail.status).toBe(200);
+      expect(await detail.json()).toMatchObject(project);
+      const patch = await fetch(`${f.prefix}/${project.id}`, {
+        method: 'PATCH', headers: f.headers, body: JSON.stringify({ name: 'Updated project' }),
+      });
+      expect(patch.status).toBe(200);
+      expect(await patch.json()).toMatchObject({ name: 'Updated project', ownerUserId: f.owner.userId });
+      const started = await fetch(`${f.prefix}/${project.id}/runs`, {
+        method: 'POST', headers: f.headers, body: '{}',
+      });
+      expect(started.status).toBe(201);
+      const run = await started.json() as { id: string };
+      expect(ResearchProjectOrchestrator.prototype.start).toHaveBeenCalledWith(run.id, f.owner.userId);
+      const runs = await fetch(`${f.prefix}/${project.id}/runs`, { headers: f.headers });
+      expect(runs.status).toBe(200);
+      expect(await runs.json()).toEqual([expect.objectContaining({ id: run.id })]);
+      const runUrl = `${f.prefix}/${project.id}/runs/${run.id}`;
+      const read = await fetch(runUrl, { headers: f.headers });
+      expect(read.status).toBe(200);
+      expect(await read.json()).toMatchObject({ id: run.id, ownerUserId: f.owner.userId });
+      const cancel = await fetch(`${runUrl}/cancel`, { method: 'POST', headers: f.headers, body: '{}' });
+      expect(cancel.status).toBe(200);
+      expect(await cancel.json()).toMatchObject({ status: 'cancelled' });
+      const resume = await fetch(`${runUrl}/resume`, { method: 'POST', headers: f.headers, body: '{}' });
+      expect(resume.status).toBe(202);
+      expect(await resume.json()).toMatchObject({ status: 'resumable' });
+      // Hydration derives stages from actual pass rows, not progress JSON.
+      for (const [ordinal, [role, report]] of [
+        ['researcher', 'Completed evidence'],
+        ['synthesis', '# Résumé 🌱\n\nLine one\nLine two'],
+      ].entries()) {
+        const pass = await f.repo.createProjectPassJob({
+          projectId: project.id, projectRunId: run.id, ownerUserId: f.owner.userId,
+          question: 'Why?', role, ordinal, profileId: 'research', config: {},
+        });
+        await f.repo.updateProjectPassJob(pass.id, f.owner.userId, { status: 'done', report });
+      }
+      await f.repo.updateProjectRunState(run.id, f.owner.userId, {
+        status: 'done', completedAt: new Date().toISOString(),
+      });
+      const finish = await fetch(`${runUrl}/finish`, { method: 'POST', headers: f.headers, body: '{}' });
+      expect(finish.status).toBe(200);
+      expect(await finish.json()).toMatchObject({ id: run.id, status: 'done' });
+      const exported = await fetch(`${runUrl}/export?format=markdown`, { headers: f.headers });
+      expect(exported.status).toBe(200);
+      expect(exported.headers.get('content-type')).toMatch(/^application\/json/);
+      expect(exported.headers.get('content-disposition')).toBeNull();
+      expect(exported.headers.get('cache-control')).toBe('private, no-store');
+      expect(exported.headers.get('x-content-type-options')).toBe('nosniff');
+      const envelope = await exported.json() as { markdown: string };
+      expect(envelope.markdown).toContain('# Résumé 🌱\n\nLine one\nLine two');
+      // The same canonical controller still exports raw Markdown to desktop.
+      const session = new SessionsRepository().create(f.owner.userId);
+      const desktop = await fetch(`${baseUrl}/agent-research/projects/${project.id}/runs/${run.id}/export?format=markdown`, {
+        headers: { Authorization: `Bearer ${session.token}` },
+      });
+      expect(desktop.status).toBe(200);
+      expect(desktop.headers.get('content-type')).toMatch(/^text\/markdown/);
+      expect(desktop.headers.get('content-disposition')).toContain('attachment');
+      expect(await desktop.text()).toBe(envelope.markdown);
+    });
+
+    it('refuses foreign owners and same-owner wrong-project run URLs before mutation or abort', async () => {
+      const f = await primaryFixture();
+      const other = await pair(`foreign-${randomUUID()}@example.com`);
+      const wrongProject = await f.repo.createProject(f.owner.userId, { ...f.project, name: 'Other project' });
+      const cancel = vi.spyOn(AgentResearchRepository.prototype, 'cancelProjectRun');
+      for (const [projectId, headers] of [
+        [wrongProject.id, f.headers],
+        [f.project.id, { ...f.headers, Authorization: `Device ${other.deviceToken}` }],
+      ] as const) {
+        for (const [method, suffix] of [
+          ['GET', ''], ['POST', '/cancel'], ['POST', '/resume'], ['POST', '/finish'], ['GET', '/export?format=markdown'],
+        ]) {
+          const response = await fetch(`${f.prefix}/${projectId}/runs/${f.run.id}${suffix}`, {
+            method, headers, ...(method === 'POST' ? { body: '{}' } : {}),
+          });
+          expect(response.status, `${method} ${projectId}${suffix}`).toBe(404);
+        }
+      }
+      expect(cancel).not.toHaveBeenCalled();
+      expect(opencodeClient.abortSession).not.toHaveBeenCalled();
+      expect(db.prepare('SELECT * FROM agent_research_project_runs WHERE id=?').get(f.run.id)).toEqual(f.runRow);
+      const foreignList = await fetch(f.prefix, {
+        headers: { ...f.headers, Authorization: `Device ${other.deviceToken}` },
+      });
+      expect(await foreignList.json()).toEqual([]);
+    });
+
+    it('requires current pairing and registered Mac scope for the collection and run extension', async () => {
+      const f = await primaryFixture();
+      const unavailable = { ...f.headers, 'X-Rhythm-Project-ID': 'not-a-registered-project' };
+      for (const [method, path] of [
+        ['GET', ''], ['POST', ''], ['GET', `/${f.project.id}`], ['PATCH', `/${f.project.id}`],
+        ['GET', `/${f.project.id}/runs`], ['POST', `/${f.project.id}/runs`],
+        ['GET', `/${f.project.id}/runs/${f.run.id}`],
+        ['POST', `/${f.project.id}/runs/${f.run.id}/cancel`],
+        ['POST', `/${f.project.id}/runs/${f.run.id}/resume`],
+        ['POST', `/${f.project.id}/runs/${f.run.id}/finish`],
+        ['GET', `/${f.project.id}/runs/${f.run.id}/export?format=markdown`],
+      ]) {
+        const response = await fetch(`${f.prefix}${path}`, {
+          method, headers: unavailable, ...(method === 'GET' ? {} : { body: '{}' }),
+        });
+        expect(response.status, `${method} ${path}`).toBe(404);
+      }
+      expect((await fetch(f.prefix.replace('/projects', '/PROJECTS'), { headers: unavailable })).status).toBe(404);
+      expect((await fetch(f.prefix)).status).toBe(401);
+      db.prepare('UPDATE projects SET archived_at=? WHERE id=?').run(new Date().toISOString(), f.mac.id);
+      expect((await fetch(f.prefix, { headers: f.headers })).status).toBe(404);
+      db.prepare('UPDATE projects SET archived_at=NULL WHERE id=?').run(f.mac.id);
+      db.prepare('UPDATE mobile_devices SET revoked_at=? WHERE user_id=?').run(new Date().toISOString(), f.owner.userId);
+      expect((await fetch(f.prefix, { headers: f.headers })).status).toBe(401);
+      expect(db.prepare('SELECT * FROM agent_research_project_runs WHERE id=?').get(f.run.id)).toEqual(f.runRow);
+    });
+
+    it('rejects secondary operations and every non-scalar or non-Markdown export format', async () => {
+      const f = await primaryFixture();
+      const runUrl = `${f.prefix}/${f.project.id}/runs/${f.run.id}`;
+      for (const query of ['', '?format=html', '?format=markdown&format=markdown', '?format[]=markdown', '?format[x]=markdown', '?format=markdown&format[]=html']) {
+        expect((await fetch(`${runUrl}/export${query}`, { headers: f.headers })).status, query).toBe(404);
+      }
+      for (const [method, path] of [
+        ['POST', `${f.prefix}/${f.project.id}/archive`],
+        ['PUT', `${f.prefix}/${f.project.id}/magazine-artifact`],
+        ['GET', `${runUrl}/magazine`], ['POST', `${runUrl}/discussions`],
+        ['POST', `${runUrl}/passes/pass/cancel`], ['POST', `${runUrl}/passes/pass/retry`],
+        ['GET', `${f.prefix}/${f.project.id}/artifacts/artifact`],
+      ]) {
+        const response = await fetch(path, {
+          method, headers: f.headers, ...(method === 'GET' ? {} : { body: '{}' }),
+        });
+        expect(response.status, `${method} ${path}`).toBe(404);
+      }
+    });
+
+    it('preserves canonical nested conflict errors without a Markdown envelope', async () => {
+      const f = await primaryFixture();
+      const response = await fetch(`${f.prefix}/${f.project.id}/runs/${f.run.id}/export?format=markdown`, { headers: f.headers });
+      expect(response.status).toBe(409);
+      const body = await response.json();
+      expect(body).toMatchObject({ error: { code: 'SYNTHESIS_UNAVAILABLE', message: expect.any(String) } });
+      expect(body).not.toHaveProperty('markdown');
+    });
   });
 
   it('enforces the complete owner-scoped operation matrix for two paired users', async () => {

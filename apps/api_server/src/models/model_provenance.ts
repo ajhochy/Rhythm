@@ -1,7 +1,7 @@
 /** #1576 B1: server-owned local dispatch metadata; no prompt or provider payloads. */
 export type DispatchOutcome = 'pending' | 'accepted' | 'rejected' | 'unknown';
 export type DispatchOrigin = 'ws_input' | 'fallback_redispatch' | 'agent_runner' | 'delegation' | 'delegation_completion' | 'approval_continuation' | 'prompt_api' | 'unspecified';
-export type RequestedSource = 'turn_override' | 'session' | 'agent_config' | 'agent_default' | 'tier' | 'fallback_chain' | 'caller';
+export type RequestedSource = 'turn_override' | 'session' | 'agent_config' | 'agent_default' | 'tier' | 'fallback_chain' | 'caller' | 'auto';
 
 export interface DispatchInput {
   sessionId: string;

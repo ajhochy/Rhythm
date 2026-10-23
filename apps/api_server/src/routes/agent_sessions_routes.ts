@@ -137,6 +137,26 @@ agentSessionsRouter.post('/:id/unrevert', controller.unrevert.bind(controller));
 agentSessionsRouter.post('/:id/summarize', controller.summarize.bind(controller));
 agentSessionsRouter.get('/:id/todo', controller.getTodo.bind(controller));
 agentSessionsRouter.get('/:id/memory-provenance', controller.getMemoryProvenance.bind(controller));
+// Free Mode held turns (body-free listing + owner-scoped cancel of a pending held turn).
+function ownedHeldSession(req: Request): string {
+  const session = sessionsRepository.findById(req.params.id);
+  const userId = req.auth?.user?.id;
+  if (!session || (session.ownerUserId != null && userId != null && session.ownerUserId !== userId)) throw AppError.notFound('AgentSession');
+  return session.id;
+}
+agentSessionsRouter.get('/:id/held-turns', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { HeldTurnsRepository } = await import('../services/decision/router_free_held_turns');
+    res.json({ heldTurns: await new HeldTurnsRepository().list(ownedHeldSession(req)) });
+  } catch (err) { next(err); }
+});
+agentSessionsRouter.post('/:id/held-turns/:heldId/cancel', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { HeldTurnsRepository } = await import('../services/decision/router_free_held_turns');
+    if (!(await new HeldTurnsRepository().cancel(ownedHeldSession(req), req.params.heldId))) throw AppError.conflict('Held turn is not pending');
+    res.json({ cancelled: true });
+  } catch (err) { next(err); }
+});
 agentSessionsRouter.get('/:id/model-provenance', controller.getModelProvenance.bind(controller));
 agentSessionsRouter.get('/:id/tool-surface', controller.getToolSurface.bind(controller));
 agentSessionsRouter.get('/:id/children', controller.getChildren.bind(controller));

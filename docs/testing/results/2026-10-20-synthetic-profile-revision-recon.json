@@ -1,0 +1,97 @@
+{
+  "phase": "Recon only; new signed-build Confirm required",
+  "sourceRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
+  "runtime": "disposable synthetic actor; no model calls",
+  "observation": {
+    "step": "Private profile stale revision",
+    "observed": {
+      "phase": "Recon observations only",
+      "sourceRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
+      "nonce": "47ddbbb1-216",
+      "steps": {
+        "initial": {
+          "status": 200,
+          "createVisible": true
+        },
+        "create": {
+          "status": 201,
+          "row": {
+            "id": "smoke-profile-revision-47ddbbb1-216",
+            "label": "[smoke] profile revision 47ddbbb1-216",
+            "revision": 0
+          }
+        },
+        "draftBeforeAdvance": {
+          "label": "[smoke] profile revision 47ddbbb1-216 UI draft",
+          "saveStatus": "Unsaved changes"
+        },
+        "apiAdvance": {
+          "status": 200,
+          "row": {
+            "id": "smoke-profile-revision-47ddbbb1-216",
+            "label": "[smoke] profile revision 47ddbbb1-216 API winner",
+            "revision": 1
+          },
+          "readback": {
+            "id": "smoke-profile-revision-47ddbbb1-216",
+            "label": "[smoke] profile revision 47ddbbb1-216 API winner",
+            "revision": 1
+          },
+          "sqlite": [
+            {
+              "id": "smoke-profile-revision-47ddbbb1-216",
+              "label": "[smoke] profile revision 47ddbbb1-216 API winner",
+              "revision": 1
+            }
+          ]
+        },
+        "staleUiSave": {
+          "saveEnabled": true,
+          "request": {
+            "method": "PATCH",
+            "pathname": "/agent-configs/smoke-profile-revision-47ddbbb1-216",
+            "body": {
+              "label": "[smoke] profile revision 47ddbbb1-216 UI draft"
+            },
+            "ifMatch": null
+          },
+          "status": 200,
+          "response": {
+            "errorCode": null,
+            "errorMessage": null,
+            "currentRevision": null,
+            "row": {
+              "id": "smoke-profile-revision-47ddbbb1-216",
+              "label": "[smoke] profile revision 47ddbbb1-216 UI draft",
+              "revision": 2
+            }
+          },
+          "visibleError": null,
+          "draftLabel": "[smoke] profile revision 47ddbbb1-216 UI draft",
+          "saveStatus": "Profile saved"
+        },
+        "winner": {
+          "api": {
+            "id": "smoke-profile-revision-47ddbbb1-216",
+            "label": "[smoke] profile revision 47ddbbb1-216 UI draft",
+            "revision": 2
+          },
+          "sqlite": [
+            {
+              "id": "smoke-profile-revision-47ddbbb1-216",
+              "label": "[smoke] profile revision 47ddbbb1-216 UI draft",
+              "revision": 2
+            }
+          ]
+        }
+      },
+      "cleanup": [
+        {
+          "id": "smoke-profile-revision-47ddbbb1-216",
+          "status": 204,
+          "sqliteRemaining": 0
+        }
+      ]
+    }
+  }
+}

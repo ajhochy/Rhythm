@@ -282,7 +282,7 @@ export function registerAgentDelegationTools(
   registerTool(
     server,
     "rhythm_delegation_status",
-    "Check on background work you dispatched with rhythm_delegate_async: state, how long it has been running, the child's step count, and the name of the tool it is running now. Returns no transcript — use it to decide whether to keep waiting, not to read the delegate's output.",
+    "Check background work dispatched directly by this caller with rhythm_delegate_async: state, elapsed time, child step count, and the current tool name. This is direct-caller only; it does not aggregate work spawned by nested managers or synchronous native Task runs. For the bounded nested session tree, call rhythm_list_sessions and inspect currentWork.truncated/hasMore. Returns no transcript — use it to decide whether to keep waiting, not to read the delegate's output.",
     {},
     async (_args, extra) => {
       const ctx = trustedSecurityContext(extra);

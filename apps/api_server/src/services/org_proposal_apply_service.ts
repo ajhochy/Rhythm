@@ -88,6 +88,8 @@ export interface PreparedScopePair {
   field: 'allowedMcpsJson' | 'allowedSkillsJson' | 'corePermissionsJson';
   priorValue: string | null;
   nextValue: string;
+  /** Evaluated proposals must commit against the profile revision that was actually tested. */
+  frozenTargetRevision?: number;
 }
 
 export type ProposalApplier = (
@@ -189,13 +191,12 @@ function validateExternalAdoption(proposal: AgentOrgProposal): ProposalValidatio
  */
 function validateWebhookWiring(proposal: AgentOrgProposal): ProposalValidationResult {
   const change = parseChangeJson(proposal);
-  const hasTarget =
-    typeof change?.targetScheduledTaskId === 'string' ||
-    typeof change?.targetRecipeId === 'string';
-  if (!hasTarget) {
+  const taskTarget = typeof change?.targetScheduledTaskId === 'string' && change.targetScheduledTaskId.trim().length > 0;
+  const recipeTarget = typeof change?.targetRecipeId === 'string' && change.targetRecipeId.trim().length > 0;
+  if (Number(taskTarget) + Number(recipeTarget) !== 1) {
     return {
       valid: false,
-      reason: 'change_json must specify targetScheduledTaskId or targetRecipeId',
+      reason: 'change_json must specify exactly one targetScheduledTaskId or targetRecipeId',
     };
   }
   return { valid: true };

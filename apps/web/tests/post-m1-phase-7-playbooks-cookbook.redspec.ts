@@ -1,6 +1,41 @@
 import { expect, test } from '@playwright/test';
 import { fulfillJson, matching, openPhase7Live, type SeenRequest } from './post-m1-phase-7-live-harness';
 
+test('rendered cookbook retains the recipe draft after a rejected save and retries its exact content', async ({ page }) => {
+  const seen: SeenRequest[] = [];
+  const recipes: Array<Record<string, unknown>> = [];
+  let attempts = 0;
+  await openPhase7Live(page, '/tools/cookbook', seen, async (route, request) => {
+    if (new URL(request.url()).pathname !== '/agent-cookbook') return false;
+    if (request.method() === 'POST') {
+      attempts++;
+      if (attempts === 1) return fulfillJson(route, 503, { error: { message: 'Controlled save failure' } }).then(() => true);
+      const recipe = { ...request.postDataJSON(), id: 'owned-rendered-retry', ownerUserId: 7 };
+      recipes.push(recipe);
+      return fulfillJson(route, 201, recipe).then(() => true);
+    }
+    return fulfillJson(route, 200, recipes).then(() => true);
+  });
+  await page.getByTestId('cookbook-new').click();
+  const editor = page.getByTestId('cookbook-editor');
+  await editor.getByLabel('Title', { exact: true }).fill('[smoke] retry recipe');
+  await editor.getByLabel('Description', { exact: true }).fill('Keep this draft');
+  await editor.getByLabel('Steps (one per line)', { exact: true }).fill('First inert step.\nSecond inert step.');
+  await page.getByTestId('cookbook-save').click();
+  await expect(page.getByText('Create recipe failed (503)', { exact: true })).toBeVisible();
+  await expect(editor).toBeVisible();
+  await expect(editor.getByLabel('Title', { exact: true })).toHaveValue('[smoke] retry recipe');
+  await expect(editor.getByLabel('Description', { exact: true })).toHaveValue('Keep this draft');
+  await expect(editor.getByLabel('Steps (one per line)', { exact: true })).toHaveValue('First inert step.\nSecond inert step.');
+  await page.getByTestId('cookbook-save').click();
+  await expect(editor).toBeHidden();
+  await expect(page.getByTestId('recipe-owned-rendered-retry')).toContainText('[smoke] retry recipe');
+  const posts = matching(seen, 'POST', '/agent-cookbook');
+  expect(posts).toHaveLength(2);
+  expect(posts[1].body).toEqual(posts[0].body);
+  expect(recipes).toHaveLength(1);
+});
+
 test('post-m1-p7-c2e: live managed playbook refreshes the engine catalog and becomes slash-command available', async ({ page }) => {
   // Regression caught: playbook refresh and mutation only change local component state.
   const seen: SeenRequest[] = [];

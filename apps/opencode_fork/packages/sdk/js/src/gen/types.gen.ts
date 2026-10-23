@@ -38,8 +38,16 @@ export type EventLspUpdated = {
 
 export type FileDiff = {
   file: string
-  before: string
-  after: string
+  before?: string
+  after?: string
+  patch?: string
+  patchOmitted?:
+    | "file_too_large"
+    | "patch_too_large"
+    | "total_budget_exceeded"
+    | "work_budget_exceeded"
+    | "content_unavailable"
+    | "diff_limit_exceeded"
   additions: number
   deletions: number
 }
@@ -1617,6 +1625,10 @@ export type McpStatusConnected = {
   status: "connected"
 }
 
+export type McpStatusConfigured = {
+  status: "configured"
+}
+
 export type McpStatusDisabled = {
   status: "disabled"
 }
@@ -1637,6 +1649,7 @@ export type McpStatusNeedsClientRegistration = {
 
 export type McpStatus =
   | McpStatusConnected
+  | McpStatusConfigured
   | McpStatusDisabled
   | McpStatusFailed
   | McpStatusNeedsAuth

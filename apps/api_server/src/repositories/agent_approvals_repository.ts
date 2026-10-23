@@ -6,7 +6,11 @@
  */
 
 import { randomBytes, randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { getDb } from '../database/db';
+
+// Observation only; the durable card remains the authority and replay source.
+export const agentApprovalPublications = new EventEmitter();
 
 export type AgentApprovalStatus = 'pending' | 'approved' | 'rejected';
 
@@ -22,6 +26,8 @@ export interface AgentApproval {
   decidedAt: string | null;
   securityAction: string | null;
   payloadDigest: string | null;
+  /** Canonical server-authored local proposal; never a general grant. */
+  boundPayloadJson?: string | null;
   taintId: string | null;
   taintedTurnId: string | null;
   boundAgent: string | null;
@@ -43,6 +49,7 @@ export interface CreateAgentApprovalInput {
   actor?: string | null;
   securityAction?: string | null;
   payloadDigest?: string | null;
+  boundPayloadJson?: string | null;
   taintId?: string | null;
   taintedTurnId?: string | null;
   boundAgent?: string | null;
@@ -62,6 +69,7 @@ function rowToModel(row: Record<string, unknown>): AgentApproval {
     decidedAt: (row.decided_at as string | null) ?? null,
     securityAction: (row.security_action as string | null) ?? null,
     payloadDigest: (row.payload_digest as string | null) ?? null,
+    boundPayloadJson: (row.bound_payload_json as string | null) ?? null,
     taintId: (row.taint_id as string | null) ?? null,
     taintedTurnId: (row.tainted_turn_id as string | null) ?? null,
     boundAgent: (row.bound_agent as string | null) ?? null,
@@ -105,8 +113,8 @@ export class AgentApprovalsRepository {
         `INSERT INTO agent_approvals
           (id, session_id, agent_config_id, action, preview, consequence, status,
            actor, decided_at, security_action, payload_digest, taint_id,
-           tainted_turn_id, bound_agent, expires_at, decision_nonce)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           tainted_turn_id, bound_agent, expires_at, decision_nonce, bound_payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -125,9 +133,12 @@ export class AgentApprovalsRepository {
         input.boundAgent ?? null,
         input.expiresAt ?? null,
         decisionNonce,
+        input.boundPayloadJson ?? null,
       );
 
-    return this.getById(id)!;
+    const card = this.getById(id)!;
+    if (card.status === 'pending') agentApprovalPublications.emit('pending', card.id);
+    return card;
   }
 
   getById(id: string): AgentApproval | null {
@@ -141,8 +152,13 @@ export class AgentApprovalsRepository {
   list(status: AgentApprovalStatus | null = 'pending'): AgentApproval[] {
     const rows = status
       ? (getDb()
-          .prepare('SELECT * FROM agent_approvals WHERE status = ? ORDER BY created_at DESC')
-          .all(status) as Record<string, unknown>[])
+          .prepare(
+            // An expired pending card can never be approved, so the queue doesn't show it (history still does).
+            `SELECT * FROM agent_approvals WHERE status = ?
+               AND (? <> 'pending' OR expires_at IS NULL OR expires_at > ?)
+             ORDER BY created_at DESC`,
+          )
+          .all(status, status, new Date().toISOString()) as Record<string, unknown>[])
       : (getDb().prepare('SELECT * FROM agent_approvals ORDER BY created_at DESC').all() as Record<
           string,
           unknown
@@ -173,7 +189,9 @@ export class AgentApprovalsRepository {
                WHEN session_id IS NOT NULL THEN ?
                ELSE NULL
              END
-         WHERE id = ? AND status = 'pending' AND decision_nonce = ?`,
+         WHERE id = ? AND status = 'pending' AND decision_nonce = ?
+           -- An expired card can still be rejected, never approved (expires_at is toISOString, so text order is time order).
+           AND (? <> 'approved' OR expires_at IS NULL OR expires_at > ?)`,
       )
       .run(
         status,
@@ -182,6 +200,8 @@ export class AgentApprovalsRepository {
         new Date().toISOString(),
         id,
         decisionNonce,
+        status,
+        new Date().toISOString(),
       );
     if (updated.changes !== 1) return null;
 

@@ -9,9 +9,11 @@
     "dev": "vite",
     "typecheck": "tsc -b",
     "build": "tsc -b && vite build",
+    "build:web": "tsc -b && VITE_RHYTHM_WEB_HOST=1 vite build --outDir dist-web",
     "preview": "vite preview",
     "test": "npm run build && playwright test && playwright test --config tests/bucket-a-rendered-repair-playwright.config.ts && npm run test:electron-slices && npm run test:session-opening",
     "test:list": "playwright test --list && playwright test --config tests/bucket-a-rendered-repair-playwright.config.ts --list && npm run test:electron-slices -- --list && npm run test:session-opening -- --list",
+    "test:unit": "node --experimental-vm-modules --test --test-concurrency=1 tests/*.test.mjs",
     "test:session-opening": "playwright test --config tests/gateway/session-opening-playwright.config.ts",
     "test:electron-slices": "node tests/run-electron-slices.mjs",
     "test:external:chrome": "playwright test --config tests/external-host-playwright.config.ts",
@@ -19,7 +21,9 @@
     "test:contract": "playwright test tests/contract --workers=1",
     "test:fixture": "playwright test tests/gateway/gateway.spec.ts tests/gateway/receipt.spec.ts tests/gateway/tasks-gateway.spec.ts tests/gateway/sessions-gateway.spec.ts --workers=1 && playwright test --config tests/gateway/invalid-live-playwright.config.ts",
     "test:live": "playwright test --config tests/gateway/live-playwright.config.ts",
-    "test:ui": "playwright test --ui"
+    "test:ui": "playwright test --ui",
+    "test:packaged": "playwright test -c tests/packaged/packaged-playwright.config.ts",
+    "test:packaged:login": "RHYTHM_SMOKE_LOGIN=1 playwright test -c tests/packaged/packaged-playwright.config.ts -g runtime"
   },
   "dependencies": {
     "@xterm/xterm": "^6.0.0",

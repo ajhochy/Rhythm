@@ -118,6 +118,33 @@ const NATIVE_TASK_BLOCK =
   '"*": deny\n    "explore": allow\n    "general": allow\n';
 
 describe('workflow-orchestrator file projection', () => {
+  it('reprojects authored Secretary body with one contextual interactive coding handoff', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+    const agentsDir = join(state.home, '.config', 'opencode', 'agents');
+    mkdirSync(agentsDir, { recursive: true });
+    writeFileSync(join(agentsDir, 'secretary.md'),
+      '---\ndescription: Secretary\nmode: all\n---\n' +
+      '## Routing (mandatory — hub)\n' +
+      'For any coding task, you MUST hand off to the workflow-orchestrator by calling the `task` tool.\n\n' +
+      'Old synthetic file body.\n');
+    const authored = 'Synthetic Secretary user body stays byte-for-byte intact.';
+    const config = managerConfig('secretary', 'Secretary', authored, ['workflow-orchestrator']);
+    expect(writeAgentProfileFile(config)).toBe('written');
+    const path = join(agentsDir, 'secretary.md');
+    const projected = readFileSync(path, 'utf8');
+    const coding = projected.split('**Coding / development work:** ')[1].split('\n\n')[0];
+    expect(coding).toMatch(/interactive chat.*`rhythm_delegate_async`.*`targetAgentConfigId="workflow-orchestrator"`/);
+    expect(coding).toMatch(/scheduled, headless, or system run.*`task` tool.*`subagent_type="workflow-orchestrator"`/);
+    expect(coding).not.toContain('by calling the `task` tool');
+    expect(projected.endsWith(authored + '\n')).toBe(true);
+    expect(projected).not.toContain('Old synthetic file body.');
+    expect(projected.match(/## Routing \(mandatory — hub\)/g)).toHaveLength(1);
+    expect(writeAgentProfileFile(config)).toBe('written');
+    expect(readFileSync(path, 'utf8')).toBe(projected);
+  });
+
   it('projects direct-first routing for Secretary, Theologian, and Coding Workflow', () => {
     state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
     process.env.VITEST = 'false';
@@ -687,6 +714,40 @@ describe('#1138: corePermissions projection is defensive and self-healing', () =
 
     writeAgentProfileFile(config);
     expect(readProjected('research')).toBe(first);
+  });
+
+  it('reprojects direct permissions in authored order, preserving last-match authority', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+    const base = { ...agentConfig('order-perms', 'Order Perms'), systemPrompt: 'Authored body survives.' };
+    writeAgentProfileFile({ ...base, corePermissionsJson: JSON.stringify({ read: 'ask', edit: 'ask' }) });
+    const projectedPath = join(state.home, '.config', 'opencode', 'agents', 'order-perms.md');
+    writeFileSync(projectedPath, readFileSync(projectedPath, 'utf8').replace('mode: all', 'mode: all\ncustom_review: retained'));
+
+    const allowing = { ...base, corePermissionsJson: JSON.stringify({
+      '*': 'deny', read: { '*': 'allow', 'private/**': 'deny' }, edit: 'allow', mcp_dispatch: 'allow',
+    }) };
+    writeAgentProfileFile(allowing);
+    const allowed = readFileSync(join(state.home, '.config', 'opencode', 'agents', 'order-perms.md'), 'utf8');
+    const permissionBlock = allowed.split('permission:\n')[1].split('\noptions:')[0];
+    for (const entry of ['  "*": deny', '  read:', '  edit: allow', '  mcp_dispatch: allow']) {
+      expect(permissionBlock).toContain(entry);
+    }
+    expect(permissionBlock.indexOf('  "*": deny')).toBeLessThan(permissionBlock.indexOf('  read:'));
+    expect(permissionBlock.indexOf('  read:')).toBeLessThan(permissionBlock.indexOf('  edit: allow'));
+    expect(permissionBlock.indexOf('  edit: allow')).toBeLessThan(permissionBlock.indexOf('  mcp_dispatch: allow'));
+    expect(permissionBlock).toContain('    "*": allow\n    "private/**": deny');
+    expect(allowed).toContain('custom_review: retained');
+    expect(allowed).toContain('Authored body survives.');
+    expect(writeAgentProfileFile(allowing)).toBe('written');
+    expect(readFileSync(join(state.home, '.config', 'opencode', 'agents', 'order-perms.md'), 'utf8')).toBe(allowed);
+
+    const denying = { ...base, corePermissionsJson: JSON.stringify({ read: 'allow', '*': 'deny' }) };
+    writeAgentProfileFile(denying);
+    const denied = readFileSync(join(state.home, '.config', 'opencode', 'agents', 'order-perms.md'), 'utf8');
+    expect(denied.indexOf('  read: allow')).toBeLessThan(denied.indexOf('  "*": deny'));
+    expect(denied).not.toContain('  mcp_dispatch:');
   });
 
   it('skips only the bad entries, keeping the valid ones in a mixed payload', () => {

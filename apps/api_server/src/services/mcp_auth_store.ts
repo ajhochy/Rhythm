@@ -1,3 +1,4 @@
+import { opencodeDataFile } from '../config/env';
 /**
  * MCP remote-OAuth workaround — opencode `mcp-auth.json` reader/writer.
  *
@@ -58,7 +59,7 @@ export type McpAuthFile = Record<string, McpAuthEntry>;
 export function defaultMcpAuthFilePath(): string {
   return (
     process.env.MCP_AUTH_FILE ??
-    join(homedir(), '.local', 'share', 'opencode', 'mcp-auth.json')
+    opencodeDataFile('mcp-auth.json')
   );
 }
 

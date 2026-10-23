@@ -1,4 +1,6 @@
 import type { GatewayMode } from '.';
+import { isTrustedBrowserFetcher } from './browser-transport';
+import { cloudAccountFailure } from './cloud-error';
 
 export type RhythmFrequency = 'weekly' | 'monthly' | 'annual';
 export interface RhythmStep { id: string; title: string; assigneeId: number | null; assigneeName?: string | null; dayOfWeek?: number | null; dayOfMonth?: number | null; month?: number | null }
@@ -24,7 +26,7 @@ export interface RhythmsGateway {
 
 export class RhythmsGatewayError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 const failureText = (status: number, operation: string) => ({ 0: 'Rhythms service unavailable', 401: 'Authentication required', 403: 'Forbidden', 404: 'Rhythm not found' })[status] ?? `${operation} failed (${status})`;
-async function response<T>(operation: string, pending: Promise<Response>): Promise<T> { try { const result = await pending; if (!result.ok) throw new RhythmsGatewayError(result.status, failureText(result.status, operation)); return result.status === 204 ? undefined as T : await result.json() as T; } catch (error) { if (error instanceof RhythmsGatewayError) throw error; throw new RhythmsGatewayError(0, failureText(0, operation)); } }
+async function response<T>(operation: string, pending: Promise<Response>): Promise<T> { try { const result = await pending; if (!result.ok) throw new RhythmsGatewayError(result.status, await cloudAccountFailure(result) ?? failureText(result.status, operation)); return result.status === 204 ? undefined as T : await result.json() as T; } catch (error) { if (error instanceof RhythmsGatewayError) throw error; throw new RhythmsGatewayError(0, failureText(0, operation)); } }
 
 export function createFixtureRhythmsGateway(_fetcher?: typeof fetch): RhythmsGateway {
   const unsupported = async (..._args: unknown[]): Promise<never> => { throw new RhythmsGatewayError(0, 'Fixture rhythms gateway is unsupported'); };
@@ -32,7 +34,7 @@ export function createFixtureRhythmsGateway(_fetcher?: typeof fetch): RhythmsGat
 }
 
 export function createLiveRhythmsGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): RhythmsGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: an explicit rhythms token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: an explicit rhythms token is required');
   const request = (path: string, init: RequestInit = {}) => fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   const json = (value: unknown) => JSON.stringify(value);
   return {

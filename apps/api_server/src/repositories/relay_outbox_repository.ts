@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 
 import { env } from '../config/env';
 import { getDb } from '../database/db';
+import { COORDINATOR_CONVERSATION_COLUMN } from '../database/coordinator_conversation_schema';
 
 export type RelayMirrorTable =
   | 'agent_sessions'
@@ -137,6 +138,33 @@ export function appendRelayUpsert(
   if (!replicationEnabled()) return;
   if (!db.prepare(`SELECT 1 FROM ${tbl} WHERE id = ?`).get(pk)) return;
   new RelayOutboxRepository().append(tbl, 'upsert', pk, null);
+}
+
+/**
+ * Call only from the transaction that wrote canonical output/state for a root
+ * session. Dirties that root's EXISTING agent_sessions outbox record (full-row
+ * replication, coalesced per pk) when — and only when — it is currently a
+ * nonarchived, nonchild, nonsystem coordinator primary root, so the relay can
+ * learn the root identity and emit its recovery hint. Ordinary/child chats stay
+ * untouched. A schema without the coordinator column is simply not a root.
+ */
+export function appendRelayPrimaryRootUpsert(
+  db: Database.Database,
+  sessionId: string | number,
+): void {
+  if (!replicationEnabled()) return;
+  const id = String(sessionId);
+  try {
+    const root = db.prepare(
+      `SELECT 1 FROM agent_sessions
+        WHERE id = ? AND parent_session_id IS NULL AND is_system = 0
+          AND category = 'chat' AND archived_at IS NULL
+          AND json_extract(${COORDINATOR_CONVERSATION_COLUMN}, '$.primaryOwnerRoot') = 1`,
+    ).get(id);
+    if (root) appendRelayUpsert(db, 'agent_sessions', id);
+  } catch {
+    // Not a coordinator-capable schema/row: nothing to replicate.
+  }
 }
 
 /** Call only from the transaction that deleted the mirror row. */

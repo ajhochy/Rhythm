@@ -66,10 +66,7 @@ const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
 function cleanupStateIndex(oauthState: string) {
   for (const [name, state] of mcpNameToState) {
-    if (state === oauthState) {
-      mcpNameToState.delete(name)
-      break
-    }
+    if (state === oauthState) mcpNameToState.delete(name)
   }
 }
 
@@ -170,12 +167,16 @@ export async function ensureRunning(redirectUri?: string): Promise<void> {
 }
 
 export function waitForCallback(oauthState: string, mcpName?: string): Promise<string> {
-  if (mcpName) mcpNameToState.set(mcpName, oauthState)
   return new Promise((resolve, reject) => {
+    if (pendingAuths.has(oauthState)) {
+      reject(new Error("OAuth callback state is already pending"))
+      return
+    }
+    if (mcpName) mcpNameToState.set(mcpName, oauthState)
     const timeout = setTimeout(() => {
       if (pendingAuths.has(oauthState)) {
         pendingAuths.delete(oauthState)
-        if (mcpName) mcpNameToState.delete(mcpName)
+        if (mcpName && mcpNameToState.get(mcpName) === oauthState) mcpNameToState.delete(mcpName)
         reject(new Error("OAuth callback timeout - authorization took too long"))
       }
     }, CALLBACK_TIMEOUT_MS)
@@ -187,12 +188,16 @@ export function waitForCallback(oauthState: string, mcpName?: string): Promise<s
 export function cancelPending(mcpName: string): void {
   // Look up the oauthState for this mcpName via the reverse index
   const oauthState = mcpNameToState.get(mcpName)
-  const key = oauthState ?? mcpName
-  const pending = pendingAuths.get(key)
+  if (oauthState) cancelState(oauthState)
+}
+
+/** Cancel one exact callback state without affecting a newer flow for the same MCP name. */
+export function cancelState(oauthState: string): void {
+  const pending = pendingAuths.get(oauthState)
   if (pending) {
     clearTimeout(pending.timeout)
-    pendingAuths.delete(key)
-    mcpNameToState.delete(mcpName)
+    pendingAuths.delete(oauthState)
+    cleanupStateIndex(oauthState)
     pending.reject(new Error("Authorization cancelled"))
   }
 }

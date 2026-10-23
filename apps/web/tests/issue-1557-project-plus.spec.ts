@@ -24,6 +24,7 @@ async function open(page: Page) {
     row('unassigned-session', '', '/fixture/loose'),
   ];
   const writes: Record<string, unknown>[] = [];
+  const branchRequests: string[] = [];
   let created = 0;
   await page.routeWebSocket(/\/ws\/agents$/, () => {});
   await page.route(url => ['http://127.0.0.1:65534', 'http://127.0.0.1:65533', 'https://project-plus.invalid'].includes(url.origin), async route => {
@@ -43,6 +44,7 @@ async function open(page: Page) {
     if (url.pathname === '/opencode/auth/accounts') return send({ accounts: [] });
     if (url.pathname === '/tasks') return send([]);
     if (url.pathname.endsWith('/branches')) {
+      branchRequests.push(url.pathname);
       const project = projects.find(item => url.pathname === `/projects/${item.id}/branches`);
       return send({ current: project?.vcsBranch ?? null, local: project?.vcsBranch ? [project.vcsBranch] : [], recent: [] });
     }
@@ -69,8 +71,50 @@ async function open(page: Page) {
   await page.goto('/tests/project-plus-fixture.html');
   await expect(page.getByTestId('group-project-project-alpha')).toBeAttached();
   await expect(page.getByTestId('group-project-project-beta')).toBeAttached();
-  return { writes };
+  return { writes, branchRequests };
 }
+
+test('unassigned Advanced sessions skip project branches while project selection keeps real branches', async ({ page }) => {
+  const fixture = await open(page);
+  const unassignedGroup = page.getByTestId('group-project-');
+  if (await unassignedGroup.getAttribute('aria-expanded') === 'false') await unassignedGroup.click();
+  await page.getByTestId('session-unassigned-session').click();
+  await expect(page.getByTestId('session-unassigned-session')).toHaveAttribute('aria-current', 'true');
+  const unassignedTasks = page.waitForResponse(response => new URL(response.url()).pathname === '/tasks');
+  await page.getByTestId('new-session-advanced').click();
+  await expect(page.getByTestId('advanced-branch')).toBeVisible();
+  await unassignedTasks;
+  await page.waitForTimeout(250);
+  expect(fixture.branchRequests).toEqual([]);
+  await page.keyboard.press('Escape');
+
+  const betaGroup = page.getByTestId('group-project-project-beta');
+  if (await betaGroup.getAttribute('aria-expanded') === 'false') await betaGroup.click();
+  await page.getByTestId('session-beta-session').click();
+  await expect(page.getByTestId('session-beta-session')).toHaveAttribute('aria-current', 'true');
+  await page.getByTestId('new-session-advanced').click();
+  await expect.poll(() => fixture.branchRequests).toEqual(['/projects/project-beta/branches']);
+  await expect(page.getByTestId('advanced-branch').getByRole('option', { name: 'Current · beta-main' })).toHaveCount(1);
+  await page.keyboard.press('Escape');
+
+  const alphaGroup = page.getByTestId('group-project-project-alpha');
+  if (await alphaGroup.getAttribute('aria-expanded') === 'false') await alphaGroup.click();
+  await page.getByTestId('session-alpha-session').click();
+  await expect(page.getByTestId('session-alpha-session')).toHaveAttribute('aria-current', 'true');
+  await page.getByTestId('new-session-advanced').click();
+  await expect.poll(() => fixture.branchRequests).toEqual(['/projects/project-beta/branches', '/projects/project-alpha/branches']);
+  await expect(page.getByTestId('advanced-branch').getByRole('option', { name: 'Current · alpha-main' })).toHaveCount(1);
+  await expect(page.getByTestId('advanced-branch').getByRole('option', { name: 'Current · beta-main' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  await page.getByTestId('session-unassigned-session').click();
+  await expect(page.getByTestId('session-unassigned-session')).toHaveAttribute('aria-current', 'true');
+  await page.getByTestId('new-session-advanced').click();
+  await expect(page.getByTestId('advanced-branch').getByRole('option', { name: 'Current · beta-main' })).toHaveCount(0);
+  await expect(page.getByTestId('advanced-branch').getByRole('option', { name: 'Current · alpha-main' })).toHaveCount(0);
+  await page.waitForTimeout(250);
+  expect(fixture.branchRequests).toEqual(['/projects/project-beta/branches', '/projects/project-alpha/branches']);
+});
 
 test('1557:project-heading-plus:1 project headings expose named plus controls but No project does not', async ({ page }) => {
   await open(page);

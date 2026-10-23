@@ -8,6 +8,7 @@ import {
 } from '../repositories/agent_configs_repository';
 import { computeNextRun } from '../services/agentSchedulerService';
 import { assertMcpToolGrantsKnown } from '../services/mcp_tool_catalog_validation';
+import { env } from '../config/env';
 
 const repo = new AgentScheduledTasksRepository();
 const runsRepo = new AgentScheduledTaskRunsRepository();
@@ -91,12 +92,13 @@ export class AgentSchedulesController {
       const {
         name, description, scheduleType, scheduledTime, scheduledDay,
         cronExpression, runAt, timezone, prompt, agentKind, agentConfigId,
-        allowedMcps, allowedSkills, modelProvider, modelId,
+        allowedMcps, allowedSkills, modelProvider, modelId, enabled,
       } = req.body as Record<string, unknown>;
 
       if (!name || typeof name !== 'string') throw AppError.badRequest('name is required');
       if (!scheduleType || typeof scheduleType !== 'string') throw AppError.badRequest('scheduleType is required');
       if (!prompt || typeof prompt !== 'string') throw AppError.badRequest('prompt is required');
+      if (enabled != null && typeof enabled !== 'boolean') throw AppError.badRequest('enabled must be a boolean');
 
       // model-override — per-task model override. Both must be strings when present, and
       // they go together (a provider without a model id, or vice versa, can't
@@ -162,6 +164,7 @@ export class AgentSchedulesController {
         allowedSkillsJson: allowedSkills != null ? JSON.stringify(allowedSkills) : undefined,
         modelProvider: typeof modelProvider === 'string' ? modelProvider : undefined,
         modelId: typeof modelId === 'string' ? modelId : undefined,
+        enabled: typeof enabled === 'boolean' ? enabled : undefined,
         createdByUserId: req.auth?.user.id,
       });
 
@@ -282,6 +285,21 @@ export class AgentSchedulesController {
       // Force next_run_at to now so the scheduler picks it up in the next tick,
       // and expose an honest queued state until the scheduler records running
       // or terminal status.
+      if (env.dbClient === 'postgres') {
+        throw AppError.badRequest('Schedules are quarantined on this hosted server. Run from the local schedule owner.');
+      }
+      const profileId = task.agentConfigId ?? task.agentKind;
+      const config = configsRepo.getById(profileId);
+      if (config) {
+        const reason = agentConfigExecutionBlockReason(config);
+        if (reason) throw AppError.badRequest(reason);
+      }
+      assertSchedulableProfile(profileId);
+      // Check both stored grant sources: never restore the retired optimizer or grant new tools.
+      if ([task.allowedMcpsJson, config?.allowedMcpsJson].some(json => json?.includes('"rhythm_run_org_optimizer"'))) {
+        throw AppError.badRequest('Retired optimizer configuration: use supported Org Reviewer configuration.');
+      }
+      await assertKnownScheduleMcpToolGrants(task.allowedMcpsJson ?? config?.allowedMcpsJson ?? null, profileId);
       const updated = await repo.queueNowAsync(task.id);
 
       // Return the full updated task, not just a message — the Flutter client

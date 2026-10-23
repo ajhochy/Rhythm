@@ -42,6 +42,8 @@
 import type { AgentOrgProposal, AgentOrgProposalInput } from '../../models/agent_org_proposal';
 import type { AgentOrgProposalsRepository } from '../../repositories/agent_org_proposals_repository';
 import { AgentWebhookEndpointsRepository } from '../../repositories/agent_webhook_endpoints_repository';
+import { AgentCookbookRepository } from '../../repositories/agent_cookbook_repository';
+import { AgentScheduledTasksRepository } from '../../repositories/agent_scheduled_tasks_repository';
 import type { ProposalApplier, ProposalApplyResult } from '../org_proposal_apply_service';
 import type { OrgAuditGap, OrgAuditSnapshot } from '../org_audit_service';
 
@@ -250,14 +252,38 @@ export const applyWebhookWiring: ProposalApplier = async (
 
   const targetScheduledTaskId =
     typeof change.targetScheduledTaskId === 'string' ? change.targetScheduledTaskId : undefined;
+  const targetRecipeId = typeof change.targetRecipeId === 'string' ? change.targetRecipeId : undefined;
+  if (targetScheduledTaskId && targetRecipeId) throw new Error('Webhook wiring has two targets');
+  if (targetScheduledTaskId) {
+    const task = await new AgentScheduledTasksRepository().findByIdAsync(targetScheduledTaskId);
+    if (!task || (task.createdByUserId !== null && task.createdByUserId !== proposal.ownerUserId)) {
+      throw new Error('Webhook task target is unavailable to proposal owner');
+    }
+  }
+  if (targetRecipeId) {
+    const recipe = await new AgentCookbookRepository().findByIdAsync(targetRecipeId);
+    if (!recipe || (recipe.ownerUserId !== null && recipe.ownerUserId !== proposal.ownerUserId)) {
+      throw new Error('Webhook recipe target is unavailable to proposal owner');
+    }
+  }
   const targetPrompt = change.targetPromptTemplate ?? undefined;
+  // The proposal title is review copy. The endpoint identity is the frozen
+  // trigger source named by the proposal target, including evaluated changes.
+  const triggerName = typeof change.triggerSource === 'string' && change.triggerSource.trim()
+    ? change.triggerSource : null;
+  if (proposal.targetRef && (!triggerName ||
+      ![triggerName, `webhook:${triggerName}`].includes(proposal.targetRef))) {
+    throw new Error('Webhook trigger source differs from the reviewed target');
+  }
 
   const repo = new AgentWebhookEndpointsRepository();
   const endpoint = await repo.createAsync({
-    name: proposal.title,
+    name: triggerName ?? proposal.title,
     eventTypesJson: JSON.stringify(change.eventTypes ?? ['*']),
     targetScheduledTaskId,
+    targetRecipeId,
     targetPrompt,
+    createdByUserId: proposal.ownerUserId ?? undefined,
   });
 
   return {

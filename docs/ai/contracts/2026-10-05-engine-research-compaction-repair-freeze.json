@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "revision": 2,
+  "generated_at_utc": "2026-10-05T16:45:59Z",
+  "scope": "isolated fork source-only repair for the pinned SessionPrompt auto-compaction loop",
+  "baseline": {
+    "fork_source_commit": "d10d689090f76d49de7b0f937cebf0706b645457",
+    "checkout_commit": "358fb3f1cd3644d4362b19b62b1d4425624b5706",
+    "inventory_receipt": "../source-baseline.json",
+    "inventory_receipt_sha256": "fbf915f701db2802000f573828398491c6ee9304f2268510318d2c1eaf8dba43"
+  },
+  "sanitized_evidence": [
+    {
+      "path": "../rhythm-research-cpu-handoff.md",
+      "sha256": "87553daab2a3e63781c31a5fc3df8d5245e7f2de8f42786be39e3d8c463f8e40"
+    },
+    {
+      "path": "../rhythm-research-cpu-evidence.json",
+      "sha256": "d41d97384d8ac24a9481b49d4044f1007c486ff16a8d5d3ff426b093bf7f2b70"
+    }
+  ],
+  "gitnexus": {
+    "status": "UNKNOWN",
+    "reason": "gitnexus status reported the isolated checkout as unindexed; no index was created or substituted",
+    "bounded_static_review": [
+      "SessionPrompt.run consumes SessionCompaction.process",
+      "SessionPrompt.run and the manual HTTP handler consume SessionCompaction.create; the HTTP handler ignores its result",
+      "existing HTTP, ACP, and test fixture callers reach the prompt service"
+    ]
+  },
+  "owned_source_and_test_paths": [
+    {
+      "path": "apps/opencode_fork/packages/opencode/src/session/prompt.ts",
+      "preimage_sha256": "1aeb6cf30310913e87f4f1ef3ad436ef4a83120e8806ae0dbe1a331d801b498b",
+      "postimage_sha256": "298dc90e98365ea57622f332ba6e389768978b9465fa711fb931eb0c5c72325d"
+    },
+    {
+      "path": "apps/opencode_fork/packages/opencode/src/session/compaction.ts",
+      "preimage_sha256": "23225256b48d2cbea5b71229ca220feb177cf07e016029f11da636cca532eb06",
+      "postimage_sha256": "81a20beeccbaa92c2933dcd962fff2ad1d1e694c08b8772f59ac51441ffaea90"
+    },
+    {
+      "path": "apps/opencode_fork/packages/opencode/test/session/prompt.test.ts",
+      "preimage_sha256": "78bd31f2f5328d71b25aa06388d5f65a13c8a7144e30295fb50d8da01795f8af",
+      "postimage_sha256": "12c50a5a319c893277f008d7d175d65b7ff0154e3f76896c5f29cc6ce67489bd"
+    },
+    {
+      "path": "apps/opencode_fork/packages/opencode/test/session/compaction.test.ts",
+      "preimage_sha256": "74b8819573f8b830316f817269cb5b9d956a8f2707734ff40b7d65e683dd0337",
+      "postimage_sha256": "63c2c31735fe23842dcad9814bd387cdaa2c155fc08cb255a2a0707899e3f3fe"
+    }
+  ],
+  "protected_unchanged_boundaries": [
+    {
+      "path": "apps/opencode_fork/packages/opencode/src/session/message-v2.ts",
+      "sha256": "9419115bc619890c65221652eb6632ac3c729b195e4b99fa72dd8c628b9f6889"
+    },
+    {
+      "path": "apps/opencode_fork/packages/opencode/src/session/processor.ts",
+      "sha256": "be858d150fa6717b90d0e8bf63203222615502eac97523c499c7e9cd6afae2af"
+    },
+    {
+      "path": "apps/opencode_fork/packages/opencode/src/session/overflow.ts",
+      "sha256": "b580ae1ab2bec7bac3173f7eb0a8ba116e6a42e8693fa9b89bc8ca07277d9fd4"
+    },
+    {
+      "path": "apps/opencode_fork/packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts",
+      "sha256": "36c4046c1295203fdd549e649c64e242216bf892bd6efb0677825ae03fd6f179"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "docs/ai/contracts/2026-10-05-engine-research-compaction-repair.delta.patch",
+      "preimage_sha256": null,
+      "postimage_sha256": "7e024cab56821c82268414d08b5ebc771d929f4d17a0dcccff2ed0f1b62f2284",
+      "baseline_apply_check": "passed against a fresh git archive of checkout_commit"
+    },
+    {
+      "path": "docs/ai/runs/2026-10-05-engine-research-compaction-repair.md",
+      "preimage_sha256": null,
+      "postimage_sha256": "8d2abdd91f1290c074a8eaa0e4e1b0117b777fb22b4893a73932cc8a17dfaeb9"
+    },
+    {
+      "path": "docs/ai/contracts/2026-10-05-engine-research-compaction-repair-handoff.md",
+      "preimage_sha256": null,
+      "postimage_sha256": "65cb702e0b0e2d2be417c5f8eed5eafa3b02e15277c02bfbafe96d96f33c1976"
+    }
+  ],
+  "behavioral_contract": [
+    "A pinned turn admits only user controls created by that same run, never an arbitrary later ordinary user message.",
+    "Compaction synthetic replay or continuation is admitted by its exact durable message ID and remains parented to the proper active user for terminal exit.",
+    "A repeated overflow decision for the same completed assistant stops the current loop before another automatic marker is appended.",
+    "A processor stop, including a blocked result without an assistant error, stays stop and cannot create a compaction continuation.",
+    "Existing auto-continue cap behavior remains terminal and does not fabricate a completion or alter manual compaction/subtask behavior."
+  ],
+  "parent_pre_correction_typecheck": {
+    "receipt": "../root-package-typecheck.json",
+    "log": "../root-package-typecheck.log",
+    "exit_code": 2,
+    "repaired_errors": [
+      "widened compaction status",
+      "generic SyncEvent definition identity comparison",
+      "unsupported text-delta fixture property"
+    ]
+  },
+  "serialized_validation": [
+    {
+      "label": "engine-compaction-focused-prompt-r2",
+      "receipt": "/private/tmp/engine-compaction-focused-prompt-r2.json",
+      "receipt_sha256": "e8b79ae8dba6f2d17d338ea27f97fa3513e4b4ed3b29d770e2588fa6277e2bf1",
+      "log": "/private/tmp/engine-compaction-focused-prompt-r2.log",
+      "log_sha256": "0571beb1dd11ad47068aa27454aa72af58a31ba9009f9b8e65918614fb8a3f06",
+      "exit_code": 0
+    },
+    {
+      "label": "engine-compaction-focused-compaction-r2",
+      "receipt": "/private/tmp/engine-compaction-focused-compaction-r2.json",
+      "receipt_sha256": "883815bf7b802291abf92defd7a2d6a4023cc5c47a1d48885d058411ad857f1b",
+      "log": "/private/tmp/engine-compaction-focused-compaction-r2.log",
+      "log_sha256": "22d98f9189b328604886b61a7a5afb9454f31d941cdcce618e7e13de123ba9da",
+      "exit_code": 0
+    },
+    {
+      "label": "engine-compaction-typecheck-r2",
+      "receipt": "/private/tmp/engine-compaction-typecheck-r2.json",
+      "receipt_sha256": "8e3565f20195cdfd6b77a5e9fa967dbe94a7eb83f6ebf733443592086e2f2a9c",
+      "log": "/private/tmp/engine-compaction-typecheck-r2.log",
+      "log_sha256": "ae47736bb2a9401aa9743893f2f64b9a605e65a99d78cd991a8021e0f7722d87",
+      "exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "command": "bun test test/session/prompt.test.ts --test-name-pattern 'pinned prompt consumes its automatic compaction without admitting a queued user' --timeout 5000",
+      "baseline_result": "failed in the bounded second-auto-compaction guard on unchanged production source",
+      "final_result": "passed: 1 pass, 0 fail, 11 assertions"
+    },
+    {
+      "command": "bun test test/session/compaction.test.ts --test-name-pattern 'adds synthetic continue prompt when auto is enabled|stops an auto-compaction sequence after the no-progress cap|replays the prior user turn on overflow when earlier context exists|autoContinueExhausted' --timeout 10000",
+      "final_result": "passed: 10 pass, 0 fail, 21 assertions"
+    },
+    {
+      "command": "bounded-serialized-validation.py --label engine-compaction-focused-prompt-r2 -- bun test test/session/prompt.test.ts --test-name-pattern 'pinned prompt consumes its automatic compaction without admitting a queued user' --timeout 5000",
+      "final_result": "passed: 1 pass, 0 fail, 11 assertions"
+    },
+    {
+      "command": "bounded-serialized-validation.py --label engine-compaction-focused-compaction-r2 -- bun test test/session/compaction.test.ts --test-name-pattern 'adds synthetic continue prompt when auto is enabled|preserves a processor stop without requiring an assistant error|stops an auto-compaction sequence after the no-progress cap|replays the prior user turn on overflow when earlier context exists|autoContinueExhausted|stops quickly when aborted during retry backoff|does not leave a summary assistant when aborted before processor setup' --timeout 10000",
+      "final_result": "passed: 13 pass, 0 fail, 30 assertions"
+    },
+    {
+      "command": "bounded-serialized-validation.py --label engine-compaction-typecheck-r2 -- bun run typecheck",
+      "final_result": "passed: tsgo --noEmit, exit 0"
+    },
+    {
+      "command": "git diff --check",
+      "final_result": "passed"
+    },
+    {
+      "command": "git apply --check <delta> in a fresh git archive of checkout_commit",
+      "final_result": "passed"
+    }
+  ],
+  "unrun_or_unqualified": [
+    "full engine test suite and build",
+    "application, sandbox, package build, and signing checks",
+    "live engine/provider behavior and CPU-load recovery verification",
+    "any persisted-session recovery, migration, or deletion"
+  ],
+  "live_or_private_operations": "none"
+}

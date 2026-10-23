@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { env } from '../config/env';
 import { getDb } from '../database/db';
+import { isCoordinatorCallbackProvenance } from '../contracts/coordinator_callback_marker';
 import type {
   DispatchInput,
   DispatchOutcome,
@@ -12,7 +13,7 @@ import type {
 type Row = Record<string, string | number | null>;
 const fields = ['sdkSessionId', 'sdkUserMessageId', 'origin', 'requestedSource', 'requestedProviderId', 'requestedModelId', 'requestedTier', 'resolvedProviderId', 'resolvedModelId', 'resolvedTier', 'finalProviderId', 'finalModelId', 'reasonCode', 'predecessorId'] as const;
 const origins = new Set(['ws_input', 'fallback_redispatch', 'agent_runner', 'delegation', 'delegation_completion', 'approval_continuation', 'prompt_api', 'unspecified']);
-const sources = new Set(['turn_override', 'session', 'agent_config', 'agent_default', 'tier', 'fallback_chain', 'caller']);
+const sources = new Set(['turn_override', 'session', 'agent_config', 'agent_default', 'tier', 'fallback_chain', 'caller', 'auto']);
 const outcomes = new Set<DispatchOutcome>(['pending', 'accepted', 'rejected', 'unknown']);
 // ponytail: codes are an allowlisted shape, not arbitrary descriptions; add a
 // new short code when a caller needs another reason, never copy provider errors.
@@ -82,7 +83,11 @@ export class ModelProvenanceRepository {
       const value = input[field];
       if (value != null && (typeof value !== 'string' || !safeIdentifier.test(value))) throw new Error('Invalid dispatch metadata');
     }
-    if (input.reasonCode != null && !safeCode.test(input.reasonCode)) throw new Error('Invalid dispatch reason code');
+    // The exact callback marker is the one typed exception (valid delegation id,
+    // delegation_completion + agent_config only); every other code keeps the shape rule.
+    if (input.reasonCode != null && !safeCode.test(input.reasonCode) && !isCoordinatorCallbackProvenance(input)) {
+      throw new Error('Invalid dispatch reason code');
+    }
     const id = randomUUID();
     const now = new Date().toISOString();
     const values = [id, input.sessionId, ...fields.map((field) => input[field] ?? null), input.overrideApplied ? 1 : 0, input.downgraded ? 1 : 0, input.routeAuthed == null ? null : Number(input.routeAuthed), 'pending', now, now];
@@ -99,6 +104,17 @@ export class ModelProvenanceRepository {
     localOnly();
     const row = getDb().prepare('SELECT * FROM agent_turn_dispatches WHERE id = ?').get(id) as Row | undefined;
     return row ? model(row) : null;
+  }
+
+  /** Exact bounded join; ambiguous rows never select an arbitrary dispatch. */
+  findUniqueForSdkUserMessage(sessionId: string, sdkSessionId: string, sdkUserMessageId: string): DispatchRecord | null {
+    localOnly();
+    if (![sessionId, sdkSessionId, sdkUserMessageId].every((value) =>
+      typeof value === 'string' && safeIdentifier.test(value))) return null;
+    const rows = getDb().prepare(`SELECT * FROM agent_turn_dispatches
+      WHERE session_id=? AND sdk_session_id=? AND sdk_user_message_id=? LIMIT 2`)
+      .all(sessionId, sdkSessionId, sdkUserMessageId) as Row[];
+    return rows.length === 1 ? model(rows[0]) : null;
   }
 
   /** SQLite rowid preserves insertion order even for same-millisecond writes. */

@@ -3,12 +3,23 @@ import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { FixtureProvider } from './store';
 import { composeGateway } from './gateway';
+import { ensureRhythmMcp } from './gateway/mcp';
 import { GatewayProvider } from './gateway/context';
 import { AuthUserProvider, GoogleSignIn, type AuthLoginResponse, type AuthUser, type DesktopAuthBridge } from './gateway/auth';
 import './styles.css';
 
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 const environment = (import.meta as ImportMeta & { env: Record<string, string | undefined> }).env;
+type DayflowDesktopStatus =
+  | { status: 'ready'; version: string; build: string; identifier: string }
+  | { status: 'unavailable'; code: string }
+  | { status: 'unsupported'; code: string };
+
+interface DayflowDesktopBridge {
+  getDayflowDesktopStatus(): Promise<DayflowDesktopStatus>;
+  openDayflowDesktop(): Promise<DayflowDesktopStatus>;
+}
+
 declare global {
   interface Window {
     rhythmShell?: {
@@ -16,8 +27,10 @@ declare global {
         apiBase?: string;
         engineBase?: string;
         productionApiBase?: string;
+        qualificationLocalProductionApiBase?: string;
       };
       auth?: DesktopAuthBridge;
+      dayflowDesktop?: DayflowDesktopBridge;
       agentServer?: {
         status(): Promise<{ status: string; ownership?: 'electron' | 'external' | 'none'; owned: boolean; errorMessage?: string | null }>;
         onStatusChange?(callback: (status: { status: string; ownership?: 'electron' | 'external' | 'none'; owned: boolean; errorMessage?: string | null }) => void): () => void;
@@ -39,15 +52,20 @@ const productionApiBase = runtimeGateway?.gateway?.productionApiBase ?? environm
 const expectedApiBase = runtimeGateway ? apiBase : environment.VITE_RHYTHM_EXPECTED_API_BASE;
 const expectedEngineBase = runtimeGateway ? engineBase : environment.VITE_RHYTHM_EXPECTED_ENGINE_BASE;
 
-const renderGateway = (taskToken?: string, user?: AuthUser) => {
+const renderGateway = (taskToken?: string, user?: AuthUser, mcpReady?: () => Promise<void>, cloud = false) => {
   const gateway = composeGateway({
-    mode: gatewayMode,
+    mode: environment.VITE_RHYTHM_WEB_HOST === '1' ? 'live' : gatewayMode,
+    ...(environment.VITE_RHYTHM_WEB_HOST === '1' ? { browserOrigin: window.location.origin } : {}),
     apiBase,
     engineBase,
     productionApiBase,
+    // This authority comes only from Electron's verified fixture actor; Vite env cannot grant it.
+    qualificationLocalProductionApiBase: runtimeGateway?.gateway?.qualificationLocalProductionApiBase,
     expectedApiBase,
     expectedEngineBase,
     taskToken,
+    mcpReady,
+    cloud,
   });
   const app = <FixtureProvider><App /></FixtureProvider>;
   root.render(
@@ -74,7 +92,15 @@ try {
   // TEST-ONLY override: existing Vite/Playwright live harnesses inject this disposable bearer.
   // The packaged build neutralizes this value, and the Electron host never exposes a token.
   const testOnlyToken = environment.VITE_RHYTHM_LIVE_TOKEN;
-  if (gatewayMode === 'live' && !testOnlyToken) {
+  if (environment.VITE_RHYTHM_WEB_HOST === '1') {
+    void fetch('/web/bootstrap', { cache: 'no-store', redirect: 'error' })
+      .then(async response => {
+        if (!response.ok) throw new Error(`Web bootstrap failed (HTTP ${response.status})`);
+        const body = await response.json();
+        if (body.mode !== 'web' || !Number.isInteger(body.owner?.id) || !body.owner?.displayName || typeof body.owner?.role !== 'string' || !body.owner.role) throw new Error('Invalid web bootstrap');
+        renderGateway(undefined, { id: body.owner.id, name: body.owner.displayName, email: '', role: body.owner.role }, undefined, body.capabilities?.cloud === true);
+      }).catch(renderStartupError);
+  } else if (gatewayMode === 'live' && !testOnlyToken) {
     if (!apiBase || !engineBase || !productionApiBase) {
       // A missing ADDRESS and a missing TOKEN are different failures and must not share one state.
       // Signing in cannot supply an API address, so this is a fatal configuration error rather than
@@ -86,13 +112,32 @@ try {
       ));
     } else {
       const onAuthenticated = (login: AuthLoginResponse) => {
-        try { renderGateway(login.sessionToken, login.user); } catch (error) { renderStartupError(error); }
+        // Share one installation per authenticated document. A failed attempt
+        // remains retryable through the MCP inspector's existing Retry action.
+        let pending: Promise<void> | null = null;
+        let ready = false;
+        const mcpReady = () => {
+          if (ready) return Promise.resolve();
+          if (!pending) pending = ensureRhythmMcp(apiBase, productionApiBase, login.sessionToken)
+            .then(() => { ready = true; }, (error) => { pending = null; throw error; });
+          return pending;
+        };
+        void mcpReady().catch((error) => console.warn('[rhythm-mcp] ensure failed', error));
+        try { renderGateway(login.sessionToken, login.user, mcpReady); } catch (error) { renderStartupError(error); }
       };
       const renderSignIn = () => root.render(<React.StrictMode><GoogleSignIn auth={runtimeGateway?.auth} onAuthenticated={onAuthenticated} /></React.StrictMode>);
       const restore = runtimeGateway?.auth?.currentSession;
       if (restore) void restore().then((restored) => restored ? onAuthenticated(restored) : renderSignIn()).catch(renderSignIn);
       else renderSignIn();
     }
+  } else if (gatewayMode === 'live' && testOnlyToken && apiBase) {
+    // TEST-ONLY: name the token's user so user-scoped surfaces (the Rhythm
+    // Coordinator entry) work in a browser against an isolated sandbox.
+    void fetch(`${apiBase.replace(/\/$/, '')}/auth/me`, { headers: { authorization: `Bearer ${testOnlyToken}` } })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { user?: AuthUser } | null) => renderGateway(testOnlyToken, body?.user))
+      .catch(() => renderGateway(testOnlyToken))
+      .catch(renderStartupError);
   } else {
     renderGateway(testOnlyToken);
   }

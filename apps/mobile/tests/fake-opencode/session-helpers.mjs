@@ -250,6 +250,7 @@ export function createSessionHelpers({ getNow, getState, emitEvent }) {
   }
 
   return {
+    createMessage,
     createSession,
     forkSession,
     getMessages,

@@ -38,6 +38,20 @@ describe('#1382 approval lane taxonomy', () => {
     await closeServer();
   });
 
+  it('leaves expired cards out of the pending queue (an Approve click on them can only 403)', async () => {
+    const repository = new AgentApprovalsRepository();
+    const at = (ms: number) => new Date(Date.now() + ms).toISOString();
+    const live = repository.create({ action: 'Live card', expiresAt: at(60_000) });
+    const expired = repository.create({ action: 'Expired card', expiresAt: at(-60_000) });
+    const list = async (status: string) => ((await (await fetch(`${baseUrl}/agent-approvals?status=${status}`, {
+      headers: { Authorization: `Bearer ${bearer}`, ...credentials.capabilityHeader },
+    })).json()) as Array<{ id: string }>).map((row) => row.id);
+
+    expect(await list('pending')).toContain(live.id);
+    expect(await list('pending')).not.toContain(expired.id);
+    expect(await list('all')).toContain(expired.id);
+  });
+
   it('adds a lane and reason to every listed approval without changing stored fields', async () => {
     const repository = new AgentApprovalsRepository();
     const taint = repository.create({
@@ -50,6 +64,7 @@ describe('#1382 approval lane taxonomy', () => {
       action: 'Authorize calendar.update',
       securityAction: 'calendar.update',
       autoApprove: false,
+      boundPayloadJson: JSON.stringify({ privateFixture: 'approval-lane-private-marker' }),
     });
     const approvalGate = repository.create({
       action: 'Schedule a volunteer',
@@ -65,21 +80,32 @@ describe('#1382 approval lane taxonomy', () => {
     expect(response.status).toBe(200);
     const rows = (await response.json()) as Record<string, unknown>[];
     const byId = new Map(rows.map((row) => [row.id, row]));
+    const { boundPayloadJson: taintPayload, ...publicTaint } = taint;
+    const { boundPayloadJson: consequentialPayload, ...publicConsequential } = consequential;
+    const { boundPayloadJson: gatePayload, ...publicApprovalGate } = approvalGate;
 
     expect(byId.get(taint.id)).toEqual({
-      ...taint,
+      ...publicTaint,
       lane: 'hardline',
       laneReason: 'external_data_taint',
     });
     expect(byId.get(consequential.id)).toEqual({
-      ...consequential,
+      ...publicConsequential,
       lane: 'hardline',
       laneReason: 'consequential_action',
     });
     expect(byId.get(approvalGate.id)).toEqual({
-      ...approvalGate,
+      ...publicApprovalGate,
       lane: 'approval',
       laneReason: 'approval_gate',
     });
+    expect(taintPayload).toBeNull();
+    expect(gatePayload).toBeNull();
+    expect(consequentialPayload).toContain('approval-lane-private-marker');
+    for (const row of rows) expect(row).not.toHaveProperty('boundPayloadJson');
+    expect(JSON.stringify(rows)).not.toContain('approval-lane-private-marker');
+    for (const stored of [taint, consequential, approvalGate]) {
+      expect(repository.getById(stored.id)).toEqual(stored);
+    }
   });
 });

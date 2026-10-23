@@ -4,6 +4,10 @@ import { AppError } from '../errors/app_error';
 import { AuthService } from '../services/auth_service';
 import { MobileCloudIdentityService } from '../services/mobile_cloud_identity_service';
 import type { User } from '../models/user';
+import { env } from '../config/env';
+import { getDb } from '../database/db';
+import { UsersRepository } from '../repositories/users_repository';
+import { webHostOwner } from '../services/web_host';
 
 const authService = new AuthService();
 const mobileCloudIdentityService = new MobileCloudIdentityService();
@@ -167,6 +171,39 @@ export async function requireLocalOrCloudAuth(
 }
 
 /**
+ * Resolve the one signed-in local user for an AGENT_LOCAL request that
+ * carries no bearer.
+ *
+ * The desktop's own loopback requests arrive without a token, so everything
+ * they created was stored with owner_user_id NULL — and an ordinary new chat
+ * was then refused downstream as history_ambiguous. The owner is not actually
+ * unknown in that situation: exactly one user is signed in on this desktop.
+ *
+ * Ambiguity still fails closed. Zero active sessions, or active sessions for
+ * more than one user, return null and the request stays unauthenticated, so
+ * genuinely unknown ownership is never guessed. This is reachable only under
+ * AGENT_LOCAL, which env.ts already pins to a loopback listener, and it grants
+ * no access the no-token bypass did not already grant — it only records who
+ * the work belongs to instead of leaving it null.
+ */
+function soleLocalSignedInSession(): AuthContext | null {
+  if (!env.agentLocal) return null;
+  try {
+    const rows = getDb().prepare(
+      `SELECT token, user_id FROM sessions
+         WHERE expires_at IS NULL OR expires_at > datetime('now')
+         ORDER BY created_at DESC`,
+    ).all() as Array<{ token: string; user_id: number }>;
+    const owners = new Set(rows.map(row => row.user_id));
+    if (owners.size !== 1) return null;
+    const user = new UsersRepository().findById(rows[0].user_id);
+    return user ? { sessionToken: rows[0].token, user } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Local desktop routes remain usable without a token, but when the desktop
  * supplies its normal Bearer token we must attach the same user context as an
  * authenticated deployment. This lets user/project-owned resources created on
@@ -183,6 +220,14 @@ export async function authenticateIfPresent(
 ): Promise<void> {
   const header = req.header('Authorization') ?? '';
   if (!header.trim()) {
+    const webOwner = webHostOwner();
+    if (webOwner) {
+      req.auth = { user: webOwner, sessionToken: '' };
+      next();
+      return;
+    }
+    const local = soleLocalSignedInSession();
+    if (local) req.auth = local;
     next();
     return;
   }

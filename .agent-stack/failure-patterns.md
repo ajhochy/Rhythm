@@ -738,3 +738,94 @@
 - Criteria checked manually: c1, c2, c3, c6.
 - Process: wrong initial E16/E20 config corrected; dedicated suites pass.
 - Follow-up: preserve runtime qualification boundaries.
+
+## 2026-10-01 — PR 1598 — Installed manual profile input checked disabled engine alias
+
+- **Result**: installed manual WebSocket smoke FAIL; native continuation had been explicitly UNVERIFIED, so no prior native PASS was contradicted.
+- **Category**: C1 missing manual-entry-path contract; tool-capability note records unavailable TodoWrite with private checklist substitute.
+- **Criteria affected**: C2-c6 (default manual `session.input`); C2-c7/C2-c8 added pending for explicit selection and disabled-profile rejection.
+- **Root cause**: the WebSocket guard selected the session's engine agent `build` instead of its enabled canonical stored profile and rejected the frame because the separate `build` profile is disabled.
+- **Suggested fix**: test canonical profile resolution for default and explicit manual WebSocket turns, preserve disabled/locked rejection, then repeat the exact installed native input smoke.
+
+## 2026-10-01 — PR #1598 — Final 31ff installed smoke
+
+- **Result:** app smoke PASS; Sol spatial-answer quality probe failed while independent Sonnet recognized the same image. Verification had explicitly scoped synthetic transport evidence and did not claim Sol semantic accuracy, so there is no false-green app regression.
+- **Category:** none for Rhythm behavior. The external provider answer is recorded separately; do not force it into C1/C2 or file a transport bug.
+- **Criteria affected:** scoped installed PNG/workbook bytes and selected profile routing passed; one marked outer schedule Trigger now and read-only approval refresh passed. Full A1 replay/JPEG, operational Org Self-Optimizer execution, historical “Org Optimize” wording, and E1 creation/mount/reconnect/post-decision clauses remain unverified; read-only UI inspection mapped Org Self-Optimizer to the same outer control. Original approvals were not decided.
+- **Evidence:** signed installed 0.18.69 at source 31ff; two fresh real-provider sends with exact bytes; independent exact-ID cleanup; 61 RSS samples peaked at 950,848 KiB; healthy post-cleanup engine 608,528 KiB.
+- **Follow-up:** keep model assignments unchanged. EAS submission finished and Apple verified build 17 Validated and Testing in the existing internal group; physical-device smoke remains unrun because paired devices are unavailable. Let normal retention sweep remove the three unpinned metadata rows.
+## 2026-10-06 — Coordinator nested work and model qualification
+
+- Result: user smoke FAIL after bounded workflow plumbing qualification.
+- Category: C1 (missing whole-hierarchy and actual-model contracts); W5 (qualification scope was allowed to imply broader functionality).
+- Root cause: mixed native/async/native work bypassed both root-only listing and direct-caller async status; generated routing clauses conflicted; scripted responses did not exercise model choices.
+- Required follow-up: preserve separate source, full-gate, real-engine, actual-model and installed-runtime evidence; do not claim one qualifies another.
+
+## 2026-10-06 — C17 installed Coordinator/Dayflow smoke
+
+- **Result**: targeted installed smoke PASS; general model judgment not checked.
+- **Category**: none for checked UI criteria; W3 host lacked TodoWrite (durable stage receipts used).
+- **Criteria**: native Copy, installed generated Secretary routing/registry, Dayflow height/host scroll/chrome.
+- **Process**: release-input/dependency metadata holds and old-runtime restarts preserved; idle guards remained enabled. Exact-root helper gate corrected before any resync POST.
+- **Follow-up**: real-model status/dispatch/callback evaluation remains distinct from scripted API/engine/MCP proof. Prior human failure and historical zero-call cause remain recorded.
+
+
+## 2026-10-11 installed 0.18.69 ordinary chat
+
+Bounded owned-session fixture c7 passed, while fresh native UI creation produced an owner-NULL session and Dayflow refused with `history_ambiguous`. Category C2: the fixture did not cover ordinary UI ownership wiring. Keep the safeguard; add an end-to-end UI ownership/admission check. Grid separately returned `no_usable_route` because current policy candidates were disabled or absent from the native inventory. Only connected Sol 6.1 was enabled through supported test-database curation. Full workflow qualification remains open.
+
+
+## 2026-10-11 — installed0.18.69 live followup
+
+- **Result:** smoke FAIL; full installed qualification was pending, no complete PASS claim contradicted.
+- **Categories:** C1 actual native data isolation/status coverage missing; C2 owned unenrolled fixture omitted ordinary UI ownership; C3 actual Memory relevance challenge fails.
+- **Root cause:** private API/config paths did not isolate independently derived native durable paths. Engine wrote15 synthetic SDK sessions to regular OpenCode DB. Memory admitted unrelated source under budget pressure; specialized Coordinator final status disagreed with completed native replies.
+- **Observed passes:** actual On/Grid Sol6.1/xhigh/account selection, matching served model and restart persistence; bounded consent/account/refusal fixtures; Memory canonical/budget/body-free and limited fresh-context abstention; evaluator component only.
+- **Required followup:** verify all actual engine/API durable paths in fresh private HOME/XDG lane before any dispatch, qualify normal UI ownership and relevant continuation admission, then run genuine human-approved Coordinator worker/artifact/delivery/recovery/authority gates. No shared-history cleanup or approval fabrication. Profile-control authority question remains pending.
+- **Process:** retained original catalog.fetchedAt-only restart comparison failure, qualified persistent values separately; no extra model turn/restart to hide it. Structured receipt: `.agent-stack/postmortems/2026-10-11-installed-69-live-followup.json`.
+
+
+## 2026-10-11 installed69 isolated closeout
+
+Actual live proposal hold with installed strict-schema/binding-spread contradiction (C3 inference); native repairedskills absent in fresh HOME (C5); owned unenrolled fixture missed normal ownerNULL UI creation (C2); irrelevant Memory excerpt admitted (C3); Dayflow fixture primary_designation setup refuses after ordinaryroot designation (C5); planning receipt/status display lacks accurate sync coverage (C1); sign-in modelcatalog stale until normal relaunch (C5). Keep current8passes/6setuprefusals separate from earlierfresh14passes. True bare retired Memory continuation abstains but misexplains olderhiddenevidence. Routing choice persists restart; supported Reconnect required, no addedturn. No full deliverable PASS or current platformevaluatorhold; coding artifact/delivery/cancellation gates blocked. Evidence: docs/ai/runs/2026-10-11-installed-69-isolated-closeout.md and private current receipts.
+
+
+## 2026-10-22 — Web candidate desktop launch checkpoint
+
+- **Result**: smoke PASS for the candidate desktop launch only; full verification claim unknown, no divergence.
+- **Category**: none for launch behavior; process category `dependency-projection`; W3 records unavailable TodoWrite tooling without fabricated calls.
+- **Criteria affected**: `web-candidate-desktop-launch-checkpoint`. Native accessibility showed Environment Live, healthy API 4001/engine 4096 and the Browser access menu on signed source `6081e4fd81`.
+- **Root cause**: the initial package dependency projection omitted nested SDK dependencies; six local wrappers repaired resolution and package/sign attempt 2 exited 0. No product code changed.
+- **Suggested fix**: include nested workspace dependency directories in projections and preserve the distinction between launch evidence, pending native credential export and browser qualification.
+- **Remaining**: all 93 included browser cases remain `not_run`; Slice 2c has no executable contract yet. No full parity or credential-export completion is claimed. Structured receipt: `.agent-stack/postmortems/2026-10-22-web-candidate-launch.json`.
+
+## 2026-10-22 — Private HTTPS cutover
+
+- Result: smoke PASS; no claimed remote pass before evidence.
+- Category: none; no divergence.
+- Evidence: valid TLS/HTTP200, Chromium render/reload/cloud/WSS101; preserved443/8443; no writes.
+- Limit: hosting Mac only; second physical device untested.
+- Tooling: TodoWrite unavailable; ordered checks recorded in the run receipt.
+
+## 2026-10-22 — External tailnet policy repair
+
+- Result: final smoke PASS; AJ confirmed Mac mini loads Rhythm.
+- Initial cause: central policy deliberately allowed4001 only from pi-nas.
+- Repair: user-authorized all-tailnet source grant, six deny tests changed to accept with other checks preserved.
+- Evidence: successful validated save, received IPv4/IPv6 policy allows all online personal peers, actual remote page-load confirmation.
+- Follow-up: distinguish same-host HTTPS tests from central policy/peer/browser proof.
+
+## 2026-10-22 — Login LaunchAgent
+
+- Result: smoke PASS, no divergence.
+- Evidence: plist lint/bootstrap0, launchd runs2 with automatic recovery, required flags loaded, HTTPS render/reload/cloud/WSS101/TLS200.
+- Limit: full logout/login not forced; existing candidate path retained.
+- No source rebuild or network change.
+
+## 2026-10-22 — Native renderer blocked by overlapping web Hosts
+
+- Initial smoke FAIL despite passing F1/F2/security checks: C2 wrong contract input (remote-only browser Host versus real loopback aliases).
+- Root cause: browser branch preempted existing native loopback trust, rejectingrhythm://app.
+- Fix: preserve trusted-native+loopback path first; no remote native-origin allowance or browser/CSRF relaxation.
+- Contract RED3failed/11passed, focusedGREEN53/53; real API/engine collision mutationRED2failed/1passed→GREEN3/3. Originalsecurity8/8; browser selection18/19 dueobserver race→fresh19/19 with assertions retained.
+- Final smoke PASS: actual signed4bd native API/engine healthy, session loaded and reload works; concurrent HTTPSbrowser/cloud/WSS101. Existing LaunchAgent and Serve preserved.

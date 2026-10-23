@@ -6,13 +6,15 @@ test('issue-1447-c2: production data and local agent traffic use separate authen
   // Regression caught: tasks and agent sessions both silently use the local SQLite agent server.
   const vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
   const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
   try {
+    globalThis.window = { rhythmShell: { humanApproval: { capability: async () => 'disposable-native-approval-capability' } } };
     const { createLiveGateway } = await vite.ssrLoadModule('/src/gateway/index.ts');
     const requests = [];
     globalThis.fetch = async (input, init) => {
       const headers = new Headers(init?.headers);
       const url = String(input);
-      requests.push({ url, authorization: headers.get('authorization') ?? undefined });
+      requests.push({ url, authorization: headers.get('authorization') ?? undefined, approvalCapability: headers.get('x-rhythm-human-approval') ?? undefined });
       const body = url.endsWith('/users/me/preferences')
         ? { artifactTabIds: [] }
         : url.includes('/agent-delegation/status')
@@ -60,7 +62,7 @@ test('issue-1447-c2: production data and local agent traffic use separate authen
       gateway.domains.designs.list(),
     ]);
 
-    assert.deepEqual(requests.map((request) => request.url), [
+    assert.deepEqual(requests.map((request) => request.url).sort(), [
       'https://api.vcrcapps.com/tasks?status=all',
       'https://api.vcrcapps.com/project-instances',
       'https://api.vcrcapps.com/tasks/x/collaborators',
@@ -87,12 +89,17 @@ test('issue-1447-c2: production data and local agent traffic use separate authen
       'http://127.0.0.1:4098/agent-cookbook',
       'http://127.0.0.1:4098/agent-research/projects',
       'http://127.0.0.1:4098/agent-designs',
-    ]);
-    assert.equal(requests.slice(0, 12).every((request) => request.authorization === 'Bearer disposable-contract-token'), true);
-    assert.equal(requests.slice(12).every((request) => request.authorization === undefined), true);
+    ].sort());
+    assert.equal(requests.filter((request) => request.url.startsWith('https://')).every((request) => request.authorization === 'Bearer disposable-contract-token'), true);
+    assert.equal(requests.filter((request) => request.url.startsWith('http://') && !request.url.includes('/agent-approvals')).every((request) => request.authorization === undefined), true);
+    const approvalRequest = requests.find((request) => request.url.includes('/agent-approvals'));
+    assert.equal(approvalRequest.authorization, 'Bearer disposable-contract-token');
+    assert.equal(approvalRequest.approvalCapability, 'disposable-native-approval-capability');
 
   } finally {
     globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
     await vite.close();
   }
 });
@@ -107,6 +114,34 @@ test('issue-1447-c2: configurable production base accepts servers but rejects un
     for (const value of ['', 'http://rhythm.test/base/', 'file:///tmp/api', 'https://user@api.test', 'https://api.test?token=x', 'https://api.test/#x']) {
       assert.throws(() => validateProductionApiBase(value), /production API base/i);
     }
+  } finally {
+    await vite.close();
+  }
+});
+
+test('qualification actor routes production domains only through its exact native-owned local API origin', async () => {
+  const vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
+  try {
+    const { createLiveGateway } = await vite.ssrLoadModule('/src/gateway/index.ts');
+    const local = 'http://127.0.0.1:4001';
+    const config = { apiBase: local, engineBase: 'http://127.0.0.1:4096', productionApiBase: local, taskToken: 'disposable-fixture-bearer' };
+    assert.throws(() => createLiveGateway(config), /production API base/i);
+    for (const origin of ['http://127.0.0.1:4002', 'http://localhost:4001', 'http://127.0.0.1:4001/path', 'https://api.vcrcapps.com']) {
+      assert.throws(() => createLiveGateway({ ...config, qualificationLocalProductionApiBase: origin }), /production API base/i);
+    }
+    assert.throws(() => createLiveGateway({ ...config, apiBase: 'http://127.0.0.1:4002', expectedApiBase: 'http://127.0.0.1:4002', qualificationLocalProductionApiBase: local }), /production API base/i);
+    const requests = [];
+    const fetcher = async (input, init) => {
+      requests.push({ url: String(input), authorization: new Headers(init?.headers).get('authorization') });
+      return Response.json([]);
+    };
+    const gateway = createLiveGateway({ ...config, qualificationLocalProductionApiBase: local }, fetcher);
+    await gateway.domains.tasks.list();
+    await gateway.domains.sessions.list();
+    assert.deepEqual(requests, [
+      { url: `${local}/tasks?status=all`, authorization: 'Bearer disposable-fixture-bearer' },
+      { url: `${local}/agent-sessions?scope=chats`, authorization: 'Bearer disposable-fixture-bearer' },
+    ]);
   } finally {
     await vite.close();
   }

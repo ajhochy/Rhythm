@@ -1,7 +1,12 @@
+import { createQualificationFixtureRouter } from './routes/qualification_fixture_routes';
+import type { QualificationFixtureService } from './services/qualification_fixture_service';
 import cors from 'cors';
 import express, { type Router } from 'express';
 
 import { env } from './config/env';
+import { webHostConfig } from './config/web_host';
+import { createWebHostRouter, webHostOwnerContext } from './services/web_host';
+import { createWebApprovalsRouter } from './routes/web_approvals_routes';
 import { errorHandler } from './middleware/error_handler';
 import { localAgentSurfaceGuard } from './middleware/local_agent_surface_guard';
 import { authRouter } from './routes/auth_routes';
@@ -55,20 +60,32 @@ import { streamBridge } from './services/opencode_stream_bridge';
 import { buildOpencodeHealthPayload } from './services/opencode_health';
 import { requireAuth } from './middleware/auth_middleware';
 import agentSchedulesRouter from './routes/agentSchedulesRoutes';
-import agentMemoryRouter from './routes/agentMemoryRoutes';
+import { createAgentMemoryRouter } from './routes/agentMemoryRoutes';
+import agentDecisionsRouter from './routes/agent_decisions_routes';
+import agentFreeRouter from './routes/agent_free_routes';
 import agentWebhookRouter from './routes/agentWebhookRoutes';
 import agentResearchRouter from './routes/agentResearchRoutes';
 import agentCookbookRouter from './routes/agentCookbookRoutes';
 import agentWorkflowRouter from './routes/agentWorkflowRoutes';
 import orgProposalsRouter from './routes/org_proposals_routes';
+import { createManagedToolsRouter } from './routes/managed_tools_routes';
 import orgOptimizerRunRouter from './routes/org_optimizer_run_routes';
 import agentDesignsRouter from './routes/agentDesignsRoutes';
 import gmailSignalsRouter from './routes/gmail_signals_routes';
 import { agentCapabilityStatusRouter } from './routes/agent_capability_status_routes';
 import { agentApprovalsRouter } from './routes/agent_approvals_routes';
+import { createHermesNotifyRouter } from './routes/hermes_notify_routes';
 import { systemRouter } from './routes/system_routes';
 import { engraphManagerRouter } from './routes/engraph_manager_routes';
 import { createMobileGatewayRouter } from './routes/mobile_gateway_routes';
+import { createAgentMemoryImportRouter } from './routes/agent_memory_import_routes';
+import { createDayflowIntegrationRouter } from './routes/dayflow_integration_routes';
+import { createDayflowAuthenticatedManagementRouter, type DayflowAuthenticatedConsentService } from './routes/dayflow_authenticated_management_routes';
+import { createDayflowReferencesRouter } from './routes/dayflow_references_routes';
+import type { DayflowManagementService } from './integrations/dayflow/public_contract';
+import type { DayflowQualifiedEvidenceService } from './services/dayflow_qualified_evidence_service';
+import type { DayflowProviderAdmissionService } from './services/dayflow_receiving_history_guard';
+import { mobileGatewayAccessLog } from './services/mobile_gateway_access_log';
 import { agentActivityRouter } from './routes/agent_activity_routes';
 import { creativePlatformRouter } from './routes/creative_platform_routes';
 import { setupReadinessRouter } from './routes/setup_readiness_routes';
@@ -82,16 +99,46 @@ import {
 } from './routes/shared_transcripts_routes';
 import { createAgentBridgeRouter } from './routes/agent_bridge_routes';
 import { sharedAgentsCatalogRouter } from './shared_agents/bridge/catalog';
-import { requireLocalOrCloudAuth } from './middleware/auth_middleware';
+import { requireWebOwnerOrLocalOrCloudAuth } from './middleware/web_owner_auth';
+import { createAgentWorkstreamsRouter } from './routes/agent_workstreams_routes';
+import { createCoordinatorConversationsRouter } from './routes/coordinator_conversations_routes';
+import { createCoordinatorAgentToolsRouter } from './routes/coordinator_agent_tools_routes';
+import type { ManagedMemorySearchService } from './services/managed_workstream_evidence_capture';
+import type { PersistentWorkstreamCoordinator } from './services/persistent_workstream_coordinator';
+import type { CoordinatorConversationService } from './services/coordinator_conversation_service';
+import type { CoordinatorConversationModelStatusService } from './services/coordinator_conversation_model_status_service';
+import { initializeRouterFreeRecovery } from './services/decision/router_grid_turn';
+import { createWebCloudRouter } from './services/web_cloud';
 
 export function isLoopbackAddress(address: string | undefined): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
 }
 
-export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
+export function createApp(options: {
+  mobileGatewayRouter?: Router;
+  qualificationFixtures?: QualificationFixtureService;
+  dayflowService?: DayflowManagementService;
+  dayflowAuthenticatedConsent?: DayflowAuthenticatedConsentService;
+  dayflowQualifiedEvidence?: DayflowQualifiedEvidenceService;
+  dayflowProviderAdmission?: DayflowProviderAdmissionService;
+  managedMemorySearch?: ManagedMemorySearchService;
+  workstreamCoordinator?: PersistentWorkstreamCoordinator;
+  coordinatorConversationService?: CoordinatorConversationService;
+  coordinatorAgentTools?: CoordinatorConversationModelStatusService;
+} = {}) {
+  initializeRouterFreeRecovery(); // cold-start listener before any route can refresh usage
   const app = express();
+  const dayflowLocalSurface = Boolean(
+    options.dayflowService &&
+    env.agentExecutionEnabled &&
+    env.agentLocal &&
+    env.agentOriginGuardEnabled,
+  );
 
   app.use(localAgentSurfaceGuard);
+  // Cloud parses its bounded JSON before the broad parser/error logger below.
+  if (webHostConfig) app.use('/cloud', createWebCloudRouter());
+  if (webHostConfig) app.use(webHostOwnerContext);
   if (env.bridgeEnabled) {
     app.use('/agent-bridge/v1', createAgentBridgeRouter());
   }
@@ -115,7 +162,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
           env.agentOriginGuardEnabled !== false &&
           env.agentLocal
         ) {
-          callback(null, env.localRendererOrigins.includes(origin));
+          callback(null, env.localRendererOrigins.includes(origin) || webHostConfig?.origins.includes(origin) === true);
           return;
         }
 
@@ -134,14 +181,44 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
 
         callback(new Error(`Origin ${origin} is not allowed by CORS`));
       },
-      allowedHeaders: ['Content-Type', 'Authorization', 'content-type', 'X-Signature-SHA256', 'Range', 'X-Rhythm-Project', 'X-Rhythm-Project-ID', 'X-Rhythm-Auto-Promotion-Confirmation'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'content-type', 'X-Signature-SHA256', 'Range', 'X-Rhythm-Project', 'X-Rhythm-Project-ID', 'X-Rhythm-Auto-Promotion-Confirmation', 'X-Rhythm-Human-Approval'],
     }),
   );
+  // This specific stream parser must precede the broad JSON parser.  Its
+  // internal middleware is post-scoped so unrelated /agent-memory requests
+  // keep their existing limits and parsing behavior.
+  if (dayflowLocalSurface) {
+    app.use('/agent-memory', createAgentMemoryImportRouter({
+      executionLocal: true,
+      originGuardEnabled: true,
+    }));
+    // Dayflow owns a stricter 16 KiB JSON parser. Mount it before the broad
+    // parser below so management requests cannot inherit the 1 MiB default.
+    // Its own router retains the same local Host/Origin and loopback guards.
+    app.use('/dayflow-integration', createDayflowIntegrationRouter(options.dayflowService!));
+  }
+  // Explicit consent uses the normal signed-app bearer and server-resolved
+  // session/project records. It is intentionally separate from local source
+  // configuration and stays absent until composition supplies the service.
+  if (env.agentExecutionEnabled && options.dayflowAuthenticatedConsent) {
+    app.use('/dayflow-agent', createDayflowAuthenticatedManagementRouter({
+      service: options.dayflowAuthenticatedConsent,
+    }));
+  }
   // Allow larger bodies for OAuth token exchange and session creation.
   // The OpenAI OAuth access token alone can exceed 4 KB; the default 100 KB
   // limit is sufficient for normal requests but we raise it to 1 MB as a
   // safety margin.
   app.use(express.json({ limit: '1mb' }));
+  if(options.qualificationFixtures)app.use('/qualification-fixtures',createQualificationFixtureRouter(options.qualificationFixtures));
+  // Signed evidence tools are default-off until both current receiving and
+  // persisted source qualification authorities are composed in server.ts.
+  if (env.agentExecutionEnabled && (options.dayflowQualifiedEvidence || options.dayflowProviderAdmission)) {
+    app.use('/dayflow-agent', createDayflowReferencesRouter({
+      evidence: options.dayflowQualifiedEvidence,
+      providerAdmission: options.dayflowProviderAdmission,
+    }));
+  }
 
   app.use('/health', healthRouter);
   app.use('/dashboard', dashboardRouter);
@@ -195,7 +272,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   // /relay/*. Deliberately OUTSIDE the agentExecutionEnabled block — the
   // relay role has agentExecutionEnabled=false but still serves phones.
   if (env.isRelayRole) {
-    app.use('/relay', createRelayGatewayRouter());
+    app.use('/relay', mobileGatewayAccessLog('Relay'), createRelayGatewayRouter());
   }
 
   // ── Agent-execution surfaces (#755) ───────────────────────────────────────
@@ -224,8 +301,9 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
       });
     }
     app.use('/dev', devLogsRouter);
-    app.use(
+    if (!webHostConfig) app.use(
       '/mobile-gateway',
+      mobileGatewayAccessLog('MobileGateway'),
       options.mobileGatewayRouter ?? createMobileGatewayRouter(),
     );
     // NOTE: /agents/capabilities is unauthenticated for now; Phase 3.1 will add the AGENT_LOCAL bypass.
@@ -234,16 +312,39 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     app.use('/creative-platform', creativePlatformRouter);
     app.use('/setup-readiness', setupReadinessRouter);
     app.use('/agent-approvals', agentApprovalsRouter);
+    if (env.dbClient === 'sqlite' && !env.isRelayRole) {
+      app.use('/hermes-notify', createHermesNotifyRouter());
+    }
     app.use('/agents/usage-budget', usageBudgetRouter);
     app.use('/agents/run-quality', runQualityRouter);
     // W4 — the immutable run-outcome ledger + its append-only feedback API.
     // Same agent-execution gate as its sibling agent routes: the hosted 'cloud'
     // role never runs agents, so it has no run outcomes to serve.
     app.use('/agent-run-outcomes', runOutcomeRouter);
+    app.use('/agent-workstreams', createAgentWorkstreamsRouter(options.workstreamCoordinator));
+    // C2 is mounted only with the same explicit local SQLite workstream
+    // coordinator. An unset flag/service remains a normal 404/default-off.
+    if (options.coordinatorConversationService) {
+      app.use('/coordinator-conversations', createCoordinatorConversationsRouter({
+        service: options.coordinatorConversationService,
+        enabled: () => Boolean(
+          env.workstreamsEnabled && env.dbClient === 'sqlite' && options.workstreamCoordinator,
+        ),
+      }));
+    }
+    // Model-facing coordinator state is a separate signed ingress. It stays
+    // default-off unless the server composed both the primary conversation
+    // service and the active-native-tool authority; browser/session identity
+    // cannot select another root through this route.
+    if (options.coordinatorAgentTools && options.coordinatorConversationService) {
+      app.use('/coordinator-agent', createCoordinatorAgentToolsRouter({
+        service: options.coordinatorAgentTools,
+      }));
+    }
     app.use('/agents/models', agentsModelsRouter);
     app.use('/agent-configs', agentConfigsRouter);
     if (env.bridgeEnabled) {
-      app.use('/shared-agents/v1', requireLocalOrCloudAuth, sharedAgentsCatalogRouter);
+      app.use('/shared-agents/v1', requireWebOwnerOrLocalOrCloudAuth, sharedAgentsCatalogRouter);
     }
     app.use('/agent-delegation', agentDelegationRouter);
     app.use('/agent-skills', agentSkillsRouter);
@@ -254,7 +355,15 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     // agent server on :4001). #1219 restores role-gated Postgres schema parity
     // for agent-execution deployments, but does not expose this router outside
     // the execution gate or change the vault's canonical authority.
-    app.use('/agent-memory', agentMemoryRouter);
+    app.use('/agent-memory', createAgentMemoryRouter({
+      managedMemorySearch: options.managedMemorySearch,
+    }));
+    // Local decision engine rollout stats. LOCAL-ONLY like /agent-memory: it is
+    // registered only inside this agent-execution gate and reads the SQLite-only
+    // agent_decision_log (prompt previews never reach Postgres).
+    app.use('/agent-decisions', agentDecisionsRouter);
+    // Free structured extraction (local agent surface only, like /agent-decisions).
+    app.use('/agent-free', agentFreeRouter);
     // #1096 WP1 — device-local Engraph backend manager status/action API.
     // Standalone prefix (not nested under /agent-memory) so it never risks
     // colliding with that router's `/:id` catch-all route.
@@ -272,6 +381,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     // new-agent + external-adoption/webhook-wiring proposals, plus an
     // audit-trail/rollback view of auto-applied ones (2026-07-02 policy).
     app.use('/agent-org-proposals', orgProposalsRouter);
+    app.use('/managed-tools', createManagedToolsRouter());
     // org-optimizer-16 (#850): the live run-loop trigger — POST /agent-org-optimizer/run
     // executes the whole audit->generate->persist->auto-apply pass server-side.
     app.use('/agent-org-optimizer', orgOptimizerRunRouter);
@@ -350,6 +460,11 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     });
   }
 
+  if (webHostConfig) {
+    app.use('/web/approvals', createWebApprovalsRouter());
+    app.use(createWebHostRouter());
+    app.use((_req, res) => res.status(404).json({ error: { code: 'NOT_FOUND' } }));
+  }
   app.use(errorHandler);
 
   return app;

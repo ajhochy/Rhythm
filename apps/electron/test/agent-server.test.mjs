@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AGENT_SERVER_PORT, buildEnvironment, checkHealth, findNode, findServerEntry, relayUplinkUrlForProductionApiBase } from '../src/agent-server.mjs';
+import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AGENT_SERVER_PORT, buildEnvironment, checkHealth, findNode, findServerEntry, manualWorkstreamsLaunchForEnvironment, relayUplinkUrlForProductionApiBase } from '../src/agent-server.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const electronRoot = resolve(here, '..');
@@ -196,4 +196,34 @@ test('agent-server: buildEnvironment turns Research Projects on unless the calle
   const base = { port: 4098, enginePort: 4097, dbPathValue: '/tmp/r.db', humanApprovalPublicKey: 'k', humanApprovalCapabilitySha256: 'h', mcpRolesDir: undefined };
   assert.equal(buildEnvironment({ ...base, baseEnv: {} }).RHYTHM_RESEARCH_PROJECTS_ENABLED, 'true');
   assert.equal(buildEnvironment({ ...base, baseEnv: { RHYTHM_RESEARCH_PROJECTS_ENABLED: 'false' } }).RHYTHM_RESEARCH_PROJECTS_ENABLED, 'false');
+});
+
+test('manual workstreams: a saved opt-in supplies the paired flags only when the launch environment has neither override', () => {
+  const base = { port: 4098, enginePort: 4097, dbPathValue: '/tmp/r.db', humanApprovalPublicKey: 'k', humanApprovalCapabilitySha256: 'h', mcpRolesDir: undefined };
+  const defaultOff = buildEnvironment({ ...base, baseEnv: {}, manualWorkstreamsPreference: false });
+  assert.equal(Object.hasOwn(defaultOff, 'RHYTHM_WORKSTREAMS_ENABLED'), false);
+  assert.equal(Object.hasOwn(defaultOff, 'RHYTHM_MANAGED_CONTEXT_EXPORTS'), false);
+
+  const optIn = buildEnvironment({ ...base, baseEnv: {}, manualWorkstreamsPreference: true });
+  assert.equal(optIn.RHYTHM_WORKSTREAMS_ENABLED, 'true');
+  assert.equal(optIn.RHYTHM_MANAGED_CONTEXT_EXPORTS, '1');
+  assert.deepEqual(manualWorkstreamsLaunchForEnvironment({}, true), {
+    configured: true, source: 'preference', workstreamsEnabled: true, managedContextExports: true,
+  });
+
+  const explicit = { RHYTHM_WORKSTREAMS_ENABLED: 'false', RHYTHM_MANAGED_CONTEXT_EXPORTS: '1' };
+  const override = buildEnvironment({ ...base, baseEnv: explicit, manualWorkstreamsPreference: true });
+  assert.equal(override.RHYTHM_WORKSTREAMS_ENABLED, 'false');
+  assert.equal(override.RHYTHM_MANAGED_CONTEXT_EXPORTS, '1');
+  assert.deepEqual(manualWorkstreamsLaunchForEnvironment(explicit, true), {
+    configured: true, source: 'environment_override', workstreamsEnabled: false, managedContextExports: true,
+  });
+
+  const explicitOff = buildEnvironment({ ...base, baseEnv: { RHYTHM_WORKSTREAMS_ENABLED: 'false', RHYTHM_MANAGED_CONTEXT_EXPORTS: '0' }, manualWorkstreamsPreference: true });
+  assert.equal(explicitOff.RHYTHM_WORKSTREAMS_ENABLED, 'false');
+  assert.equal(explicitOff.RHYTHM_MANAGED_CONTEXT_EXPORTS, '0');
+
+  const partial = buildEnvironment({ ...base, baseEnv: { RHYTHM_WORKSTREAMS_ENABLED: 'true' }, manualWorkstreamsPreference: true });
+  assert.equal(partial.RHYTHM_WORKSTREAMS_ENABLED, 'true');
+  assert.equal(Object.hasOwn(partial, 'RHYTHM_MANAGED_CONTEXT_EXPORTS'), false, 'a partial explicit override must not be repaired by the preference');
 });

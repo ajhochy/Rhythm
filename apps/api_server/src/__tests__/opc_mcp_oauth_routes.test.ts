@@ -43,7 +43,8 @@ vi.mock('../services/mcp_oauth_engine', () => ({
   },
 }));
 
-vi.mock('../config/env', () => ({
+vi.mock('../config/env', async () => ({
+  ...(await import('./helpers/opencode_paths_mock')).opencodePathMocks,
   env: {
     agentLocal: true,
     agentExecutionEnabled: true,

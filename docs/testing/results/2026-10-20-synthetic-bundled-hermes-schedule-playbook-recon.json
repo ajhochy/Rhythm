@@ -1,0 +1,340 @@
+{
+  "phase": "Recon observations only",
+  "sourceRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
+  "observations": [
+    {
+      "step": "Private disabled schedule recon",
+      "observed": {
+        "phase": "Recon observations only",
+        "sourceRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
+        "nonce": "973f0fd8-3722-4e47-9f37-23fced70d5b6",
+        "ownerUserId": 1,
+        "futureRunAt": "2099-01-01T12:00:00.000Z",
+        "steps": {
+          "before": {
+            "ownedRows": []
+          },
+          "initial": {
+            "status": 200,
+            "count": 9,
+            "uiBearerMatchesPrivateToken": true
+          },
+          "create": {
+            "status": 201,
+            "id": "35d771d2-a38f-493d-b261-fb2ebe7b07e8",
+            "enabled": false,
+            "scheduleType": "once",
+            "runAt": null,
+            "nextRunAt": null,
+            "ownerUserId": null,
+            "rows": [
+              {
+                "id": "35d771d2-a38f-493d-b261-fb2ebe7b07e8",
+                "name": "[smoke] disabled schedule 973f0fd8-3722-4e47-9f37-23fced70d5b6",
+                "prompt": "[smoke] inert schedule prompt 973f0fd8-3722-4e47-9f37-23fced70d5b6; never dispatch",
+                "schedule_type": "once",
+                "run_at": null,
+                "next_run_at": null,
+                "enabled": 0,
+                "created_by_user_id": null,
+                "last_run_at": null,
+                "last_run_status": null
+              }
+            ]
+          },
+          "futurePatch": {
+            "status": 200,
+            "enabled": false,
+            "runAt": "2099-01-01T12:00:00.000Z",
+            "nextRunAt": "2099-01-01T12:00:00.000Z"
+          },
+          "readback": {
+            "detail": {
+              "status": 200,
+              "id": "35d771d2-a38f-493d-b261-fb2ebe7b07e8",
+              "enabled": false,
+              "runAt": "2099-01-01T12:00:00.000Z",
+              "nextRunAt": "2099-01-01T12:00:00.000Z",
+              "ownerUserId": null
+            },
+            "list": {
+              "status": 200,
+              "item": {
+                "id": "35d771d2-a38f-493d-b261-fb2ebe7b07e8",
+                "name": "[smoke] disabled schedule 973f0fd8-3722-4e47-9f37-23fced70d5b6",
+                "description": null,
+                "scheduleType": "once",
+                "scheduledTime": null,
+                "scheduledDay": null,
+                "cronExpression": null,
+                "runAt": "2099-01-01T12:00:00.000Z",
+                "timezone": "America/Los_Angeles",
+                "nextRunAt": "2099-01-01T12:00:00.000Z",
+                "prompt": "[smoke] inert schedule prompt 973f0fd8-3722-4e47-9f37-23fced70d5b6; never dispatch",
+                "agentKind": "opencode",
+                "agentConfigId": null,
+                "modelProvider": null,
+                "modelId": null,
+                "allowedMcpsJson": null,
+                "allowedSkillsJson": null,
+                "enabled": false,
+                "lastRunAt": null,
+                "lastRunStatus": null,
+                "lastError": null,
+                "createdByUserId": null,
+                "createdAt": "2026-10-20T22:09:22.965Z",
+                "updatedAt": "2026-10-20T22:09:22.979Z"
+              }
+            },
+            "runs": {
+              "status": 200,
+              "count": 0
+            },
+            "rows": [
+              {
+                "id": "35d771d2-a38f-493d-b261-fb2ebe7b07e8",
+                "name": "[smoke] disabled schedule 973f0fd8-3722-4e47-9f37-23fced70d5b6",
+                "prompt": "[smoke] inert schedule prompt 973f0fd8-3722-4e47-9f37-23fced70d5b6; never dispatch",
+                "schedule_type": "once",
+                "run_at": "2099-01-01T12:00:00.000Z",
+                "next_run_at": "2099-01-01T12:00:00.000Z",
+                "enabled": 0,
+                "created_by_user_id": null,
+                "last_run_at": null,
+                "last_run_status": null
+              }
+            ]
+          },
+          "reload": {
+            "status": 200,
+            "rowText": "[smoke] disabled schedule 973f0fd8-3722-4e47-9f37-23fced70d5b6once \u00b7 Disabled",
+            "detailText": "Back to list[smoke] disabled schedule 973f0fd8-3722-4e47-9f37-23fced70d5b6Disabled[smoke] inert schedule prompt 973f0fd8-3722-4e47-9f37-23fced70d5b6; never dispatchEnableEditDeleteSchedule TypeonceTimezoneAmerica/Los_AngelesLast runNeverRun historyTrigger nowNo runs yet."
+          },
+          "edit": {
+            "status": 200,
+            "enabled": false,
+            "promptMatchesEdit": true,
+            "runAt": "2099-01-01T12:00:00.000Z",
+            "nextRunAt": "2099-01-01T12:00:00.000Z",
+            "rows": [
+              {
+                "id": "35d771d2-a38f-493d-b261-fb2ebe7b07e8",
+                "name": "[smoke] disabled schedule 973f0fd8-3722-4e47-9f37-23fced70d5b6",
+                "prompt": "[smoke] inert schedule prompt 973f0fd8-3722-4e47-9f37-23fced70d5b6; never dispatch edited",
+                "schedule_type": "once",
+                "run_at": "2099-01-01T12:00:00.000Z",
+                "next_run_at": "2099-01-01T12:00:00.000Z",
+                "enabled": 0,
+                "created_by_user_id": null,
+                "last_run_at": null,
+                "last_run_status": null
+              }
+            ]
+          },
+          "afterEditReload": {
+            "status": 200,
+            "rowText": "[smoke] disabled schedule 973f0fd8-3722-4e47-9f37-23fced70d5b6once \u00b7 Disabled",
+            "rows": [
+              {
+                "id": "35d771d2-a38f-493d-b261-fb2ebe7b07e8",
+                "name": "[smoke] disabled schedule 973f0fd8-3722-4e47-9f37-23fced70d5b6",
+                "prompt": "[smoke] inert schedule prompt 973f0fd8-3722-4e47-9f37-23fced70d5b6; never dispatch edited",
+                "schedule_type": "once",
+                "run_at": "2099-01-01T12:00:00.000Z",
+                "next_run_at": "2099-01-01T12:00:00.000Z",
+                "enabled": 0,
+                "created_by_user_id": null,
+                "last_run_at": null,
+                "last_run_status": null
+              }
+            ]
+          }
+        },
+        "cleanup": {
+          "refused": "exact private once-only owner row was not established",
+          "candidateCount": 1
+        }
+      }
+    },
+    {
+      "step": "Private managed playbook recon",
+      "observed": {
+        "phase": "Recon observations only",
+        "sourceRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
+        "ownerUserId": 1,
+        "name": "smoke-playbook-f0b733ba4dc74f248b4961fe34d8f3c5",
+        "steps": {
+          "before": {
+            "fileExists": false,
+            "catalogs": {
+              "api": {
+                "status": 200,
+                "item": null
+              },
+              "engine": {
+                "status": 200,
+                "item": null
+              }
+            }
+          },
+          "initial": {
+            "status": 200,
+            "uiBearerMatchesPrivateToken": true
+          },
+          "create": {
+            "status": 200,
+            "name": "smoke-playbook-f0b733ba4dc74f248b4961fe34d8f3c5",
+            "templateMatches": true,
+            "file": {
+              "exists": true,
+              "hash": "87ac353e05c552693aa98230ff714022912da903827e610bbd755ecfeafc90d3",
+              "containsNonce": true
+            }
+          },
+          "postCreate": {
+            "content": {
+              "status": 200,
+              "templateMatches": true
+            },
+            "catalogs": {
+              "api": {
+                "status": 200,
+                "item": {
+                  "name": "smoke-playbook-f0b733ba4dc74f248b4961fe34d8f3c5",
+                  "description": null,
+                  "source": "command",
+                  "managed": true,
+                  "hints": []
+                }
+              },
+              "engine": {
+                "status": 200,
+                "item": {
+                  "name": "smoke-playbook-f0b733ba4dc74f248b4961fe34d8f3c5",
+                  "description": null,
+                  "agent": null,
+                  "model": null,
+                  "source": "command",
+                  "template": "---\ndescription: [smoke] private playbook f0b733ba4dc74f248b4961fe34d8f3c5\n---\n\n[smoke] inert playbook f0b733ba4dc74f248b4961fe34d8f3c5. Do not invoke.",
+                  "subtask": null,
+                  "hints": []
+                }
+              }
+            },
+            "rowText": "/smoke-playbook-f0b733ba4dc74f248b4961fe34d8f3c5No description \u00b7 commandmanaged",
+            "inspectorContainsMarker": true
+          },
+          "edit": {
+            "status": 200,
+            "responseMatchesEdited": true,
+            "content": {
+              "status": 200,
+              "matchesEdited": true
+            },
+            "file": {
+              "exists": true,
+              "hash": "5b24db09d2cf8922eb7c59c545d98c229b837c20237d25e89c2346851163b450",
+              "containsEdited": true
+            },
+            "catalogs": {
+              "api": {
+                "status": 200,
+                "item": {
+                  "name": "smoke-playbook-f0b733ba4dc74f248b4961fe34d8f3c5",
+                  "description": null,
+                  "source": "command",
+                  "managed": true,
+                  "hints": []
+                }
+              },
+              "engine": {
+                "status": 200,
+                "item": {
+                  "name": "smoke-playbook-f0b733ba4dc74f248b4961fe34d8f3c5",
+                  "description": null,
+                  "agent": null,
+                  "model": null,
+                  "source": "command",
+                  "template": "[smoke] inert playbook f0b733ba4dc74f248b4961fe34d8f3c5. Do not invoke. Edited marker.",
+                  "subtask": null,
+                  "hints": []
+                }
+              }
+            }
+          },
+          "reload": {
+            "error": "page.waitForResponse: Timeout 20000ms exceeded while waiting for event \"response\""
+          },
+          "uiDelete": {
+            "error": "locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('playbooks-delete')\u001b[22m\n"
+          }
+        },
+        "cleanup": {
+          "status": 204,
+          "fileAbsent": true
+        }
+      }
+    },
+    {
+      "step": "Hermes private bundled backend recon",
+      "observed": {
+        "actualPinnedGuest": true,
+        "searchVisible": true,
+        "gatewayNeedsSetupBefore": true,
+        "backendBefore": {
+          "apiBridge": true,
+          "status": {
+            "available": true,
+            "errorType": null,
+            "type": "object",
+            "knownKeys": [
+              "version",
+              "install_id",
+              "auth_required"
+            ],
+            "hasVersionString": true,
+            "hasBackendIdentityString": true,
+            "healthyFlag": null
+          },
+          "history": {
+            "available": true,
+            "errorType": null,
+            "hasSessionsArray": true,
+            "count": 1,
+            "titledPrivateCount": 1
+          }
+        },
+        "onboardingVisibleBeforeDismiss": true,
+        "chooseLaterVisible": true,
+        "chooseLaterDismissed": true,
+        "gatewayNeedsSetupAfterDismiss": true,
+        "savedHistoryButtonVisible": true,
+        "historyRenderedAfterDismiss": true,
+        "backendAfter": {
+          "apiBridge": true,
+          "status": {
+            "available": true,
+            "errorType": null,
+            "type": "object",
+            "knownKeys": [
+              "version",
+              "install_id",
+              "auth_required"
+            ],
+            "hasVersionString": true,
+            "hasBackendIdentityString": true,
+            "healthyFlag": null
+          },
+          "history": {
+            "available": true,
+            "errorType": null,
+            "hasSessionsArray": true,
+            "count": 1,
+            "titledPrivateCount": 1
+          }
+        },
+        "historyCountUnchanged": true
+      }
+    }
+  ]
+}

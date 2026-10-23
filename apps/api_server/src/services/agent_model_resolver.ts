@@ -8,6 +8,7 @@ import {
   preferredVisibleDirectModelId,
 } from './provider_catalog_policy';
 import type { RequestedSource } from '../models/model_provenance';
+import type { RoutableModel } from './decision/model_catalog';
 
 /**
  * OPC-M1-1: Server-side provider-to-agent-kind mapping.
@@ -52,10 +53,9 @@ export interface ModelRoute {
  * google via opencode-gemini-auth, openai-codex via
  * opencode-openai-codex-auth).
  *
- * Routes are tried in order: first entry whose providerID is in the user's
- * `listAuthedProviders()` set wins. If nothing matches, the first entry is
- * returned and the SDK will surface the error (ProviderModelNotFoundError)
- * to the UI via the stream bridge — better than silent failure.
+ * The tiered task resolver uses this list only when its live catalog is
+ * unavailable and requires an authenticated provider. Other legacy callers
+ * of this table retain their own fallback rules.
  */
 export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
   'claude-code': [
@@ -78,6 +78,9 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
     { providerID: 'openai', modelID: 'gpt-5.6-sol' },
     { providerID: 'openai', modelID: 'gpt-5.3-codex' },
     { providerID: 'openai', modelID: 'gpt-5.4' },
+    // After gpt-5.4 so the #1568 standard-tier contract (gpt-5.4 first) holds;
+    // terra shares the account, so capacity routing is unaffected.
+    { providerID: 'openai', modelID: 'gpt-5.6-terra' },
     { providerID: 'openai', modelID: 'gpt-5.4-mini' },
     { providerID: 'github-copilot', modelID: 'gpt-5-mini' },
     { providerID: 'openrouter', modelID: 'openai/gpt-5.3-codex' },
@@ -133,7 +136,7 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
 /**
  * #1071 (OCU-30) — cheap model candidates for opencode.json's managed
  * `small_model` (routes title/summary/compaction-title work off the session's
- * main model). Ordered by preference; the first AUTHED provider wins. Model
+ * main model). Ordered by preference among live-catalog-eligible cheap models. Model
  * ids reuse the same cheap-tier entries already referenced elsewhere in this
  * file (see `utility_modes_haiku_v1` in migrations.ts, classifyRouteTier's
  * 'cheap' examples below) rather than inventing new ones.
@@ -145,17 +148,28 @@ const SMALL_MODEL_CANDIDATES: ModelRoute[] = [
 ];
 
 /**
- * Resolve a cheap AUTHED model for `small_model`. Returns `undefined` when no
- * candidate provider is authed — callers must skip writing the key entirely
- * rather than guess (mirrors resolveModelFromAgentConfigs's fail-safe
- * contract). Never throws.
+ * Resolve a cheap, live-catalog-eligible model for `small_model`. Returns
+ * `undefined` when no model can be verified. Config adoption preserves an
+ * existing key during transient catalog failure, then reconciles it after
+ * the engine is ready; absent keys use the engine's session-model fallback.
+ * Never throws.
  */
 export async function resolveSmallModel(): Promise<ModelRoute | undefined> {
   try {
-    const authed = new Set(await opencodeClient.listAuthedProviders());
-    return SMALL_MODEL_CANDIDATES.find((route) => authed.has(route.providerID));
+    const { getRoutableModels, pickModelForTier } = await import('./decision/model_catalog');
+    const catalog = await getRoutableModels();
+    // Auth alone does not prove that an engine knows the model, or that the
+    // account and the user's Models curation permit it.  An unavailable engine
+    // is not positive authority to install a managed background override.
+    if (catalog.source !== 'live') return undefined;
+    const preferred = SMALL_MODEL_CANDIDATES.find((route) =>
+      catalog.models.some((model) => model.tier === 'cheap' &&
+        model.providerID === route.providerID && model.modelID === route.modelID));
+    if (preferred) return preferred;
+    const cheap = pickModelForTier({ tier: 'cheap', models: catalog.models });
+    return cheap ? { providerID: cheap.providerID, modelID: cheap.modelID } : undefined;
   } catch (err) {
-    logger.warn(`[ModelResolver] resolveSmallModel: listAuthedProviders failed (non-fatal): ${String(err)}`);
+    logger.warn(`[ModelResolver] resolveSmallModel: live catalog failed (non-fatal): ${String(err)}`);
     return undefined;
   }
 }
@@ -434,6 +448,16 @@ export interface SessionTurnModelOptions {
    * call's return value only, never written back).
    */
   sessionId?: string;
+  /**
+   * Auto (router) mode. 'fixed'/undefined keeps the exact legacy precedence.
+   * When 'auto': a perTurnOverride equal to the session's stored model or the
+   * profile's configured model is an ECHO (clients resend the stored model each
+   * turn) and is ignored and never persisted; a different override is an
+   * explicit choice for that turn only (never persisted, mode not flipped);
+   * otherwise requestedSource is 'auto' with route = session model ?? profile
+   * model ?? agent default, which the decision router may then refine.
+   */
+  sessionModelMode?: 'auto' | 'fixed';
 }
 
 async function resolveSessionTurnBase(opts: SessionTurnModelOptions): Promise<{
@@ -441,8 +465,16 @@ async function resolveSessionTurnBase(opts: SessionTurnModelOptions): Promise<{
   requestedSource: RequestedSource;
 }> {
   const override = opts.perTurnOverride;
-  if (override?.providerId && override.modelId) {
+  const auto = opts.sessionModelMode === 'auto';
+  let overrideIsEcho = false;
+  if (auto && override?.providerId && override.modelId) {
+    overrideIsEcho =
+      (override.providerId === opts.sessionProviderId && override.modelId === opts.sessionModelId) ||
+      isSameRoute(override, await resolveModelFromAgentConfigs(opts.agentId));
+  }
+  if (override?.providerId && override.modelId && !overrideIsEcho) {
     if (
+      !auto &&
       opts.sessionId &&
       (override.providerId !== opts.sessionProviderId || override.modelId !== opts.sessionModelId)
     ) {
@@ -460,11 +492,21 @@ async function resolveSessionTurnBase(opts: SessionTurnModelOptions): Promise<{
     return { route: { providerID: override.providerId, modelID: override.modelId }, requestedSource: 'turn_override' };
   }
   if (opts.sessionProviderId && opts.sessionModelId) {
-    return { route: { providerID: opts.sessionProviderId, modelID: opts.sessionModelId }, requestedSource: 'session' };
+    return {
+      route: { providerID: opts.sessionProviderId, modelID: opts.sessionModelId },
+      requestedSource: auto ? 'auto' : 'session',
+    };
   }
   const fromAgentConfigs = await resolveModelFromAgentConfigs(opts.agentId);
-  if (fromAgentConfigs) return { route: fromAgentConfigs, requestedSource: 'agent_config' };
-  return { route: await resolveModelForAgent(opts.agentId), requestedSource: 'agent_default' };
+  if (fromAgentConfigs) return { route: fromAgentConfigs, requestedSource: auto ? 'auto' : 'agent_config' };
+  return { route: await resolveModelForAgent(opts.agentId), requestedSource: auto ? 'auto' : 'agent_default' };
+}
+
+function isSameRoute(
+  override: { providerId?: string; modelId?: string },
+  route: ModelRoute | undefined,
+): boolean {
+  return !!route && route.providerID === override.providerId && route.modelID === override.modelId;
 }
 
 export async function resolveModelForSessionTurn(opts: SessionTurnModelOptions): Promise<ModelRoute | undefined> {
@@ -619,10 +661,12 @@ export function classifyRouteTier(route: ModelRoute): ModelTier {
     id.includes('haiku') ||
     id.includes('mini') ||
     id.includes('flash') ||
+    id.includes('luna') ||
     id.includes('qwen')
   ) {
     return 'cheap';
   }
+  // 'gpt-5.6-terra' and 'claude-sonnet-*' are the standard tier (the default).
   return 'standard';
 }
 
@@ -665,7 +709,7 @@ async function isProviderNearBudget(providerId: string): Promise<boolean> {
   }
 }
 
-/** Pick the best-authed route for `agentId` at exactly `tier`, or undefined if none. */
+/** Pick the best-authed static route for `agentId` at exactly `tier`, or none. */
 function pickRouteAtTier(
   agentId: string,
   tier: ModelTier,
@@ -673,7 +717,7 @@ function pickRouteAtTier(
 ): ModelRoute | undefined {
   const routes = ROUTE_FALLBACKS_BY_AGENT[agentId] ?? [];
   const atTier = routes.filter((r) => classifyRouteTier(r) === tier);
-  return atTier.find((r) => authed.has(r.providerID)) ?? atTier[0];
+  return atTier.find((r) => authed.has(r.providerID));
 }
 
 export interface TieredModelDecision {
@@ -708,9 +752,9 @@ export async function resolveTieredModel(opts: {
   explicitTierHint?: ModelTier | null;
   /** Explicit caller-supplied model — ALWAYS wins (user override). */
   modelOverride?: ModelRoute | null;
+  /** Existing session/profile route, used only when verified by the live catalog. */
+  baseRoute?: ModelRoute | null;
 }): Promise<TieredModelDecision> {
-  const authed = new Set(await opencodeClient.listAuthedProviders());
-
   // Precedence 1: explicit override always wins — never downgraded for budget.
   if (opts.modelOverride) {
     const decision: TieredModelDecision = {
@@ -724,6 +768,8 @@ export async function resolveTieredModel(opts: {
     return decision;
   }
 
+  const authed = new Set(await opencodeClient.listAuthedProviders());
+
   // Precedence 2/3/4: tier policy (explicit hint > task kind > default).
   const tierDecision = resolveModelTier({
     taskKind: opts.taskKind,
@@ -731,15 +777,51 @@ export async function resolveTieredModel(opts: {
   });
 
   let tier = tierDecision.tier;
-  let route = pickRouteAtTier(opts.agentId, tier, authed);
+  let route: ModelRoute | undefined;
   let downgradedForBudget = false;
   let reason = tierDecision.reason;
+
+  // The live catalog is the same authenticated, capable, entitled and curated
+  // set used by the main router.  A static agent-family table can contain a
+  // provider the user never connected (notably Claude Haiku for a Codex-only
+  // installation), so it must not override positive live evidence.
+  let liveModels: RoutableModel[] | null = null;
+  try {
+    const { getRoutableModels } = await import('./decision/model_catalog');
+    const catalog = await getRoutableModels({ agentId: opts.agentId, ...(opts.baseRoute ? { baseRoute: opts.baseRoute } : {}) });
+    if (catalog.source === 'live') liveModels = catalog.models;
+  } catch {
+    // Preserve the authenticated static path if the engine is unavailable.
+  }
+
+  if (liveModels) {
+    const { pickModelForTier } = await import('./decision/model_catalog');
+    const selected = pickModelForTier({ tier, models: liveModels, ...(opts.baseRoute ? { baseRoute: opts.baseRoute } : {}) });
+    if (selected) {
+      route = { providerID: selected.providerID, modelID: selected.modelID };
+      tier = selected.tier;
+    } else if (opts.baseRoute && liveModels.some((model) =>
+      model.providerID === opts.baseRoute?.providerID && model.modelID === opts.baseRoute?.modelID)) {
+      route = opts.baseRoute;
+      tier = liveModels.find((model) => model.providerID === route?.providerID && model.modelID === route.modelID)!.tier;
+      reason = `${reason}; no eligible model at target tier — keeping verified base route`;
+    } else {
+      throw new Error(`resolveTieredModel: no eligible authenticated model for '${opts.agentId}'`);
+    }
+  } else {
+    route = pickRouteAtTier(opts.agentId, tier, authed);
+  }
 
   // Budget awareness: if the chosen route's provider is near budget, step
   // down one tier at a time (down to 'cheap') looking for an available route.
   if (route && (await isProviderNearBudget(route.providerID))) {
     const cheaper = cheaperTier(tier);
-    const cheaperRoute = pickRouteAtTier(opts.agentId, cheaper, authed);
+    const cheaperModel = liveModels
+      ? (await import('./decision/model_catalog')).pickModelForTier({ tier: cheaper, models: liveModels, ...(opts.baseRoute ? { baseRoute: opts.baseRoute } : {}) })
+      : undefined;
+    const cheaperRoute = liveModels
+      ? cheaperModel && { providerID: cheaperModel.providerID, modelID: cheaperModel.modelID }
+      : pickRouteAtTier(opts.agentId, cheaper, authed);
     if (cheaper !== tier && cheaperRoute) {
       reason = `${reason}; downgraded ${tier} -> ${cheaper} tier: provider '${route.providerID}' is near its usage budget`;
       tier = cheaper;
@@ -753,7 +835,7 @@ export async function resolveTieredModel(opts: {
   // Fallback: no route found at the target tier for this agent — use the
   // agent's normal (untiered) resolution so a run never silently hangs.
   if (!route) {
-    const fallback = ROUTE_FALLBACKS_BY_AGENT[opts.agentId]?.[0];
+    const fallback = ROUTE_FALLBACKS_BY_AGENT[opts.agentId]?.find((candidate) => authed.has(candidate.providerID));
     if (!fallback) {
       throw new Error(`resolveTieredModel: no routes configured for agent '${opts.agentId}'`);
     }

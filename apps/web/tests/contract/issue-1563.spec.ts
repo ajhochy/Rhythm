@@ -14,7 +14,7 @@ const autoPromotionState = {
   },
 };
 
-async function installRoutes(page: Page, options: { engineFails?: boolean; autoPromotionUnavailable?: boolean } = {}) {
+async function installRoutes(page: Page, options: { engineFails?: boolean; autoPromotionUnavailable?: boolean; role?: 'admin' | 'system' | 'user' } = {}) {
   const counts = { apiHealth: 0, engineHealth: 0, autoPromotion: 0 };
   await page.route('http://127.0.0.1:7262/**', async (route: Route) => {
     counts.engineHealth++;
@@ -31,6 +31,7 @@ async function installRoutes(page: Page, options: { engineFails?: boolean; autoP
       'access-control-allow-methods': 'GET,POST,OPTIONS',
     };
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
+    if (pathname === '/auth/me') return route.fulfill({ status: 200, headers, json: { user: { id: 4189, name: 'Settings fixture user', email: 'settings@example.invalid', role: options.role ?? 'admin' } } });
     if (pathname === '/health') { counts.apiHealth++; return route.fulfill({ status: 200, headers, json: { healthy: true } }); }
     if (pathname === '/opencode/auth/accounts') return route.fulfill({ status: 200, headers, json: { accounts: [] } });
     if (pathname === '/opencode/auth') return route.fulfill({ status: 200, headers, json: { providers: [] } });
@@ -124,4 +125,16 @@ test('1563:runtime-and-auto-promotion-status:5 auto-promotion row exposes live s
   const row = page.getByRole('option', { name: 'Auto-promotion', exact: true });
   await expect(row).toContainText('Disabled · Eligible');
   await expect(row).not.toContainText('Workspace eligibility and confirmation gates');
+});
+
+test('non-admin Agent Settings does not request or offer admin auto-promotion controls', async ({ page }) => {
+  const counts = await openAgentSettings(page, { role: 'user' });
+  await page.getByRole('option', { name: 'MCP servers', exact: true }).click();
+  await expect(page.getByTestId('list-inspector-detail')).toContainText('MCP servers');
+  expect(counts.autoPromotion).toBe(0);
+  await page.getByRole('option', { name: 'Auto-promotion', exact: true }).click();
+  await expect(page.getByTestId('list-inspector-detail')).toContainText('Administrator access required');
+  await expect(page.getByTestId('auto-promotion-toggle')).toHaveCount(0);
+  await expect(page.getByTestId('auto-promotion-settings').getByRole('button', { name: 'Retry' })).toHaveCount(0);
+  expect(counts.autoPromotion).toBe(0);
 });

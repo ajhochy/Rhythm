@@ -7,9 +7,10 @@
  * mutation triggers a config reload.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync } from 'fs';
+import { mkdtempSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { load as parseYaml } from 'js-yaml';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
@@ -85,6 +86,38 @@ describe('/opencode/commands (OCU-09 #1050)', () => {
     expect(body.name).toBe('deploy-notes');
     expect(body.template).toContain('$ARGUMENTS');
     expect(body.frontmatter.description).toBe('Draft deploy notes');
+  });
+
+  it('serializes UI descriptions as YAML strings the engine can read after create and edit', async () => {
+    const name = 'frontmatter-string-contract';
+    const description = '[smoke] inert playbook description';
+    const created = await fetch(`${baseUrl}/opencode/commands`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name, description, template: 'Inert command body.' }),
+    });
+    expect(created.status).toBe(200);
+    const file = join(MANAGED_DIR, `${name}.md`);
+    const createSource = readFileSync(file, 'utf8');
+    const createFrontmatter = createSource.match(/^---\n([\s\S]*?)\n---\n/);
+    expect(createFrontmatter).not.toBeNull();
+    expect((parseYaml(createFrontmatter![1]) as Record<string, unknown>).description).toBe(description);
+
+    const edited = await fetch(`${baseUrl}/opencode/commands/${name}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ description: 'null', template: 'Edited inert command body.' }),
+    });
+    expect(edited.status).toBe(200);
+    const editSource = readFileSync(file, 'utf8');
+    const editFrontmatter = editSource.match(/^---\n([\s\S]*?)\n---\n/);
+    expect(editFrontmatter).not.toBeNull();
+    expect((parseYaml(editFrontmatter![1]) as Record<string, unknown>).description).toBe('null');
+    const content = await fetch(`${baseUrl}/opencode/commands/${name}/content`);
+    expect(content.status).toBe(200);
+    expect((await content.json() as { template: string; frontmatter: Record<string, unknown> })).toMatchObject({
+      template: 'Edited inert command body.', frontmatter: { description: 'null' },
+    });
   });
 
   it('GET / flags managed commands and leaves built-ins unmanaged', async () => {

@@ -1,0 +1,168 @@
+{
+  "issue": 0,
+  "generated": "2026-10-05",
+  "criteria": [
+    {
+      "criterion_id": "notification-c1",
+      "text": "Readable task title, due date, bounded summary, and full consequence",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c1: task cards show readable titles and compact summaries",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c2",
+      "text": "Exact complete original payload accessible through details without decisions",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c2: details preserve the exact complete original payload without executing it",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c3",
+      "text": "Small usable Approve/Reject controls sit beside the title with accessible names and tooltips",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c3: small approval controls sit inline beside the title",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c4-320",
+      "text": "Menu stays bounded at 320px, text wraps, final actions reachable",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c4-320: wrapping, scrolling, and controls fit the viewport",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c4-390",
+      "text": "Menu stays bounded at 390px, text wraps, final actions reachable",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c4-390: wrapping, scrolling, and controls fit the viewport",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c4-1024",
+      "text": "Menu stays bounded at 1024px, text wraps, final actions reachable",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c4-1024: wrapping, scrolling, and controls fit the viewport",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c4-1392",
+      "text": "Menu stays bounded at 1392px, text wraps, final actions reachable",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c4-1392: wrapping, scrolling, and controls fit the viewport",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c5-malformed",
+      "text": "Malformed preview retains original accessible text",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c5-malformed: unknown or plain previews retain exact accessible details",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c5-unknown",
+      "text": "Unknown preview retains original accessible text without HTML execution",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c5-unknown: unknown or plain previews retain exact accessible details",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c5-plain",
+      "text": "Plain preview retains original accessible text",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c5-plain: unknown or plain previews retain exact accessible details",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c6",
+      "text": "Decision retains exact signed identity and existing failure behavior",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c6: decisions retain the signed ID nonce digest and existing failure behavior",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c7-hermes-1392",
+      "text": "hermes notification disclosure preserves positive reserved bounds and attachment at 1392px",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c7-hermes-1392: opening and expanding keeps native view attached in a positive reserved band",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c7-hermes-520",
+      "text": "hermes notification disclosure preserves positive reserved bounds and attachment at 520px",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c7-hermes-520: opening and expanding keeps native view attached in a positive reserved band",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c7-colony-1392",
+      "text": "colony notification disclosure preserves positive reserved bounds and attachment at 1392px",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c7-colony-1392: opening and expanding keeps native view attached in a positive reserved band",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c7-colony-520",
+      "text": "colony notification disclosure preserves positive reserved bounds and attachment at 520px",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c7-colony-520: opening and expanding keeps native view attached in a positive reserved band",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c5-mismatched-action",
+      "text": "Mismatched action keeps literal original presentation and exact details",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c5-mismatched-action: unknown or plain previews retain exact accessible details",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c8",
+      "text": "Long task title remains compact and exact full details remain accessible",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c8: a long task title stays compact while full details remain available",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c9",
+      "text": "Unsigned legacy cards retain disabled decisions and warning",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c9: legacy unsigned approvals preserve their warning and disabled actions",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c10",
+      "text": "Valid task without notes avoids raw JSON in collapsed view",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c10: a task without notes keeps JSON behind details",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "notification-c11",
+      "text": "Compact title controls wrap safely at very narrow widths with no overflow and usable controls",
+      "mode": "ui",
+      "test_file": "apps/web/tests/notification-presentation.spec.ts",
+      "test_id": "notification-c11: compact title controls wrap safely at a very narrow width",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

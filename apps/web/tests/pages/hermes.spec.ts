@@ -143,6 +143,15 @@ async function lastBounds(page: Page): Promise<Bounds | undefined> {
   return (await receipts(page, 'bounds')).at(-1)?.payload as Bounds | undefined;
 }
 
+function areDisjoint(nativeBounds: Bounds | undefined, overlay: { height: number; width: number; x: number; y: number } | null) {
+  if (!nativeBounds || !overlay) return false;
+  return nativeBounds.x + nativeBounds.width <= overlay.x || overlay.x + overlay.width <= nativeBounds.x || nativeBounds.y + nativeBounds.height <= overlay.y || overlay.y + overlay.height <= nativeBounds.y;
+}
+
+function expectDisjoint(nativeBounds: Bounds | undefined, overlay: { height: number; width: number; x: number; y: number } | null) {
+  expect(areDisjoint(nativeBounds, overlay)).toBe(true);
+}
+
 async function expectVisibleBounds(page: Page, host: ReturnType<Page['locator']>, after = 0) {
   await page.clock.runFor(50);
   await expect.poll(async () => (await receipts(page, 'bounds')).length).toBeGreaterThan(after);
@@ -179,9 +188,10 @@ test('browser and disabled-shell routes keep Hermes out of navigation and explai
 
 test('the Hermes tab attaches the native Desktop child once and reports the exact visible bounds', async ({ page }) => {
   await mockHermesDesktop(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
   await openPage(page, '/hermes');
 
-  await expect(page.getByTestId('nav-hermes')).toBeAttached();
+  await expect(page.getByTestId('nav-hermes')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Hermes Desktop workspace' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Hermes' })).toHaveCount(0);
   await expect(page.getByText('Your local Hermes workspace.')).toHaveCount(0);
@@ -266,21 +276,76 @@ test('switching Rhythm tabs hides the child without detaching it and restores th
   expect(await nativeChildCount(page)).toBe(1);
 });
 
-test('an open header menu collapses the native child so the menu is not hidden behind it', async ({ page }) => {
+test('an open header menu reserves a positive native workspace band so the menu remains readable', async ({ page }) => {
   await mockHermesDesktop(page);
   await openPage(page, '/hermes');
   const host = page.locator('[data-hermes-host]');
   await expectVisibleBounds(page, host);
+  const initial = await lastBounds(page);
 
   await page.getByTestId('background-activity-button').click();
   await expect(page.locator('.menu-popover')).toBeVisible();
   await page.clock.runFor(50);
-  await expect.poll(async () => await lastBounds(page)).toEqual({ x: 0, y: 0, width: 0, height: 0 });
+  await expect.poll(async () => (await lastBounds(page))?.width ?? 0).toBeGreaterThan(0);
+  const reserved = await lastBounds(page);
+  expect(reserved?.width).toBeLessThan(initial?.width ?? Infinity);
+  expect(reserved?.height).toBe(initial?.height);
+  expectDisjoint(reserved, await page.locator('.menu-popover').boundingBox());
 
   const boundsWhileOpen = (await receipts(page, 'bounds')).length;
   await page.keyboard.press('Escape');
   await expect(page.locator('.menu-popover')).toHaveCount(0);
+  await expect(page.getByTestId('background-activity-button')).toBeFocused();
   await expectVisibleBounds(page, host, boundsWhileOpen);
+  expect(await lastBounds(page)).toEqual(initial);
+  expect(await receipts(page, 'detach')).toEqual([]);
+});
+
+test('a narrow native route stacks the menu above a positive workspace instead of covering it', async ({ page }) => {
+  await mockHermesDesktop(page);
+  await page.setViewportSize({ width: 520, height: 800 });
+  await openPage(page, '/hermes');
+  const host = page.locator('[data-hermes-host]');
+  await expectVisibleBounds(page, host);
+  const initial = await lastBounds(page);
+
+  await page.getByTestId('notifications-button').click();
+  await expect(page.locator('.notifications-menu')).toBeVisible();
+  await expect.poll(async () => (await lastBounds(page))?.height ?? 0).toBeGreaterThan(160);
+  const reserved = await lastBounds(page);
+  expect(reserved?.width).toBe(initial?.width);
+  expect(reserved?.height).toBeLessThan(initial?.height ?? Infinity);
+  expectDisjoint(reserved, await page.locator('.notifications-menu').boundingBox());
+
+  const boundsWhileOpen = (await receipts(page, 'bounds')).length;
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('notifications-button')).toBeFocused();
+  await expectVisibleBounds(page, host, boundsWhileOpen);
+});
+
+test('a toast reserves the native footer through its outgoing animation, then restores the workspace', async ({ page }) => {
+  await mockHermesDesktop(page);
+  await openPage(page, '/hermes');
+  const host = page.locator('[data-hermes-host]');
+  await expectVisibleBounds(page, host);
+  const initial = await lastBounds(page);
+
+  await page.getByTestId('notifications-button').click();
+  await page.getByRole('menuitem', { name: /Mark all read/ }).click();
+  await expect(page.getByTestId('toast-status')).toHaveAttribute('data-visible', 'true');
+  await expect.poll(async () => (await lastBounds(page))?.height ?? 0).toBeGreaterThan(0);
+  expect((await lastBounds(page))?.height).toBeLessThan(initial?.height ?? Infinity);
+  await expect.poll(async () => areDisjoint(await lastBounds(page), await page.getByTestId('toast-status').boundingBox())).toBe(true);
+  // The enter transform begins below its final fixed position. The reserved
+  // footer must already be disjoint, and remain so midway through the motion.
+  await page.clock.runFor(90);
+  await expect.poll(async () => areDisjoint(await lastBounds(page), await page.getByTestId('toast-status').boundingBox())).toBe(true);
+  expectDisjoint(await lastBounds(page), await page.getByTestId('toast-status').boundingBox());
+
+  const boundsWhileToast = (await receipts(page, 'bounds')).length;
+  await page.clock.runFor(3_250);
+  await expectVisibleBounds(page, host, boundsWhileToast);
+  expect(await lastBounds(page)).toEqual(initial);
   expect(await receipts(page, 'detach')).toEqual([]);
 });
 

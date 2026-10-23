@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-22",
+  "observedAt": "2026-10-23T05:05:19.848294+00:00",
+  "classification": "environment: central Tailscale access policy",
+  "requestedBehavior": "Any device in the personal tailnet may access this Mac TCP4001",
+  "userReported": "Mac mini: blank page, browser spins indefinitely",
+  "localHttpsHttpStatus": 200,
+  "localTlsVerification": 0,
+  "receivedPolicyEvidence": [
+    {
+      "device": "pi-nas",
+      "dnsName": "pi-nas.tail3798ec.ts.net.",
+      "tcp4001AllowedByReceivedPolicy": true
+    },
+    {
+      "device": "localhost",
+      "dnsName": "iphone-14.tail3798ec.ts.net.",
+      "tcp4001AllowedByReceivedPolicy": false
+    },
+    {
+      "device": "pi-hermes",
+      "dnsName": "pi-hermes.tail3798ec.ts.net.",
+      "tcp4001AllowedByReceivedPolicy": false
+    },
+    {
+      "device": "localhost",
+      "dnsName": "iphone-13-mini.tail3798ec.ts.net.",
+      "tcp4001AllowedByReceivedPolicy": false
+    },
+    {
+      "device": "pi-monitor",
+      "dnsName": "pi-monitor.tail3798ec.ts.net.",
+      "tcp4001AllowedByReceivedPolicy": false
+    },
+    {
+      "device": "Mac\u2019s Mac mini",
+      "dnsName": "macs-mac-mini-3.tail3798ec.ts.net.",
+      "tcp4001AllowedByReceivedPolicy": false
+    }
+  ],
+  "requiredChange": {
+    "source": "all devices in personal tailnet",
+    "destination": [
+      "100.95.119.92",
+      "fd7a:115c:a1e0::6f3a:775c"
+    ],
+    "ipProtocol": "TCP",
+    "destinationPort": 4001,
+    "preserveOtherRules": true
+  },
+  "authorized": true,
+  "applied": false,
+  "blocker": "Personal tailnet admin requires interactive Google sign-in; sign-in page opened for AJ",
+  "credentialContentsInspected": false
+}

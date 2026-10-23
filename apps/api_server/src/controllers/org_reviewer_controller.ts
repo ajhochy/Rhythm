@@ -2,7 +2,9 @@ import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { verifyTrustedMcpCall, type VerifiedTrustedMcpCall } from '../security/trusted_mcp_call';
 import {
+  ORG_REVIEWER_CATALOG_TOOL,
   ORG_REVIEWER_READ_TOOL,
+  ORG_REVIEWER_SESSION_TOOL,
   ORG_REVIEWER_SUBMIT_TOOL,
   OrgReviewerService,
 } from '../services/org_reviewer_service';
@@ -41,11 +43,31 @@ export class OrgReviewerController {
     }
   }
 
+  async session(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const verified = await authenticate(req.body, ORG_REVIEWER_SESSION_TOOL);
+      const reviewer = await this.service.authorize(verified.context);
+      res.json(await this.service.session(verified.arguments, reviewer));
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async catalog(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const verified = await authenticate(req.body, ORG_REVIEWER_CATALOG_TOOL);
+      const reviewer = await this.service.authorize(verified.context);
+      res.json(await this.service.catalog(verified.arguments, reviewer));
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async submit(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const verified = await authenticate(req.body, ORG_REVIEWER_SUBMIT_TOOL);
-      const reviewer = await this.service.authorize(verified.context);
-      res.status(201).json(await this.service.submit(verified.arguments, reviewer));
+      await this.service.authorize(verified.context);
+      throw AppError.conflict('Direct reviewer proposal submission is closed; run the Org Reviewer evaluation');
     } catch (error) {
       next(error);
     }

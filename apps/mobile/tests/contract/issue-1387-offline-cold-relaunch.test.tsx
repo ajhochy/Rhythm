@@ -287,6 +287,7 @@ jest.mock('@/components/chat/chat-view', () => ({
   ChatView: () => {
     const { Text } = jest.requireActual('react-native');
     const { ChatHeader } = jest.requireActual('@/components/chat/chat-header');
+    const { ChatComposer } = jest.requireActual('@/components/chat/chat-composer');
     const { Colors } = jest.requireActual('@/constants/theme');
     const { useOpencode } = jest.requireActual('@/providers/opencode-provider');
     const {
@@ -346,6 +347,30 @@ jest.mock('@/components/chat/chat-view', () => ({
             .map((entry: { text: string }) => entry.text)
             .join('\n')}
         </Text>
+        {/* Since a0dfe1e6 the real ChatView surfaces connection state only
+            through ChatComposer (offline placeholder + disabled actions);
+            ChatHeader no longer renders Connected/Offline. Mirror that. */}
+        <ChatComposer
+          attachments={[]}
+          commands={[]}
+          connectionStatus={connection.status}
+          conversation={{ active: false, isListening: false, phase: 'off' }}
+          currentSessionId={currentSessionId}
+          draft=""
+          insetsBottom={0}
+          isCreatingSession={false}
+          isSpeechInputAvailable={false}
+          isSpeechInputListening={false}
+          isStoppingSession={false}
+          onAttach={() => undefined}
+          onCommandSelect={() => undefined}
+          onDraftChange={() => undefined}
+          onRemoveAttachment={() => undefined}
+          onSend={() => undefined}
+          onToggleRecording={() => undefined}
+          palette={Colors.light}
+          showSendAction={false}
+        />
       </>
     );
   },
@@ -457,7 +482,11 @@ describe('issue-1387 cold offline chat hydration', () => {
       expect(screen.getByText(MIRRORED_TEXT)).toBeTruthy();
     });
 
-    expect(screen.getByLabelText('Chat status: Offline')).toBeTruthy();
+    expect(
+      screen.getByPlaceholderText('Desktop offline — you can still read sessions'),
+    ).toBeTruthy();
+    expect(screen.getByLabelText('Stop response')).toBeDisabled();
+    expect(screen.queryByText(/Connected/)).toBeNull();
     expect(screen.queryByText('Opening chat')).toBeNull();
     expect(screen.queryByLabelText('Retry')).toBeNull();
     expect(mockBoundaryTrace).toContain(
@@ -510,7 +539,11 @@ describe('issue-1387 cold offline chat hydration', () => {
       },
       { timeout: 5_000 },
     );
-    expect(screen.getByLabelText('Chat status: Connected')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Ask anything...')).toBeTruthy();
+    expect(
+      screen.queryByPlaceholderText('Desktop offline — you can still read sessions'),
+    ).toBeNull();
+    expect(screen.getByLabelText('Stop response')).toBeEnabled();
     expect(screen.queryByText('Opening chat')).toBeNull();
     expect(screen.queryByLabelText('Retry')).toBeNull();
     expect(mockBoundaryTrace).toContain(

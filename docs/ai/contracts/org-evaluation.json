@@ -1,0 +1,153 @@
+{
+  "issue": null,
+  "generated": "2026-10-21",
+  "criteria": [
+    {
+      "criterion_id": "org-evaluation-c1",
+      "text": "The evaluation catalog covers every existing proposal kind, including tools and permissions.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/org_evaluation_budget.test.ts",
+      "test_id": "org-evaluation-c1: the closed evaluation catalog includes every existing proposal kind including tool installation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "org-evaluation-c2",
+      "text": "A configurable whole-run token cap reserves capacity for independent final validation before admitting exploration calls.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/org_evaluation_budget.test.ts",
+      "test_id": "org-evaluation-c2: exploration admission preserves the final-validation allocation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "org-evaluation-c3",
+      "text": "Concurrent candidate children share one atomic token limit, including outstanding reservations.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/org_evaluation_budget.test.ts",
+      "test_id": "org-evaluation-c3: concurrent children cannot reserve beyond the whole-run cap",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "org-evaluation-c4",
+      "text": "Token reservation and settlement are idempotent after retries and restarts; a reused key with different terms is rejected.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/org_evaluation_budget.test.ts",
+      "test_id": "org-evaluation-c4: retrying a reservation or settlement after restart is idempotent",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "org-evaluation-c5",
+      "text": "Missing provider usage stops evaluation as inconclusive and cannot produce a human-queue proposal.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/org_evaluation_budget.test.ts",
+      "test_id": "org-evaluation-c5: missing provider usage fails closed and retains the original",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "org-evaluation-c6",
+      "text": "Actual usage replaces a reservation once, and usage above the reserved ceiling prevents qualification.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/org_evaluation_budget.test.ts",
+      "test_id": "org-evaluation-c6: actual usage settles once; an overrun cannot qualify",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "org-evaluation-c7",
+      "text": "Original and candidate configuration versions and actual execution receipts are immutable, attributable, and recoverable.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/org_evaluation_budget.test.ts",
+      "test_id": "org-evaluation-c7: candidate versions and execution receipts remain immutable and recoverable",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "org-evaluation-c8",
+      "text": "Concurrent coordinator updates cannot overwrite a qualification or human-queue identity without a matching job revision.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/org_evaluation_budget.test.ts",
+      "test_id": "org-evaluation-c8: CAS prevents concurrent qualification or queue identity overwrite",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "org-evaluation-c9",
+      "text": "The original and two or three isolated candidate configurations execute real task and effect adapters, with actual tool and permission outcomes recorded. A code-verified singleton publication action has one candidate and no fabricated composition.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Requires the isolated real-engine/API sandbox and owned task fixtures; source or mocked tests cannot prove actual execution."
+    },
+    {
+      "criterion_id": "org-evaluation-c10",
+      "text": "Composition records retained portions and evidence, then a separate final-versus-original validation on held-out tasks gates the exact proposed version.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Requires the coordinator, real isolated executions, held-out fixtures, and queue readback in the sandbox."
+    },
+    {
+      "criterion_id": "org-evaluation-c11",
+      "text": "The packaged review UI can configure the token limit and shows versions, execution results, token spend, and inconclusive reasons before a human decision.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Requires the exact locally signed app with real API and engine, plus a checked packaged Playwright journey."
+    },
+    {
+      "criterion_id": "org-evaluation-c12",
+      "text": "The reviewer diagnosis and multiple target evaluations share one durable root token cap, including concurrent child reservations.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/org_evaluation_budget.test.ts",
+      "test_id": "org-evaluation-c12: reviewer diagnosis and concurrent target children spend one root budget",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "org-evaluation-c13",
+      "text": "Unknown usage in one target evaluation poisons the shared review-cycle budget and stops all sibling admissions.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/org_evaluation_budget.test.ts",
+      "test_id": "org-evaluation-c13: unknown child usage poisons the shared root and sibling admissions",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "org-evaluation-c14",
+      "text": "A review cycle cannot close while a target child or provider reservation is active, and closing the cycle prevents new admissions.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/org_evaluation_budget.test.ts",
+      "test_id": "org-evaluation-c14: a review cycle closes only after every child and provider call finishes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "org-evaluation-c15",
+      "text": "A passing receipt must contain the full kind-specific observed-effect ledger; a tool install cannot qualify from profile projection alone.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/org_evaluation_budget.test.ts",
+      "test_id": "org-evaluation-c15: a tool install cannot pass on profile projection evidence alone",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "org-evaluation-c16",
+      "text": "A partially correct final answer cannot qualify merely because it improves on the original; every final task must pass completely.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/org_evaluation_budget.test.ts",
+      "test_id": "org-evaluation-c16: a partial final output cannot qualify even when it improves the original",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "org-evaluation-c17",
+      "text": "Workflow prompt improvements require actual managed-skill loading and execution rather than profile projection alone.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/org_evaluation_budget.test.ts",
+      "test_id": "org-evaluation-c17: a workflow prompt fix needs observed managed skill execution",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "org-evaluation-c18",
+      "text": "Composition portions must match exact source and final bytes at a JSON Pointer and cite a source result that improved over its matching original task.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/org_evaluation_budget.test.ts",
+      "test_id": "org-evaluation-c18: composition cannot claim copied portions absent from source bytes",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "org-evaluation-c9",
+    "org-evaluation-c10",
+    "org-evaluation-c11"
+  ]
+}

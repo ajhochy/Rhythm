@@ -28,7 +28,10 @@ for (const size of sizes) {
     }
     await expect(page.getByTestId('composer-input')).toBeVisible();
     await expect(page.getByTestId('composer-cancel')).toBeVisible();
-    if (await page.getByTestId('inspector-expand').isVisible().catch(() => false)) await page.getByTestId('inspector-expand').click();
+    // On narrow layouts the rail is an overlay; close it before using the persistent header
+    // Details trigger that owns inspector reachability.
+    if (await page.getByTestId('rail-collapse').isVisible().catch(() => false)) await page.getByTestId('rail-collapse').click();
+    await page.getByTestId('session-details').click();
     await expect(page.getByTestId('inspector-context')).toBeVisible();
     const result = await new AxeBuilder({ page }).exclude('.traffic-lights').analyze();
     const blocking = result.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact || ''));
@@ -80,11 +83,13 @@ test('supports 200% text scaling without obscuring primary actions', async ({ pa
   await page.setViewportSize({ width: 1024, height: 900 });
   await openFixture(page);
   await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+  await page.getByTestId('session-details').click();
   for (const id of ['new-chat-instant', 'composer-input', 'composer-cancel', 'session-actions', 'inspector-context']) {
     const control = page.getByTestId(id);
     await control.scrollIntoViewIfNeeded();
     await expect(control).toBeVisible();
   }
+  await expect(page.getByTestId('session-actions')).toHaveAttribute('aria-haspopup', 'dialog');
   await expectNoPageOverflow(page);
 });
 

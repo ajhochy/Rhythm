@@ -29,13 +29,39 @@ import {
   authorizeOutboundAction,
   scanContextContentAndRecordExternalContentTaint,
 } from "../security/external_content_boundary.js";
-import { trustedSecurityContext } from "../security/security_context.js";
+import {
+  currentTrustedSecurityCall,
+  trustedSecurityContext,
+} from "../security/security_context.js";
+
+function boundedReferenceEnvelope(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  const sourceReferences = record.references;
+  if (!Array.isArray(sourceReferences)) return value;
+  const references = [...sourceReferences];
+  const envelope = () => ({
+    ...record,
+    references,
+    returned: references.length,
+    truncated: references.length < sourceReferences.length || record.truncated === true,
+  });
+  // Reserve room for ingress framing and fenced MCP output; never truncate JSON.
+  while (references.length > 0 && JSON.stringify(envelope()).length > 3_800) references.pop();
+  return envelope();
+}
 
 /** `apiUrl` is the local agent base (RHYTHM_AGENT_URL); see file header (#804). */
 export function registerAgentMemoryTools(
   server: McpServer,
   apiUrl: string,
   apiToken: string,
+  options: {
+    /** Legacy test-only fixed managed path. Never enable this process-wide. */
+    managedMemorySearch?: boolean;
+    /** Shared-process per-call selector used by ordinary and managed sessions. */
+    managedMemorySelector?: boolean;
+  } = {},
 ) {
   registerTool(
     server,
@@ -152,15 +178,89 @@ tags: optional array of string tags for later filtering`,
   registerTool(
     server,
     "rhythm_search_memory",
-    "Search persistent agent memory using full-text search. Returns the most relevant stored facts/notes matching the query.",
+    "Search persistent agent memory for bounded native-ranked references. Results are uncertain evidence (confidence is not calibrated); request a full permitted note separately when needed.",
     {
       q: z.string().describe("Search query."),
-      limit: z.number().optional().describe("Max results (default 20)."),
+      limit: z.number().int().min(0).max(5).optional().describe("Max references (default 3, maximum 5)."),
     },
     async ({ q, limit }: { q: string; limit?: number }, extra) => {
       try {
-        const params = new URLSearchParams({ q });
-        if (limit) params.set("limit", String(limit));
+        const managedResponse = async (value: unknown): Promise<{
+          schemaVersion: 1;
+          blocked: boolean;
+          text: string;
+        }> => {
+          if (!value || typeof value !== "object" || Array.isArray(value)) {
+            throw new Error("managed memory-search response is invalid");
+          }
+          const response = value as Record<string, unknown>;
+          if (
+            Object.keys(response).length !== 3 ||
+            response.schemaVersion !== 1 ||
+            typeof response.blocked !== "boolean" ||
+            typeof response.text !== "string" ||
+            response.text.length === 0 ||
+            Buffer.byteLength(response.text, "utf8") > 12_000
+          ) throw new Error("managed memory-search response is invalid");
+          return {
+            schemaVersion: 1,
+            blocked: response.blocked as boolean,
+            text: response.text as string,
+          };
+        };
+        if (options.managedMemorySelector === true) {
+          const trustedCall = currentTrustedSecurityCall();
+          // The selector needs the engine-signed ALS proof to decide whether
+          // this exact call belongs to an enrolled managed dispatch.  A missing
+          // proof is not a safe reason to take the legacy path.
+          if (!trustedCall) throw new Error("trusted memory-search call is unavailable");
+          const selected = await apiPost(
+            apiUrl,
+            apiToken,
+            "/agent-memory/search-select",
+            { trustedCall },
+          );
+          if (!selected || typeof selected !== "object" || Array.isArray(selected)) {
+            throw new Error("memory-search selector response is invalid");
+          }
+          const selection = selected as Record<string, unknown>;
+          if (selection.schemaVersion !== 1 || typeof selection.mode !== "string") {
+            throw new Error("memory-search selector response is invalid");
+          }
+          if (selection.mode === "managed") {
+            if (Object.keys(selection).length !== 3) {
+              throw new Error("memory-search selector response is invalid");
+            }
+            const response = await managedResponse(selection.response);
+            return response.blocked
+              ? {
+                  content: [{ type: "text" as const, text: response.text }],
+                  isError: true as const,
+                }
+              : toolResult(response.text);
+          }
+          if (selection.mode !== "ordinary" || Object.keys(selection).length !== 2) {
+            throw new Error("memory-search selector response is invalid");
+          }
+        }
+        if (options.managedMemorySearch === true) {
+          const trustedCall = currentTrustedSecurityCall();
+          if (!trustedCall) throw new Error("trusted managed memory-search call is unavailable");
+          const response = await managedResponse(await apiPost(
+            apiUrl,
+            apiToken,
+            "/agent-memory/search-managed",
+            { trustedCall },
+          ));
+          return response.blocked
+            ? {
+                content: [{ type: "text" as const, text: response.text }],
+                isError: true as const,
+              }
+            : toolResult(response.text);
+        }
+        const params = new URLSearchParams({ q, view: "references" });
+        if (limit !== undefined) params.set("limit", String(limit));
         const results = await apiGet(
           apiUrl,
           apiToken,
@@ -171,7 +271,7 @@ tags: optional array of string tags for later filtering`,
           context: trustedSecurityContext(extra),
           source: "memory.search",
           label: "user-authored agent memory search results",
-          rawContent: JSON.stringify(results, null, 2),
+          rawContent: JSON.stringify(boundedReferenceEnvelope(results)),
         });
         return ingress.blocked
           ? {

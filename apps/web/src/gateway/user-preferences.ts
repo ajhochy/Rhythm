@@ -135,6 +135,8 @@ export function shouldEscalatePermission(enabled: boolean, tool: string) {
   return enabled && destructivePermissionTools.has(tool.trim().toLocaleLowerCase());
 }
 
+import { isTrustedBrowserFetcher } from './browser-transport';
+import { cloudAccountFailure } from './cloud-error';
 export interface UserPreferencesGateway {
   readonly mode: GatewayMode;
   updateArtifactTabIds(ids: string[]): Promise<{ artifactTabIds: string[] }>;
@@ -146,7 +148,7 @@ export interface UserPreferencesGateway {
 // apps/api_server/src/routes/users_routes.ts:10 and validated (<=50 unique UUID strings) at
 // apps/api_server/src/controllers/users_controller.ts:91-98.
 export function createLiveUserPreferencesGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): UserPreferencesGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: an explicit user-preferences token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: an explicit user-preferences token is required');
   return {
     mode: 'live',
     updateArtifactTabIds: async (ids) => {
@@ -155,7 +157,7 @@ export function createLiveUserPreferencesGateway(apiBase: string, token: string 
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ artifactTabIds: ids }),
       });
-      if (!result.ok) throw new Error(`Failed to persist artifact tabs (${result.status})`);
+      if (!result.ok) throw new Error(await cloudAccountFailure(result) ?? `Failed to persist artifact tabs (${result.status})`);
       return result.json();
     },
   };

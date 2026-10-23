@@ -44,6 +44,7 @@ import {
   createAndVetToolInstallProposalAsync,
   denyToolInstallProposalAsync,
 } from '../services/tool_install_proposal_lifecycle';
+import { assertOrgEvaluationApprovalAsync, projectOrgEvaluationProposalsAsync } from '../services/org_evaluation_approval';
 
 /**
  * IMPORTANT: AgentOrgProposalsRepository's constructor calls getDb() eagerly
@@ -193,7 +194,7 @@ export class OrgProposalsController {
       // D1.5: the tool report is a closed projection, not report JSON. This
       // performs one batch report lookup for the page and removes tool apply
       // JSON before the response reaches any desktop client.
-      res.json(await attachToolSafetyReviewProjectionsAsync(withSummaries));
+      res.json(await projectOrgEvaluationProposalsAsync(await attachToolSafetyReviewProjectionsAsync(withSummaries)));
     } catch (err) {
       next(err);
     }
@@ -205,6 +206,8 @@ export class OrgProposalsController {
       const proposalsRepo = repo();
       const proposal = await proposalsRepo.findByIdAsync(id);
       if (!proposal) throw AppError.notFound('AgentOrgProposal');
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      await assertOrgEvaluationApprovalAsync(proposal, body);
 
       if (proposal.kind !== 'tool-install') {
         if (proposal.status !== 'proposed' && proposal.status !== 'failed') {
@@ -220,12 +223,14 @@ export class OrgProposalsController {
       }
 
       const decidedByUserId = req.auth?.user.id ?? LOCAL_OPERATOR_ACTOR_ID;
-      const body = (req.body ?? {}) as Record<string, unknown>;
       const explicitConditionalConfirmation =
         !!req.auth?.user && body.toolSafetyConfirmation === CONDITIONAL_TOOL_INSTALL_CONFIRMATION;
       let outcome;
       try {
         const { applyApprovedProposalAsync } = await import('../services/org_proposal_apply_service');
+        // Recheck after asynchronous validation and immediately before entering
+        // the existing applier. Scope appliers also enforce their own revision CAS.
+        await assertOrgEvaluationApprovalAsync(proposal, body);
         outcome = await applyApprovedProposalAsync({
           proposal,
           decidedByUserId,
@@ -245,7 +250,7 @@ export class OrgProposalsController {
           ' — the proposal, target scope, and projected profile must be inspected before retrying',
         );
       }
-      res.json(outcome.proposal);
+      res.json((await projectOrgEvaluationProposalsAsync([outcome.proposal]))[0]);
     } catch (err) {
       next(err);
     }

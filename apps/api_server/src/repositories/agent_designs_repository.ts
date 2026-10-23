@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { getDb, getPostgresPool } from '../database/db';
 import { env } from '../config/env';
+import { resolveLocalArtifact } from '../services/agent_design_artifacts';
 
 export interface AgentDesign {
   id: string;
@@ -47,6 +48,18 @@ const PREVIEWABLE_IMAGE_TYPES = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'a
 export function publicAgentDesign(design: AgentDesign): Omit<AgentDesign, 'filePath'> {
   const { filePath, ...publicDesign } = design;
   if (!filePath) return publicDesign;
+  // Historical local rows can outlive their file or its approved Studio root.
+  // Match the serving route's boundary before advertising local asset URLs.
+  try {
+    resolveLocalArtifact(filePath);
+  } catch {
+    const remote = (url: string | null) => url && /^https?:\/\//i.test(url) ? url : null;
+    return {
+      ...publicDesign,
+      artifactUrl: remote(publicDesign.artifactUrl),
+      thumbnailUrl: remote(publicDesign.thumbnailUrl),
+    };
+  }
   const type = design.artifactType?.toLowerCase() ?? '';
   const artifactUrl = publicDesign.artifactUrl ?? `/agent-designs/${encodeURIComponent(design.id)}/artifact`;
   const thumbnailUrl = publicDesign.thumbnailUrl

@@ -50,6 +50,7 @@ vi.mock('../services/opencode_engine', () => ({
     promptAsync: promptAsyncSpy,
     createSession: vi.fn().mockResolvedValue(null),
     getSession: vi.fn().mockResolvedValue(null),
+    updateSessionPermissionMode: vi.fn().mockResolvedValue(true),
     subscribeToEvents: vi.fn().mockResolvedValue(null),
     dispatchCommand: vi.fn().mockResolvedValue(null),
     statusMessage: 'ready',
@@ -82,7 +83,8 @@ vi.mock('../services/agent_model_resolver', () => ({
 }));
 
 // auth middleware bypass
-vi.mock('../config/env', () => ({
+vi.mock('../config/env', async () => ({
+  ...(await import('./helpers/opencode_paths_mock')).opencodePathMocks,
   env: {
     agentLocal: true,
     agentExecutionEnabled: true,

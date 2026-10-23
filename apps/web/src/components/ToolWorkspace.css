@@ -36,6 +36,23 @@
   max-width: none;
 }
 
+.org-evaluation-panel { display: grid; gap: 10px; margin-bottom: 12px; }
+.org-evaluation-panel section { display: grid; gap: 8px; margin: 0; }
+.org-evaluation-panel h3, .org-evaluation-panel h4, .org-evaluation-panel h5 { margin: 0; }
+.org-evaluation-panel label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.org-evaluation-panel input[type="number"] { width: 120px; }
+.org-evaluation-panel ul { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.org-evaluation-panel .org-evaluation-activity { display: grid; gap: 10px; }
+.org-evaluation-panel .org-evaluation-activity > ul { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.org-evaluation-panel .org-evaluation-activity > ul button { width: 100%; padding: 8px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); color: var(--fg-2); background: var(--surface); text-align: left; cursor: pointer; }
+.org-evaluation-panel .org-evaluation-activity > ul button[aria-current="true"] { border-color: var(--accent); color: var(--fg); }
+.org-evaluation-panel article { display: grid; gap: 8px; min-width: 0; }
+.org-evaluation-panel dl { display: grid; gap: 4px; margin: 0; }
+.org-evaluation-panel dl > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.org-evaluation-panel dt { min-width: 120px; color: var(--muted); }
+.org-evaluation-panel dd { margin: 0; overflow-wrap: anywhere; }
+.org-evaluation-panel pre { max-height: 180px; margin: 4px 0; padding: 8px; overflow: auto; border-radius: var(--r-sm); background: var(--surface-warm); white-space: pre-wrap; overflow-wrap: anywhere; }
+
 .brain-search-row { display: flex; align-items: center; gap: 6px; width: 100%; }
 .brain-search-row .column-checklist-filter { flex: 1 1 auto; }
 .brain-show-deprecated { display: flex; align-items: center; gap: 6px; padding: 4px 6px; color: var(--fg-2); font-size: 12px; }
@@ -67,6 +84,22 @@
 .research-budget-fields .segmented-control button:disabled { cursor: default; }
 .research-runs ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .research-runs button { width: 100%; min-height: 36px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 4px 8px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); color: var(--fg-2); background: var(--surface); cursor: pointer; font-size: 11px; text-align: left; }
+.tool-workspace.dayflow-workspace {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.dayflow-workspace-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.dayflow-native-host {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  overflow: auto;
+}
+
 .research-runs button[aria-pressed="true"] { border-color: var(--border); color: var(--fg); background: var(--surface-warm); }
 .research-stages { width: 100%; border-collapse: collapse; font-size: 11px; }
 .research-stages th, .research-stages td { padding: 5px 6px; border-bottom: 1px solid var(--border-soft); text-align: left; vertical-align: top; }

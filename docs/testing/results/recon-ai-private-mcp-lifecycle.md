@@ -1,0 +1,13 @@
+# Private MCP lifecycle recon, exact `4fda312118`
+
+The observation-only packaged recon used a wholly private synthetic actor and made no model or MCP tool call. Its raw 0600 receipt is `/private/tmp/rhythm-mcp-lifecycle-recon-4fda/observation-1792550271428-3af4b9c0-9e83-4864-bf60-44b99744732f.json`. It reports `observationComplete:true`.
+
+Before the observer forced renderer auth restore, normal API `GET /opencode/mcp` returned `200 []`; the exact running engine returned `200` with zero MCP tool IDs. The packaged Playwright attachment returns a page as soon as its `rhythm://app` URL exists; it does not wait for the renderer's `currentSession()` and asynchronous MCP registration. This first snapshot therefore does not prove a failed startup ensure or a user-visible settled empty catalog.
+
+On a normal UI reload, the observed `POST /opencode/mcp/rhythm/ensure` returned HTTP 200 with `{changed:true,registered:true}`. The next API and engine reads showed `rhythm` connected with 114 tool IDs, including `rhythm_list_tasks` and `rhythm_ping`. Settings rendered **Connected · 114 tools**; the Profiles MCP checklist showed the `rhythm_list_tasks` control. Settings Connect was not clicked because the server was already connected. API, engine, Settings, and Profiles still showed the catalog after 35 seconds and a Profiles refresh. These are exact private-runtime observations, not proof of a model's effective MCP scope.
+
+Source explains the order: Electron validates and signs the synthetic actor into its main-process session before loading the window (`apps/electron/src/main.mjs`), while the renderer restores that session and calls `ensureRhythmMcp` asynchronously after rendering (`apps/web/src/main.tsx`). The API ensure route normally registers the MCP even when persisted config is identical (`apps/api_server/src/services/opencode_client_service.ts`). The prior model-loan preflight's `configured`/zero-tool GET remains a distinct, unprimed observation; this recon does not identify why that earlier renderer restore had not established the catalog by preflight.
+
+The observer's Playwright case completed 1/1. The outer CLI exited 1 only at its immediate post-quit `4001 busy` cleanup guard; the next port check was free. That operational exit is separate from the MCP observation. The cleanup guard is being given a bounded drain by another owner. No product source was changed for this recon.
+
+For a future private MCP scope prerequisite, force a normal renderer restore after installing a response observer, require the ensure response to report HTTP 200 and `registered:true`, then read the real API/engine catalog and rendered checkbox before starting any model turn. Label this **primed MCP catalog**; do not call it cold-start qualification.

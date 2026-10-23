@@ -35,6 +35,22 @@ function manager(home: string, executablePath = binary) {
   return instance;
 }
 
+async function expectEnabled(instance: EngraphManager): Promise<void> {
+  const result = await instance.enable();
+  const message = result.ok ? undefined :
+    `Engraph start failed: ${instance.getStatus().lastFailureMessage ?? 'no failure message'}`;
+  expect(result, message).toEqual({ ok: true });
+}
+
+async function expectBothEnabled(first: EngraphManager, second: EngraphManager): Promise<void> {
+  const results = await Promise.all([first.enable(), second.enable()]);
+  const message = results.every((result) => result.ok) ? undefined :
+    `Engraph starts failed: ${JSON.stringify(
+      [first, second].map((instance) => instance.getStatus().lastFailureMessage),
+    )}`;
+  expect(results, message).toEqual([{ ok: true }, { ok: true }]);
+}
+
 async function waitFor<T>(read: () => T, accept: (value: T) => boolean, timeoutMs = 8_000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -112,10 +128,10 @@ it('issue-1574-c1: another manager must not accumulate a second child for the sa
   mkdirSync(join(dir, 'vault', 'AGENT-MEMORY'), { recursive: true });
   const home = join(dir, 'home');
   const first = manager(home);
-  expect(await first.enable()).toEqual({ ok: true });
+  await expectEnabled(first);
   expect(first.getStatus().backendCount).toBe(1);
   const second = manager(home);
-  expect(await second.enable()).toEqual({ ok: true });
+  await expectEnabled(second);
   expect(second.getStatus()).toMatchObject({ backendCount: 1, backendOwnership: 'reused' });
   await second.disable();
   expect(first.getStatus().backendCount).toBe(0);
@@ -128,7 +144,7 @@ it('issue-1574-c3: foreign live marker is reported but never reaped or replaced'
   process.env.MEMORY_VAULT_SUBDIR = 'AGENT-MEMORY';
   mkdirSync(join(dir, 'vault', 'AGENT-MEMORY'), { recursive: true });
   const first = manager(join(dir, 'owned-home'));
-  expect(await first.enable()).toEqual({ ok: true });
+  await expectEnabled(first);
   const foreign = join(dir, 'foreign-home');
   mkdirSync(join(foreign, '.engraph'), { recursive: true });
   const marker = join(foreign, '.engraph', 'serve.owner');
@@ -152,13 +168,38 @@ it('issue-1574-c1: a different approved root cannot adopt the existing child', a
   mkdirSync(join(dir, 'first-vault', 'AGENT-MEMORY'), { recursive: true });
   const home = join(dir, 'home');
   const first = manager(home);
-  expect(await first.enable()).toEqual({ ok: true });
+  await expectEnabled(first);
   process.env.MEMORY_VAULT_PATH = join(dir, 'second-vault');
   mkdirSync(join(dir, 'second-vault', 'AGENT-MEMORY'), { recursive: true });
   const second = manager(home);
   expect(await second.enable()).toEqual({ ok: false, reason: 'spawn_failed' });
   expect(second.getStatus()).toMatchObject({ backendCount: 1, backendOwnership: 'foreign' });
   expect((await first.checkHealthNow()).ok).toBe(true);
+});
+
+it('freshness refreshes only the approved root and fails semantic retrieval closed while queued', async () => {
+  dir = mkdtempSync(join(tmpdir(), 'issue-1574-refresh-'));
+  const vault = join(dir, 'vault');
+  const memoryDir = join(vault, 'AGENT-MEMORY');
+  process.env.MEMORY_VAULT_PATH = vault;
+  process.env.MEMORY_VAULT_SUBDIR = 'AGENT-MEMORY';
+  mkdirSync(memoryDir, { recursive: true });
+  const instance = manager(join(dir, 'home'));
+  await expectEnabled(instance);
+
+  expect(instance.requestMemoryRefresh({ memoryDir, destructive: false })).toBe(true);
+  expect(instance.getStatus().state).toBe('indexing');
+  await expect(instance.getRetrievalClient().search('synthetic pending', 1)).resolves.toEqual([]);
+  await waitFor(
+    () => instance.getStatus().freshness,
+    (freshness) => freshness.appliedRevision === 1 && freshness.state === 'idle',
+  );
+  expect(instance.getStatus().backendOwnership).toBe('owned');
+
+  const other = join(dir, 'other-memory');
+  mkdirSync(other);
+  expect(instance.requestMemoryRefresh({ memoryDir: other, destructive: true })).toBe(false);
+  expect(instance.getStatus().freshness.errorCategory).toBe('root_mismatch');
 });
 
 it('issue-1574-c2: disable during indexing must cancel the late start and release its reservation', async () => {
@@ -196,7 +237,7 @@ it('issue-1574-c1: racing same-process managers wait for one real backend', asyn
   mkdirSync(join(dir, 'vault', 'AGENT-MEMORY'), { recursive: true });
   const home = join(dir, 'home');
   const first = manager(home), second = manager(home);
-  expect(await Promise.all([first.enable(), second.enable()])).toEqual([{ ok: true }, { ok: true }]);
+  await expectBothEnabled(first, second);
   expect(first.getStatus().backendCount + second.getStatus().backendCount).toBe(2); // two views, one backend
   expect(new Set([first.getStatus().backendOwnership, second.getStatus().backendOwnership])).toEqual(new Set(['owned', 'reused']));
   await second.disable();
@@ -222,7 +263,7 @@ it('issue-1574-c1: one unavailable OS identity probe after authenticated health 
   } });
   managers.push(first);
   const second = manager(home);
-  expect(await Promise.all([first.enable(), second.enable()])).toEqual([{ ok: true }, { ok: true }]);
+  await expectBothEnabled(first, second);
   expect(probeMisses).toBeGreaterThanOrEqual(1);
   expect(new Set([first.getStatus().backendOwnership, second.getStatus().backendOwnership])).toEqual(new Set(['owned', 'reused']));
 });
@@ -273,8 +314,8 @@ it('issue-1574-c1: a reuser becomes the current owner after the old owner stops 
   const home = join(dir, 'home');
   const first = manager(home);
   const second = manager(home);
-  expect(await first.enable()).toEqual({ ok: true });
-  expect(await second.enable()).toEqual({ ok: true });
+  await expectEnabled(first);
+  await expectEnabled(second);
   expect(second.getStatus().backendOwnership).toBe('reused');
 
   await first.disable();
@@ -335,7 +376,7 @@ it('issue-1574-c3: an unmarked legacy serve process is visible and blocks a seco
   mkdirSync(join(dir, 'vault', 'AGENT-MEMORY'), { recursive: true });
   const home = join(dir, 'home');
   const first = manager(home);
-  expect(await first.enable()).toEqual({ ok: true });
+  await expectEnabled(first);
   const lock = join(home, '.engraph', 'serve.owner');
   const original = JSON.parse(readFileSync(lock, 'utf8'));
   rmSync(lock);
@@ -359,7 +400,7 @@ it('issue-1574-c1: stale own starting marker is removed, but never signaled', as
   mkdirSync(join(dir, 'vault', 'AGENT-MEMORY'), { recursive: true });
   const home = join(dir, 'home');
   const first = manager(home);
-  expect(await first.enable()).toEqual({ ok: true });
+  await expectEnabled(first);
   const lock = join(home, '.engraph', 'serve.owner');
   const old = JSON.parse(readFileSync(lock, 'utf8'));
   await first.disable();
@@ -367,7 +408,7 @@ it('issue-1574-c1: stale own starting marker is removed, but never signaled', as
     owner: { ...old.owner, start: 'not-the-owner' } }));
   const next = manager(home);
   expect(next.getStatus().backendCount).toBe(0);
-  expect(await next.enable()).toEqual({ ok: true });
+  await expectEnabled(next);
   expect(next.getStatus().backendCount).toBe(1);
 });
 
@@ -447,7 +488,7 @@ it('issue-1574-c1: a marker with a wrong child identity cannot be removed or ado
   mkdirSync(join(dir, 'vault', 'AGENT-MEMORY'), { recursive: true });
   const home = join(dir, 'home');
   const first = manager(home);
-  expect(await first.enable()).toEqual({ ok: true });
+  await expectEnabled(first);
   const lock = join(home, '.engraph', 'serve.owner');
   const original = JSON.parse(readFileSync(lock, 'utf8'));
   const wrong = { ...original, child: { ...original.child, start: 'recycled-or-unverified' }, owner: { ...original.owner, start: 'old-parent' } };

@@ -41,6 +41,7 @@ async function lifecycleFixture(run) {
         getURL: () => url, isLoadingMainFrame: () => false,
         isDestroyed() { return this.closed }, close() { this.closed = true },
         setWindowOpenHandler() {},
+        async insertCSS() {},
         async loadURL(next) { url = next; frame.url = next; this.emit('did-finish-load') },
       })
       this.webContents = contents

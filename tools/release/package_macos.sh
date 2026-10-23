@@ -2,6 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# A valid active group avoids nesting. The budget is local-dev only: CI runners skip it.
+if [[ "${GITHUB_ACTIONS:-}" != true ]] && ! "${RHYTHM_BUILD_PYTHON:-python3}" "${ROOT_DIR}/tools/build/guard.py" --repo "${ROOT_DIR}" --check-active; then
+  exec "${RHYTHM_BUILD_PYTHON:-python3}" "${ROOT_DIR}/tools/build/guard.py" --repo "${ROOT_DIR}" -- bash "$0" "$@"
+fi
 APP_DIR="${ROOT_DIR}/apps/desktop_flutter/build/macos/Build/Products/Release"
 DIST_DIR="${ROOT_DIR}/apps/desktop_flutter/dist"
 DISPLAY_NAME="Rhythm"

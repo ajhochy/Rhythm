@@ -17,7 +17,14 @@ All commands delegate to `scripts/run_ai_workflow.py` in this repo.
 ### Major-checkpoint isolation and web configuration routing
 
 Run full affected-package suites only at major checkpoints; repair loops run the
-failed files/criteria, not the full API or web suite. Unit checks must not inherit
+failed files/criteria and affected callers, not the full API or web suite. An app
+rebuild alone is not a major checkpoint. For each repair, select the changed
+behavior's source tests, relevant type checks, and live/API or packaged Playwright
+checks that exercise its affected paths. Expand that selection when a new failure
+or a shared dependency justifies it. Run the full backend suite once at the final
+integration checkpoint rather than after every local build.
+
+Unit checks must not inherit
 live-test port overrides: issue655 and Tailscale contracts intentionally expect
 engine4096/gateway4002. The September11 checkpoint's seven such failures passed
 unchanged after removing `RHYTHM_OPENCODE_ENGINE_PORT` and
@@ -196,6 +203,13 @@ Mobile-gateway live suites also need a distinct
 `RHYTHM_MOBILE_GATEWAY_PORT` exported when `sandbox.sh up` starts (for example,
 `:4189`). The launcher and suite must inherit the same value; setting it only
 after the sandbox is running does not reconfigure the gateway.
+
+For approval binding and scheduled-run ownership, prefer the UI-level
+Playwright contract `apps/web/tests/contract/approval-owner-live.spec.ts`.
+`apps/web/tests/fixtures/approval-owner-scripted-provider.mjs --prepare` builds
+its synthetic fixture (scripted loopback model, throwaway approval key), and the
+spec header lists the exact `sandbox.sh up` and `playwright test` commands. It
+needs no paid model.
 
 Live suites that exercise desktop-human approval must also start the sandbox
 with `HUMAN_APPROVAL_CAPABILITY_SHA256` set to the SHA-256 digest of a
@@ -771,3 +785,380 @@ dispatching an out-of-scope name is rejected, falsified in the implementing run 
 temporarily removing the guard and confirming the test failed). The manual smoke above
 is the live full-stack visual + token-count confirmation with the bundled binary, not
 yet run.
+
+### Bounded Coding Workflow live check
+
+`live_coding_workflow_bounded.test.ts` exercises the real local API, built fork,
+MCP server, manager/reviewer sessions and server-checked workflow criteria. Only
+external model responses are deterministic synthetic data; this proves wiring
+and bounded control, not normal served-provider judgement or installed UI behavior.
+The suite skips unless `RHYTHM_LIVE_E2E=1`. It creates invented read-only fixtures,
+uses only the stock `tools/dev/sandbox.sh` lifecycle, and owns API 4198, engine
+4197, gateway 4199, observer 4284 and one ephemeral model listener. Do not run
+another sandbox or build in the same worktree concurrently. No credential,
+private database, live HOME or existing fixture is copied.
+
+From `apps/api_server`, use an unused absolute receipt directory. The trusted
+caller PATH must contain compatible installed Node.js 22 and Bun; the harness
+does not install dependencies. Only PATH is propagated from the caller:
+
+```sh
+env -i PATH="$PATH" \
+  RHYTHM_LIVE_E2E=1 RHYTHM_G2_LIVE_TEST_OUT=/private/tmp/rhythm-g2-new-receipt \
+  node_modules/.bin/vitest run src/__tests__/live_coding_workflow_bounded.test.ts
+```
+
+The assertions require both server-checked criteria, one actual completed
+reviewer under manager 2, exact manager ordinals 1 and 2, admission/continuation
+replay invariance, 65 seconds of reconciliation quiescence, the current gateway
+fingerprint, unchanged product source hashes, unchanged normal-runtime listener
+identities, successful stock teardown, an absent runtime directory, unchanged
+read-only fixtures, and teardown of all five owned listeners. Evidence-copy
+errors fail qualification while all remaining cleanup still runs. The receipt preserves
+source HEAD, product/harness hashes, raw guard transport observations, runtime
+logs/guard markers and invented-data SQLite snapshots before stock teardown.
+A held, timed-out or interrupted run is unqualified; retain its receipt for
+failure triage rather than changing a guard response or weakening an assertion.
+
+### Chat-only bounded Workflow live check
+
+`live_chat_bounded_workflow.test.ts` adds real scoped MCP reference discovery,
+proposal, a signed human decision, the dedicated native approval wake, and
+one-use admission to the same bounded execution path. It runs two cases: an
+idle wake and a stock sandbox API/engine restart after approval. External model
+responses and semantic ranking hints are invented fixtures; the actual API,
+fork, MCP, indexed source, filesystem checks, approval verification, accounting
+and manager/reviewer execution are exercised.
+
+From `apps/api_server` on the committed clean candidate, use an existing
+task-owned external receipt parent and the full source SHA:
+
+```sh
+env -i PATH="$PATH" RHYTHM_LIVE_E2E=1 \
+  RHYTHM_LIVE_SOURCE_SHA=<full-40-hex-candidate-sha> \
+  RHYTHM_CHAT_LIVE_TEST_OUT=<absolute-external-receipt-parent> \
+  node_modules/.bin/vitest run src/__tests__/live_chat_bounded_workflow.test.ts
+```
+
+Each case owns the same isolated ports and stock sandbox lifecycle described
+above. Do not run another sandbox or build in that worktree concurrently.
+The harness checks the exact SHA and clean tracked source before and after,
+actual MCP inventory (111 tools), unchanged signed proposal/deadline after
+restart, exact approved values, one consumed approval, held native replay,
+both checked criteria, two ordinals, reviewer membership and 65 seconds of
+quiescence, plus source/fixture/listener cleanup. New unqualified recon receipts
+must remain distinct from these exact committed-source results. Browser card
+tests and native installed-app acceptance are separate evidence.
+
+### Shared build-storage guard
+
+```sh
+npm run test:build-storage
+npm run build:guard -- npm --prefix apps/api_server run build
+npm run build:guard -- bash -c 'cd apps/opencode_fork/packages/opencode && bun run build --single'
+npm run build:guard -- bash -c 'cd apps/desktop_flutter && flutter build macos'
+```
+
+The default 10 GiB ceiling is shared by every cooperating worker/check-out through
+a private root, fcntl lock, and retained output registry. `RHYTHM_BUILD_ROOT` may
+select an explicit private root (all workers must use the same root).
+`RHYTHM_BUILD_LIMIT_BYTES` or `--limit-bytes` can lower the ceiling for fixtures;
+values above 10 GiB are rejected and an existing root's ceiling cannot be raised.
+A root must be owned by the account, mode 0700, marked, and free of symlinked
+boundary/control paths. The real account home comes from uid lookup, not HOME.
+
+The supervisor scans owned scratch and registered generated outputs (Electron
+`dist`, fork `dist`, Flutter `build`/`dist`, web/API/MCP `dist`, mobile
+`dist`/`dist-e2e`/`build`/`.expo` and native iOS/Android build caches) before launch and
+at roughly 50 ms intervals plus scan time. Native-wrapper `--out` is registered
+explicitly; other output paths require `--watch /absolute/path`. npm/XDG cache,
+Cargo home/target and temporary files are routed into marked run scratch. Existing
+source and installed dependency stores are not disposable scratch. Tools writing
+other caches/output paths must be configured to write into `RHYTHM_BUILD_SCRATCH`
+or registered with `--watch`; this is cooperative tooling, not an OS filesystem
+quota. A fast writer can overshoot between samples. Missing outputs remain
+registered so later growth counts, including retained output from prior runs.
+Nested/hardlinked files count once; symlinks within watched roots are permitted.
+Owned per-run temporary directories may contain external source/input aliases:
+only the link bytes count, targets are never followed or deleted. Writes through
+such aliases require an explicit target `--watch`, like any custom external
+output. Temporary IPC sockets/FIFOs are counted as inode bytes and unlinked with
+owned scratch after processes exit. External symlinks or IPC nodes in registered
+non-temporary output trees still refuse the build.
+A validated supervisor/group identity permits
+nested entrypoints; setting a boolean/token alone does not bypass preflight.
+
+On breach/signals the owned process group receives termination and escalation,
+even if the leader exits. Children intentionally escaping into a new session are
+outside this cooperative group contract. Only this run's positively marked
+scratch is removed; source, generated outputs, unknown dist, and unproven stale runs are
+preserved. On startup, stale scratch is removed only when its registry and marker
+agree, its recorded supervisor identity is gone/changed, and its recorded group
+has no live members. Unregistered/mismatched scratch or a live/reused group is
+preserved and remains counted. The guard never guesses ownership from age alone. `latest.json` and
+`previous.json` are the bounded receipts; registry data retains output locations.
+Keep current/previous reviewed artifacts by operator action, with explicit
+ownership review before removing others. Never copy whole built checkouts or run
+npm install/ci through symlinked dependencies; reuse stores only when lockfile and
+toolchain match. No automatic cap increase or unknown-output deletion is allowed.
+
+On macOS, exclude only the disposable managed scratch root from future Time
+Machine backups: `tmutil addexclusion "$HOME/Documents/Codex/.rhythm-build-scratch"`.
+Verify with `tmutil isexcluded` after the root exists. The local 2026-10-19 setup
+is excluded. Do not exclude source checkouts or remove existing backup snapshots
+as part of routine build cleanup.
+
+The #1186 fake sandbox lifecycle unit fixture derives its runtime from TMPDIR;
+its runtime must still resolve under the sandbox's allowed OS temp paths.
+Wrapping the entire canonical PR suite in the default Documents scratch pool
+therefore causes three deliberate path-policy refusals. Qualify that unchanged
+fixture separately in a small marker-owned guard root under `/private/tmp`,
+as recorded in the build-storage run. Normal build workers retain the shared
+default pool; real sandbox launches use the explicit approved paths above.
+
+## Packaged-app smoke (Playwright against a real Rhythm.app)
+
+Launches a packaged `Rhythm.app`, attaches Playwright over CDP (hardened fuses block
+`_electron.launch`), and checks: own runtime healthy on 4001/4096, every nav page renders
+without renderer errors, a `[smoke]` task create → edit → complete → reload → delete, a new agent
+session gets a real model reply and is deleted, and a clean quit that leaves no listener behind.
+
+```bash
+cd apps/web
+RHYTHM_PACKAGED_APP=/Applications/Rhythm.app npm run test:packaged
+# optional: RHYTHM_EXPECTED_VERSION=0.18.82 asserts the bundle version
+```
+
+- Quit Rhythm first: it refuses to start while 4001/4096/4002 are listening, because a second
+  instance would adopt the running app's runtime.
+- Uses the real HOME and the app's own profile (`~/Library/Application Support/rhythm-electron-shell`),
+  so it reuses the saved sign-in and model providers and writes real data (only `[smoke]` records,
+  deleted by the test). The Keychain-backed session cannot persist under a substitute HOME.
+- Separate profile: `RHYTHM_SMOKE_USER_DATA=/abs/path npm run test:packaged:login` once, then pass
+  the same variable to `test:packaged`.
+- App output goes to `$TMPDIR/rhythm-packaged-smoke.log`; HTML report in `playwright-report/packaged/`.
+
+### Mega feature tests (local source build)
+
+Inventory and priority checkpoint: [2026-10-19 feature inventory](plans/2026-10-19-feature-test-inventory.md).
+Feature specs are `tests/packaged/packaged-<feature>.spec.ts`; they reuse the packaged CDP fixture.
+They require the API build identity **and** engine version to match the mega revision. The harness
+checks both before launching; the per-test audit also checks the actual running engine.
+Do not substitute an older installed app for this source-build gate.
+
+```sh
+cd apps/web
+npx tsc --noEmit --strict --allowJs --module esnext --moduleResolution bundler --target es2022 --skipLibCheck --types node tests/packaged/*.ts
+RHYTHM_PACKAGED_APP=/private/tmp/rhythm-feature-playwright-2026-10-19/apps/electron/dist/Rhythm.app \
+  RHYTHM_FEATURE_MODEL=1 npm run test:packaged -- --grep '\[P0\]'
+# Each feature can also run alone:
+RHYTHM_PACKAGED_APP=/private/tmp/rhythm-feature-playwright-2026-10-19/apps/electron/dist/Rhythm.app \
+  npx playwright test -c tests/packaged/packaged-playwright.config.ts packaged-tasks.spec.ts
+```
+
+`RHYTHM_FEATURE_MODEL=1` is explicit real-model/quota opt-in (authorized for the 2026-10-19 run).
+Without it, model cases fail `UNVERIFIED` before sending. Tests never silently skip gaps.
+`RHYTHM_FEATURE_EXPECTED_REVISION` can pin an operator-provided full SHA; otherwise the feature
+suite resolves local `mega/2026-09-29-consolidation`. Keep the app quit and ports 4001/4096/4002 free.
+For a locally committed fix on top of mega, explicitly set `RHYTHM_FEATURE_EXPECTED_REVISION` to
+the full revision used to package the candidate. API identity and bundled/live engine must all
+match it; do not point the tests at the earlier mega artifact or weaken the source assertion.
+
+Router calibration coverage is `packaged-model-router.spec.ts`: real Auto turns (including a
+one-literal edit), actual engine/model readback, reload reuse/pin bypass, and 12 synthetic live
+Decisions expectations. It uses the same packaged command/opt-in above. Complement it with the
+isolated default-policy check after generating synthetic read-only inputs with
+`node tools/dev/sandbox_fixture.mjs /private/tmp/<new-fixture>` and starting `tools/dev/sandbox.sh`
+under the build guard with the four required fixture/path variables:
+
+```bash
+cd apps/api_server
+RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_API_URL=http://127.0.0.1:4098 \
+  RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4097 \
+  ./node_modules/.bin/vitest run src/__tests__/router_calibration_live.test.ts --no-file-parallelism
+```
+
+Run sandbox `down` in `finally`/a shell trap. The sandbox default-policy check is not real-model
+proof; the packaged suite supplies that evidence using the operator's explicitly authorized profile.
+
+Owned session creation explicitly selects the enabled `coding-agent` profile; set
+`RHYTHM_FEATURE_PROFILE_ID` to another existing eligible profile when required. It does not edit
+the profile. Advanced can open before its catalog arrives, so selecting a profile is a fixture
+precondition. Action waits are bounded to 15 seconds; provider-response assertions have their
+own longer limits. The temporary cwd is explicitly changed to clear any prior branch choice.
+
+### Org Reviewer and private profile checks
+
+`packaged-ai-private-org-reviewer-entry.spec.ts` checks the seeded policy and
+visible manual schedule trigger without starting a scan. It requires a new
+unloaned synthetic actor and the exact locally built source revision:
+
+```sh
+RHYTHM_FEATURE_EXPECTED_REVISION=<full-local-candidate-sha> \
+  node tools/testing/run_packaged_ai.mjs --synthetic \
+  packaged-ai-private-org-reviewer-entry.spec.ts
+```
+
+Keep `RHYTHM_FEATURE_MODEL` unset for the entry case.
+`packaged-ai-private-profile-policy.spec.ts` changes an owned profile through
+Settings, checks API/database/file persistence after reload, and creates a real
+engine session without sending a model turn. It requires a separate fresh,
+reviewed selected-default model loan so its model picker has a real authorized
+catalog; the test enforces that loan's deadline even though it sends no prompt.
+Use the approved loan runner's `run`/`scrub` lifecycle with this single spec,
+`RHYTHM_FEATURE_MODEL=1`, and its exact synthetic fixture manifest. Do not combine
+it with the unloaned entry case. A successful profile case proves neither a
+semantic scan nor runtime enforcement of saved permissions.
+
+`src/__tests__/org_reviewer_stale_skill_live.test.ts` is a separate opt-in API
+contract. It submits an actual signed proposal, edits the managed skill through
+its normal API, and requires stale approval to preserve the newer complete file,
+metadata/version and proposed status without starting a measurement session.
+Use only the approved read-only synthetic fixture with the standard sandbox
+lifecycle above (API4098/engine4097), plus explicit owner identity/token pins:
+
+```sh
+cd apps/api_server
+RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 \
+  RHYTHM_ORG_REVIEWER_STALE_SKILL=1 \
+  RHYTHM_ORG_REVIEWER_OWNER_USER_ID=<synthetic-owner-id> \
+  RHYTHM_ORG_REVIEWER_OWNER_EMAIL=<synthetic-owner-email> \
+  RHYTHM_ORG_REVIEWER_OWNER_TOKEN_PATH=<private-synthetic-token-file> \
+  RHYTHM_ORG_REVIEWER_FIXTURE_ROOT=<approved-read-only-fixture-root> \
+  RHYTHM_LIVE_URL=http://127.0.0.1:4098 \
+  RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4097 \
+  ./node_modules/.bin/vitest run src/__tests__/org_reviewer_stale_skill_live.test.ts --no-file-parallelism
+```
+
+The companion `org_reviewer_interactive_task_live.test.ts` runs with the same
+isolated fixture and owner pins, plus `RHYTHM_EXPECTED_SOURCE_REVISION` set to
+the full current checkout SHA. It drives normal HTTP prompts using only the
+scripted loopback provider and invokes native `general`/`explore` through the
+actual offered tool route. It must deny Reviewer delegation without creating
+children, refuse bypass changes before durable mutation, repair historical
+native helper grants, and retain ordinary chat's `general` helper. These are
+runtime permission checks, separate from the UI scan and semantic workflow.
+Run the two contracts serially against the sandbox:
+
+```sh
+./node_modules/.bin/vitest run \
+  src/__tests__/org_reviewer_stale_skill_live.test.ts \
+  src/__tests__/org_reviewer_interactive_task_live.test.ts --no-file-parallelism
+```
+
+Keep the same environment flags and pins from the preceding command, including
+`RHYTHM_ORG_REVIEWER_STALE_SKILL=1`, for this combined run.
+
+The sandbox MCP must be the built local entrypoint from this checkout, with
+both API URL variables routed to4098. The loopback scripted provider controls
+only model transport; actual API, engine, signed MCP, proposal validation and
+managed-file application guards are exercised. This does not prove model
+judgment, the native review UI, successful application/scoring, or later skill
+use. Keep each result scoped and retain failed Recon receipts.
+
+### Month-wide AI behavior qualification (2026-10-20)
+
+The AI inventory is `docs/ai/plans/2026-10-20-ai-feature-test-inventory.json` and its
+Markdown companion. Public issue/PR evidence and the complete September 20–October 20
+commit ledger are beside it. Existing fixture tests are retained as focused protection;
+their names, including `.live.redspec`, do not establish real runtime coverage.
+
+Run from the task worktree root, after quitting Rhythm:
+
+```sh
+# Default is this worktree's locally built apps/electron/dist/Rhythm.app.
+# Verifies its exact embedded revision, mega ancestry, unchanged product sources,
+# bundled/live engine identity, and the normal packaged lifecycle.
+RHYTHM_FEATURE_MODEL=1 node tools/testing/run_packaged_ai.mjs
+
+# Enumerate every runtime case and explicit UNVERIFIED coverage failure without launching.
+node tools/testing/run_packaged_ai.mjs --list
+
+# Diagnose one feature; this subset is never full AI qualification.
+RHYTHM_FEATURE_MODEL=1 node tools/testing/run_packaged_ai.mjs packaged-ai-companions.spec.ts
+```
+
+The command uses `packaged-ai-playwright.config.ts`, one worker, no retries, and
+includes the existing router/session/conversation/primary/Coordinator/approval specs.
+It also includes failing inventory-driven gaps. Reports go to
+`apps/web/test-results/ai-behavior.json` and `apps/web/playwright-report/ai-behavior`.
+Keep raw traces/screenshots private: they can contain the signed-in user's data.
+Only sanitized recon and result summaries belong in commits.
+
+`RHYTHM_SMOKE_USER_DATA` isolates only the Chromium profile; it does **not** isolate
+the local database, engine state, companion state or Keychain credentials. The default
+fixture uses signed-in local app data. A disposable-primary/owner-switch scenario needs
+a supported isolated database **and** profile/engine/companion inputs (or a disposable
+macOS account), not just that variable. Never launch a second API by hand; use the
+stock packaged lifecycle or the approved sandbox procedure above.
+
+The mega has a specialized `RHYTHM_QUALIFICATION_FIXTURE_MANIFEST` seam in
+`apps/electron/src/agent-server.mjs` and the API qualification services. It binds a
+private temporary DB/config/engine-state tree to the exact build. The opt-in
+`syntheticActor` extension seeds a disposable ordinary session bearer through the
+normal authentication repository, binds Chromium user data to the same private
+root and refuses occupied runtimes or saved operator authentication. It supplies
+four bounded synthetic profiles; no live database or account store is copied.
+This qualifies no real OAuth or Keychain behavior. First native startup recon on
+`8b6a4c3f24` exposed a renderer origin-validation prerequisite; its repair and
+confirmation are tracked in the continuation run, so this is not yet a green
+full-coverage command.
+
+To create explicit private state for a selected disposable scenario after building:
+
+```sh
+REV=$(node -p "require('./apps/electron/dist/Rhythm.app/Contents/Resources/api_server/build-identity.json').sourceRevision")
+FIXTURE_MANIFEST=$(node tools/testing/qualification_fixture.mjs "$REV")
+RHYTHM_QUALIFICATION_FIXTURE_MANIFEST="$FIXTURE_MANIFEST" \
+  node tools/testing/run_packaged_ai.mjs <selected-disposable-spec>
+```
+
+The launcher and SQLite readback revalidate exact revision, canonical0700 root,
+0600 manifest/token, token digest/expiry and private Chromium profile. Invalid
+fixture state fails instead of falling back to the operator database. Retain its
+private logs while diagnosing; remove only the exact manifest-owned root after
+the app and all owned runtimes have stopped and fixture cleanup is verified.
+Pure filesystem guard check: `node --test tools/testing/qualification_fixture.test.mjs`.
+Isolated model dispatch still needs separately authorized provider credentials;
+provider-free router fixture modes are not real-model proof. Hermes child HOME,
+native signer, companion input stores and device/relay custody require their own
+boundary checks beyond API startup isolation.
+
+The new checks use real catalog/readback/reload and one-request error injection,
+read-only memory/filter/search and skill content, schedule history/cancel, canonical
+shared-agent readiness, quality windows, and nonce-owned inert cookbook recipes.
+Recipe cleanup checks exact ownership, API absence and read-only SQLite absence;
+recipes are never run. No existing schedule is triggered or edited. No accounts,
+integration connections or global settings are changed.
+
+Hermes and Bot Crossing checks inspect their actual pinned CDP child pages, plus
+their real service/IPC data. Hermes draft tests never send; Bot Crossing reads never
+archive or open a real user's task in another harness. Dayflow readiness and actual
+native attachment are independent assertions: an absent module or rejected artifact
+must fail qualification. Native OS recording/privacy permissions are not granted.
+Current unmet execution/privacy/device/owner-fixture scenarios remain explicit
+`UNVERIFIED` failures rather than inheriting catalog or mocked-bridge success.
+
+The October 19 app was built locally with `apps/electron/scripts/package-mac.mjs`, then signed
+locally with `RHYTHM_SIGN_ONLY=1` (no GitHub build, upload, installation or notarization). The
+packager and signing commands ran under the shared 10 GiB build guard. See the run log for
+exact inputs, source pin, generated-payload preparation and build limitations.
+
+Task UI requests use the actual hosted production API; readback reuses the captured request's
+authentication in memory and targets that same origin. This qualifies the mega renderer against
+the hosted Tasks contract, not a new hosted backend deployment. Agent sessions and engine reads
+use the newly built local backend. Local SQLite is opened with `{readonly:true,fileMustExist:true}`
+only. No test writes directly to the real database.
+
+Every created task/session uses a unique `[smoke] <feature> <8-char nonce>` prefix. A per-test ledger
+recovers successful-but-unacknowledged creates by exact nonce, verifies ownership before deletion,
+hard-deletes sessions, and verifies both 404/readback and zero remaining nonce-owned list entries.
+Unexpected renderer errors and new `[ERROR]` log lines fail. The only log exception is the exact
+known NOT_FOUND session/deleted-session permission reads for IDs this test just deleted.
+
+Primary entry is prequalified against the authenticated owner's existing root using read-only
+SQLite. `/setup` is blocked in read-only primary tests. First-use setup, real Coordinator goals,
+run-tree Stop/restart, and controlled signed expiry remain explicit failing `UNVERIFIED` cases:
+those flows need a wholly disposable signed-in profile/database/native signer. Their permanent
+root/journal/approval records lack safe real-profile cleanup. Real-model authorization alone does
+not remove that data boundary. P1/P2 implementation remains paused at the inventory checkpoint.

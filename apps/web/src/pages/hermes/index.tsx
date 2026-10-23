@@ -2,11 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { hermesShell } from './bridge';
 import './styles.css';
 
-// The Hermes child is a native WebContentsView composited above all DOM, so no z-index can
-// lift a menu, dialog, or toast over it. Collapse the child while one is open (same rule as
-// Bot Crossing's overlayOpen in pages/colony/index.tsx).
-function overlayOpen() {
-  return Boolean(document.querySelector('.menu-popover, [role="dialog"], .toast[data-visible="true"]'));
+// Shell reserves DOM layout bands for nonmodal menus and toasts. Only an
+// explicitly blocking modal hides the native child.
+function blockingModalOpen() {
+  return Boolean(document.querySelector('[role="dialog"][aria-modal="true"], [data-native-blocking-modal="true"]'));
 }
 
 function HermesHost({ onError, onAttached }: { onError(message: string): void; onAttached(fallbackReason: string | undefined): void }) {
@@ -21,7 +20,8 @@ function HermesHost({ onError, onAttached }: { onError(message: string): void; o
       frame = requestAnimationFrame(() => {
         const rect = host.current?.getBoundingClientRect();
         if (!alive || !attached || !rect) return;
-        const bounds = overlayOpen() ? { x: 0, y: 0, width: 0, height: 0 } : { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+        const hidden = blockingModalOpen() || rect.width <= 0 || rect.height <= 0;
+        const bounds = hidden ? { x: 0, y: 0, width: 0, height: 0 } : { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
         void hermesShell()?.hermesView?.setBounds(bounds).catch(() => {
           if (alive) onError('Hermes Desktop could not resize. Return to the Hermes tab to retry.');
         });
@@ -30,7 +30,7 @@ function HermesHost({ onError, onAttached }: { onError(message: string): void; o
     const observer = new ResizeObserver(reportBounds);
     if (host.current) observer.observe(host.current);
     const overlays = new MutationObserver(reportBounds);
-    overlays.observe(document.body, { attributes: true, childList: true, subtree: true, attributeFilter: ['data-visible', 'open', 'aria-expanded'] });
+    overlays.observe(document.body, { attributes: true, childList: true, subtree: true, attributeFilter: ['aria-expanded', 'aria-modal', 'data-native-blocking-modal', 'hidden', 'open'] });
     window.addEventListener('scroll', reportBounds, true);
     window.addEventListener('resize', reportBounds);
     const attach = async () => {

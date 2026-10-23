@@ -92,7 +92,7 @@ describe('#1082: revert restores the ON-DISK body, not the stale DB body', () =>
       targetRef: `skill:${skill.id}`,
       changeJson: JSON.stringify({
         skillName: skillTitle,
-        priorBody: dbBody,
+        priorBody: onDiskBody,
         revisedBody: 'a candidate revision that will lose the measure and revert',
       }),
       dedupKey: `refine-skill:${skill.id}`,

@@ -26,10 +26,12 @@ export interface OAuthAccountsFile<A extends OAuthAccount = AnthropicAccount> {
   defaultAccountId: string | null;
   /** sdkSessionId -> accountId. Written by api_server only; read by the engine plugin. */
   routing: Record<string, string>;
+  /** Explicit provider account choice; prevents native same-provider failover. */
+  pinned?: Record<string, true>;
 }
 export type AnthropicAccountsFile = OAuthAccountsFile<AnthropicAccount>;
 
-const EMPTY: OAuthAccountsFile<OAuthAccount> = { version: 1, accounts: [], defaultAccountId: null, routing: {} };
+const EMPTY: OAuthAccountsFile<OAuthAccount> = { version: 1, accounts: [], defaultAccountId: null, routing: {}, pinned: {} };
 
 export function defaultAccountsFilePath(): string {
   return (
@@ -56,10 +58,12 @@ export class OAuthAccountsStore<A extends OAuthAccount = AnthropicAccount> {
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return structuredClone(EMPTY) as OAuthAccountsFile<A>;
       const f = parsed as OAuthAccountsFile<A>;
       return {
+        ...f,
         version: 1,
         accounts: Array.isArray(f.accounts) ? f.accounts : [],
         defaultAccountId: typeof f.defaultAccountId === 'string' ? f.defaultAccountId : null,
         routing: f.routing && typeof f.routing === 'object' ? f.routing : {},
+        pinned: f.pinned && typeof f.pinned === 'object' && !Array.isArray(f.pinned) ? f.pinned : {},
       };
     } catch (err) {
       logger.error(`[OAuthAccountsStore] read failed (${this.filePath}):`, err);
@@ -93,7 +97,10 @@ export class OAuthAccountsStore<A extends OAuthAccount = AnthropicAccount> {
     f.accounts = f.accounts.filter((a) => a.id !== id);
     if (f.defaultAccountId === id) f.defaultAccountId = f.accounts[0]?.id ?? null;
     for (const [ses, acct] of Object.entries(f.routing)) {
-      if (acct === id) delete f.routing[ses];
+      if (acct === id) {
+        delete f.routing[ses];
+        if (f.pinned) delete f.pinned[ses];
+      }
     }
     this.write(f);
   }
@@ -105,9 +112,11 @@ export class OAuthAccountsStore<A extends OAuthAccount = AnthropicAccount> {
     this.write(f);
   }
 
-  setRouting(sdkSessionId: string, accountId: string): void {
+  setRouting(sdkSessionId: string, accountId: string, opts?: { pinned?: boolean }): void {
     const f = this.read();
     f.routing[sdkSessionId] = accountId;
+    if (opts?.pinned === true) (f.pinned ??= {})[sdkSessionId] = true;
+    else if (opts?.pinned === false && f.pinned) delete f.pinned[sdkSessionId];
     this.write(f);
   }
 

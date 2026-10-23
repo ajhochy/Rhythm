@@ -42,7 +42,114 @@ function rowToEvent(row: CalendarShadowEventRow): CalendarShadowEvent {
   };
 }
 
+export interface CalendarLocalWindowInput {
+  /** Required exact owner; a missing/invalid owner never reads anything. */
+  ownerId: number;
+  /** Half-open window [startMs, endMs) as normalized instants. */
+  startMs: number;
+  endMs: number;
+  /** The same window as civil days in the coordinator zone: [startDay, endDayExclusive). */
+  startDay: string;
+  endDayExclusive: string;
+  /** Null = no selection filter (default-all at sync time); otherwise only these calendars. */
+  calendarIds: string[] | null;
+  limit: number;
+  /** Midnight instant of a civil day in the coordinator zone (all-day ordering). */
+  dayStartMs: (day: string) => number;
+}
+
+export interface CalendarLocalWindowEvent {
+  id: string;
+  calendarId: string;
+  title: string;
+  startAt: string;
+  endAt: string | null;
+  isAllDay: boolean;
+  startMs: number;
+}
+
+export interface CalendarLocalWindowResult {
+  events: CalendarLocalWindowEvent[];
+  /** More qualifying rows existed than `limit` (one-row lookahead). */
+  hasMore: boolean;
+  /** The candidate scan hit its cap: there may be more rows than examined. */
+  scanLimited: boolean;
+  /** Rows with unparseable times were skipped, never treated as events. */
+  invalidRows: number;
+}
+
+const WINDOW_SCAN_CAP = 1_000;
+const TIMED = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+function shiftDay(day: string, amount: number): string {
+  const [year, month, date] = day.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, date + amount)).toISOString().slice(0, 10);
+}
+
 export class CalendarShadowEventsRepository {
+  /**
+   * Read-only, owner-exact window over the CACHED local mirror. Never contacts a
+   * provider, never mutates. Timed rows overlap by normalized instants (so an
+   * event spanning the window start is eligible and offsets are equivalent);
+   * all-day rows use civil days with an exclusive end date. Ordering is
+   * normalized start then id — never raw ISO string order across offsets. Only
+   * the columns needed for the observation are read (no description/location).
+   */
+  findLocalWindowObservations(input: CalendarLocalWindowInput): CalendarLocalWindowResult {
+    if (env.dbClient === 'postgres') throw new Error('local calendar window is SQLite-only');
+    if (!Number.isSafeInteger(input.ownerId) || input.ownerId <= 0) throw new Error('owner required');
+    const filter = input.calendarIds === null ? '' : input.calendarIds.length === 0
+      ? ' AND 0'
+      : ` AND calendar_id IN (${input.calendarIds.map(() => '?').join(', ')})`;
+    // Coarse date-prefix prefilter with a one-day margin (offsets shift a local
+    // date by at most a day); the exact decision below uses normalized values.
+    const rows = getDb().prepare(
+      `SELECT id, calendar_id, title, start_at, end_at, is_all_day FROM calendar_shadow_events
+        WHERE owner_id = ?${filter}
+          AND substr(start_at, 1, 10) <= ?
+          AND (end_at IS NULL OR substr(end_at, 1, 10) >= ?)
+        LIMIT ?`,
+    ).all(
+      input.ownerId,
+      ...(input.calendarIds ?? []),
+      shiftDay(input.endDayExclusive, 1),
+      shiftDay(input.startDay, -1),
+      WINDOW_SCAN_CAP + 1,
+    ) as Array<{ id: string; calendar_id: string; title: string; start_at: string; end_at: string | null; is_all_day: number | boolean }>;
+    const scanLimited = rows.length > WINDOW_SCAN_CAP;
+    let invalidRows = 0;
+    const matched: CalendarLocalWindowEvent[] = [];
+    for (const row of rows.slice(0, WINDOW_SCAN_CAP)) {
+      const allDay = typeof row.is_all_day === 'boolean' ? row.is_all_day : row.is_all_day === 1;
+      const base = { id: row.id, calendarId: row.calendar_id, title: row.title, startAt: row.start_at, endAt: row.end_at, isAllDay: allDay };
+      if (allDay) {
+        if (!DATE_ONLY.test(row.start_at) || Number.isNaN(Date.parse(`${row.start_at}T00:00:00Z`))) { invalidRows += 1; continue; }
+        const endExclusive = row.end_at !== null && DATE_ONLY.test(row.end_at) && row.end_at > row.start_at
+          ? row.end_at : shiftDay(row.start_at, 1);
+        if (row.start_at < input.endDayExclusive && endExclusive > input.startDay) {
+          matched.push({ ...base, startMs: input.dayStartMs(row.start_at) });
+        }
+        continue;
+      }
+      if (!TIMED.test(row.start_at) || Number.isNaN(Date.parse(row.start_at))) { invalidRows += 1; continue; }
+      const startMs = Date.parse(row.start_at);
+      const parsedEnd = row.end_at !== null && TIMED.test(row.end_at) ? Date.parse(row.end_at) : Number.NaN;
+      const endMs = Number.isNaN(parsedEnd) || parsedEnd < startMs ? startMs : parsedEnd;
+      const overlaps = endMs > startMs
+        ? startMs < input.endMs && endMs > input.startMs
+        : startMs >= input.startMs && startMs < input.endMs;
+      if (overlaps) matched.push({ ...base, startMs });
+    }
+    matched.sort((left, right) => left.startMs - right.startMs || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+    return {
+      events: matched.slice(0, input.limit),
+      hasMore: matched.length > input.limit,
+      scanLimited,
+      invalidRows,
+    };
+  }
+
   async findByRangeAsync(
     startAt: string,
     endAt: string,

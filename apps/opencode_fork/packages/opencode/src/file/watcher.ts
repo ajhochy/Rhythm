@@ -11,6 +11,7 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import { Git } from "@/git"
 import { lazy } from "@/util/lazy"
 import { Config } from "@/config/config"
+import { Global } from "@opencode-ai/core/global"
 import { FileIgnore } from "./ignore"
 import { Protected } from "./protected"
 import * as Log from "@opencode-ai/core/util/log"
@@ -75,6 +76,12 @@ export const layer = Layer.effect(
           if (yield* Flag.OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER) return
 
           const ctx = yield* InstanceState.context
+
+          // ponytail: recursive watch of HOME (~400k files measured) or / is never useful; mirrors File.scan's guard
+          if (ctx.directory === Global.Path.home || ctx.directory === path.parse(ctx.directory).root) {
+            log.info("skipping watcher for home directory", { directory: ctx.directory })
+            return
+          }
 
           log.info("init", { directory: ctx.directory })
 

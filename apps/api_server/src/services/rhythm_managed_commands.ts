@@ -169,11 +169,9 @@ export function deleteManagedCommand(name: string): boolean {
 function serializeYamlScalar(value: unknown): string {
   if (typeof value === 'boolean') return value ? 'true' : 'false';
   if (typeof value === 'number') return String(value);
-  const s = String(value);
-  // Quote when the scalar contains characters that would confuse a bare YAML
-  // reader (colon, leading special chars). Cheap + safe for command metadata.
-  if (/[:#\n]/.test(s) || s.trim() !== s) return JSON.stringify(s);
-  return s;
+  // JSON string syntax is valid YAML and preserves UI text such as `[smoke]`,
+  // `null`, and leading punctuation as strings in the engine's YAML parser.
+  return JSON.stringify(String(value));
 }
 
 function parseFrontmatter(raw: string): {

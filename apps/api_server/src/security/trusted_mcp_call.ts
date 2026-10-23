@@ -44,6 +44,11 @@ interface PinnedEngineSecurityKey {
   key: KeyObject;
 }
 
+interface TrustedMcpVerifierState {
+  pinnedKey: PinnedEngineSecurityKey | null;
+  consumedNonces: Map<string, number>;
+}
+
 let pinnedKey: PinnedEngineSecurityKey | null = null;
 const consumedNonces = new Map<string, number>();
 
@@ -154,8 +159,13 @@ function parseEngineSecurityKey(value: unknown): EngineSecurityKey {
 }
 
 export function pinTrustedMcpPublicKey(value: unknown): void {
+  pinnedKey = parsedPublicKey(value);
+  consumedNonces.clear();
+}
+
+function parsedPublicKey(value: unknown): PinnedEngineSecurityKey {
   const document = parseEngineSecurityKey(value);
-  pinnedKey = {
+  return {
     keyId: document.keyId,
     key: createPublicKey({
       key: Buffer.from(document.publicKey, 'base64url'),
@@ -163,7 +173,22 @@ export function pinTrustedMcpPublicKey(value: unknown): void {
       type: 'spki',
     }),
   };
-  consumedNonces.clear();
+}
+
+/** Bind a disposable engine's signed MCP calls without touching the live engine key or replay cache. */
+export function createIsolatedTrustedMcpVerifier(publicDocument: unknown): {
+  verify: (value: unknown, expectedToolName: string, now?: number, nonceScope?: string) => Promise<VerifiedTrustedMcpCall>;
+  dispose: () => void;
+} {
+  const state: TrustedMcpVerifierState = {
+    pinnedKey: parsedPublicKey(publicDocument),
+    consumedNonces: new Map(),
+  };
+  return {
+    verify: async (value, expectedToolName, now = Date.now(), nonceScope = expectedToolName) =>
+      verifyWithState(state, value, expectedToolName, now, nonceScope),
+    dispose: () => { state.pinnedKey = null; state.consumedNonces.clear(); },
+  };
 }
 
 export function clearTrustedMcpVerifier(): void {
@@ -253,9 +278,9 @@ function parseTrustedCall(value: unknown): {
   };
 }
 
-function pruneConsumedNonces(now: number): void {
-  for (const [nonce, expiresAt] of consumedNonces) {
-    if (expiresAt <= now) consumedNonces.delete(nonce);
+function pruneConsumedNonces(state: TrustedMcpVerifierState, now: number): void {
+  for (const [nonce, expiresAt] of state.consumedNonces) {
+    if (expiresAt <= now) state.consumedNonces.delete(nonce);
   }
 }
 
@@ -265,8 +290,18 @@ export async function verifyTrustedMcpCall(
   now = Date.now(),
   nonceScope = expectedToolName,
 ): Promise<VerifiedTrustedMcpCall> {
+  return verifyWithState({ pinnedKey, consumedNonces }, value, expectedToolName, now, nonceScope);
+}
+
+function verifyWithState(
+  state: TrustedMcpVerifierState,
+  value: unknown,
+  expectedToolName: string,
+  now: number,
+  nonceScope: string,
+): VerifiedTrustedMcpCall {
   const call = parseTrustedCall(value);
-  if (!pinnedKey || pinnedKey.keyId !== call.proof.keyId) {
+  if (!state.pinnedKey || state.pinnedKey.keyId !== call.proof.keyId) {
     throw new Error('trusted MCP engine key is unavailable');
   }
   if (
@@ -281,26 +316,26 @@ export async function verifyTrustedMcpCall(
   ) {
     throw new Error('trusted MCP call is expired');
   }
-  pruneConsumedNonces(now);
+  pruneConsumedNonces(state, now);
   // A single MCP invocation can legitimately cross more than one fixed
   // server boundary. Creative capability install, for example, consumes its
   // taint approval and then presents the same engine proof to the installer
   // route. Domain-separate replay state by server-selected boundary name:
   // each boundary accepts the nonce once, while callers cannot choose a scope.
   const scopedNonce = `${nonceScope}\0${call.proof.nonce}`;
-  if (consumedNonces.has(scopedNonce)) {
+  if (state.consumedNonces.has(scopedNonce)) {
     throw new Error('trusted MCP call was already consumed');
   }
   const signatureValid = verify(
     null,
     Buffer.from(signingPayload(call.context, call.proof)),
-    pinnedKey.key,
+    state.pinnedKey.key,
     Buffer.from(call.proof.signature, 'base64url'),
   );
   if (!signatureValid) {
     throw new Error('trusted MCP call signature is invalid');
   }
-  consumedNonces.set(
+  state.consumedNonces.set(
     scopedNonce,
     call.proof.issuedAt + TRUSTED_CALL_MAX_AGE_MS,
   );

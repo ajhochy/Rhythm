@@ -1,0 +1,136 @@
+{
+  "phase": "Recon observations only",
+  "sourceRevision": "9dff6ab3761ea3c29a729d3c77804d8f0bf34efe",
+  "ownerUserId": 1,
+  "gallery": {
+    "nonce": "a333b5fa-8d12-4e48-a8e0-1257ca31518a",
+    "steps": {
+      "create0": {
+        "status": 201,
+        "id": "179ed116-c64b-44d4-9d68-acfb3110709d",
+        "artifactUrl": "/agent-designs/179ed116-c64b-44d4-9d68-acfb3110709d/artifact",
+        "thumbnailUrl": "/agent-designs/179ed116-c64b-44d4-9d68-acfb3110709d/artifact"
+      },
+      "create1": {
+        "status": 201,
+        "id": "70ce67cc-8841-4a97-90f4-34b342edd4a5",
+        "artifactUrl": "/agent-designs/70ce67cc-8841-4a97-90f4-34b342edd4a5/artifact",
+        "thumbnailUrl": "/agent-designs/70ce67cc-8841-4a97-90f4-34b342edd4a5/artifact"
+      },
+      "availablePreview": {
+        "assetStatus": 200,
+        "directAssetStatus": 200,
+        "directAssetBytes": 70,
+        "directPngSha256": "b0e8a8eb92c36f8866407013c607f13127ae9f48b7f6750f236851d23426664d",
+        "assetAuthorized": true,
+        "viewerVisible": true,
+        "width": 1,
+        "height": 1,
+        "complete": true
+      },
+      "removeMissingSource": {
+        "removed": true
+      },
+      "missingInspector": {
+        "catalogStatus": 200,
+        "id": "70ce67cc-8841-4a97-90f4-34b342edd4a5",
+        "artifactUrl": null,
+        "thumbnailUrl": null,
+        "detailVisible": true,
+        "openDisabled": true,
+        "openText": "Deliverable unavailable"
+      },
+      "folderRoundTrip": {
+        "createStatus": 201,
+        "movePatchStatus": 200,
+        "moveStatus": 200,
+        "movedFolderId": "bd896253-65c6-472d-aeeb-b87a2af1e8e4",
+        "renameStatus": 200,
+        "renamedName": "[smoke] gallery folder a333b5fa-8d12-4e48-a8e0-1257ca31518a renamed",
+        "folderListStatus": 200,
+        "folderListed": true,
+        "folderVisible": true
+      },
+      "catalogRecovery": {
+        "injected": true,
+        "failureStatus": 503,
+        "errorVisible": true,
+        "recoveredStatus": 200,
+        "recoveredRowVisible": true
+      },
+      "after": {
+        "ownedDesignRows": 0,
+        "ownedFolderRows": 0
+      }
+    },
+    "cleanup": [
+      {
+        "id": "179ed116-c64b-44d4-9d68-acfb3110709d",
+        "deleteStatus": 204
+      },
+      {
+        "id": "70ce67cc-8841-4a97-90f4-34b342edd4a5",
+        "deleteStatus": 204
+      },
+      {
+        "folderId": "bd896253-65c6-472d-aeeb-b87a2af1e8e4",
+        "deleteStatus": 204
+      },
+      {
+        "file": 0,
+        "removed": true
+      },
+      {
+        "file": 1,
+        "absent": true
+      }
+    ]
+  },
+  "research": {
+    "nonce": "0019e1fd-dc91-446c-b395-e7c76e23bab1",
+    "steps": {
+      "before": {
+        "status": 200,
+        "projectCount": 0
+      },
+      "create": {
+        "status": 201,
+        "id": "24fe10b8-b311-477d-8a7f-8a4b19ca2dcf",
+        "ownerUserId": 1
+      },
+      "emptyInspector": {
+        "projectStatus": 200,
+        "ownerUserId": 1,
+        "runStatus": 200,
+        "runCount": 0,
+        "projectVisible": true,
+        "noRunsVisible": true,
+        "projectRows": 1
+      },
+      "archive": {
+        "status": 200,
+        "archivedAtPresent": true,
+        "defaultStatus": 200,
+        "inDefault": false,
+        "allStatus": 200,
+        "inAll": true
+      },
+      "catalogRecovery": {
+        "injected": true,
+        "failureStatus": 503,
+        "errorVisible": true,
+        "recoveredUiStatus": 200,
+        "recoveredStatus": 200,
+        "archivedProjectHidden": true
+      },
+      "after": {
+        "ownedProjectRows": 0
+      }
+    },
+    "cleanup": {
+      "deleted": 1,
+      "remaining": 0
+    },
+    "reportBoundary": "No run is created: POST /projects/:id/runs immediately dispatches the orchestrator."
+  }
+}

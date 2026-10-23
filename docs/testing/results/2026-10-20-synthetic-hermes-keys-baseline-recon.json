@@ -1,0 +1,83 @@
+{
+  "phase": "Recon observations only",
+  "sourceRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
+  "observations": [
+    {
+      "step": "Hermes Keys baseline recon",
+      "observed": {
+        "sourceRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
+        "attached": true,
+        "api": {
+          "bridge": true,
+          "env": {
+            "status": "ok",
+            "fields": {
+              "AWS_REGION": {
+                "present": true,
+                "isSet": false,
+                "providerTag": true
+              },
+              "AWS_PROFILE": {
+                "present": true,
+                "isSet": false,
+                "providerTag": true
+              },
+              "VERTEX_CREDENTIALS_PATH": {
+                "present": true,
+                "isSet": false,
+                "providerTag": true
+              },
+              "ANTHROPIC_API_KEY": {
+                "present": true,
+                "isSet": false,
+                "providerTag": true
+              },
+              "AZURE_FOUNDRY_API_KEY": {
+                "present": true,
+                "isSet": false,
+                "providerTag": true
+              }
+            }
+          },
+          "oauth": {
+            "status": "ok",
+            "providers": {
+              "anthropic": {
+                "listed": true,
+                "loggedIn": false,
+                "hasError": false,
+                "credentialVerified": false
+              },
+              "bedrock": {
+                "listed": false,
+                "loggedIn": false,
+                "hasError": false,
+                "credentialVerified": false
+              },
+              "vertex": {
+                "listed": false,
+                "loggedIn": false,
+                "hasError": false,
+                "credentialVerified": false
+              },
+              "azure-foundry": {
+                "listed": false,
+                "loggedIn": false,
+                "hasError": false,
+                "credentialVerified": false
+              }
+            }
+          }
+        },
+        "ui": {
+          "keyView": false,
+          "bedrockCardVisible": false,
+          "vertexCardVisible": false,
+          "azureCardVisible": true,
+          "anthropicCardVisible": true,
+          "noKeyEmptyStateVisible": false
+        }
+      }
+    }
+  ]
+}

@@ -1,7 +1,10 @@
 import type { IncomingHttpHeaders } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import type { RequestHandler } from 'express';
 
 import { env } from '../config/env';
+import { webHostConfig } from '../config/web_host';
+import { DAYFLOW_ERROR_CATALOG } from '../integrations/dayflow/public_contract';
 
 function isAllowedHost(value: string | string[] | undefined): boolean {
   if (typeof value !== 'string') return false;
@@ -17,6 +20,19 @@ function isAllowedHost(value: string | string[] | undefined): boolean {
 export function isAllowedLocalAgentSurfaceRequest(
   headers: IncomingHttpHeaders,
 ): boolean {
+  // A loopback Host can serve both the browser and the native renderer. Preserve
+  // native trust before the browser branch applies its HTTP(S)-only origin list.
+  if (env.agentLocal && env.agentOriginGuardEnabled !== false &&
+    typeof headers.origin === 'string' &&
+    env.localRendererOrigins.includes(headers.origin) && isAllowedHost(headers.host)) {
+    return true;
+  }
+  if (webHostConfig && typeof headers.host === 'string' && webHostConfig.hosts.includes(headers.host)) {
+    if (headers.origin !== undefined &&
+      (typeof headers.origin !== 'string' || !webHostConfig.origins.includes(headers.origin))) return false;
+    const site = headers['sec-fetch-site'];
+    return site === undefined || site === 'none' || site === 'same-origin';
+  }
   if (!env.agentLocal || env.agentOriginGuardEnabled === false) {
     return true;
   }
@@ -44,6 +60,20 @@ export function isAllowedLocalAgentSurfaceRequest(
 export const localAgentSurfaceGuard: RequestHandler = (req, res, next) => {
   if (isAllowedLocalAgentSurfaceRequest(req.headers)) {
     next();
+    return;
+  }
+
+  if (req.path === '/dayflow-integration' || req.path.startsWith('/dayflow-integration/')) {
+    const catalog = DAYFLOW_ERROR_CATALOG.FORBIDDEN_ORIGIN;
+    res.status(403).json({
+      error: {
+        code: 'FORBIDDEN_ORIGIN',
+        message: catalog.message,
+        retryable: catalog.retryable,
+        recovery: catalog.recovery,
+        requestId: randomUUID(),
+      },
+    });
     return;
   }
 

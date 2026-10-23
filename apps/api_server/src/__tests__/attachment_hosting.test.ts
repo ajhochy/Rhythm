@@ -67,8 +67,8 @@ describe('attachment hosting', () => {
 
     const artifact = await store.findProjectArtifact(ref.artifactId, ref.artifactProject);
     expect(artifact?.pinned).toBe(true);
-    expect(store.canUserAccessArtifact(artifact!, userId)).toBe(true);
-    expect(store.canUserAccessArtifact(artifact!, userId + 1)).toBe(false);
+    expect(await store.canUserAccessArtifact(artifact!, userId)).toBe(true);
+    expect(await store.canUserAccessArtifact(artifact!, userId + 1)).toBe(false);
     expect(readFileSync(path.join(root!, artifact!.storageKey))).toEqual(jpeg);
   });
 

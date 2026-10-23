@@ -59,6 +59,15 @@ export function registerColonyHost(/** @type {any} */ options) {
   const requireHost = (/** @type {any} */ event, /** @type {boolean} */ allowSettings = false) => {
     if (!authorizeColony(event) && !(allowSettings && authorizeSettings(event))) throw new Error('Bot Crossing IPC denied')
   }
+  // A queued read can reach main after the same owning document has changed tabs.
+  // Revoke that read without throwing an unhandled Electron IPC error. Foreign
+  // windows/frames still go through requireHost's rejection; actions never use this.
+  const retiredInventoryDocument = (/** @type {any} */ event) => {
+    const win = options.getWindow()
+    return Boolean(win && !win.isDestroyed() && event?.sender === win.webContents &&
+      event.senderFrame === win.webContents.mainFrame &&
+      /^rhythm:\/\/app\/index\.html(?:#.*)?$/.test(event.senderFrame?.url ?? '') && !authorizeColony(event))
+  }
   const publicSources = () => profileRevoked ? [] : Object.entries(snapshot.sources).map(([id, source]) => ({ id, enabled: source.enabled === true }))
   const status = () => ({ v: 1, available: !runtimeError, enabled: Boolean(!profileRevoked && store && snapshot.enabled), sources: publicSources(), ...(runtimeError ? { reason: runtimeError } : {}) })
   const profileOperation = (/** @type {() => any} */ work) => {
@@ -159,6 +168,7 @@ export function registerColonyHost(/** @type {any} */ options) {
       })
     },
     'colony:inventory:page': async (event, value, ...args) => {
+      if (retiredInventoryDocument(event)) return { kind: 'inventory-error', code: 'revoked' }
       requireHost(event)
       const page = value?.page
       if (args.length || !snapshot.enabled || !value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 2 ||
@@ -170,6 +180,8 @@ export function registerColonyHost(/** @type {any} */ options) {
       if (requestEpoch !== profileEpoch || profileRevoked || !snapshot.enabled || view.currentAttachment?.() !== value.attachment) {
         throw new Error('Bot Crossing inventory document was revoked')
       }
+      if (response?.ok === false && ['oversize', 'busy', 'revoked'].includes(response.error?.code))
+        return { kind: 'inventory-error', code: response.error.code }
       if (!response?.ok || !response.result || typeof response.result !== 'object') throw new Error('Bot Crossing inventory unavailable')
       const result = response.result
       if (typeof result.generation !== 'string' || !Array.isArray(result.records)) throw new Error('Invalid Bot Crossing inventory response')

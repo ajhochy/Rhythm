@@ -33,6 +33,18 @@ try {
   process.stderr.write('colony-fixture:owner-load\n')
   await win.loadURL('rhythm://app/index.html#/colony')
   process.stderr.write('colony-fixture:owner-loaded\n')
+  const readyObservations = []
+  const observeReady = (event, message) => {
+    if (readyObservations.length >= 8) return
+    readyObservations.push({
+      validShape: message?.v === 1 && message?.product === 'colony' && Object.keys(message).length === 2,
+      mainFrame: event.senderFrame === event.sender.mainFrame,
+      entryFrame: event.senderFrame?.url === 'rhythm-colony://app/index.html',
+      entryContents: event.sender?.getURL?.() === 'rhythm-colony://app/index.html',
+      loading: event.sender?.isLoadingMainFrame?.() === true,
+    })
+  }
+  ipcMain.on('colony:scene-ready', observeReady)
   viewHost = registerColonyView({ ipcMain, electron: { WebContentsView, MessageChannelMain }, getWindow: () => win,
     getArtifactRoot: () => path.join(root, 'artifact'), getDataDir: () => path.join(root, 'owned-profile', 'state'),
     getSources: () => [{ id: 'hermes', enabled: true, paths: { home: path.join(root, 'hermes') } }],
@@ -44,6 +56,11 @@ try {
   const attached = await win.webContents.executeJavaScript('window.nativeTest.attach()')
   process.stderr.write('colony-fixture:attached\n')
   assert.equal(attached.ok, true, attached.reason)
+  await check('initial-ready-epoch', async () => {
+    assert.equal(readyObservations.length, 1, JSON.stringify(readyObservations))
+    assert.deepEqual(readyObservations.map(({ validShape, mainFrame }) => ({ validShape, mainFrame })), [{ validShape: true, mainFrame: true }])
+  })
+  ipcMain.removeListener('colony:scene-ready', observeReady)
   assert.equal(await win.webContents.executeJavaScript(`window.nativeTest.bounds(${JSON.stringify(attached.attachment)},{x:0,y:0,width:800,height:600})`), true)
   process.stderr.write('colony-fixture:bounded\n')
   const scene = win.contentView.children.find(child => child.webContents && child.webContents !== win.webContents)?.webContents

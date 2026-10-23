@@ -220,6 +220,8 @@ it.live("tool execution produces non-empty session diff (snapshot race)", () =>
       const session = yield* sessions.create({
         title: "snapshot race test",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        // Explicit eager compatibility opt-out: the subject is direct builtin execution.
+        mcpAllowlist: { servers: [], tools: [], deferred: false },
       })
 
       // Use bash tool (always registered) to create a file

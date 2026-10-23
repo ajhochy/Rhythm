@@ -1,7 +1,10 @@
 import { EventEmitter } from 'node:events';
 
 import type { Request, Response } from 'express';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import Database from 'better-sqlite3';
+import { setDb } from '../database/db';
+import { runMigrations } from '../database/migrations';
 
 import {
   MobileOpenCodeProxy,
@@ -44,6 +47,15 @@ function input(
     ...overrides,
   };
 }
+
+// The proxy fails closed (409 RECONCILIATION_REQUIRED) unless the local
+// managed-session ledger positively classifies the SDK session as never
+// managed, so every test starts with an empty migrated ledger.
+beforeEach(() => {
+  const ledger = new Database(':memory:');
+  runMigrations(ledger);
+  setDb(ledger);
+});
 
 describe('issue #1175 paired OpenCode gateway security regressions', () => {
   it('denies external transcript share and unshare before any upstream call', async () => {
