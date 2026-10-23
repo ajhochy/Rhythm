@@ -37,7 +37,7 @@ import { WorkspaceRepository } from '../repositories/workspace_repository';
 import { authenticateIfPresent, requireAuth } from '../middleware/auth_middleware';
 
 let db: Database.Database, previous: Database.Database | null, root: string;
-let savedVitest: string | undefined, savedNodeEnv: string | undefined;
+let savedVitest: string | undefined, savedNodeEnv: string | undefined, savedConfigPath: string | undefined;
 const ids = ['secretary', 'workflow-orchestrator', 'coding-agent', 'verification-gate'];
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), 'rhythm-qualification-setup-unit-')));
@@ -52,12 +52,16 @@ beforeEach(() => {
     publicUserSeed: { id: 1, name: 'Invented owner', email: 'fixture@example.invalid', googleSub: 'invented', timezone: 'UTC' } };
   writeFileSync(state.authority.dbPath, 'owned unit placeholder');
   savedVitest = process.env.VITEST; savedNodeEnv = process.env.NODE_ENV;
+  savedConfigPath = process.env.RHYTHM_OPENCODE_CONFIG_PATH;
+  process.env.RHYTHM_OPENCODE_CONFIG_PATH = join(root, 'opencode-config/opencode.json');
   // Permit the actual canonical writer, which is confined by the mocked private startup authority.
   process.env.VITEST = 'false'; process.env.NODE_ENV = 'development';
   bootstrapQualificationFixture();
 });
 afterEach(() => {
   process.env.VITEST = savedVitest; process.env.NODE_ENV = savedNodeEnv;
+  if (savedConfigPath === undefined) delete process.env.RHYTHM_OPENCODE_CONFIG_PATH;
+  else process.env.RHYTHM_OPENCODE_CONFIG_PATH = savedConfigPath;
   setDb(previous); db.close(); state.authority = null;
   rmSync(root, { recursive: true, force: true });
 });

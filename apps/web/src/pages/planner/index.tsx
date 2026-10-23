@@ -872,5 +872,6 @@ function LivePlannerPage({ route }: { route: string }) {
 
 export function PlannerPage(props: { route: string }) {
   const gateway = useGateway();
+  if (gateway.mode === 'live' && !gateway.domains.planner) return <StatePanel state="unavailable" onRetry={() => {}} onCreate={() => {}} />;
   return gateway.mode === 'live' ? <LivePlannerPage {...props} /> : <FixturePlannerPage {...props} />;
 }

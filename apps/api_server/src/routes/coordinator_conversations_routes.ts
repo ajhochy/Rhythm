@@ -1,7 +1,7 @@
 import { Router } from 'express';
 
 import { CoordinatorConversationsController } from '../controllers/coordinator_conversations_controller';
-import { requireLocalOrCloudAuth } from '../middleware/auth_middleware';
+import { requireWebOwnerOrLocalOrCloudAuth } from '../middleware/web_owner_auth';
 import { CoordinatorConversationService } from '../services/coordinator_conversation_service';
 
 export interface CoordinatorConversationsRouterOptions {
@@ -23,7 +23,7 @@ export function createCoordinatorConversationsRouter(
   const controller = new CoordinatorConversationsController(options.service);
   const enabled = options.enabled ?? (() => false);
   router.use((_req, res, next) => enabled() ? next() : res.sendStatus(404));
-  router.use(requireLocalOrCloudAuth);
+  router.use(requireWebOwnerOrLocalOrCloudAuth);
   router.post('/setup', (req, res, next) => void controller.setup(req, res, next));
   router.post('/resolve', (req, res, next) => controller.resolve(req, res, next));
   router.post('/open', (req, res, next) => controller.open(req, res, next));

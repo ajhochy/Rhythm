@@ -26,10 +26,10 @@ import { loadQualificationFixtureAuthority } from './qualification_fixture_autho
  */
 
 import { homedir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import { logger } from '../utils/logger';
-import { env } from '../config/env';
+import { env, opencodeConfigFile } from '../config/env';
 import { scanContextContent } from '../security/context_scanner';
 import {
   AgentConfigsRepository,
@@ -416,7 +416,7 @@ function isTestEnv(): boolean {
 
 function agentsDir(): string {
   const fixture=loadQualificationFixtureAuthority();
-  return fixture ? join(fixture.fixtureRoot, 'opencode-config', 'agents') : join(homedir(), '.config', 'opencode', 'agents');
+  return fixture ? join(dirname(opencodeConfigFile()), 'agents') : join(homedir(), '.config', 'opencode', 'agents');
 }
 
 function agentFilePath(id: string): string {

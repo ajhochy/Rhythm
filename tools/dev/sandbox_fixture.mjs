@@ -8,6 +8,13 @@ import { spawnSync } from 'node:child_process';
 const file = fileURLToPath(import.meta.url);
 const root = resolve(dirname(file), '../..');
 const fixture = resolve(process.argv[2] || '/');
+const webScriptedDefaults = process.argv.includes('--web-scripted-defaults');
+if (webScriptedDefaults && !process.argv.includes('--web-host')) {
+  throw new Error('--web-scripted-defaults requires --web-host');
+}
+const apiPort = Number(process.argv.find(value => value.startsWith('--api-port='))?.split('=')[1] ?? 4098);
+const cloudPort = Number(process.argv.find(value => value.startsWith('--cloud-port='))?.split('=')[1] ?? 7097);
+for (const port of [apiPort, cloudPort]) if (!Number.isInteger(port) || port < 1024 || port > 65535 || [4001, 4002, 4096].includes(port)) throw new Error('Fixture port must be unprivileged and not live');
 if (!fixture.startsWith('/private/tmp/') || realpathSync(dirname(fixture)) !== dirname(fixture)) {
   throw new Error('Choose a new fixture directory directly under a canonical /private/tmp parent');
 }
@@ -39,12 +46,42 @@ if (process.argv.includes('--c1')) {
   const { seedC1Guards } = await import('./sandbox_fixture_c1.mjs');
   seedC1Guards(db);
 }
+if (process.argv.includes('--web-host')) {
+  db.exec(`INSERT INTO agent_configs
+    (id,label,icon,command,enabled,is_agent,session_selectable,oc_agent,
+     model_provider,model_id,allowed_mcps_json,allowed_skills_json,allowed_delegates_json,core_permissions_json)
+    VALUES ('local-lean','Synthetic local lean','flask','',1,1,1,'build',
+      'web-scripted','s0-local','[]','[]','[]','{"*":"deny"}')`);
+}
+if (webScriptedDefaults) {
+  // Normal curation input: the managed cheap route must be eligible before engine startup.
+  db.prepare('INSERT INTO agent_model_visibility (provider,model_id,visible) VALUES (?,?,1)')
+    .run('web-scripted', 's0-local');
+}
+if (process.argv.includes('--web-cloud')) {
+  db.prepare("UPDATE users SET google_sub = 'web-cloud-synthetic-owner' WHERE id = 1").run();
+  mkdirSync(`${fixture}/private`, { mode: 0o700 });
+  writeFileSync(`${fixture}/private/cloud.json`, JSON.stringify({ productionApiBase: `http://127.0.0.1:${cloudPort}`, userId: 99, sessionToken: 'web-cloud-synthetic-bearer-only' }), { flag: 'wx', mode: 0o600 });
+  writeFileSync(`${fixture}/registrar`, 'web-cloud-synthetic-registrar-only-00000000000000000000000000000000', { flag: 'wx', mode: 0o600 });
+}
 db.pragma('wal_checkpoint(TRUNCATE)');
 db.pragma('journal_mode = DELETE');
 db.close();
 writeFileSync(`${fixture}/opencode.json`, JSON.stringify({
+  // Explicit synthetic background/title routes only; ordinary fixtures keep their defaults.
+  ...(webScriptedDefaults ? { model: 'web-scripted/s0-local', small_model: 'web-scripted/s0-local',
+    enabled_providers: ['web-scripted'] } : {}),
+  ...(process.argv.includes('--web-host') ? {
+    provider: { 'web-scripted': { npm: '@ai-sdk/openai-compatible', name: 'Scripted loopback only',
+      options: { baseURL: 'http://127.0.0.1:6996/v1', apiKey: 's0-local-synthetic-key' },
+      models: { 's0-local': { name: 'Synthetic local' } } } },
+  } : {}),
   mcp: { rhythm: { type: 'local', command: ['node', `${root}/apps/mcp_server/dist/index.js`],
-    environment: { RHYTHM_API_URL: 'http://127.0.0.1:4098', RHYTHM_API_TOKEN: 'e02-synthetic-session-not-a-secret' } } },
+    environment: { RHYTHM_API_URL: `http://127.0.0.1:${apiPort}`, RHYTHM_API_TOKEN: 'e02-synthetic-session-not-a-secret' } } },
 }, null, 2), { flag: 'wx', mode: 0o400 });
 chmodSync(`${fixture}/rhythm.db`, 0o400);
+if (process.argv.includes('--web-host')) {
+  // Model resolution reads the auth store, not provider.options.apiKey. Synthetic only.
+  writeFileSync(`${fixture}/auth.json`, JSON.stringify({ 'web-scripted': { type: 'api', key: 's0-local-synthetic-key' } }), { flag: 'wx', mode: 0o400 });
+}
 console.log(`Synthetic read-only sources: ${fixture}`);

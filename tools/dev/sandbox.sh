@@ -106,11 +106,32 @@ relay_runtime_env=(
   "RHYTHM_RELAY_PUBLIC_URL=http://127.0.0.1:$RELAY_PORT/relay"
   "RHYTHM_RELAY_ALLOW_INSECURE_LOOPBACK_FOR_TESTS=1"
 )
+if [[ "${RHYTHM_WEB_HOST:-}" == 1 ]]; then
+  runtime_env+=("RHYTHM_ROLE=local" "RHYTHM_WEB_HOST=1"
+    "RHYTHM_WEB_PUBLIC_ORIGIN=${RHYTHM_WEB_PUBLIC_ORIGIN:-}"
+    "RHYTHM_WEB_OWNER_USER_ID=${RHYTHM_WEB_OWNER_USER_ID:-}"
+    "RHYTHM_WEB_CLOUD_CREDENTIAL_PATH=${RHYTHM_WEB_CLOUD_CREDENTIAL_PATH:-}"
+    "RHYTHM_WEB_DIST_DIR=${RHYTHM_WEB_DIST_DIR:-}")
+fi
 if [[ "$RELAY_ENABLED" == 1 ]]; then
   runtime_env+=("RHYTHM_RELAY_URLS=ws://127.0.0.1:$RELAY_PORT/relay/uplink")
 fi
 
 fail() { printf 'sandbox: %s\n' "$*" >&2; exit 1; }
+
+paid_web_enabled() {
+  case "${RHYTHM_SANDBOX_WEB_PAID:-}" in
+    '') return 1 ;;
+    1) return 0 ;;
+    *) fail 'RHYTHM_SANDBOX_WEB_PAID must be unset or 1' ;;
+  esac
+}
+if paid_web_enabled; then
+  [[ "$PRESERVE_FILES" == 0 && "$RELAY_ENABLED" == 0 && -z "${RHYTHM_SANDBOX_PREBUILT_INTAKE:-}" ]] ||
+    fail 'paid web custody cannot combine sandbox modes'
+  runtime_env+=("RHYTHM_SANDBOX_WEB_PAID=1"
+    "RHYTHM_QUALIFICATION_FIXTURE_MANIFEST=${RHYTHM_QUALIFICATION_FIXTURE_MANIFEST:-}")
+fi
 
 # Preservation is opt-in for callers that must retain every runtime record.
 preservation_enabled() {
@@ -149,6 +170,13 @@ case "${RHYTHM_WORKSTREAMS_ENABLED:-}" in
   true) runtime_env+=('RHYTHM_WORKSTREAMS_ENABLED=true' 'RHYTHM_MANAGED_CONTEXT_EXPORTS=1') ;;
   *) fail 'RHYTHM_WORKSTREAMS_ENABLED must be true when set' ;;
 esac
+# Research qualification is opt-in. Preserve the default-off production posture
+# while allowing the explicitly requested feature through this sanitized runtime.
+case "${RHYTHM_RESEARCH_PROJECTS_ENABLED:-}" in
+  '') ;;
+  true) runtime_env+=('RHYTHM_RESEARCH_PROJECTS_ENABLED=true') ;;
+  *) fail 'RHYTHM_RESEARCH_PROJECTS_ENABLED must be true when set' ;;
+esac
 # Desktop-human approval live suites export a throwaway pair before `up`
 # (docs/ai/testing-guide.md). `env -i` dropped them, so approvals always 403'd.
 if [[ -n "${HUMAN_APPROVAL_PUBLIC_KEY:-}${HUMAN_APPROVAL_CAPABILITY_SHA256:-}" ]]; then
@@ -160,6 +188,9 @@ fi
 
 # Evidence is a sibling of the disposable runtime, never part of teardown.
 preserve_diagnostics() {
+  # Loan-bearing logs must never be copied outside their private disposable root.
+  # Canonical down proves process ownership; the creator then scrubs exact roots.
+  if paid_web_enabled; then return 0; fi
   [[ -d "$SB" && ! -L "$SB" && -O "$SB" ]] || return 0
   local evidence
   evidence="$(mktemp -d "$SB.evidence.XXXXXX")" || return 1
@@ -479,6 +510,8 @@ copy_runtime_files() {
   fi
   if [[ -d "$config_src" && -d "$config_src/skills" ]]; then
     cp -R "$config_src/skills" "$sandbox_home/.config/opencode/"
+    # Approved sources stay read-only; their private runtime copy must support normal skill seeding/edits.
+    find -P "$sandbox_home/.config/opencode/skills" \( -type d -o -type f \) -exec chmod u+w {} +
   fi
 }
 
@@ -728,7 +761,12 @@ up() {
   validate_node
   validate_copied_data_inputs
   safe_sandbox_path
-  [[ ! -e "$SB" && ! -L "$SB" ]] || fail 'sandbox directory already exists; refusing to reuse unverified runtime files'
+  if paid_web_enabled; then
+    "$NODE_BIN" "$ROOT/tools/testing/run_web_paid.mjs" sandbox-preflight "${RHYTHM_WEB_PAID_CUSTODY_RECEIPT:-}" ||
+      fail 'paid web custody preflight rejected'
+  else
+    [[ ! -e "$SB" && ! -L "$SB" ]] || fail 'sandbox directory already exists; refusing to reuse unverified runtime files'
+  fi
   [[ ! -e "$PID_FILE" ]] || fail "sandbox already has $PID_FILE; run '$0 status' or '$0 down'"
   require_free_port "$API_PORT"
   require_free_port "$ENGINE_PORT"
@@ -740,7 +778,7 @@ up() {
   command -v sqlite3 >/dev/null || fail 'sqlite3 is required'
 
   trap cleanup_failed_up EXIT
-  mkdir -m 700 "$SB"
+  if ! paid_web_enabled; then mkdir -m 700 "$SB"; fi
   prepare_security_shim
   copy_runtime_files
   seed_synthetic_openai_catalog_account
@@ -765,10 +803,13 @@ up() {
   fi
 
   validate_security_shim
-  build_engine
-  if [[ -n "${RHYTHM_SANDBOX_PREBUILT_INTAKE:-}" ]]; then
+  if paid_web_enabled; then
+    : # Preflight verified this checkout's complete payload hashes; builds preceded loan issuance.
+  elif [[ -n "${RHYTHM_SANDBOX_PREBUILT_INTAKE:-}" ]]; then
+    build_engine
     build_preserved_payloads
   else
+    build_engine
     (cd "$API_DIR" && env -i "${runtime_env[@]}" npm run build)
   # up() builds the local MCP payload here; under `set -e` a failed build aborts
   # the run, so do NOT re-add a pre-build existence guard (it makes up() fail on
@@ -1059,7 +1100,12 @@ restart_engine() {
 }
 
 down() {
-  if preservation_enabled; then
+  if paid_web_enabled; then
+    "$NODE_BIN" "$ROOT/tools/testing/run_web_paid.mjs" sandbox-cleanup "${RHYTHM_WEB_PAID_CONTROL_ROOT:-}" ||
+      fail 'paid web cleanup authority rejected'
+    stop
+    printf 'Paid web sandbox stopped; exact creator scrub required.\n'
+  elif preservation_enabled; then
     # Logs already remain in place. Do not probe an unvalidated listener merely
     # to copy diagnostics; stop first proves ownership and retains all files.
     stop

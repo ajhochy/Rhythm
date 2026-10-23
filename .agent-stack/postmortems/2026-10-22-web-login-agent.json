@@ -1,0 +1,48 @@
+{
+  "run_id": "2026-10-22-web-login-agent",
+  "date": "2026-10-22",
+  "issue": null,
+  "smoke_result": "pass",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "launchd-startup",
+      "text": "Start the existing candidate at AJ login and keep the browser app available",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Valid user LaunchAgent RunAtLoad/KeepAlive; actual launchd bootstrap and automatic restart after exact-owned SIGTERM; HTTPS render/reload/cloud/WSS101 and TLS200 verified. Full logout/login not forced."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "tooling-availability",
+      "description": "TodoWrite unavailable; ordered installation/check sequence recorded in durable run receipt",
+      "detected_by": "Enabled tools inventory"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "~/Library/LaunchAgents/com.ajhochhalter.rhythm-web-host.plist"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Preserve the pinned candidate and web assets when maintaining its worktree; record a real logout/login check when it occurs."
+}

@@ -2883,3 +2883,120 @@ it.instance(
   { git: true },
   30_000,
 )
+
+// Supplemental web #112 contract. Real prompt/processor/runner/LLM/guard modules;
+// only title entry and the existing API-admission transport seam are controlled.
+// The provider is this suite's isolated in-process TestLLMServer, never a real model.
+import { guardTransport, resetGuardCaches } from "../../src/session/rhythm_provider_projection"
+import { parseGuardRequest, runnerGenerations, type GuardRequest } from "../../src/session/rhythm_provider_guard"
+
+let webTitleEntry: (input: LLM.StreamInput) => Effect.Effect<void> = () => Effect.die("uninitialized web title contract")
+let webTitleFinished: Effect.Effect<void> = Effect.void
+const webTitleLLM = Layer.effect(LLM.Service, Effect.gen(function* () {
+  const real = yield* LLM.Service
+  return LLM.Service.of({
+    stream: input => input.small
+      ? Stream.unwrap(webTitleEntry(input).pipe(Effect.map(() => real.stream(input))))
+          .pipe(Stream.ensuring(webTitleFinished))
+      : real.stream(input),
+  })
+})).pipe(Layer.provide(LLM.defaultLayer))
+const webTitleIt = testEffect(Layer.mergeAll(TestLLMServer.layer, makePromptLayer({ llm: webTitleLLM })).pipe(Layer.provide(summary)))
+
+for (const [id, mode, title] of [
+  ["c1", "delayed", "answer completes before title; runner stays current until durable title"],
+  ["c2", "defect", "title defect preserves the completed answer"],
+  ["c3", "cancel", "cancel during delayed title interrupts it and prevents later provider exposure"],
+] as const) webTitleIt.instance(`web-title-admission-${id}: ${title}`, () => Effect.gen(function* () {
+  const { llm } = yield* useServerConfig(url => ({
+    ...providerCfg(url),
+    model: "test/test-model", small_model: "test/test-model",
+    mcp: { rhythm: { type: "local", command: ["synthetic-never-started"], environment: {
+      RHYTHM_AGENT_URL: "http://127.0.0.1:1", RHYTHM_API_TOKEN: "synthetic-never-transmitted",
+    } } },
+  }))
+  const prompt = yield* SessionPrompt.Service
+  const sessions = yield* Session.Service
+  const status = yield* SessionStatus.Service
+  const session = yield* sessions.create({})
+  const started = yield* Deferred.make<void>()
+  const release = yield* Deferred.make<void>()
+  const finished = yield* Deferred.make<void>()
+  const admissions: GuardRequest[] = []
+  const originalFetch = guardTransport.fetch
+  let completedAtTitleEntry = false
+  let titleInterrupted = false
+  let titleDelegations = 0
+  let promptReturned = false
+  const answer = `SYNTHETIC_WEB_TITLE_ANSWER_${id}`
+  const completedAnswer = sessions.messages({ sessionID: session.id }).pipe(Effect.map(messages =>
+    messages.findLast(message => message.info.role === "assistant" && !!message.info.time.completed && !message.info.error)))
+  yield* Effect.addFinalizer(() => Effect.gen(function* () {
+    yield* Deferred.succeed(release, undefined)
+    guardTransport.fetch = originalFetch
+    resetGuardCaches()
+    webTitleEntry = () => Effect.die("uninitialized web title contract")
+    webTitleFinished = Effect.void
+  }))
+  guardTransport.fetch = async (_url, init) => {
+    const parsed = parseGuardRequest(JSON.parse(String(init.body)))
+    if (!parsed.ok) throw new Error("malformed production admission request")
+    admissions.push(parsed.value)
+    return new Response(JSON.stringify({ schemaVersion: 1, request: parsed.value,
+      decision: "ordinary", rawHistoryReusable: true, guardRegistrationVersion: 1,
+      basisDigest: "b".repeat(64), overlay: null, projection: null, reason: "none" }), { status: 200 })
+  }
+  webTitleEntry = input => Effect.gen(function* () {
+    expect(input.sessionID).toBe(session.id)
+    expect(input.guardPurpose).toBe("summary")
+    completedAtTitleEntry = (yield* completedAnswer.pipe(Effect.orDie)) !== undefined
+    yield* Deferred.succeed(started, undefined)
+    if (mode === "defect") return yield* Effect.die(new Error("synthetic title stream defect"))
+    yield* Deferred.await(release)
+    titleDelegations++
+  }).pipe(Effect.onExit(exit => Effect.sync(() => {
+    // Observe the whole entry before its started signal can wake cancellation.
+    titleInterrupted = Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)
+  })))
+  webTitleFinished = Deferred.succeed(finished, undefined).pipe(Effect.asVoid)
+  yield* llm.text(answer)
+  const fiber = yield* prompt.prompt({ sessionID: session.id, agent: "build", model: ref,
+    parts: [{ type: "text", text: "Synthetic first message for title lifecycle" }] })
+    .pipe(Effect.tap(() => Effect.sync(() => { promptReturned = true })), Effect.forkChild)
+  yield* awaitWithTimeout(Deferred.await(started), "title request never started")
+  const savedBeforeTitle = yield* pollWithTimeout(completedAnswer, "main answer did not complete while title was gated")
+  const generationWhileTitlePending = runnerGenerations.get(session.id)
+  const returnedWhileTitlePending = promptReturned
+  if (mode === "cancel") yield* awaitWithTimeout(prompt.cancel(session.id), "cancel did not interrupt delayed title")
+  yield* Deferred.succeed(release, undefined)
+  const result = yield* awaitWithTimeout(Fiber.join(fiber), "prompt did not resolve after title release")
+  yield* awaitWithTimeout(Deferred.await(finished), "title did not finish or interrupt")
+  const savedAfterTitle = yield* completedAnswer
+  expect(savedAfterTitle).toEqual(savedBeforeTitle)
+  expect(result.info.id).toBe(savedBeforeTitle.info.id)
+  expect(result.info.role).toBe("assistant")
+  if (result.info.role === "assistant") expect(result.info.error).toBeUndefined()
+  expect(result.parts.filter(part => part.type === "text").map(part => part.text).join("")).toBe(answer)
+  expect((yield* status.get(session.id)).type).toBe("idle")
+  expect(runnerGenerations.has(session.id)).toBe(false)
+  if (mode === "delayed") {
+    expect(completedAtTitleEntry, "title must start after the canonical answer is completed").toBe(true)
+    expect(generationWhileTitlePending, "title admission must retain the answer's runner generation").toBeString()
+    expect(returnedWhileTitlePending, "runner must not return before its title finishes").toBe(false)
+    expect((yield* sessions.get(session.id)).title).toBe("E2E Title")
+    expect(admissions.map(request => request.purpose)).toEqual(["answer", "summary"])
+    expect(admissions[1].runnerGeneration).toBe(admissions[0].runnerGeneration)
+    expect(admissions[1].userMessageId).toBe(admissions[0].userMessageId)
+    expect(yield* llm.calls).toBe(2)
+  } else if (mode === "cancel") {
+    expect(titleInterrupted, "cancel must reach the pending title effect").toBe(true)
+    expect(titleDelegations, "cancelled title must not delegate to the provider after release").toBe(0)
+    expect(admissions.map(request => request.purpose)).toEqual(["answer"])
+    expect(yield* llm.calls).toBe(1)
+    expect(Session.isDefaultTitle((yield* sessions.get(session.id)).title)).toBe(true)
+  } else {
+    expect(admissions.map(request => request.purpose)).toEqual(["answer"])
+    expect(yield* llm.calls).toBe(1)
+    expect(Session.isDefaultTitle((yield* sessions.get(session.id)).title)).toBe(true)
+  }
+}), { git: true }, 15_000)

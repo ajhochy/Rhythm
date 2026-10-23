@@ -1,4 +1,6 @@
 import type { GatewayMode } from '.';
+import { isTrustedBrowserFetcher } from './browser-transport';
+import { cloudAccountFailure } from './cloud-error';
 
 // Canonical shape from apps/api_server/src/models/live_artifact.ts:1-10. `updatedByUserId` is
 // stripped from every public response by `publicArtifact()` at
@@ -76,10 +78,11 @@ export interface LiveArtifactsGateway {
 }
 
 async function parsedError(result: Response): Promise<LiveArtifactsGatewayError> {
+  const cloudFailure = await cloudAccountFailure(result);
   let body: { error?: { code?: string }; currentStateRevision?: number; currentBundleRevision?: number } | null = null;
   try { body = await result.json(); } catch { /* body may be empty */ }
   const code = body?.error?.code;
-  return new LiveArtifactsGatewayError(result.status, code ?? `Live artifact request failed (${result.status})`, code, body?.currentStateRevision, body?.currentBundleRevision);
+  return new LiveArtifactsGatewayError(result.status, cloudFailure ?? code ?? `Live artifact request failed (${result.status})`, code, body?.currentStateRevision, body?.currentBundleRevision);
 }
 
 async function response<T>(pending: Promise<Response>): Promise<T> {
@@ -93,7 +96,7 @@ async function response<T>(pending: Promise<Response>): Promise<T> {
 }
 
 export function createLiveArtifactsGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): LiveArtifactsGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: an explicit live-artifacts token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: an explicit live-artifacts token is required');
   // Every request authenticates — apps/api_server/src/routes/live_artifacts_routes.ts:9 mounts
   // requireAuth ahead of every route on this router.
   const request = (path: string, init: RequestInit = {}) => fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });

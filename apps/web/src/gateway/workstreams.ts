@@ -230,12 +230,13 @@ async function response<T>(operation: string, pending: Promise<Response>): Promi
  * Workstreams deliberately use the authenticated API rather than the local
  * session bypass.  The server derives owner/project authority from that token.
  */
+import { isTrustedBrowserFetcher } from './browser-transport';
 export function createLiveWorkstreamsGateway(
   apiBase: string,
   token: string | undefined,
   fetcher: typeof fetch = fetch,
 ): WorkstreamGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: a workstream token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: a workstream token is required');
   const request = (projectId: string, path = '', init: RequestInit = {}) => {
     const query = new URLSearchParams({ projectId });
     return fetcher(`${apiBase}/agent-workstreams${path}?${query}`, {

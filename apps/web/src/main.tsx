@@ -52,9 +52,10 @@ const productionApiBase = runtimeGateway?.gateway?.productionApiBase ?? environm
 const expectedApiBase = runtimeGateway ? apiBase : environment.VITE_RHYTHM_EXPECTED_API_BASE;
 const expectedEngineBase = runtimeGateway ? engineBase : environment.VITE_RHYTHM_EXPECTED_ENGINE_BASE;
 
-const renderGateway = (taskToken?: string, user?: AuthUser, mcpReady?: () => Promise<void>) => {
+const renderGateway = (taskToken?: string, user?: AuthUser, mcpReady?: () => Promise<void>, cloud = false) => {
   const gateway = composeGateway({
-    mode: gatewayMode,
+    mode: environment.VITE_RHYTHM_WEB_HOST === '1' ? 'live' : gatewayMode,
+    ...(environment.VITE_RHYTHM_WEB_HOST === '1' ? { browserOrigin: window.location.origin } : {}),
     apiBase,
     engineBase,
     productionApiBase,
@@ -64,6 +65,7 @@ const renderGateway = (taskToken?: string, user?: AuthUser, mcpReady?: () => Pro
     expectedEngineBase,
     taskToken,
     mcpReady,
+    cloud,
   });
   const app = <FixtureProvider><App /></FixtureProvider>;
   root.render(
@@ -90,7 +92,15 @@ try {
   // TEST-ONLY override: existing Vite/Playwright live harnesses inject this disposable bearer.
   // The packaged build neutralizes this value, and the Electron host never exposes a token.
   const testOnlyToken = environment.VITE_RHYTHM_LIVE_TOKEN;
-  if (gatewayMode === 'live' && !testOnlyToken) {
+  if (environment.VITE_RHYTHM_WEB_HOST === '1') {
+    void fetch('/web/bootstrap', { cache: 'no-store', redirect: 'error' })
+      .then(async response => {
+        if (!response.ok) throw new Error(`Web bootstrap failed (HTTP ${response.status})`);
+        const body = await response.json();
+        if (body.mode !== 'web' || !Number.isInteger(body.owner?.id) || !body.owner?.displayName || typeof body.owner?.role !== 'string' || !body.owner.role) throw new Error('Invalid web bootstrap');
+        renderGateway(undefined, { id: body.owner.id, name: body.owner.displayName, email: '', role: body.owner.role }, undefined, body.capabilities?.cloud === true);
+      }).catch(renderStartupError);
+  } else if (gatewayMode === 'live' && !testOnlyToken) {
     if (!apiBase || !engineBase || !productionApiBase) {
       // A missing ADDRESS and a missing TOKEN are different failures and must not share one state.
       // Signing in cannot supply an API address, so this is a fatal configuration error rather than

@@ -662,8 +662,9 @@ export function createFixtureSessionsGateway(_fetcher?: typeof fetch): SessionGa
   };
 }
 
+import { isTrustedBrowserFetcher } from './browser-transport';
 export function createLiveSessionsGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch, WebSocketImpl: typeof WebSocket = WebSocket): SessionGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: an explicit live token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: an explicit live token is required');
   const request = (path: string, init: RequestInit = {}) => fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   return {
     mode: 'live',
@@ -947,7 +948,7 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
 
       const open = () => {
         if (closedByCaller) return;
-        socket = new WebSocketImpl(`${apiBase.replace(/^http:/, 'ws:')}/ws/agents`);
+        socket = new WebSocketImpl(`${apiBase.replace(/^http/, 'ws')}/ws/agents`);
         socket.addEventListener('open', () => {
           attempt = 0;
           const reconnected = !firstOpen;

@@ -16,7 +16,7 @@ export function createLivePtyGateway(apiBase: string, fetcher: typeof fetch = fe
       if (typeof result.ptyId !== 'string' || !result.ptyId.trim()) throw new Error('Terminal returned no PTY id');
       return result.ptyId;
     },
-    connect(id: string) { return new WebSocket(`${apiBase.replace(/^http:/, 'ws:')}/ws/pty/${encodeURIComponent(id)}`); },
+    connect(id: string) { return new WebSocket(`${apiBase.replace(/^http/, 'ws')}/ws/pty/${encodeURIComponent(id)}`); },
     async resize(id: string, cols: number, rows: number) {
       if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 2 || cols > 500 || rows > 200) throw new Error('Invalid terminal size');
       await request(`/pty/${encodeURIComponent(id)}`, 'PATCH', { cols, rows });

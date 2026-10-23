@@ -7,7 +7,7 @@ import { mergeCachedTranscriptPage, reduceCachedTranscriptEvent, type Transcript
 import { useAuthUser } from './gateway/auth';
 import type { DomainNotification } from './gateway/notifications';
 import type { MessageThread } from './gateway/messages';
-import { ApprovalGatewayError, type PendingApproval } from './gateway/approvals';
+import { ApprovalGatewayError, isBrowserApproval, type PendingApproval } from './gateway/approvals';
 import { signApprovalDecision } from './security/humanApprovalSigner';
 import { isSessionOffline } from './sessionState';
 import { agentSessionLinkFromHash } from './agentSessionLink';
@@ -18,6 +18,12 @@ import type { ComposerAttachment, DemoState, FixtureFile, InspectorTab, Profile,
 // Keep the gateway's specific reason (e.g. 'Authentication required') in the toast.
 const failureMessage = (prefix: string, error: unknown) =>
   error instanceof Error && error.message ? `${prefix}: ${error.message}` : prefix;
+
+function profileDraftId(): string {
+  const random = globalThis.crypto.randomUUID?.()
+    ?? Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
+  return `profile-created-${random}`;
+}
 
 // c4c: a live agent push notification — apps/api_server/src/controllers/notifications_agent_controller.ts:6-32.
 // Kept in a separate bucket from `DomainNotification` rows: its `id` is a WS-broadcast integer from
@@ -876,7 +882,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   }, [gateway, live]);
 
   useEffect(() => {
-    if (!live) return;
+    if (!live || !gateway.domains.notifications) return;
     let active = true;
     // Poll runs on mount, every 60s and on every focus: toast a given failure once until a success resets it.
     let lastFailure: string | null = null;
@@ -896,7 +902,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
 
   // One queue snapshot is shared by the bell and transcript; failed reads retain the last cards.
   useEffect(() => {
-    if (!live) return;
+    if (!live || !gateway.domains.approvals) return;
     let active = true;
     const context = { gateway, generation: 0, deciding: new Set<string>(), inFlight: null as Promise<void> | null, queued: false };
     approvalContextRef.current = context;
@@ -931,24 +937,27 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gateway, live]);
 
-  // post-m1-p7-c4d: a real ECDSA P-256 signature over the server-issued decisionNonce/payloadDigest
-  // (security/humanApprovalSigner.ts), never fabricated. See that module's doc comment for the one
-  // remaining honest gap: this renderer's key/capability are self-generated, not yet synchronized
-  // with a live server's HUMAN_APPROVAL_PUBLIC_KEY/HUMAN_APPROVAL_CAPABILITY_SHA256.
+  // Desktop decisions retain their native signature. The trusted browser submits only the
+  // revision/hash of the displayed card; its owner and decision authority stay on the web host.
   const decideApproval = async (id: string, status: 'approved' | 'rejected') => {
-    if (!live) return;
+    if (!live || !gateway.domains.approvals) return;
     const context = approvalContextRef.current;
     if (!context || context.gateway !== gateway || context.deciding.has(id)) return;
     const approval = pendingApprovals.find((item) => item.id === id);
     if (!approval) return;
-    if (!approval.decisionNonce?.trim()) { setApprovalState((state) => ({ ...state, decisionError: 'This legacy approval cannot be signed. Ask the agent to request approval again.' })); return; }
+    const browser = gateway.environment?.browser === true;
+    const webMaterial = browser && isBrowserApproval(approval) ? { revision: approval.revision, cardHash: approval.cardHash } : null;
+    if (browser ? !webMaterial : !approval.decisionNonce?.trim()) {
+      setApprovalState((state) => ({ ...state, decisionError: browser ? 'Approval details could not be confirmed. Refresh approvals and retry.' : 'This legacy approval cannot be signed. Ask the agent to request approval again.' }));
+      return;
+    }
     const current = () => approvalContextRef.current === context && currentApprovalGateway.current === gateway;
     context.deciding.add(id); setApprovalState((state) => ({ ...state, deciding: [...context.deciding] }));
     try {
-      const material = await signApprovalDecision({
+      const material = webMaterial ?? await signApprovalDecision({
         approvalId: id,
         status,
-        decisionNonce: approval.decisionNonce,
+        decisionNonce: approval.decisionNonce!,
         payloadDigest: approval.payloadDigest,
       });
       if (!current()) return;
@@ -961,7 +970,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       if (approval.sessionId) await selectLiveSession(approval.sessionId);
       if (current()) await refreshPendingApprovals();
     } catch (error) {
-      if (current()) setApprovalState((state) => ({ ...state, decisionError: error instanceof ApprovalGatewayError ? error.message : 'Native decision could not be sent. Open the signed Rhythm desktop queue and retry.' }));
+      if (current()) setApprovalState((state) => ({ ...state, decisionError: error instanceof ApprovalGatewayError ? error.message : browser ? 'Web decision could not be sent. Check the connection and refresh approvals.' : 'Native decision could not be sent. Open the signed Rhythm desktop queue and retry.' }));
     } finally {
       context.deciding.delete(id);
       if (current()) setApprovalState((state) => ({ ...state, deciding: [...context.deciding] }));
@@ -978,6 +987,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   };
 
   const markAllNotificationsRead = () => {
+    if (live && !gateway.domains.notifications) return;
     const removed = notifications;
     setNotifications([]);
     if (!live) { notify('All notifications marked read'); return; }
@@ -1348,7 +1358,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const resetWorktree = () => { updateSession(selected.id, { dirtyCount: 0 }); notify('Fixture worktree reset'); };
   const removeWorktree = () => { updateSession(selected.id, { isolateWorktree: false }); notify('Fixture worktree removed'); };
 
-  const createProfile = () => { const id = `profile-created-${crypto.randomUUID()}`; const profile: Profile = live ? { ...emptyLiveProfile(), id, label: 'New profile', enabled: true, selectable: true, allowedMcpsJson: '{}', allowedSkillsJson: '[]', corePermissionsJson: '{}', allowedDelegatesJson: '[]' } : { id, icon: 'NP', label: 'New profile', systemPrompt: '', managerAgent: false, allowedDelegates: [], selectable: true, enabled: true, modelProvider: 'openai', modelId: 'gpt-5.6', provider: 'OpenAI', model: 'gpt-5.6', defaultAccount: 'Rhythm workspace', mcps: [], skills: [], permissionRules: { shell: 'ask', files: 'ask', network: 'deny' }, managedSkills: false, isDefault: false, updatedAt: FIXED_NOW }; setProfiles((current) => [...current, profile]); notify(live ? 'New profile draft' : 'Profile created'); return id; };
+  const createProfile = () => { const id = profileDraftId(); const profile: Profile = live ? { ...emptyLiveProfile(), id, label: 'New profile', enabled: true, selectable: true, allowedMcpsJson: '{}', allowedSkillsJson: '[]', corePermissionsJson: '{}', allowedDelegatesJson: '[]' } : { id, icon: 'NP', label: 'New profile', systemPrompt: '', managerAgent: false, allowedDelegates: [], selectable: true, enabled: true, modelProvider: 'openai', modelId: 'gpt-5.6', provider: 'OpenAI', model: 'gpt-5.6', defaultAccount: 'Rhythm workspace', mcps: [], skills: [], permissionRules: { shell: 'ask', files: 'ask', network: 'deny' }, managedSkills: false, isDefault: false, updatedAt: FIXED_NOW }; setProfiles((current) => [...current, profile]); notify(live ? 'New profile draft' : 'Profile created'); return id; };
   const profileMutation = (profile: IdentityProfile): ProfileMutation => ({
     label: profile.label, icon: profile.icon, enabled: profile.enabled,
     isAgent: profile.isAgent ?? true, isManager: live ? profile.isManager === true : profile.managerAgent,
@@ -1388,7 +1398,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     notify('Profile changes saved');
     return readback;
   };
-  const duplicateProfile = (id: string) => { const source = profiles.find((profile) => profile.id === id); if (!source) return id; const nextId = `profile-created-${crypto.randomUUID()}`; setProfiles((current) => [...current, { ...structuredClone(source), id: nextId, presetId: null, ocAgent: null, label: `${source.label} copy`, isDefault: false, updatedAt: FIXED_NOW }]); notify(live ? 'Duplicate profile draft — save to create' : 'Profile duplicated'); return nextId; };
+  const duplicateProfile = (id: string) => { const source = profiles.find((profile) => profile.id === id); if (!source) return id; const nextId = profileDraftId(); setProfiles((current) => [...current, { ...structuredClone(source), id: nextId, presetId: null, ocAgent: null, label: `${source.label} copy`, isDefault: false, updatedAt: FIXED_NOW }]); notify(live ? 'Duplicate profile draft — save to create' : 'Profile duplicated'); return nextId; };
   const deleteProfile = async (id: string) => { if (profiles.find((profile) => profile.id === id)?.isDefault) { notify('Choose another default before deleting this profile'); return; } if (live && !id.startsWith('profile-created-')) await gateway.domains.sessions!.deleteProfile(id); setProfiles((current) => current.filter((profile) => profile.id !== id)); notify('Profile deleted'); };
   const setDefaultProfile = (id: string) => { if (live) { if (id.startsWith('profile-created-')) { notify('Save this profile before choosing it as default'); return; } setLocalDefault({ accountId, profileId: id }); notify('Default profile updated locally for this account; resets on reload'); return; } setProfiles((current) => current.map((profile) => ({ ...profile, isDefault: profile.id === id }))); notify('Default profile updated'); };
   const resetFixtures = () => { setSessions(cloneSessions()); setProfiles(cloneProfiles()); setTodos(structuredClone(seedTodos)); setUnreadThreads(live ? 0 : 6); setSelectedId('session-sunday-handoff'); setScope('chats'); setInspectorTab('context'); setDemoState('running'); setConnectionMessage('Desktop connected'); setRunMessage('Sunday service handoff is working'); setActiveFile(seedFiles[0].path); setTerminalOutput(['$ pwd', '/workspace/rhythm']); setLoading(false); notify('Workspace reset'); };

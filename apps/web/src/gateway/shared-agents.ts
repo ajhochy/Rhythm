@@ -32,11 +32,13 @@ export function createLiveSharedAgentsPort(
   sessions: SessionGateway,
   fetcher: typeof fetch = fetch,
   launchCwd = '/workspace/rhythm',
+  transport: 'bearer' | 'trusted-tailnet-web' = 'bearer',
 ): SharedAgentsPort {
-  if (!token?.trim()) throw new Error('Live configuration error: an explicit shared-agents token is required');
+  if (!token?.trim() && transport !== 'trusted-tailnet-web') throw new Error('Live configuration error: an explicit shared-agents token is required');
   const request = (path: string, init: RequestInit = {}) => fetcher(`${apiBase}${path}`, {
     ...init,
-    headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) },
+    headers: { ...(transport === 'bearer' ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}) },
   });
   const get = (id: string) => response<SharedAgent>(request(`/shared-agents/v1/catalog/${encodeURIComponent(id)}`));
 

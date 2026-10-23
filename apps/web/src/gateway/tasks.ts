@@ -1,5 +1,7 @@
 import type { TaskFixture, TaskStatus } from '../pages/tasks/fixtures';
 import type { GatewayMode } from '.';
+import { isTrustedBrowserFetcher } from './browser-transport';
+import { cloudAccountFailure } from './cloud-error';
 // Same shape as apps/api_server/src/models/task.ts:1-5 (TaskCollaborator); already declared
 // once for the live gateway layer in gateway/planner.ts:5-9 — reused here instead of a second
 // duplicate interface.
@@ -94,12 +96,12 @@ async function response<T>(request: Promise<Response>): Promise<T> {
   const result = await request;
   if (!result.ok) {
     const labels: Record<number, string> = { 401: 'Authentication required', 403: 'Forbidden', 404: 'Task not found' };
-    throw new TaskGatewayError(result.status, labels[result.status] ?? `Task request failed (${result.status})`);
+    throw new TaskGatewayError(result.status, await cloudAccountFailure(result) ?? labels[result.status] ?? `Task request failed (${result.status})`);
   }
   return result.status === 204 ? undefined as T : await result.json() as T;
 }
 
-function request(apiBase: string, token: string, path: string, init: RequestInit = {}, fetcher: typeof fetch = fetch) {
+function request(apiBase: string, token: string | undefined, path: string, init: RequestInit = {}, fetcher: typeof fetch = fetch) {
   return fetcher(`${apiBase}${path}`, {
     ...init,
     headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) },
@@ -121,7 +123,7 @@ export function createFixtureTasksGateway(tasks: () => TaskFixture[]): TaskGatew
 }
 
 export function createLiveTasksGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): TaskGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: an explicit task token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: an explicit task token is required');
   const body = (input: Record<string, unknown>) => JSON.stringify({
     ...input,
     ...('preferredAgent' in input && !input.preferredAgent ? { preferredAgent: null } : {}),
