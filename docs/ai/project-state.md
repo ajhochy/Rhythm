@@ -2,6 +2,8 @@
 
 ## Current focus
 
+**MCP handshake fix (#1622):** On the mega lineage, the MCP client rejected servers that advertise `io.modelcontextprotocol/ui` as `{}` (nfl_mcp/FastMCP 3.2.4, minutes). That broke the FFB scheduled runs. Fix branch `fix/mcp-ui-extension-optional-mimetypes` is verified and in a draft PR into mega. The live eager-star engine still has the bug until it is rebuilt. [Run](runs/2026-11-03-mcp-ui-extension-mimetypes.md).
+
 **Desktop/browser coexistence repaired:** trusted native origin was rejected when its loopback Host also appeared in the browser allowlist. Narrow guard precedence fix, unit/live RED→GREEN, signed4bd candidate now shows native API/engine healthy and existing session loaded; concurrent HTTPS browser render/reload/cloud/WSS passed. [Repair receipt](runs/2026-10-22-desktop-web-coexistence.md).
 
 **External access repaired and confirmed:** AJ confirmed Rhythm loads on Mac’s Mac mini. Personal-tailnet policy now permits all tailnet sources to this Mac TCP4001 over IPv4/IPv6. Six prior deny tests now require allow; other rules preserved. [Repair receipt](runs/2026-10-22-tailscale-web-external-access.md).

@@ -52,12 +52,14 @@ const MCP_APP_MIME_TYPE = "text/html;profile=mcp-app"
 
 // SDK 1.27.1 validates initialize responses with a capability schema that
 // strips extension keys. Keep the SDK's normal validation everywhere else and
-// admit only the bounded MCP Apps capability that we advertise.
-const AppInitializeResultSchema = InitializeResultSchema.extend({
+// admit only the bounded MCP Apps capability that we advertise. Servers may
+// advertise the extension as `{}` (FastMCP 3.2, minutes); mimeTypes must stay
+// optional or the whole handshake fails. supportsMcpApps() gates on it instead.
+export const AppInitializeResultSchema = InitializeResultSchema.extend({
   capabilities: ServerCapabilitiesSchema.extend({
     extensions: z
       .object({
-        [MCP_UI_EXTENSION]: z.object({ mimeTypes: z.array(z.string().max(200)).max(8) }).optional(),
+        [MCP_UI_EXTENSION]: z.object({ mimeTypes: z.array(z.string().max(200)).max(8).optional() }).optional(),
       })
       .optional(),
   }),
