@@ -2,7 +2,7 @@
 date: 2026-11-03
 repo: Rhythm
 branch: fix/mcp-ui-extension-optional-mimetypes
-pr: TBD
+pr: 1623
 issues: [1622]
 status: verified-awaiting-deploy
 tags: [run, rhythm]
