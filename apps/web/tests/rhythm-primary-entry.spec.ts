@@ -41,6 +41,16 @@ const specialistProfileChoices = [
   { id: 'profile-theological-researcher', label: 'Theological Researcher' },
 ] as const;
 
+// A coordinator opened on an ordinary (non-primary) chat. The server keeps
+// goals/status here but refuses ordinary chat with model_integration_unavailable.
+const ordinaryConversation = () => ({
+  ...rootConversation(),
+  id: 'conversation-ordinary-root',
+  sessionId: 'ordinary-root',
+  projectId: 'project-ordinary',
+  primaryOwnerRoot: false,
+});
+
 const context = () => {
   const available = { state: 'available' };
   return {
@@ -150,6 +160,8 @@ async function openRhythmFixture(page: Page, options: {
 
     if (url.pathname.startsWith('/coordinator-conversations/')) {
       expect(request.headers().authorization).toBe('Bearer synthetic-rhythm-entry-token');
+      const ordinaryScope = body?.sessionId === origin.id;
+      const conversation = ordinaryScope ? ordinaryConversation : rootConversation;
       if (url.pathname.endsWith('/resolve')) {
         state.resolveCalls += 1;
         state.resolveBodies.push(body ?? {});
@@ -183,7 +195,7 @@ async function openRhythmFixture(page: Page, options: {
       }
       if (url.pathname.endsWith('/open')) {
         state.coordinatorOpenCalls += 1;
-        return respond({ kind: 'replay', conversation: rootConversation() });
+        return respond({ kind: 'replay', conversation: conversation() });
       }
       if (url.pathname.endsWith('/status')) {
         state.statusCalls += 1;
@@ -191,14 +203,16 @@ async function openRhythmFixture(page: Page, options: {
           state.failNextStatus = false;
           return respond({ kind: 'context_unavailable' }, 503);
         }
-        return respond({ kind: 'status', conversation: rootConversation(), context: context() });
+        return respond({ kind: 'status', conversation: conversation(), context: context() });
       }
       if (url.pathname.endsWith('/message')) {
         state.messageCalls += 1;
+        if (ordinaryScope) return respond({ kind: 'model_integration_unavailable', conversation: conversation() }, 503);
         return respond({ kind: 'context_unavailable' }, 503);
       }
       if (url.pathname.endsWith('/history')) {
         state.historyCalls += 1;
+        if (ordinaryScope) return respond({ kind: 'history', conversation: conversation(), messages: [], nextCursor: null, hasMore: false });
         return respond({
           kind: 'history',
           conversation: rootConversation(),
@@ -614,4 +628,38 @@ test('a starting metadata root clears its primary failure notice after the next 
   await expect(page.locator('.conversation-pane .status-label')).toHaveText('Ready');
   expect(state.messageCalls).toBe(0);
   expect(state.sessionInputFrames).toEqual([]);
+});
+
+test('coordinating an ordinary chat never strands a reply: an unavailable coordinator returns the draft to normal chat', async ({ page }) => {
+  const state = await openRhythmFixture(page, { ordinarySdkMapping: true });
+  const input = page.getByTestId('composer-input');
+  await expect(input).toHaveAttribute('placeholder', /Message the agent/);
+  await page.getByTestId('session-actions').click();
+  await page.getByTestId('session-actions-secondary').click();
+  await page.getByTestId('session-actions-coordinate').click();
+  await expect(input).toHaveAttribute('placeholder', 'Message Rhythm about your work…');
+
+  const reply = 'no, push it yourself. I am going to be AFK';
+  await input.fill(reply);
+  await page.getByTestId('composer-send').click();
+  await expect.poll(() => state.messageCalls).toBe(1);
+  // The refusal is visible beside the composer, the draft survives, and the
+  // composer is back in normal chat instead of holding an unresolvable retry.
+  await expect(page.getByTestId('attachment-feedback')).toContainText('was not sent');
+  await expect(input).toHaveAttribute('placeholder', /Message the agent/);
+  await expect(input).toHaveValue(reply);
+  expect(state.sessionInputFrames).toHaveLength(0);
+  if (process.env.RHYTHM_CAPTURE_EVIDENCE === '1') {
+    await page.screenshot({ path: test.info().outputPath('ordinary-chat-coordinator-fallback.png') });
+  }
+
+  await page.getByTestId('composer-send').click();
+  await expect.poll(() => state.sessionInputFrames.length).toBe(1);
+  expect(JSON.stringify(state.sessionInputFrames[0])).toContain(reply);
+  expect(state.messageCalls).toBe(1);
+
+  // Nothing unresolved was journaled: after a restart the chat stays normal.
+  await page.reload();
+  await expect(page.getByTestId('rhythm-primary-entry')).toBeVisible();
+  await expect(input).toHaveAttribute('placeholder', /Message the agent/);
 });
