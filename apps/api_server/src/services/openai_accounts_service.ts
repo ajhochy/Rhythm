@@ -1,3 +1,4 @@
+import { opencodeDataFile } from '../config/env';
 import { randomBytes, createHash } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
@@ -5,6 +6,7 @@ import { join } from 'path';
 import { OAuthAccount, OAuthAccountsStore } from './anthropic_accounts_store';
 import { OAuthAccountsService, RefreshedTokens } from './anthropic_accounts_service';
 import { logger } from '../utils/logger';
+import { loadQualificationFixtureAuthority } from './qualification_fixture_authority';
 
 /**
  * Multi-account OpenAI (ChatGPT / Codex OAuth) — the OpenAI sibling of the
@@ -68,7 +70,7 @@ export function defaultOpenAIAccountsFilePath(): string {
 }
 
 function defaultEngineAuthPath(): string {
-  return join(homedir(), '.local', 'share', 'opencode', 'auth.json');
+  return opencodeDataFile('auth.json');
 }
 
 type Claims = Record<string, unknown> & {
@@ -137,14 +139,15 @@ export class OpenAIAccountsService extends OAuthAccountsService<OpenAIAccount> {
       const { access, refresh, expires, accountId } = entry;
       if (typeof access !== 'string' || typeof refresh !== 'string' || typeof expires !== 'number') return null;
       return { access, refresh, expires, ...(typeof accountId === 'string' ? { accountId } : {}) };
-    } catch (err) {
-      logger.error('[OpenAIAccounts] engine auth read failed:', err);
+    } catch {
+      logger.error('[OpenAIAccounts] engine auth read failed (credential details withheld)');
       return null;
     }
   }
 
   /** Import the existing single engine OpenAI login as account #1 (empty store only). */
   migrateFromEngine(): boolean {
+    if (loadQualificationFixtureAuthority()) return false;
     if (this.hasAccounts()) return false;
     const cred = this.readEngineCredential();
     if (!cred) return false;
@@ -171,6 +174,7 @@ export class OpenAIAccountsService extends OAuthAccountsService<OpenAIAccount> {
    * different account's stale seed; that is never adopted.
    */
   syncFromEngine(): void {
+    if (loadQualificationFixtureAuthority()) return;
     const def = this.defaultAccount();
     const cred = this.readEngineCredential();
     if (!def || !cred || cred.refresh === def.refresh) return;
@@ -191,8 +195,21 @@ export class OpenAIAccountsService extends OAuthAccountsService<OpenAIAccount> {
   }
 
   override async refreshAll(): Promise<void> {
+    // A qualification loan contains access only. Never adopt or rotate an engine
+    // credential: OAuth refresh tokens are single-use and belong to the operator.
+    if (loadQualificationFixtureAuthority()) return;
     this.syncFromEngine();
     await super.refreshAll();
+  }
+
+  override startRefreshLoop(): void {
+    if (loadQualificationFixtureAuthority()) return;
+    super.startRefreshLoop();
+  }
+
+  protected override async refreshAccount(account: OpenAIAccount): Promise<OpenAIAccount | null> {
+    if (loadQualificationFixtureAuthority()) return null;
+    return super.refreshAccount(account);
   }
 
   /**
@@ -201,16 +218,37 @@ export class OpenAIAccountsService extends OAuthAccountsService<OpenAIAccount> {
    * choice is per request from the accounts file, so a switch or a token
    * rotation needs no engine write — and therefore no engine restart.
    */
-  async pushDefaultToEngine(engine: OpenAIEngine): Promise<boolean> {
+  async seedDefaultBeforeReady(engine: OpenAIEngine): Promise<'absent' | 'present' | 'seeded' | 'failed'> {
+    // Validate the loan and bind this service's captured account path before
+    // any account read. A qualification actor without a loan has no model
+    // account to seed, even if an unexpected file appears in its HOME.
+    const authority = loadQualificationFixtureAuthority();
+    if (authority) {
+      if (this.store.path !== join(authority.fixtureRoot, 'openai-accounts.json')) {
+        throw new Error('Qualification OpenAI account source unavailable');
+      }
+      if (!authority.syntheticActor?.modelLoan) return 'absent';
+    }
     const acct = this.defaultAccount();
-    if (!acct || acct.status !== 'ok' || !engine.isReady) return false;
-    if (this.readEngineCredential()) return true;
-    return engine.setOAuthCredentials('openai', {
-      access: acct.access,
-      refresh: acct.refresh,
-      expires: acct.expires,
-      ...(acct.chatgptAccountId ? { accountId: acct.chatgptAccountId } : {}),
-    });
+    if (!acct || acct.status !== 'ok') return 'absent';
+    if (this.readEngineCredential()) return 'present';
+    try {
+      const written = await engine.setOAuthCredentials('openai', {
+        access: acct.access,
+        refresh: acct.refresh,
+        expires: acct.expires,
+        ...(acct.chatgptAccountId ? { accountId: acct.chatgptAccountId } : {}),
+      });
+      return written ? 'seeded' : 'failed';
+    } catch {
+      return 'failed';
+    }
+  }
+
+  async pushDefaultToEngine(engine: OpenAIEngine): Promise<boolean> {
+    if (!engine.isReady) return false;
+    const result = await this.seedDefaultBeforeReady(engine);
+    return result === 'present' || result === 'seeded';
   }
 
   /** Switch the global default. Takes effect on the next request — no engine write. */

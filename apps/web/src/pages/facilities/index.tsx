@@ -168,6 +168,7 @@ function ConfirmDialog({ item, kind, onClose, onConfirm }: { item: Facility | Re
 
 export function FacilitiesPage({ route }: { route: string }) {
   const gateway = useGateway();
+  if (gateway.mode === 'live' && !gateway.domains.facilities) return <StatePanel state="unavailable" onRetry={() => {}} onAdd={() => {}} />;
   if (gateway.mode === 'live') return <LiveFacilitiesPage route={route} />;
   return <FixtureFacilitiesPage route={route} />;
 }

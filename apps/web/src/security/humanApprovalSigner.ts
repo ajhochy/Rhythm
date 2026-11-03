@@ -132,6 +132,12 @@ function electronHumanApprovalBridge() {
   }).rhythmShell?.humanApproval;
 }
 
+// Reads and decisions both require this header (human_approval_security.ts requireHumanApprovalCapability).
+export async function humanApprovalCapability(): Promise<string> {
+  const bridge = electronHumanApprovalBridge();
+  return bridge ? bridge.capability() : getOrCreateCapability();
+}
+
 export async function signApprovalDecision(input: {
   approvalId: string;
   status: 'approved' | 'rejected';

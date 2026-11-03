@@ -1,0 +1,67 @@
+{
+  "sourceRevision": "19421753e05a7a1b2d0f09fcbd04063650e8390c",
+  "phase": "Recon; no overall routing qualification",
+  "privateActor": true,
+  "baselineProfileModel": "openai/gpt-6.1-sol",
+  "realMainAutoTurn": {
+    "sent": true,
+    "assistantAnswer": "19",
+    "tools": 0,
+    "classifierTier": 4,
+    "gridOutcome": "no_usable_route",
+    "candidateReason": "model_unavailable",
+    "servedModel": "openai/gpt-6.1-sol",
+    "qualification": "failed cheap-route expectation"
+  },
+  "sameFixtureCatalogComparison": {
+    "firstLaunch": {
+      "authProviders": [
+        "openai",
+        "opencode"
+      ],
+      "privateDefaultAccountHealthy": true,
+      "openaiModels": [
+        {
+          "modelId": "",
+          "authorized": false,
+          "available": false
+        }
+      ]
+    },
+    "secondLaunch": {
+      "accountOrVisibilityWrite": false,
+      "engineRestartRouteCalled": false,
+      "openaiModelCount": 30,
+      "authorized": true,
+      "presentGridTargets": [
+        "gpt-6.1-sol"
+      ],
+      "missingGridTargets": [
+        "gpt-6-luna",
+        "gpt-6-sol"
+      ],
+      "defaultVisibleOpenai": [
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.6-sol"
+      ]
+    }
+  },
+  "sourceDiagnosis": {
+    "authBootstrap": "Provider state can initialize before account projection and remain cached for the first launch.",
+    "codexOauthFilter": "Decimal-only version matcher excludes integer-major GPT-6 family IDs absent from explicit allowlist; packaged snapshot and Grid include those IDs.",
+    "qualificationLimits": [
+      "Catalog presence does not prove provider entitlement or model-call success.",
+      "No Claude account or failover was exercised by this OpenAI-only private fixture."
+    ]
+  },
+  "cleanup": {
+    "allModelLoanFixturesScrubbed": true,
+    "operatorSourceHashesUnchanged": true
+  },
+  "privateEvidenceDirectories": [
+    "/private/tmp/rhythm-main-auto-recon-19421753e0-evidence-c",
+    "/private/tmp/rhythm-main-auto-recon-19421753e0-evidence-e",
+    "/private/tmp/rhythm-main-auto-recon-19421753e0-evidence-e2"
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-20",
+  "productRevision": "d7fb554735f93c0d0a76785cbadd583d0f866610",
+  "mode": "read-only actual packaged UI/CDP/API",
+  "observations": [
+    {
+      "route": "/tools/agent-settings?settingsSection=mcp",
+      "requestPath": "/opencode/mcp",
+      "status": 200,
+      "shape": {
+        "kind": "array",
+        "count": 27,
+        "rowKeys": [
+          "name",
+          "status",
+          "environment",
+          "requiredEnv",
+          "needsCredentials",
+          "source",
+          "tools",
+          "transport",
+          "usedByProfiles"
+        ]
+      }
+    },
+    {
+      "route": "/tools/agent-settings?settingsSection=models",
+      "requestPath": "/agents/models/catalog/full",
+      "status": 200,
+      "shape": {
+        "kind": "array",
+        "count": 404,
+        "rowKeys": [
+          "agent",
+          "provider",
+          "modelId",
+          "displayName",
+          "route",
+          "authorized",
+          "available",
+          "visible",
+          "availabilityReason",
+          "authProvider",
+          "connectUrl",
+          "contextLimit",
+          "apiId"
+        ]
+      }
+    },
+    {
+      "route": "/profiles",
+      "requestPath": "/agent-configs",
+      "status": null,
+      "shape": null
+    }
+  ],
+  "notes": [
+    "Initial recon timed out because waits assumed a new response on cached route switches and used an incorrect MCP readiness ID. It is test authorship evidence, not a product hang.",
+    "Corrected recon used bounded waits and emitted each route observation immediately.",
+    "Profiles showed live rail/editor controls but no new collection response on route switch; final test forces reload before readback.",
+    "No model dispatch, account mutation, credentials, private prompts, profile labels or record bodies included."
+  ]
+}

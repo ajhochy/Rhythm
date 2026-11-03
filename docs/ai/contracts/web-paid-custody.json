@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "request": "tailscale-web-paid-custody",
+  "kind": "supplemental-user-request-contract",
+  "parentContract": "docs/ai/contracts/web-parity-20261022.json",
+  "scope": "Custody adapter only for explicitly authorized browser matrix rows 91-94,108-110,118. No paid runtime or credential loan is authorized to this implementation agent.",
+  "status": "source-and-synthetic-passed-browser-launch-repair-awaiting-retry",
+  "files": {
+    "newRunner": "tools/testing/run_web_paid.mjs",
+    "newCustody": "tools/testing/web_paid_custody.mjs",
+    "syntheticTests": "tools/testing/web_paid_custody.test.mjs",
+    "existingBoundaries": [
+      "tools/dev/sandbox.sh",
+      "apps/api_server/src/config/env.ts"
+    ],
+    "preserveUnchanged": [
+      "apps/electron/src/qualification-model-loan.mjs",
+      "tools/testing/qualification_fixture.mjs",
+      "apps/api_server/src/services/qualification_fixture_authority.ts",
+      "apps/api_server/src/services/sandbox_engine_attachment.ts"
+    ]
+  },
+  "criteria": [
+    {
+      "id": "custody-01",
+      "text": "Positive synthetic lifecycle derives this canonical checkout, verifies exact revision plus current source/build identities, and completes guarded builds before the first selected-source credential read or loan issuance."
+    },
+    {
+      "id": "custody-02",
+      "text": "An unreviewed checkout, stale or changed artifact, unexpected environment credential pointer, unsafe source path, unknown case or provider, or hardcoded fallback is rejected before loan or process startup."
+    },
+    {
+      "id": "custody-03",
+      "text": "Reuse the existing real loan provisioner with fake source bytes in tests: source expiry must exceed thirty minutes, refresh is empty, exactly one selected account is projected, deadline is at most ten minutes, and expiry buffer remains at least twenty minutes."
+    },
+    {
+      "id": "custody-04",
+      "text": "Changed account, Decision/Grid projection, manifest or original source hash fails closed; original sources are read-only and checked again after both success and failure."
+    },
+    {
+      "id": "custody-05",
+      "text": "An explicit qualification sandbox keeps canonical HOME/XDG, DB_PATH, MCP and engine identity bindings. OPENCODE_CONFIG_DIR stays absent. Generic sandbox guards and native qualification layout remain unchanged."
+    },
+    {
+      "id": "custody-06",
+      "text": "Only a newly created private qualification actor root and separate newly created read-only empty DB/safe MCP sources are eligible; fixture DB bootstrap has one synthetic actor and no operator records. Row118 profile seeding must occur before first DB creation."
+    },
+    {
+      "id": "custody-07",
+      "text": "An independent watchdog stops on monotonic or wall deadline or parent death. Each paid case checks sufficient remaining time; row110 runs alone with more than eight minutes remaining and row118 uses a separate explicit provider batch."
+    },
+    {
+      "id": "custody-08",
+      "text": "Cleanup invokes canonical down before scrubbing and verifies free ports plus captured process PID/start/executable ownership. A replaced PID, root, or ownership record is never killed or removed."
+    },
+    {
+      "id": "custody-09",
+      "text": "Startup failure, test failure, signal and expired deadline all scrub exact-created secret fixtures after proven stop. Scrub authority does not depend on a still-valid runtime loan and never discovers or removes an unowned path."
+    },
+    {
+      "id": "custody-10",
+      "text": "No raw secret, process output, Playwright trace or log is printed or retained outside exact-created private roots. Final evidence is an allowlisted data-only receipt; generic diagnostic copying is bypassed only for the validated paid mode."
+    }
+  ],
+  "syntheticCommand": "node --test tools/testing/web_paid_custody.test.mjs tools/testing/web_paid_runner.test.mjs tools/testing/paid_source_database.test.mjs tools/testing/paid_runtime_readiness.test.mjs tools/testing/paid_browser_environment.test.mjs",
+  "red": {
+    "status": "captured",
+    "log": "/private/tmp/rhythm-web-paid-custody-red-20261022.log",
+    "note": "12 behavior failures before adapter implementation; not import-only failures"
+  },
+  "impact": {
+    "index": "Rhythm index is 15 commits stale; source references supplement it.",
+    "opencodeConfigFile": "HIGH: 11 direct,32 total,4 modules. Function unchanged; explicit qualification startup paths affect its return value.",
+    "opencodeDataFile": "MEDIUM: 6 direct,40 total. Function unchanged.",
+    "loadQualificationFixtureAuthority": "CRITICAL source candidate:19 direct,465 total. Authority and loan crypto unchanged.",
+    "sandboxShell": "UNKNOWN/unindexed. Only explicit qualification startup and no-export cleanup branches proposed; generic input and ownership validation unchanged.",
+    "warningSent": true
+  },
+  "repairBudget": {
+    "used": 2,
+    "previousMaximumPerCheck": 2,
+    "supersededBy": "User explicitly instructed keep going until it works; preserve attempt history without the earlier stop cap."
+  },
+  "liveEvidence": {
+    "caseIds": [
+      91
+    ],
+    "testObserved": 1,
+    "attempts": 1,
+    "durationMs": 1,
+    "stage": "test",
+    "category": "test-failed",
+    "sourceUnchanged": true,
+    "canonicalDown": true,
+    "secretsScrubbed": true,
+    "receipt": "/private/tmp/rhythm-web-paid-case-91-fjL1TM/result.jsonl",
+    "note": "Startup ownership checks passed; browser missing under private HOME reproduced in blank-launch RED. Cache/pre-loan browser proof and exited-watchdog cleanup correction now synthetic37/37, actual retry pending."
+  },
+  "syntheticLatest": {
+    "passed": 37,
+    "failed": 0,
+    "log": "/private/tmp/rhythm-web-paid-browser-integration-green-20261022.log",
+    "seconds": 1.97
+  }
+}

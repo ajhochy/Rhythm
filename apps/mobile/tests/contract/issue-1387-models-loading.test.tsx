@@ -34,9 +34,19 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 jest.mock('expo-router', () => ({
+  // The route is always focused in this fixture; the hook just runs its effect (a no-op for non-Research tools).
+  useFocusEffect: (effect: () => void | (() => void)) => {
+    const { useEffect } = jest.requireActual('react');
+    useEffect(() => effect(), [effect]);
+  },
   Stack: { Screen: () => null },
   useLocalSearchParams: () => ({ tool: 'models' }),
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+}));
+
+jest.mock('react-native-safe-area-context', () => ({
+  ...jest.requireActual('react-native-safe-area-context'),
+  useSafeAreaInsets: () => ({ bottom: 34, left: 0, right: 0, top: 47 }),
 }));
 
 jest.mock('@/providers/opencode-provider', () => ({

@@ -22,11 +22,13 @@
  * c6_feature_flags.test.ts) — this only fixes the shared starting point.
  */
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { inject } from 'vitest';
 
 if (process.env.RHYTHM_LIVE_E2E !== '1') {
-  const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rhythm-vitest-'));
+  // Native context reaches fork workers without ambient environment ownership.
+  // Each setup execution still owns an isolated DB/vault/accounts child.
+  const runRoot = fs.mkdtempSync(path.join(inject('rhythmTestRunRoot'), 'file-'));
 
   process.env.DB_PATH = path.join(runRoot, 'rhythm.db');
   process.env.MEMORY_VAULT_PATH = path.join(runRoot, 'memory-vault');
@@ -44,6 +46,8 @@ if (process.env.RHYTHM_LIVE_E2E !== '1') {
   // which the store reads as "no accounts" and the preflight fails open on.
   process.env.RHYTHM_ACCOUNTS_FILE = path.join(runRoot, 'anthropic-accounts.json');
   process.env.RHYTHM_OPENAI_ACCOUNTS_FILE = path.join(runRoot, 'openai-accounts.json');
+  // Never read the host's real decision-router.json; an absent file means defaults. Tests that set their own keep it.
+  process.env.RHYTHM_DECISION_ROUTER_FILE ??= path.join(runRoot, 'decision-router.json');
   // The scheduler's wake gate shells out to `pmset` to decide whether a person
   // is at the machine. Without this pin, every scheduler test would pass or
   // fail depending on whether the developer's display happened to be asleep

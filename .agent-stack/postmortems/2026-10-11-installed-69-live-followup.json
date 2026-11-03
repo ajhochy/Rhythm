@@ -1,0 +1,322 @@
+{
+  "run_id": "2026-10-11-installed-69-live-followup",
+  "issue": "deliverables-completion",
+  "date": "2026-10-11",
+  "smoke_result": "fail",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "verification_scope_note": "No complete installed deliverable PASS was claimed. Individual bounded fixtures/component subchecks passed; full gates remained pending. Preserve failures and isolation incidents.",
+  "criteria_results": [
+    {
+      "criterion_id": "issue-deliverables-completion-c1",
+      "text": "Supported current-host qualification API publishes exact source/runtime/fixture/evaluator capability.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Bounded current installed API/engine observation; shared native data store prevents clean isolated-lane qualification."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c2",
+      "text": "Dayflow intended receiver admits only consent-qualified history.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Bounded current installed API/engine observation; shared native data store prevents clean isolated-lane qualification."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c3",
+      "text": "Revoked Dayflow consent holds new history with zero SDK/provider dispatch.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Bounded current installed API/engine observation; shared native data store prevents clean isolated-lane qualification."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c4",
+      "text": "Foreign Dayflow receiver holds new history with zero SDK/provider dispatch.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Bounded current installed API/engine observation; shared native data store prevents clean isolated-lane qualification."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c5",
+      "text": "Changed Dayflow history holds new content with zero SDK/provider dispatch.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Bounded current installed API/engine observation; shared native data store prevents clean isolated-lane qualification."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c6",
+      "text": "Unsafe Dayflow history holds new content with zero SDK/provider dispatch.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Bounded current installed API/engine observation; shared native data store prevents clean isolated-lane qualification."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c7",
+      "text": "Unenrolled authorized work proceeds without optional Dayflow history.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Owned unenrolled fixture passed; fresh ordinary native UI creation stores ownerNULL and refuses history_ambiguous before answer. Fixture omitted ordinary ownership wiring."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c8",
+      "text": "Automatic exhaustion reroutes and persists model, effort and account.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Bounded current installed API/engine observation; shared native data store prevents clean isolated-lane qualification."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c9",
+      "text": "Explicitly pinned routing stays unchanged on exhaustion.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Bounded current installed API/engine observation; shared native data store prevents clean isolated-lane qualification."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c10",
+      "text": "Unknown/NULL routing provenance stays unchanged on exhaustion.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Bounded current installed API/engine observation; shared native data store prevents clean isolated-lane qualification."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c11",
+      "text": "Corrupt routing state refuses with zero SDK/provider dispatch.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Bounded current installed API/engine observation; shared native data store prevents clean isolated-lane qualification."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c12",
+      "text": "Completed-before-delivery recovery and duplicates retain exactly one worker/result/model wake from a genuine completed receipt.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Full actual human-approved coding workflow NOT RUN/BLOCKED. Prose proposal, independent evaluator component and package identities are recorded separately and do not establish this criterion."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c13",
+      "text": "Fixture mutations require test-owned startup authority.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Bounded current installed API/engine observation; shared native data store prevents clean isolated-lane qualification."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c14",
+      "text": "Foreign owner cannot redirect qualification into another owner or user store.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Bounded current installed API/engine observation; shared native data store prevents clean isolated-lane qualification."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c15",
+      "text": "Stale runtime boot binding refuses fixture execution before dispatch.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Bounded current installed API/engine observation; shared native data store prevents clean isolated-lane qualification."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c16",
+      "text": "Normal chat one scoped proposal/genuine same-chat HUMAN approval.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Full actual human-approved coding workflow NOT RUN/BLOCKED. Prose proposal, independent evaluator component and package identities are recorded separately and do not establish this criterion."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c17",
+      "text": "Actual manager delegates actual sole coding worker/change/tests.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Full actual human-approved coding workflow NOT RUN/BLOCKED. Prose proposal, independent evaluator component and package identities are recorded separately and do not establish this criterion."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c18",
+      "text": "Independent trustworthy exact artifact verifier (worker prose/self-edited tests/hashes/signed candidate observations NOT enough).",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Full actual human-approved coding workflow NOT RUN/BLOCKED. Prose proposal, independent evaluator component and package identities are recorded separately and do not establish this criterion."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c19",
+      "text": "Readable original-chat durable result honest checks/limits.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Full actual human-approved coding workflow NOT RUN/BLOCKED. Prose proposal, independent evaluator component and package identities are recorded separately and do not establish this criterion."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c20",
+      "text": "Cancellation/stale/failed/revoked fail safely.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Full actual human-approved coding workflow NOT RUN/BLOCKED. Prose proposal, independent evaluator component and package identities are recorded separately and do not establish this criterion."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c21",
+      "text": "Observable criteria/feasibility before dispatch/bounded timeout honest partial/relevant identity reuse/one writer/nearest durable receipt, distinguish compliance vs guarantees.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Six currently loaded rules present; scoped criteria/honest feasibility hold observed. Dispatch/timeout/prior receipt/evidence reuse/sole writer behavior and universal engine guarantees NOT RUN."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c22",
+      "text": "Memory canonical sources/budget/body-free provenance/abstain revoked or irrelevant.",
+      "contract_status": "untested",
+      "smoke_status": "fail",
+      "category": "C3",
+      "notes": "Correct live relevance challenge: unrelated canonical note admitted on relevant intake/true continuation and displaced relevant sources. Canonical budgets/body-free provenance and limited irrelevant/retired fresh abstention passed. Contract manual criterion was pending; this does not imply an earlier full PASS claim."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c23",
+      "text": "Routing persist model/effort/account automatic exhaustion reroute; explicit pins and unknown/NULL unchanged; restart.",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Synthetic automatic/pin/NULL cases persisted across app relaunch; actual Grid model/effort/account/source and native reply persisted after supported child restart. Classifier/provider quality not proven; source/data identity limits explicit."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c24",
+      "text": "Finish missing Coordinator, package/install/test.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Full actual human-approved coding workflow NOT RUN/BLOCKED. Prose proposal, independent evaluator component and package identities are recorded separately and do not establish this criterion."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c25",
+      "text": "Unsupported limits Free coding/S3 resume-existing/real-provider quality/private Memory must stay explicit.",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Reports explicitly retain all four unsupported limits; no synthetic fixture promoted to general quality proof."
+    },
+    {
+      "criterion_id": "test-lane-native-data-isolation",
+      "text": "All actual durable engine data/auth/config/cache/state paths remain private before any synthetic dispatch.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "Fixture preflight asserted private API DB and config, but omitted independently derived native data/cache/state and API os.homedir fallback. Actual engine opened regular user DB;15 exact recorded test SDK sessions confirmed there. No normal baseline; effect on pre-existing data unknown. Stopped further tests."
+    },
+    {
+      "criterion_id": "coordinator-native-completion-status",
+      "text": "Completed native Coordinator assistant turn has accurate API/UI final status.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "Six live Memory replies and prose proposal finished native stop/no error, but specialized Coordinator API/UI marked interrupted/error. Normal WebSocket Grid reply ended idle. This is not actual coding-delivery criterion c19."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "native-data-isolation",
+      "description": "Engine durable data namespace was checked too late; API/config isolation did not isolate native SQLite or os.homedir-based fallback. Further tests stopped, no shared-store cleanup.",
+      "detected_by": "lsof exact PID75420; read-only exact15 private-test SDK IDs in regular engine DB; matching-source path derivation."
+    },
+    {
+      "process_category": "profile-authority",
+      "description": "Current workflow profile excludes four required bounded coding controls; narrow revision9-CAS patch prepared, permission request unanswered. Even approval cannot make current shared-engine lane eligible.",
+      "detected_by": "Actual profile allowmap/native loaded identity; no actionable proposal or worker tools."
+    },
+    {
+      "process_category": "dynamic-config-comparison",
+      "description": "Initial restart assertion compared refreshed catalog.fetchedAt with persistent config. Original false check retained; read-only qualification excludes only diagnostic timestamp.",
+      "detected_by": "admission-real-routing-after-runtime-restart.json and restart-config-qualification.json."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "failure-postmortem",
+      "project-state-updater"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W3",
+        "affected_skill": "failure-postmortem",
+        "description": "TodoWrite unavailable in enabled tool catalog; durable status/checklist substitute recorded in this postmortem.",
+        "detected_by": "Enabled tool inventory; same limitation in prior ordinary-chat receipt."
+      }
+    ]
+  },
+  "implementation_files": [],
+  "failure_output": "Dayflow provider guard held this request (history_ambiguous).\nMemory injected explicitly unrelated aquarium source.\nEngine regular data store open: /Users/ajhochhalter/.local/share/opencode/opencode.db.",
+  "overall_category": "C1",
+  "suggested_follow_up": "Require independent actual native durable-path preflight before dispatch, then repeat true normal-chat ownership, Memory relevance and approved Coordinator workflow gates in a fresh isolated launch.",
+  "follow_up_issue": null,
+  "follow_up_issue_note": "Request-only verification with no assigned GitHub issue; no external issue invented/published. Exact remaining action and findings recorded in canonical run/private reviewable reports.",
+  "sourceRevision": "a426383e08ea4a665837b1d2dea85c94563393cd",
+  "runtime": {
+    "engine": {
+      "port": 4096,
+      "pid": 75420,
+      "bootId": "d0646ea0-2fb4-49c8-8055-8bf1c5941928",
+      "version": "0.0.0-rhythm-a426383e08ea4a665837b1d2dea85c94563393cd",
+      "status": "ready",
+      "bridgeLive": true
+    },
+    "api": {
+      "port": 4001
+    },
+    "remoteOverride": null
+  },
+  "appPid": 73609,
+  "apiPid": 75368,
+  "evidence": [
+    "/Users/ajhochhalter/Documents/Codex/2026-10-10/rhythm-deliverables-completion/qualification-69-live-evidence-report.md",
+    "/Users/ajhochhalter/Documents/Codex/2026-10-10/rhythm-deliverables-completion/admission-engine-data-isolation-incident.json",
+    "/Users/ajhochhalter/Documents/Codex/2026-10-10/rhythm-deliverables-completion/admission-memory-independent-qualification.json",
+    "/Users/ajhochhalter/Documents/Codex/2026-10-10/rhythm-deliverables-completion/admission-grid-current-root-live-result.json",
+    "/Users/ajhochhalter/Documents/Codex/2026-10-10/rhythm-deliverables-completion/admission-real-routing-restart-config-qualification.json",
+    "/Users/ajhochhalter/Documents/Codex/2026-10-10/rhythm-deliverables-completion/admission-post-restart-instruction-identities.json"
+  ],
+  "limits": [
+    "No product fix or additional model/native fixture mutation after isolation discovery.",
+    "No full coding workflow or general provider/private Memory quality acceptance.",
+    "No regular-engine data baseline; user data effects not fully established.",
+    "Fresh launch command/public fixture prepared, not executed; pending narrow tool authority and later genuine human approval remain separate."
+  ],
+  "completion_checklist": {
+    "contract_read": true,
+    "criteria_compared": true,
+    "failures_classified": true,
+    "process_reviewed": true,
+    "workflow_reviewed": true,
+    "postmortem_written": true,
+    "failure_patterns_updated": true,
+    "follow_up_issue_filed": false,
+    "summary_recorded": true
+  }
+}

@@ -16,7 +16,8 @@ vi.mock('../services/opencode_engine', () => ({
   opencodeSessionMap: new Map(),
 }));
 
-vi.mock('../config/env', () => ({
+vi.mock('../config/env', async () => ({
+  ...(await import('../__tests__/helpers/opencode_paths_mock')).opencodePathMocks,
   env: {
     agentLocal: true,
     agentExecutionEnabled: true,

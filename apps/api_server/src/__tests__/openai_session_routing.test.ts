@@ -175,7 +175,8 @@ describe('POST /agent-sessions — openai account resolution', () => {
     expect(status).toBe(201);
     expect(body.openaiAccountId).toBe('home');
     expect(repo.findById(body.id)!.openaiAccountId).toBe('home');
-    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-session-1', 'home');
+    // Explicit body pick is a pin (pinned-account fallback, 26bb1ff3).
+    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-session-1', 'home', { pinned: true });
     expect(JSON.parse(readFileSync(accountsPath, 'utf8')).routing).toEqual({ 'sdk-session-1': 'home' });
   });
 
@@ -188,7 +189,7 @@ describe('POST /agent-sessions — openai account resolution', () => {
     expect(cfgRepo.getById('tester')!.defaultOpenaiAccountId).toBe('home');
     const { body } = await req('POST', '/agent-sessions', { agentId: 'tester', cwd: os.homedir(), name: 'P' });
     expect(body.openaiAccountId).toBe('home');
-    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-session-1', 'home');
+    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-session-1', 'home', { pinned: true });
   });
 
   it('store default fallback; empty store → null and no routing', async () => {
@@ -218,7 +219,7 @@ describe('PATCH /agent-sessions/:id — switch openai account', () => {
     const ok = await req('PATCH', `/agent-sessions/${session.id}`, { openaiAccountId: 'home' });
     expect(ok.status).toBe(200);
     expect(ok.body.openaiAccountId).toBe('home');
-    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-sw', 'home');
+    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-sw', 'home', { pinned: true });
     expect((await req('PATCH', `/agent-sessions/${session.id}`, { openaiAccountId: 'ghost' })).status).toBe(400);
     expect((await req('PATCH', `/agent-sessions/${session.id}`, { openaiAccountId: null })).status).toBe(400);
     expect(repo.findById(session.id)!.openaiAccountId).toBe('home');
@@ -232,6 +233,8 @@ describe('POST /opencode/spillover — providerID openai', () => {
     const session = repo.insert({
       agentKind: 'claude-code', taskId: null, taskTitle: null, cwd: os.homedir(), name: 'Spill',
       anthropicAccountId: 'team', openaiAccountId: 'work',
+      // Spillover only moves router-chosen accounts; explicit/unknown provenance → 202.
+      anthropicAccountSource: 'router', openaiAccountSource: 'router',
     });
     repo.setSdkSessionId(session.id, 'sdk-oa-spill');
     const { status } = await req('POST', '/opencode/spillover', {
@@ -241,7 +244,7 @@ describe('POST /opencode/spillover — providerID openai', () => {
     const updated = repo.findById(session.id)!;
     expect(updated.openaiAccountId).toBe('home');
     expect(updated.anthropicAccountId).toBe('team');
-    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-oa-spill', 'home');
+    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-oa-spill', 'home', { pinned: false });
     expect(anthropicRoutingSpy).not.toHaveBeenCalled();
     expect(broadcasts.find((b) => b.type === 'session.spillover')).toMatchObject({
       sessionId: session.id, fromAccountId: 'work', toAccountId: 'home', providerID: 'openai',
@@ -252,11 +255,12 @@ describe('POST /opencode/spillover — providerID openai', () => {
     const session = repo.insert({
       agentKind: 'claude-code', taskId: null, taskTitle: null, cwd: os.homedir(), name: 'A',
       anthropicAccountId: 'team', openaiAccountId: 'work',
+      anthropicAccountSource: 'router', openaiAccountSource: 'router',
     });
     repo.setSdkSessionId(session.id, 'sdk-a-spill');
     await req('POST', '/opencode/spillover', { sdkSessionId: 'sdk-a-spill', fromAccountId: 'team', toAccountId: 'personal' });
     expect(repo.findById(session.id)).toMatchObject({ anthropicAccountId: 'personal', openaiAccountId: 'work' });
-    expect(anthropicRoutingSpy).toHaveBeenCalledWith('sdk-a-spill', 'personal');
+    expect(anthropicRoutingSpy).toHaveBeenCalledWith('sdk-a-spill', 'personal', { pinned: false });
     expect(setRoutingSpy).not.toHaveBeenCalled();
     expect(broadcasts.find((b) => b.type === 'session.spillover')).not.toHaveProperty('providerID');
   });

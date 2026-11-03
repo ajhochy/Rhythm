@@ -1,0 +1,156 @@
+{
+  "issue": "C1",
+  "date": "2026-10-01",
+  "test_command": "HOME=/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/c1-manual-trigger-home-20261001 AGENT_SCHEDULER_IGNORE_POWER_STATE=1 npm exec --workspace=rhythm-api-server --no -- vitest run src/__tests__/regressions_manual_trigger_contract.test.ts src/__tests__/regressions_manual_trigger_live.test.ts src/__tests__/agent_schedules_trigger_now_contract.test.ts src/__tests__/scheduler_dispatch_contract.test.ts src/__tests__/issue_739_scheduler_agent_runner.test.ts src/__tests__/issue_1214_scheduler_quarantine.test.ts src/__tests__/scheduler_wake_gate.test.ts src/__tests__/r3_scheduled_engine_readiness.test.ts src/__tests__/issue_1222_startup_burst_engine_wait.test.ts src/__tests__/scheduled_task_stale_running_reaper.test.ts src/__tests__/scheduled_run_status_classifier.test.ts --maxWorkers=1 && HOME=/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/c1-manual-trigger-home-20261001 npm exec --prefix apps/web --no -- playwright test --config apps/web/tests/regressions-manual-trigger-playwright.config.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-c1-c1",
+      "text": "Exact action produces one POST and one run/session",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Real API/engine deduplication and one durable run/root/assistant passed. The literal installed Org Optimize → Run Now component, request origin/build, and exactly one installed UI POST remain unverified."
+    },
+    {
+      "criterion_id": "task-c1-c2",
+      "text": "disabled recurrence remains disabled while explicit supported manual run executes",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/regressions_manual_trigger_live.test.ts",
+      "status": "pass",
+      "reason": "Latest combined real API/engine core passed with disabled recurrence retained through queued, running, terminal and reopened state. Historical three-gap failures were replaced by separately executed auth/provider/browser gates; see combined recovery receipt."
+    },
+    {
+      "criterion_id": "task-c1-c3",
+      "text": "queued/running/terminal persists and reconnect/reopen shows it",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/regressions_manual_trigger_live.test.ts",
+      "status": "pass",
+      "reason": "Real API persisted queued/running/terminal and fresh reopen. Live Chromium browser reconnect/reload against the same sandbox passed 1/1 in 53.4 seconds. Installed packaged UI remains separate."
+    },
+    {
+      "criterion_id": "task-c1-c4",
+      "text": "duplicate request joins existing in-flight attempt",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/regressions_manual_trigger_live.test.ts",
+      "status": "pass",
+      "reason": "Unique controlled provider hold, real API/engine, and early/running duplicate checks yielded one provider request/run/root and durable completed assistant. Latest provider gate took 141.09 seconds; see combined recovery receipt."
+    },
+    {
+      "criterion_id": "task-c1-c5",
+      "text": "unavailable/retired/locked/permission failures visible",
+      "mode": "ui",
+      "test": "apps/web/tests/regressions-manual-trigger.spec.ts",
+      "status": "pass",
+      "reason": "Real mobile gateway missing/invalid/non-owner authorization rejection preserved task/run/root. Controlled provider 401 now persists failed run/root with actionable non-disclosing error; its live test passed 1/1 after C3 repair. Rendered error and retry cases pass; installed failure UI remains unverified."
+    },
+    {
+      "criterion_id": "task-c1-c6",
+      "text": "normal scheduler unchanged",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/scheduler_dispatch_contract.test.ts",
+      "status": "pass",
+      "reason": "Scheduler compatibility source tests and prior broad API suite passed; fresh combined core/auth/provider gates passed. This does not assert all optional recurring live paths, full web suite, or final signed package."
+    },
+    {
+      "criterion_id": "task-c1-repair-poll",
+      "text": "Separate nonfatal refresh error retaining last-known inspector/progress, clear on next success; accessible stale/retrying info and preserve manual-refresh affordance.",
+      "mode": "ui",
+      "test": "apps/web/tests/regressions-manual-trigger.spec.ts",
+      "status": "pass",
+      "reason": "C1 repair polling failure retains inspector/progress and recovers with manual refresh: failed GET renders role=status stale/retrying/Refresh; running content retained; manual next successful read clears stale error and visibly renders failed terminal/model repair text. Nine repair tests failed before implementation; final 15 rendered tests PASS."
+    },
+    {
+      "criterion_id": "task-c1-repair-task-isolation",
+      "text": "Key rendered pending+errors by task, remove ONLY completing task. Exactly1 POST per task while queued/running; no cross-task stale result/error.",
+      "mode": "ui",
+      "test": "apps/web/tests/regressions-manual-trigger.spec.ts",
+      "status": "pass",
+      "reason": "Fresh independent rendered selection (14 cases) includes both A/B completion orders: completing one leaves other pending/error intact; each error task-specific; exactly one POST each. Predecessor fixture case preserves duplicate suppression/reopen. Intercepted HTTP only, not live UI or package proof."
+    },
+    {
+      "criterion_id": "task-c1-repair-live-status",
+      "text": "mounted live status region updates immediately on click,aria-busy context,clear announcement when queued/failed,correct focus.",
+      "mode": "ui",
+      "test": "apps/web/tests/regressions-manual-trigger.spec.ts",
+      "status": "pass",
+      "reason": "Fresh independent rendered execution confirms mounted status before click, Enter Queueing/aria-busy, repeat Space suppression, alert/focus retention, successful Space retry/queued/error clearing. DOM semantics and programmatic focus only; not Tab reachability, computed focus visibility, speech certification, real reconnect or package qualification."
+    },
+    {
+      "criterion_id": "task-c1-repair-network",
+      "text": "network/401/403/503 actionable safe next step. Ambiguous network failure may have accepted run: reconcile durable schedule/runs before allowing blind retry, don't duplicate; safe non-disclosing auth/404,model/config errors preserved.",
+      "mode": "ui",
+      "test": "apps/web/tests/regressions-manual-trigger.spec.ts",
+      "status": "pass",
+      "reason": "Fresh independent rendered execution: aborted accepted POST remains disabled with may-have-been-accepted/Refresh until queued reconciliation; exactly one POST. 401/403/404/503 next-step matrix masks synthetic SECRET and second keyboard attempt succeeds; 400 retired/locked feedback preserved. Terminal-history-only/unknown-empty reconciliation and actual hosted/provider failures remain unqualified. Intercepted HTTP is not real runtime proof."
+    },
+    {
+      "criterion_id": "task-c1-repair-visual",
+      "text": "Produce durable screenshot under docs/ai/artifacts/... using safe synthetic browser fixture",
+      "mode": "ui",
+      "test": "apps/web/tests/regressions-manual-trigger.spec.ts",
+      "status": "pass",
+      "reason": "Polling recovery test asserts visible failed progress and synthetic intercepted healthy receipt, then captures docs/ai/artifacts/c1-manual-trigger-20261001/recovered-failed.png. Image read and inspected: selected synthetic schedule, recurrence disabled, failed/model repair text, Refresh and Trigger now. No native/contrast/actual healthy runtime claim."
+    }
+  ],
+  "not_tested": [
+    "task-c1-c1"
+  ],
+  "live_proof_repair": {
+    "receipt": "docs/ai/runs/2026-10-01-c1-live-proof-repair.md",
+    "status": "EXECUTED_PARTIAL_9_PASS_3_EVIDENCE_GAPS",
+    "product_defect_established": false,
+    "production_patch": "FROZEN; repair counter unchanged",
+    "runtime_owner": "Independent C1+C2 verifier exercised sole transferred ownership; sandbox/provider stopped and ports freed; ownership returned to manager",
+    "harness_command": "npm exec --no -- vitest run src/__tests__/regressions_manual_trigger_live.test.ts -t 'C1 evidence falsification' --maxWorkers=1",
+    "live_command": "npm exec --no -- vitest run src/__tests__/regressions_manual_trigger_live.test.ts --maxWorkers=1",
+    "command_workdir": "apps/api_server in the explicit C1 isolated worktree; use manager-owned sandbox environment from receipt",
+    "remaining_gate": "Full live command actually failed only three explicit missing-evidence placeholders: schedule auth/mobile-owner, unavailable model/provider/quarantine, actual UI reconnect. No placeholder removed/filtered/skipped. Installed Org Optimize attribution/smoke and final integrated Mega checks remain pending."
+  },
+  "live_gap_evidence": {
+    "report": "docs/ai/runs/2026-10-01-c1-live-gap-evidence.md",
+    "head": "9b3115ff7d4dcf0b3ee4b5f60ca1781366a96c3f",
+    "status": "BLOCKED_PRODUCT_PROVIDER_FALSE_COMPLETION",
+    "source_repair": "NONE; original 8675-file source/test/helper/manifest map unchanged",
+    "repair_counter": "UNCHANGED",
+    "auth_test": "apps/api_server/src/__tests__/c1_gap_auth_live.test.ts",
+    "auth_result": "ACTUAL_PASS_1; three negative credential classes at genuine mobile schedule boundary, not hosted bearer qualification",
+    "provider_test": "apps/api_server/src/__tests__/c1_gap_provider_live.test.ts",
+    "provider_result": "ACTUAL_FAIL_1; controlled nonretryable401 misclassified completed_no_op before teardown",
+    "ui_result": "NOT_RUN_AFTER_PRODUCT_STOP; original explicit failing placeholder retained",
+    "quarantine": "Postgres deployment-only source policy; no approved disposable PG URL/ownership available, no live PG claim",
+    "raw_evidence": "/private/tmp/rhythm-c1-gap-evidence-20261001-owned",
+    "new_product_defect_established": true,
+    "runtime_stopped": true
+  },
+  "integrated_candidate_reverification": {
+    "date": "2026-10-01",
+    "branch": "opencode/delivery-manual-trigger-20261001",
+    "head": "9b3115ff7d4dcf0b3ee4b5f60ca1781366a96c3f",
+    "candidate": "HEAD plus frozen uncommitted C1 patch; not final Mega commit",
+    "status": "FAIL_REQUIRED_EVIDENCE_GAPS",
+    "report": "docs/ai/runs/2026-10-01-c1-c2-integrated-runtime-verification.md",
+    "raw_evidence": "/private/tmp/rhythm-c1-c2-verification-20261001-owned",
+    "c1_live_passed": 9,
+    "c1_live_failed": 3,
+    "c1_live_skipped": 0,
+    "c2_sqlite_passed": 8,
+    "c2_live_passed": 2,
+    "full_api_passed": 7093,
+    "full_api_skipped": 297,
+    "rendered_intercepted_passed": 14,
+    "rendered_excluded": "One screenshot-writing polling case excluded to preserve readonly artifact; not a fresh 15-case or full-web pass",
+    "all_source_test_manifest_hashes_unchanged": true,
+    "source_inventory_files": 8675,
+    "source_inventory_sha256": "ffe9d33311c48f05a85dbf286ba3f3458aafc82422e1720f47c44de9abf1b208",
+    "prior_null_profile_barrier": "No longer reproduced; actual root binds config.id separately from config.ocAgent=build",
+    "new_product_defect_established": false,
+    "full_web_packaged_postgres_and_graph_gate": "Not closed; see report",
+    "runtime_stopped": true
+  },
+  "recovery_reverification": {
+    "date": "2026-10-01",
+    "receipt": "docs/ai/runs/2026-10-01-memory-recovery-integration.md",
+    "scope": "Real core+auth 10/10, controlled provider 401 1/1 (141.09s), live Chromium reconnect/reload 1/1 (53.4s). Historical three-gap evidence retained; installed literal click pending."
+  }
+}

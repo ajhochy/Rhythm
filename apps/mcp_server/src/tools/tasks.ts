@@ -17,6 +17,8 @@ import {
 import { trustedSecurityContext } from "../security/security_context.js";
 import { untrustedContext } from "../untrusted_context.js";
 
+const EXACT_TASK_MAX_BYTES = 65_536;
+
 function listNotes(notes: unknown): unknown {
   if (typeof notes !== "string" || notes.length <= 200) return notes;
   return `${notes.slice(0, 200)}… +${notes.length - 200} chars; fetch task by id for full notes.`;
@@ -36,6 +38,27 @@ function listTask(task: unknown) {
   };
 }
 
+function exactTask(task: unknown) {
+  const value = task as Record<string, unknown>;
+  const sourceType = typeof value.sourceType === "string" ? value.sourceType : null;
+  return {
+    id: value.id,
+    title: value.title,
+    status: value.status,
+    notes: value.notes,
+    scheduledDate: value.scheduledDate,
+    dueDate: value.dueDate,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+    source: {
+      type: sourceType,
+      id: value.sourceId ?? null,
+      name: value.sourceName ?? null,
+      readOnly: sourceType === "calendar_shadow_event" || sourceType === "prod_mirror",
+    },
+  };
+}
+
 export function registerTaskTools(
   server: McpServer,
   apiUrl: string,
@@ -45,7 +68,9 @@ export function registerTaskTools(
   registerTool(
     server,
     "rhythm_list_tasks",
-    "List tasks with optional filters. Returns open tasks by default. " +
+    "List tasks with optional filters, or read one authoritative task by exact id. " +
+      "Exact-id mode uses the authenticated task detail endpoint, returns full notes, and ignores list filters. " +
+      "List mode returns open tasks by default. " +
       "Each task has two date fields with distinct meanings: scheduledDate is the intended work date — " +
       "when the task should be started or completed in normal workflow; dueDate is the hard external deadline — " +
       'a commitment to someone else or a fixed event. Use scheduled_before to answer "what should I be working ' +
@@ -61,6 +86,13 @@ export function registerTaskTools(
       "dueDate (hard external deadline; drives past-deadline state), " +
       "createdAt, updatedAt. Search is a ranked full-text match over task title and notes.",
     {
+      id: z
+        .string()
+        .trim()
+        .min(1)
+        .max(256)
+        .optional()
+        .describe("Exact hosted Rhythm task ID. Uses GET /tasks/:id and ignores list filters."),
       status: z
         .enum(["open", "done", "all"])
         .optional()
@@ -97,6 +129,7 @@ export function registerTaskTools(
     },
     async (
       {
+        id,
         status = "open",
         due_before,
         scheduled_before,
@@ -104,6 +137,7 @@ export function registerTaskTools(
         search,
         limit = 50,
       }: {
+        id?: string;
         status?: string;
         due_before?: string;
         scheduled_before?: string;
@@ -114,6 +148,40 @@ export function registerTaskTools(
       extra,
     ) => {
       try {
+        if (id !== undefined) {
+          const task = exactTask(
+            await apiGet<unknown>(
+              apiUrl,
+              apiToken,
+              `/tasks/${encodeURIComponent(id.trim())}`,
+            ),
+          );
+          const label = "user-authored Rhythm task";
+          const rawContent = JSON.stringify(task);
+          if (Buffer.byteLength(rawContent, "utf8") > EXACT_TASK_MAX_BYTES) {
+            return toolError(
+              new Error(
+                `Authoritative task content exceeds the ${EXACT_TASK_MAX_BYTES}-byte exact-task limit; ` +
+                  "ask the user to narrow the task notes before retrying.",
+              ),
+            );
+          }
+          const ingress = await scanContextContentAndRecordExternalContentTaint({
+            agentUrl,
+            context: trustedSecurityContext(extra),
+            source: "task.list",
+            label,
+            rawContent,
+          });
+          if (ingress.blocked) {
+            return {
+              content: [{ type: "text" as const, text: ingress.text }],
+              isError: true as const,
+            };
+          }
+          return toolResult(ingress.text);
+        }
+
         const params = new URLSearchParams();
         if (status !== "all") params.set("status", status);
         if (due_before) params.set("due_before", due_before);

@@ -35,7 +35,7 @@ test('E22-c7 real profile/session UI settings readback; safely intercept turn fr
     const persistedProfile = await (await client.get(`/agent-configs/${profileId}`)).json();
     expect(persistedProfile).toMatchObject({ label: `${label}-edited`, corePermissionsJson: '{"bash":{"*":"ask","git status":"allow"}}', autoApproveActions: false });
     await page.getByRole('button', { name: 'Switch surface' }).click();
-    await page.getByTestId('session-actions').click(); await page.getByTestId('session-actions-settings').click();
+    await page.getByTestId('session-actions').click(); await page.getByTestId('session-actions-secondary').click(); await page.getByTestId('session-actions-session-defaults').click();
     const dialog = page.getByTestId('session-settings-dialog');
     await dialog.locator('[name=name]').fill(`${label}-settings`); await dialog.locator('[name=thinking]').fill('4096');
     await dialog.locator('[name=permission]').selectOption('plan'); await dialog.locator('[name=fast]').check();
@@ -51,7 +51,7 @@ test('E22-c7 real profile/session UI settings readback; safely intercept turn fr
       await page.getByTestId('composer-model').selectOption(`${second.provider}/${second.modelId}`); await page.getByTestId('model-this-turn').click();
       for (const text of ['E22 intercepted turn', 'E22 intercepted default']) { await page.getByTestId('composer-input').fill(text); await page.getByTestId('composer-input').press('Enter'); }
       await expect.poll(() => frames.length).toBe(2);
-      expect(frames[0]).toMatchObject({ agent: persistedProfile.ocAgent || profileId, modelOverride: { providerId: second.provider, modelId: second.modelId } });
+      expect(frames[0]).toMatchObject({ profileId, agent: persistedProfile.ocAgent || profileId, modelOverride: { providerId: second.provider, modelId: second.modelId } });
       expect(frames[1]).toMatchObject({ modelOverride: { providerId: first.provider, modelId: first.modelId } }); expect(frames[1].agent).toBeUndefined();
       console.log('E22 LIVE: profile/session create-update-readback; two intercepted input frames verified; zero provider prompts forwarded.');
     } else {

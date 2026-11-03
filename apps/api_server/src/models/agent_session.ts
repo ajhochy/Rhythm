@@ -102,6 +102,14 @@ export interface AgentSession {
   projectId: string | null;
   providerId: string | null;
   modelId: string | null;
+  /**
+   * 'auto' = the router picks the model each turn; providerId/modelId are only
+   * the fallback baseline. 'fixed' = the stored model is a pin. Legacy rows are 'fixed'.
+   */
+  modelMode: SessionModelMode;
+  /** ISO time the decision router last applied a pick (auto sessions); null = not routed yet. */
+  routerDecidedAt: string | null;
+  routerVariant: string | null;
   agentMode: string | null;
   permissionMode: PermissionMode;
   /** Server-owned proof that a human selected bypassPermissions for this chat. */
@@ -143,8 +151,10 @@ export interface AgentSession {
    * Null = engine default. Updated in place on rate-limit spillover.
    */
   anthropicAccountId: string | null;
+  anthropicAccountSource: 'router' | 'pinned' | null;
   /** OpenAI (ChatGPT) account this session's OpenAI requests route to (openai-accounts.json routing). Null = store default. */
   openaiAccountId: string | null;
+  openaiAccountSource: 'router' | 'pinned' | null;
   /** Owner used for owner-scoped agent memory. Null means instance-global only. */
   ownerUserId: number | null;
   /** Delegation nesting depth for rhythm_delegate-created runs. Root sessions default to 0. */
@@ -166,10 +176,18 @@ export interface AgentSession {
   worktreeBranch: string | null;
 }
 
+export type SessionModelMode = 'auto' | 'fixed';
+
+/** Coerce any stored/received value to a valid mode; invalid → 'fixed'. */
+export function normalizeSessionModelMode(value: unknown): SessionModelMode {
+  return value === 'auto' ? 'auto' : 'fixed';
+}
+
 export interface UpdateAgentSessionDto {
   name?: string;
   providerId?: string | null;
   modelId?: string | null;
+  modelMode?: SessionModelMode;
   agentMode?: string | null;
 }
 
@@ -213,6 +231,8 @@ export interface CreateAgentSessionDto {
   cwd: string;
   name: string;
   projectId?: string | null;
+  /** Model mode stamped at creation. Omitted = 'fixed' (only the interactive POST defaults to 'auto'). */
+  modelMode?: SessionModelMode;
   /** Session-scoped permission policy selected by the client. */
   permissionMode?: PermissionMode;
   /** Set only by the interactive session controller; all other callers omit it. */
@@ -234,8 +254,10 @@ export interface CreateAgentSessionDto {
   isSystem?: boolean;
   /** Dual Anthropic accounts (Task D) — resolved account id (body → profile → store default). Null = engine default. */
   anthropicAccountId?: string | null;
+  anthropicAccountSource?: 'router' | 'pinned' | null;
   /** OpenAI (ChatGPT) account — same resolution chain as anthropicAccountId. */
   openaiAccountId?: string | null;
+  openaiAccountSource?: 'router' | 'pinned' | null;
   /** Owner used for owner-scoped agent memory. Null means instance-global only. */
   ownerUserId?: number | null;
   /** Delegation nesting depth. Root sessions default to 0. */

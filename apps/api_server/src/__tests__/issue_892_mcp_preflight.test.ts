@@ -85,6 +85,18 @@ describe('#892 — AgentRunner MCP-auth preflight', () => {
     expect(mockCreateSession).toHaveBeenCalledOnce();
   });
 
+  it('allows a configured idle MCP server to connect during the scoped session', async () => {
+    mockListMcp.mockResolvedValue({ 'pco-services': { status: 'configured' } });
+
+    const result = await run({
+      prompt: 'Check staffing',
+      mcpRole: 'worship-planning',
+      allowedMcpsJson: '{"pco-services":["get_plans"]}',
+    });
+
+    expect(result.status).not.toBe('error');
+  });
+
   it('fails open (does not block the run) when the readiness check itself throws', async () => {
     mockListMcp.mockRejectedValue(new Error('engine unavailable'));
 

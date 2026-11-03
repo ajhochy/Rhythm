@@ -7,11 +7,11 @@ import {
   agentConfigExecutionBlockReason,
 } from '../repositories/agent_configs_repository';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
+import { isOrgReviewerSession, taskScopeForSession } from './opencode_client_service';
 import { bridgePty, ptyEngineUrl } from './pty_proxy';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
-import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
+import { prepareAutomaticMemoryPreface } from './automatic_memory_preface';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
-import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
 import { isAllowedLocalAgentSurfaceRequest } from '../middleware/local_agent_surface_guard';
 import { resolveLocalOrCloudBearer } from '../middleware/auth_middleware';
 import { resolveProfileScope } from './agent_profile_scope';
@@ -27,6 +27,8 @@ import {
   type ReservedTreatmentPreparation,
 } from './org_proposal_experiment_service';
 import type { ExperimentEnrollment } from '../models/agent_org_experiment_enrollment';
+import { normalizePartAttachments } from './attachment_hosting';
+import { webHostOwner } from './web_host';
 
 export interface WsMessage {
   v: 1;
@@ -35,7 +37,10 @@ export interface WsMessage {
 }
 
 const clients = new Set<WebSocket>();
+const attachmentActors = new WeakMap<WebSocket, number>();
 const inputFrameTails = new Map<string, Promise<void>>();
+const MAX_AGENT_WS_PAYLOAD_BYTES = 20 * 1024 * 1024;
+const MAX_AGENT_WS_PARTS_BYTES = MAX_AGENT_WS_PAYLOAD_BYTES - 4096;
 let attached = false;
 
 function isLoopbackAddress(address: string | undefined): boolean {
@@ -99,7 +104,7 @@ export function attachWsGateway(
   // noServer mode: a single server.on('upgrade') handler (below) routes
   // upgrade requests to the agents WSS (/ws/agents) or the PTY proxy WSS
   // (/ws/pty/<id>). The agents `connection` behavior is unchanged.
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_AGENT_WS_PAYLOAD_BYTES });
 
   wss.on('connection', (ws) => {
     clients.add(ws);
@@ -173,7 +178,12 @@ export function attachWsGateway(
       return;
     }
     if (legacyAgentSocket) {
-      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+      const token = req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1].trim();
+      const actor = token ? await resolveLocalOrCloudBearer(token) : webHostOwner();
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        if (actor) attachmentActors.set(ws, actor.id);
+        wss.emit('connection', ws, req);
+      });
       return;
     }
     if (legacyPtyMatch) {
@@ -344,6 +354,14 @@ export async function handleInputFrame(
   let partsToForward: Array<Record<string, unknown>> | undefined;
 
   if (Array.isArray(partsInput) && partsInput.length > 0) {
+    // Count the whole parts array, not only each file URL: several valid files
+    // can otherwise exceed the socket budget together before normalization.
+    if (Buffer.byteLength(JSON.stringify(partsInput), 'utf8') > MAX_AGENT_WS_PARTS_BYTES) {
+      if (id) ws.send(JSON.stringify({ v: 1, type: 'error', id,
+        message: 'combined attachments exceed the 20 MiB WebSocket message size limit. Reduce or remove files and try again.',
+      }));
+      return;
+    }
     // OPC-M4-1 size guard: reject payloads with oversized file data URIs.
     const kMaxBytes = 20 * 1024 * 1024; // 20 MB
     for (const p of partsInput) {
@@ -407,6 +425,11 @@ export async function handleInputFrame(
   const perTurnAgent = typeof msg.agent === 'string' && msg.agent.length > 0
     ? msg.agent
     : null;
+  // The profile is a Rhythm config id; `agent` is only an OpenCode engine name.
+  // Several profiles can use the same engine name (for example `build`).
+  const perTurnProfileId = typeof msg.profileId === 'string' && msg.profileId.trim().length > 0
+    ? msg.profileId.trim()
+    : null;
   // Server-only scope override for callers that already resolved a stored
   // Rhythm profile. This is deliberately separate from the client frame so a
   // request cannot self-assert trusted profile scope or replace engine
@@ -418,13 +441,25 @@ export async function handleInputFrame(
   if (!id || typeof data !== 'string') {
     return;
   }
+  if (msg.profileId !== undefined && perTurnProfileId === null) {
+    ws.send(JSON.stringify({ v: 1, type: 'error', id, message: 'Selected profile ID is invalid.' }));
+    return;
+  }
+
+  // Auto (router) model mode for THIS turn. The session row is authoritative;
+  // a valid `modelMode` on the frame overrides it for this turn only (never
+  // persisted — clients PATCH the session to change the stored mode).
+  const frameModelMode =
+    msg.modelMode === 'auto' || msg.modelMode === 'fixed' ? msg.modelMode : null;
 
   let opencodeId = opencodeSessionMap.get(id);
   let cwd: string | undefined;
   let agentKind: string | undefined;
+  let sessionProfileId: string | null = null;
   let sessionName: string | undefined;
   let sessionProviderId: string | null = null;
   let sessionModelId: string | null = null;
+  let sessionModelMode: 'auto' | 'fixed' = 'fixed';
   let sessionThinkingBudget: number | null = null;
   let sessionFastMode = false;
   let sessionOwnerUserId: number | null = null;
@@ -436,21 +471,44 @@ export async function handleInputFrame(
   // approval while openrouter free sessions (chat-only, no tool calls)
   // appear to "work" because they never trigger tool-use at all.
   let sessionPermissionMode: PermissionMode = 'default';
+  let attachmentSession: import('../models/agent_session').AgentSession | null = null;
+  let sessionLookupFailed = false;
   try {
     const session = new AgentSessionsRepository().findById(id);
     if (session) {
+      attachmentSession = session;
       cwd = session.cwd;
       agentKind = session.agentKind;
+      sessionProfileId = session.profileId;
       sessionName = session.name;
       sessionProviderId = session.providerId;
       sessionModelId = session.modelId;
+      sessionModelMode = session.modelMode === 'auto' ? 'auto' : 'fixed';
       sessionThinkingBudget = session.thinkingBudget ?? null;
       sessionFastMode = session.fastMode ?? false;
       sessionOwnerUserId = session.ownerUserId ?? null;
       sessionPermissionMode = session.permissionMode ?? 'default';
     }
   } catch {
-    /* DB unavailable — proceed without context */
+    sessionLookupFailed = true;
+  }
+  if (sessionLookupFailed || (!attachmentSession && opencodeId)) {
+    ws.send(JSON.stringify({ v: 1, type: 'error', id, message: 'Session identity is unavailable.' }));
+    return;
+  }
+
+  if (partsToForward?.some((part) => part.type === 'file')) {
+    try {
+      partsToForward = await normalizePartAttachments(partsToForward, attachmentSession ?? { id, projectId: null }, attachmentActors.get(ws));
+    } catch (error) {
+      ws.send(JSON.stringify({ v: 1, type: 'error', id, message: error instanceof Error ? error.message : 'Attachment unavailable.' }));
+      return;
+    }
+  }
+
+  if (attachmentSession?.sdkSessionId) {
+    try { await opencodeClient.assertDayflowSdkHistoryMayBeReused(attachmentSession.sdkSessionId); }
+    catch { ws.send(JSON.stringify({v:1,type:'error',id,message:'SDK history is withheld because Dayflow dependencies changed.'})); return; }
   }
 
   // OPC-M1-4: If the session is in status='error', clear the error
@@ -490,35 +548,51 @@ export async function handleInputFrame(
     return;
   }
 
-  // #765 — Resolve profile scope (model + MCP config) for the profile that
-  // ACTUALLY drives this turn.
-  //
-  // The interactive create path (POST /agent-sessions, agents_view.dart) makes
-  // agent-LESS sessions (agentId:null → agent_kind '' or a base kind like
-  // 'claude-code'). The real profile (e.g. 'secretary') is picked per-turn in
-  // the composer and arrives on the frame as `agent` (perTurnAgent). Resolving
-  // scope from the row's stored agentKind therefore loses the chosen profile's
-  // MCP restriction entirely (base kinds carry no allowed_mcps_json → null
-  // config → ALL tools). We must prefer the per-turn picked profile, falling
-  // back to the session's agentKind only when no per-turn agent was sent.
-  //
-  // No override is passed (undefined) so the helper derives MCP scope from the
-  // resolved profile's own allowed_mcps_json column — giving interactive
-  // sessions the same MCP restriction the scheduled path enforces. This must
-  // happen BEFORE any createSession call so the mcpRoleConfig is available for
-  // init-time scoping. Non-fatal: a missing/unknown profile id returns null
-  // mcpRoleConfig (no restriction).
-  const scopeAgentId = trustedScopeAgent ?? perTurnAgent ?? agentKind ?? null;
+  // Rhythm profile IDs own model/tool/skill policy; `agent` and agentKind are
+  // OpenCode execution names. A disabled config named `build` must not shadow
+  // an enabled session profile whose ocAgent is also `build`. Explicit profile
+  // switches carry profileId. Older clients sometimes put a profile ID in
+  // `agent`: recognize only an unambiguous ID whose engine name differs.
+  let legacyCanonicalProfileId: string | null = null;
+  if (!perTurnProfileId && perTurnAgent && perTurnAgent !== agentKind) {
+    try {
+      const candidate = new AgentConfigsRepository().getById(perTurnAgent);
+      if (candidate && (candidate.ocAgent?.trim() || candidate.id) !== perTurnAgent) {
+        legacyCanonicalProfileId = candidate.id;
+      }
+    } catch {
+      // The profile guard below handles unavailable storage.
+    }
+  }
+  const scopeAgentId = trustedScopeAgent ?? perTurnProfileId ?? legacyCanonicalProfileId ?? sessionProfileId ?? perTurnAgent ?? agentKind ?? null;
+  const storedTaskScope = taskScopeForSession(attachmentSession);
+  const reviewerIdentity = isOrgReviewerSession(attachmentSession) ||
+    isOrgReviewerSession({ profileId: scopeAgentId, opencodeAgentId: perTurnAgent });
+  const turnTaskScope = reviewerIdentity ? 'reviewer' : storedTaskScope;
+  if (turnTaskScope === 'reviewer' && sessionPermissionMode === 'bypassPermissions') {
+    ws.send(JSON.stringify({ v: 1, type: 'error', id, message: 'Org Reviewer cannot use bypassPermissions.' }));
+    return;
+  }
   if (scopeAgentId) {
     try {
       const configsRepo = new AgentConfigsRepository();
       const config =
         configsRepo.getById(scopeAgentId) ??
-        configsRepo.list().find((candidate) => candidate.ocAgent === scopeAgentId);
+        (sessionProfileId || perTurnProfileId || trustedScopeAgent
+          ? undefined
+          : configsRepo.list().find((candidate) => candidate.ocAgent === scopeAgentId));
+      if (!config && (sessionProfileId || perTurnProfileId || trustedScopeAgent)) {
+        ws.send(JSON.stringify({ v: 1, type: 'error', id, message: `agent not configured: '${scopeAgentId}'` }));
+        return;
+      }
       if (config) {
         const blockReason = agentConfigExecutionBlockReason(config);
         if (blockReason) {
           ws.send(JSON.stringify({ v: 1, type: 'error', id, message: blockReason }));
+          return;
+        }
+        if (perTurnProfileId && perTurnAgent && perTurnAgent !== (config.ocAgent?.trim() || config.id)) {
+          ws.send(JSON.stringify({ v: 1, type: 'error', id, message: 'Selected profile does not match the requested engine agent.' }));
           return;
         }
       }
@@ -545,14 +619,18 @@ export async function handleInputFrame(
     requestedTier: string | null;
     routeAuthed: boolean | null;
   } | undefined;
-  if (agentKind) {
+  const turnModelMode: 'auto' | 'fixed' = frameModelMode ?? sessionModelMode;
+  const turnSessionAuto = turnModelMode === 'auto';
+  let routedVariant: string | undefined;
+  if (scopeAgentId || turnSessionAuto) {
     try {
       const { resolveModelForSessionTurnWithProvenance } = await import('./agent_model_resolver');
       const resolution = await resolveModelForSessionTurnWithProvenance({
-        agentId: trustedScopeAgent ?? agentKind,
+        agentId: scopeAgentId ?? 'build',
         sessionProviderId,
         sessionModelId,
         perTurnOverride,
+        sessionModelMode: turnModelMode,
         // #1108 — lets a successful manual per-turn override persist onto
         // this session row so it survives the NEXT prompt instead of
         // silently reverting to the stale stored provider/model.
@@ -560,9 +638,55 @@ export async function handleInputFrame(
       });
       resolvedTurnModel = resolution.route;
       resolvedTurnProvenance = resolution;
+      // Local decision engine (routing scope -> tier router -> capacity layer),
+      // shared with the mobile proxy. No-op when the features are off; never
+      // overrides pinned sources; never throws.
+      {
+        const { routeTurnForSession } = await import('./decision/turn_routing');
+        let routingRow: import('./decision/turn_routing').TurnRoutingSessionRow | null = null;
+        try {
+          routingRow = new AgentSessionsRepository().findById(id);
+        } catch {
+          routingRow = null;
+        }
+        const turnRouting = await routeTurnForSession({
+          sessionRow: routingRow,
+          sessionId: id,
+          prompt: data ?? '',
+          agentId: scopeAgentId ?? 'build',
+          requestedSource: resolution.requestedSource,
+          requestedTier: resolution.requestedTier,
+          baseRoute: resolution.route,
+          sessionAuto: turnSessionAuto,
+        });
+        if (turnRouting.held) {
+          // Free Mode F1: held for paid capacity; nothing is dispatched to any model. D2: keep the
+          // owner-scoped original input so the turn can drain automatically once paid capacity returns.
+          const { recordHeldTurn } = await import('./decision/router_free_held_turns');
+          await recordHeldTurn({ sessionId: id, origin: trustedTurn?.origin === 'prompt_api' ? 'prompt_api' : 'desktop', inputText: data ?? '',
+            options: { modelOverride: msg.modelOverride, thinking: msg.thinking, fastMode: typeof msg.fastMode === 'boolean' ? msg.fastMode : undefined,
+              agent: typeof msg.agent === 'string' ? msg.agent : null, ...(Array.isArray(partsInput) ? { parts: partsInput } : {}) } })
+            .catch(err => console.error('[ws_gateway] held turn record failed (turn stays held, not sent):', err));
+          ws.send(JSON.stringify({ v: 1, type: 'error', id, message: turnRouting.held.message }));
+          return;
+        }
+        routedVariant = turnRouting.variant;
+        if (turnRouting.applied) {
+          resolvedTurnModel = turnRouting.route;
+          resolvedTurnProvenance = {
+            ...resolution,
+            requestedSource: turnRouting.requestedSource as import('../models/model_provenance').RequestedSource,
+            requestedTier: turnRouting.requestedTier,
+          };
+        }
+      }
     } catch (err) {
       console.error(`[ws_gateway] early model resolution for Gemini tool cap failed (non-fatal):`, err);
     }
+  }
+  if ((await import('./qualification_fixture_service')).qualificationStopBeforeSdk(id)) {
+    ws.send(JSON.stringify({v:1,type:'error',id,message:'Qualification router observation complete; intentional pre-SDK stop.'}));
+    return;
   }
   const resolvedTurnProviderId: string | null = resolvedTurnModel?.providerID ?? null;
 
@@ -636,12 +760,25 @@ export async function handleInputFrame(
     try {
       // OPC-M1-5: look up the persisted sdk_session_id first.
       const dbSessionForResume = new AgentSessionsRepository().findById(id);
+      const taskScope = turnTaskScope;
+      if (taskScope === 'reviewer' && sessionPermissionMode === 'bypassPermissions') {
+        ws.send(JSON.stringify({ v: 1, type: 'error', id, message: 'Org Reviewer cannot resume with bypassPermissions.' }));
+        return;
+      }
       const persistedSdkId = dbSessionForResume?.sdkSessionId ?? null;
 
       if (persistedSdkId) {
         // Try to re-attach to the existing SDK session.
         const existingSession = await opencodeClient.getSession(persistedSdkId);
         if (existingSession) {
+          // Revoke historical native general/explore grants before the old
+          // SDK session can accept another Reviewer turn.
+          if (taskScope === 'reviewer' && !(await opencodeClient.updateSessionPermissionMode(
+            existingSession.id, sessionPermissionMode, taskScope,
+          ))) {
+            ws.send(JSON.stringify({ v: 1, type: 'error', id, message: 'Could not restore Org Reviewer task scope.' }));
+            return;
+          }
           // Re-attach path — session is alive.
           opencodeId = existingSession.id;
           opencodeSessionMap.set(id, opencodeId);
@@ -673,6 +810,7 @@ export async function handleInputFrame(
             resolvedTurnProviderId,
             undefined,
             sessionPermissionMode,
+            taskScope,
           );
           // #1222 — createSession no longer returns a bare `null`; check `.id`
           // explicitly so a truthy `{ error }` failure object is never
@@ -716,6 +854,7 @@ export async function handleInputFrame(
           resolvedTurnProviderId,
           undefined,
           sessionPermissionMode,
+          taskScope,
         );
         // #1222 — check `.id` explicitly (see comment on the sibling branch above).
         if (!opencodeSession.id) {
@@ -762,6 +901,15 @@ export async function handleInputFrame(
     }
   }
 
+  // POST /agent-sessions/:id/prompt reaches this same path even when the SDK
+  // ID is already mapped. Reassert the effective task scope before every turn.
+  // A later ordinary turn can restore general/explore after a Reviewer switch.
+  if (turnTaskScope !== false && (!opencodeId ||
+      !(await opencodeClient.updateSessionPermissionMode(opencodeId, sessionPermissionMode, turnTaskScope)))) {
+    ws.send(JSON.stringify({ v: 1, type: 'error', id, message: 'Could not restore session task scope.' }));
+    return;
+  }
+
   // #765 — push the resolved MCP allowlist onto the existing fork session so
   // filterMcpToolsByAllowlist in prompt.ts reads it at prompt time. This is
   // necessary when `opencodeId` was already in the map (set by
@@ -785,6 +933,7 @@ export async function handleInputFrame(
       opencodeId,
       wsMcpRoleConfig ?? null,
       resolvedTurnProviderId,
+      data,
     );
   } catch (allowlistErr) {
     console.error(`[ws_gateway] updateSessionAllowlist failed (non-fatal):`, allowlistErr);
@@ -814,7 +963,7 @@ export async function handleInputFrame(
     // silently no-ops on undefined model — it stores the user message
     // part and publishes message.updated events, but never fires an
     // LLM call, leaving the UI stuck on "working" indefinitely.
-    if (!model && agentKind) {
+    if (!model && (agentKind || sessionProfileId || perTurnProfileId || legacyCanonicalProfileId || trustedScopeAgent)) {
       console.error(
         `[ws_gateway] session ${id}: could not resolve model for agentKind='${agentKind}' — no route in catalog`,
       );
@@ -868,16 +1017,30 @@ export async function handleInputFrame(
     //   provider kind — forwarding it is safe and different from the #738 guardrail.
     //   wsOcAgent is null when the profile has no ocAgent; perTurnAgent is null when
     //   the Flutter client didn't send an explicit per-turn agent override.
-    const effectiveAgent: string | null = perTurnAgent ?? wsOcAgent;
-    let sdkOpts = (effectiveThinkingBudget !== null || effectiveFastMode || effectiveAgent !== null || sessionPermissionMode !== 'default' || wsSystemPrompt !== null)
+    const configuredAgent = legacyCanonicalProfileId ? wsOcAgent : perTurnAgent ?? wsOcAgent;
+    // The accepted Org Reviewer profile may deliberately leave ocAgent unset.
+    // Its signed MCP calls still require the registered Reviewer engine identity;
+    // preserve the ordinary null-ocAgent default and any explicit turn override.
+    const effectiveAgent: string | null = configuredAgent ??
+      (scopeAgentId === 'org-reviewer' && reviewerIdentity ? 'org-reviewer' : null);
+    // #1039 Cause B parity with agent_runner.ts (runningAsOwnAgent): running AS the
+    // profile's own registered agent, its .md body already IS the profile prompt and the
+    // engine layers `system:` after it, so forwarding it again duplicates it (and makes the
+    // Dayflow projection's single-occurrence user.system removal ambiguous). The mcpRole
+    // path keeps the override, exactly like the runner.
+    const profileSystemPrompt = !wsMcpRoleConfig && effectiveAgent !== null && effectiveAgent === scopeAgentId
+      ? null
+      : wsSystemPrompt;
+    let sdkOpts = (routedVariant !== undefined || effectiveThinkingBudget !== null || effectiveFastMode || effectiveAgent !== null || sessionPermissionMode !== 'default' || profileSystemPrompt !== null)
       ? {
+          ...(routedVariant !== undefined ? { variant: routedVariant } : {}),
           ...(effectiveThinkingBudget !== null
             ? { reasoningConfig: { type: 'enabled', budgetTokens: effectiveThinkingBudget } }
             : {}),
           ...(effectiveFastMode ? { fastMode: true } : {}),
           ...(effectiveAgent !== null ? { agent: effectiveAgent } : {}),
           ...(sessionPermissionMode !== 'default' ? { permissionMode: sessionPermissionMode } : {}),
-          ...(wsSystemPrompt !== null ? { system: wsSystemPrompt } : {}),
+          ...(profileSystemPrompt !== null ? { system: profileSystemPrompt } : {}),
         }
       : undefined;
 
@@ -930,40 +1093,19 @@ export async function handleInputFrame(
 
     // Automatic memory is owner-scoped from agent_sessions.owner_user_id.
     // Unknown/null owners remain fail-closed for user-owned rows.
-    if (isMemoryInjectionEnabled()) {
-      try {
-        const memPreface = await buildMemoryPreface(data, sessionOwnerUserId);
-        if (memPreface.text) {
-          transientSystemBlocks.push(memPreface.text);
-          console.log(
-            `[ws_gateway] session ${id}: injected ${memPreface.memoryIds.length} bounded memory excerpt(s) via hidden context (owner=${sessionOwnerUserId ?? 'unknown'})`,
-          );
-        }
-        // #862 — record provenance for THIS turn (overwrites the session's
-        // previous record) so the desktop app can render "Memories used in
-        // this reply: …", including the explicit "none" case when
-        // memoryIds is empty. Non-fatal: a recording failure must never
-        // block the turn.
-        try {
-          new AgentSessionMemoryProvenanceRepository().record(
-            id,
-            memPreface.memoryIds,
-            memPreface.notePaths,
-            memPreface.items,
-          );
-        } catch (err) {
-          console.error(`[ws_gateway] memory provenance record failed (non-fatal):`, err);
-        }
-      } catch (err) {
-        // Non-fatal — never block a turn on retrieval failure.
-        console.error(`[ws_gateway] memory preface build failed (non-fatal):`, err);
-      }
+    const memPreface = await prepareAutomaticMemoryPreface({
+      query: data,
+      sessionId: id,
+      ownerUserId: sessionOwnerUserId,
+    });
+    if (memPreface?.text) {
+      transientSystemBlocks.push(memPreface.text);
     }
 
     if (transientSystemBlocks.length > 0) {
       sdkOpts = {
         ...(sdkOpts ?? {}),
-        system: [wsSystemPrompt, ...transientSystemBlocks]
+        system: [profileSystemPrompt, ...transientSystemBlocks]
           .filter((block): block is string => typeof block === 'string' && block.length > 0)
           .join('\n\n'),
       };

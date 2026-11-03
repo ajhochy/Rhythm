@@ -17,8 +17,8 @@ const labels: Record<string, string> = {
   'claude-code': 'Claude Code', cursor: 'Cursor', antigravity: 'Antigravity', kilocode: 'Kilo Code',
 };
 
-function overlayOpen() {
-  return Boolean(document.querySelector('.menu-popover, [role="dialog"], .toast[data-visible="true"]'));
+function blockingModalOpen() {
+  return Boolean(document.querySelector('[role="dialog"][aria-modal="true"], [data-native-blocking-modal="true"]'));
 }
 
 function ColonyHost({ headless, onError, onAttached, onSceneSelect, onSceneStatus, onSceneAction, onShortcut }: { headless: boolean; onError(message: string): void; onAttached(): void; onSceneSelect(threadId: string): void; onSceneStatus(available: boolean): void; onSceneAction(result: Record<string, unknown>): void; onShortcut(key: 'archive' | 'restore' | 'viewed'): void }) {
@@ -39,14 +39,12 @@ function ColonyHost({ headless, onError, onAttached, onSceneSelect, onSceneStatu
       frame = requestAnimationFrame(() => {
         if (!active.current || !attached.current) return;
         const rect = host.current?.getBoundingClientRect();
-        const hidden = overlayOpen() || !rect || rect.width <= 0 || rect.height <= 0;
+        const hidden = blockingModalOpen() || !rect || rect.width <= 0 || rect.height <= 0;
         if (visibility.current !== hidden) {
           visibility.current = hidden;
           bridge?.sendIntent?.({ event: 'host.visibility', payload: { hidden } });
         }
-        const bounds = hidden
-          ? { x: 0, y: 0, width: 0, height: 0 }
-          : { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+        const bounds = hidden ? { x: 0, y: 0, width: 0, height: 0 } : { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
         void bridge?.setBounds(bounds).catch(() => { if (active.current) onError('Bot Crossing could not resize. Retry the local view.'); });
       });
     };
@@ -59,7 +57,7 @@ function ColonyHost({ headless, onError, onAttached, onSceneSelect, onSceneStatu
       resize = new ResizeObserver(reportBounds);
       if (host.current) resize.observe(host.current);
       overlays = new MutationObserver(reportBounds);
-      overlays.observe(document.body, { attributes: true, childList: true, subtree: true, attributeFilter: ['data-visible', 'open', 'aria-expanded'] });
+      overlays.observe(document.body, { attributes: true, childList: true, subtree: true, attributeFilter: ['aria-expanded', 'aria-modal', 'data-native-blocking-modal', 'hidden', 'open'] });
       window.addEventListener('scroll', reportBounds, true);
       window.addEventListener('resize', reportBounds);
     }

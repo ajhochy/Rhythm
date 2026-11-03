@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createContext, runInContext } from 'node:vm';
 import test from 'node:test';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -41,8 +42,33 @@ test('post-m1-p7-c4e: Electron owns permission presentation deduplication cancel
     /\.close\(\)|\.destroy\(\)|cancelNotification/i.test(mainSource),
     'resolved asks must cancel their native presentation',
   );
+  // Match a signing property, not the tail of the approved open-design:status
+  // channel string. Every prohibited primitive must still trip this guard.
+  const unsafePrimitive = /showNotification|newNotification|(?:^|[\n{},])\s*sign\s*:|signPayload|privateKey/i;
   assert.ok(
-    !/showNotification|newNotification|sign\s*:\s*|signPayload|privateKey/i.test(preloadSource),
+    !unsafePrimitive.test(preloadSource),
     'the preload must not expose arbitrary renderer-controlled notification or signing primitives',
   );
+  for (const mutation of ['showNotification() {}', 'newNotification() {}', '{ sign: () => {} }', 'signPayload() {}', 'const privateKey = "secret"']) {
+    assert.ok(unsafePrimitive.test(mutation), `unsafe primitive guard must catch ${mutation}`);
+  }
+});
+
+test('rhythm_notify push: preload forwards a closed-schema push frame to main and nothing wider', () => {
+  const sent = []; const listeners = new Map();
+  class CustomEvent { constructor(type, init) { this.type = type; this.detail = init?.detail; } }
+  runInContext(preloadSource, createContext({
+    CustomEvent,
+    process: { argv: [], env: {}, platform: 'darwin' },
+    window: { addEventListener: (type, fn) => listeners.set(type, fn), dispatchEvent() {} },
+    require: () => ({ contextBridge: { exposeInMainWorld() {} }, ipcRenderer: { send: (...args) => sent.push(args), sendSync() {}, invoke() {}, on() {}, removeListener() {} } }),
+  }));
+  const emit = (detail) => listeners.get('rhythm:agent-notifications')(new CustomEvent('rhythm:agent-notifications', { detail }));
+  const push = { v: 1, type: 'push', id: 3, title: 'Done', body: 'Report ready' };
+  emit(push);
+  emit({ ...push, id: 0 });
+  emit({ ...push, onclick: 'x' });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0][0], 'rhythm:agent-notifications:sync');
+  assert.deepEqual({ ...sent[0][1] }, push);
 });

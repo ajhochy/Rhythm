@@ -1,4 +1,6 @@
 import type { GatewayMode } from '.';
+import { isTrustedBrowserFetcher } from './browser-transport';
+import { cloudAccountFailure } from './cloud-error';
 
 // Canonical persisted notification row — apps/api_server/src/models/notification.ts:1-10.
 export interface DomainNotification {
@@ -32,7 +34,7 @@ const failureText = (status: number, operation: string) =>
 async function response<T>(operation: string, pending: Promise<Response>): Promise<T> {
   try {
     const result = await pending;
-    if (!result.ok) throw new NotificationsGatewayError(result.status, failureText(result.status, operation));
+    if (!result.ok) throw new NotificationsGatewayError(result.status, await cloudAccountFailure(result) ?? failureText(result.status, operation));
     return result.status === 204 ? undefined as T : await result.json() as T;
   } catch (error) {
     if (error instanceof NotificationsGatewayError) throw error;
@@ -46,7 +48,7 @@ export function createFixtureNotificationsGateway(): NotificationsGateway {
 }
 
 export function createLiveNotificationsGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): NotificationsGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: a notifications token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: a notifications token is required');
   const request = (path: string, init: RequestInit = {}) =>
     fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}` } });
   return {

@@ -23,6 +23,13 @@ const anthropicMocks = vi.hoisted(() => ({
   listRedacted: vi.fn<() => { accounts: Array<{ id: string; label: string; status: string }>; defaultAccountId: string | null }>(),
   getAccount: vi.fn<(_id: string) => undefined>(),
 }));
+const qualificationMocks = vi.hoisted(() => ({
+  authority: vi.fn<() => null | { syntheticActor: object }>(() => null),
+  readClaudeCreds: vi.fn<() => null>(() => null),
+}));
+vi.mock('./qualification_fixture_authority', () => ({
+  loadQualificationFixtureAuthority: qualificationMocks.authority,
+}));
 vi.mock('./anthropic_accounts_service', () => ({ anthropicAccountsService: anthropicMocks }));
 
 // Same rationale as anthropicMocks: keep the OpenAI multi-account path
@@ -48,7 +55,7 @@ vi.mock('fs', () => ({
 vi.mock('./credentials_bridge_service', () => ({
   CredentialsBridgeService: class {
     readClaudeCreds() {
-      return null;
+      return qualificationMocks.readClaudeCreds();
     }
   },
 }));
@@ -57,6 +64,8 @@ import { getUsageBudget } from './usage_budget_service';
 
 const unexpectedFetch = vi.fn(async () => { throw new Error('Unexpected network request in usage-budget fixture'); });
 beforeEach(() => {
+  qualificationMocks.authority.mockReset().mockReturnValue(null);
+  qualificationMocks.readClaudeCreds.mockReset().mockReturnValue(null);
   vi.mocked(existsSync).mockReset().mockReturnValue(false);
   vi.mocked(readFileSync).mockReset();
   anthropicMocks.listRedacted.mockReset().mockReturnValue({ accounts: [], defaultAccountId: null });
@@ -77,6 +86,12 @@ afterEach(() => {
 });
 
 describe('getUsageBudget', () => {
+  it('synthetic qualification never opens the operator Claude credential fallback', async () => {
+    qualificationMocks.authority.mockReturnValue({ syntheticActor: {} });
+    const snapshot = await getUsageBudget({ force: true });
+    expect(snapshot.providers.find(provider => provider.provider === 'anthropic')?.kind).toBe('unavailable');
+    expect(qualificationMocks.readClaudeCreds).not.toHaveBeenCalled();
+  });
   it('returns a snapshot with one entry per known provider, all unavailable with no credentials', async () => {
     const snapshot = await getUsageBudget({ force: true });
 

@@ -28,6 +28,7 @@ import { startTestServer } from './helpers/real_server';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 
 const listMcp = vi.fn();
+const listMcpToolIds = vi.fn();
 const getPersistedMcpConfigs = vi.fn();
 
 vi.mock('../services/opencode_engine', () => ({
@@ -35,6 +36,7 @@ vi.mock('../services/opencode_engine', () => ({
     isReady: true,
     statusMessage: 'ready',
     listMcp: (...a: unknown[]) => listMcp(...a),
+    listMcpToolIds: (...a: unknown[]) => listMcpToolIds(...a),
     getPersistedMcpConfigs: (...a: unknown[]) => getPersistedMcpConfigs(...a),
   },
   opencodeSessionMap: new Map(),
@@ -70,6 +72,7 @@ describe('MCP names alignment + no-server-lost (#785 / #781 / #765)', () => {
   beforeEach(async () => {
     setDb(makeDb());
     getPersistedMcpConfigs.mockResolvedValue({});
+    listMcpToolIds.mockResolvedValue(['rhythm_ping']);
     const { createApp } = await import('../app');
     const started = await startTestServer(createApp());
     baseUrl = started.baseUrl;

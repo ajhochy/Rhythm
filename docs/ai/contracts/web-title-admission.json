@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "kind": "supplemental-user-request-contract",
+  "request": "web-title-admission",
+  "generated": "2026-10-22",
+  "parentContract": "docs/ai/contracts/web-parity-20261022.json",
+  "scope": "Repair case112 automatic naming through actual engine orchestration, preserving provider admission safeguards. No fabricated GitHub issue number.",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "web-title-admission-c1",
+      "text": "One untitled private user turn completes its canonical answer and produces a durable non-placeholder title without competing provider admissions.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/prompt.test.ts",
+      "test_id": "web-title-admission-c1",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "web-title-admission-c2",
+      "text": "A failed auxiliary title request does not corrupt the completed answer or its persisted assistant message.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/prompt.test.ts",
+      "test_id": "web-title-admission-c2",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "web-title-admission-c3",
+      "text": "Cancellation during a pending title remains interruptible and cannot expose provider input after the runner ends.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/prompt.test.ts",
+      "test_id": "web-title-admission-c3",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "web-title-admission-c4",
+      "text": "The original browser case112 passes main answer, dynamic title, API/SQLite/history/rail/reload and exact owned cleanup assertions against actual candidate API and engine.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/web-host/web-host-scripted-autoname.spec.ts",
+      "test_id": "[web-parity-112]",
+      "status": "pass"
+    }
+  ],
+  "securityControls": {
+    "test_file": "apps/opencode_fork/packages/opencode/test/session/rhythm-title-admission-concurrency.test.ts",
+    "requirements": [
+      "current guard collision reproduced with exact production middleware and real SessionRunState",
+      "same-purpose and newer-user supersession unchanged",
+      "aborted/missing/replaced runner cannot expose provider input",
+      "no guard frame/proof relaxation"
+    ],
+    "characterization": {
+      "passed": 10,
+      "assertions": 96,
+      "note": "Production middleware + real SessionRunState reproduce answer-replaced -> runner-idle -> title-loses-generation chain."
+    }
+  },
+  "not_tested": [],
+  "red": {
+    "status": "observed",
+    "passedControls": 1,
+    "failedCriteria": [
+      "web-title-admission-c1",
+      "web-title-admission-c3"
+    ],
+    "log": "/private/tmp/rhythm-web-title-contract-red-20261022.log",
+    "durationSeconds": 4.41,
+    "note": "Actual SessionPrompt/LLM/processor/run-state reached completed-answer checks; assertion failures, not import/setup failures.",
+    "correctedObserverReplay": {
+      "expectedRed": true,
+      "log": "/private/tmp/rhythm-web-title-corrected-contract-red-20261022.log",
+      "fixedSourceRestoredSha256": "848b40bf5a783d2714a9adcbcc46e575a1d1434375521501d14387d2475c098b"
+    }
+  },
+  "authorization": "User instructed keep going until it works, superseding two-repair cap; remaining scope and no-push/cutover boundaries unchanged.",
+  "focusedGreen": {
+    "passed": 3,
+    "assertions": 43,
+    "seconds": 4.3,
+    "log": "/private/tmp/rhythm-web-title-contract-green2-20261022.log"
+  },
+  "live": {
+    "passed": 1,
+    "log": "/private/tmp/rhythm-web-title-fixed-live-20261022.log",
+    "report": "/private/tmp/rhythm-web-title-fixed-live-20261022-report.json",
+    "teardownExit": 0
+  },
+  "affected": {
+    "passed": 125,
+    "optionalArtifactSkipped": 4,
+    "failed": 0,
+    "log": "/private/tmp/rhythm-web-title-affected-20261022.log",
+    "optionalSkipReason": "Frozen C0 fixture absolute artifact directory2026-10-05 is absent; guards unchanged, no skip added."
+  }
+}

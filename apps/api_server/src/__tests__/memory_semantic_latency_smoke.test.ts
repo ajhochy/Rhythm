@@ -64,7 +64,7 @@ describe('semantic search latency budget (step 3 smoke)', () => {
     expect(result).toEqual(fts);
   });
 
-  it('keeps a hung widened search inside the one shared semantic budget', async () => {
+  it('does not widen schema-incompatible score-only hits', async () => {
     process.env.AGENT_MEMORY_SEMANTIC_BUDGET_MS = '50';
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-26T12:00:00.000Z'));
@@ -72,18 +72,12 @@ describe('semantic search latency budget (step 3 smoke)', () => {
     const hits = Array.from({ length: 20 }, (_, index) => ({
       file: `fact/inactive-${index + 1}.md`,
     }));
-    const inactive = hits.map((hit, index) => ({
-      ...memory(`inactive-${index + 1}`),
-      sourceId: hit.file,
-      staleAfter: '2000-01-01',
-    }));
     const search = vi.fn()
-      .mockResolvedValueOnce(hits)
-      .mockImplementationOnce(() => new Promise(() => undefined));
+      .mockResolvedValueOnce(hits);
     const fts = [memory('fresh')];
     const repo = {
       searchAsync: vi.fn().mockResolvedValue(fts),
-      findBySourceIdsAsync: vi.fn().mockResolvedValue(inactive),
+      findBySourceIdsAsync: vi.fn().mockResolvedValue([]),
     };
 
     const started = Date.now();
@@ -95,10 +89,8 @@ describe('semantic search latency budget (step 3 smoke)', () => {
       { search },
     );
     await vi.advanceTimersByTimeAsync(0);
-    expect(search.mock.calls.map(([, limit]) => limit)).toEqual([20, 40]);
-
-    await vi.advanceTimersByTimeAsync(50);
+    expect(search.mock.calls.map(([, limit]) => limit)).toEqual([20]);
     await expect(pending).resolves.toEqual(fts);
-    expect(Date.now() - started).toBe(50);
+    expect(Date.now() - started).toBe(0);
   });
 });

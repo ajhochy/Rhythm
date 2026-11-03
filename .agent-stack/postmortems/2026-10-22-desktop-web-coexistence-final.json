@@ -1,0 +1,59 @@
+{
+  "run_id": "2026-10-22-desktop-web-coexistence-final",
+  "issue": null,
+  "date": "2026-10-22",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "desktop-web-c4",
+      "text": "desktop window fails while browser window works/?",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Actual signed4bd native API/engine healthy; profiles and existing session loaded; reload and settled screenshot verified. Concurrent HTTPS browser render/reload/cloud/WSS101 passes, zero writes/new paid turns."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "observer-navigation-race",
+      "description": "Additional browser profile45 response waiter captured an initial response invalidated by reload; synchronized initial editor load without changing behavior assertions. First18/19 then fresh19/19, zero retries/flakes.",
+      "detected_by": "Chromium response.json Network.getResponseBody failure and source observer sequence"
+    },
+    {
+      "process_category": "tooling-availability",
+      "description": "TodoWrite unavailable; ordered test/rebuild/runtime checks recorded in run receipt.",
+      "detected_by": "Enabled tools inventory"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/middleware/local_agent_surface_guard.ts",
+    "apps/api_server/src/middleware/web_host_surface_contract.test.ts",
+    "apps/web/tests/web-host/desktop-coexistence-live.test.mjs"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Keep overlap cases and native packaged UI proof alongside browser checks."
+}

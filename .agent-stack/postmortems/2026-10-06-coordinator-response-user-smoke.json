@@ -1,0 +1,100 @@
+{
+  "run_id": "2026-10-06-coordinator-response-user-smoke",
+  "issue": null,
+  "date": "2026-10-06",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "coordinator-response-c3",
+      "text": "Native third-level delegation preserves inherited permissions.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "Earlier bounded workflow plumbing tests did not drive Secretary-native Workflow-async Planning-native Explore."
+    },
+    {
+      "criterion_id": "coordinator-response-c6",
+      "text": "Coordinator can discover running native and async descendants with truthful scope.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "No previous contract tested nested visibility; root session list and direct async status missed work visible in UI."
+    },
+    {
+      "criterion_id": "coordinator-response-c7",
+      "text": "Real Coordinator model follows interactive async routing and reports approval requirements honestly.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "Scripted provider responses were earlier plumbing evidence, not real-model decisions."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "source-inventory",
+      "description": "New live guard dereferenced a tracked dangling documentation symlink and failed before sandbox startup.",
+      "detected_by": "C5 C10 actual prelaunch ENOENT raw output"
+    },
+    {
+      "process_category": "dependency-topology",
+      "description": "Isolated fork initially lacked five package-local ignored workspace dependency aliases; root build failed then passed after verified APFS copies.",
+      "detected_by": "Frozen C10 build attempts and per-package resolution manifests"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W5",
+        "affected_skill": "verification-gate",
+        "description": "Earlier installed workflow qualification was allowed to imply broader Coordinator functionality although model decisions and mixed delegation chain were untested.",
+        "detected_by": "User screenshots and explicit root admission of scope gap"
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/__tests__/coordinator_calendar_project_context.test.ts",
+    "apps/api_server/src/__tests__/coordinator_native_child_permission_mode.test.ts",
+    "apps/api_server/src/__tests__/live_chat_bounded_workflow.test.ts",
+    "apps/api_server/src/__tests__/live_coordinator_nested_permissions.test.ts",
+    "apps/api_server/src/repositories/agent_sessions_history.test.ts",
+    "apps/api_server/src/repositories/agent_sessions_repository.ts",
+    "apps/api_server/src/services/__tests__/opencode_agent_writer.test.ts",
+    "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
+    "apps/api_server/src/services/coordinator_conversation_service.ts",
+    "apps/api_server/src/services/opencode_agent_writer.ts",
+    "apps/mcp_server/src/__tests__/agentSessions_tool.test.ts",
+    "apps/mcp_server/src/tools/agentDelegation.ts",
+    "apps/mcp_server/src/tools/agentSessions.ts",
+    "apps/mcp_server/src/tools/issue_1123_agentDelegation.test.ts",
+    "apps/opencode_fork/packages/opencode/src/tool/task.ts",
+    "apps/opencode_fork/packages/opencode/test/tool/coordinator-task-permissions.test.ts",
+    "apps/opencode_fork/packages/opencode/test/tool/task.test.ts",
+    "apps/web/src/components/Transcript.tsx",
+    "apps/web/src/gateway/sessions.ts",
+    "apps/web/tests/electron-e23-lifecycle.spec.ts",
+    "apps/web/tests/gateway/sessions-gateway.spec.ts"
+  ],
+  "failure_output": "User-observed external_directory ask at third layer; parent reported subagent runtime unavailable; Coordinator falsely reported nothing running from incomplete session/status tools.",
+  "overall_category": "C1",
+  "suggested_follow_up": "Require whole-hierarchy live behavioral proof and separate real-model decision evidence before qualifying Coordinator functionality."
+}

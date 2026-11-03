@@ -1,0 +1,896 @@
+diff --git a/apps/api_server/src/__tests__/dayflow_coordinator_reference_adapter.test.ts b/apps/api_server/src/__tests__/dayflow_coordinator_reference_adapter.test.ts
+index 73e7195c..38411741 100644
+--- a/apps/api_server/src/__tests__/dayflow_coordinator_reference_adapter.test.ts
++++ b/apps/api_server/src/__tests__/dayflow_coordinator_reference_adapter.test.ts
+@@ -1,7 +1,12 @@
+ import { describe, expect, it } from 'vitest';
+ 
+ import type { CoordinatorConversationContextScope } from '../contracts/coordinator_conversation_contract';
+-import { DayflowCoordinatorReferenceAdapter } from '../services/dayflow_coordinator_reference_adapter';
++import type { DayflowQualifiedReferencePage } from '../contracts/dayflow_coordinator_reader_contract';
++import {
++  createDayflowCoordinatorReferenceAdapter,
++  DayflowCoordinatorReferenceAdapter,
++  type DayflowCoordinatorReferenceProducerPorts,
++} from '../services/dayflow_coordinator_reference_adapter';
+ 
+ const now = new Date('2026-10-05T12:00:00.000Z');
+ const scope: CoordinatorConversationContextScope = {
+@@ -92,7 +97,190 @@ function bindingFor(value: ReturnType<typeof envelope>) {
+   });
+ }
+ 
++function qualifiedPage(references: unknown[], overrides: Record<string, unknown> = {}) {
++  return {
++    schemaVersion: 1 as const,
++    status: 'available' as const,
++    references,
++    nextCursor: null,
++    ...overrides,
++  };
++}
++
++function currentAuthority(overrides: Record<string, unknown> = {}) {
++  return {
++    binding: {
++      namespace: 'dayflow',
++      sourceInstance: 'instance-a',
++      configurationGeneration: 'config-1',
++    },
++    scope: {
++      ownerUserId: scope.ownerUserId,
++      projectId: scope.projectId,
++      namespace: 'dayflow',
++      sourceInstance: 'instance-a',
++      consentGeneration: 'consent-1',
++      configurationGeneration: 'config-1',
++    },
++    ...overrides,
++  };
++}
++
++function qualifiedPorts(input: {
++  page: () => unknown;
++  active?: () => ReturnType<typeof currentAuthority> | null;
++  onRead?: (request: { ownerUserId: number; projectId: string; limit?: number; cursor?: string }) => void;
++}): DayflowCoordinatorReferenceProducerPorts {
++  const reader = {
++    readQualifiedReferences: async (request: { ownerUserId: number; projectId: string; limit?: number; cursor?: string }) => {
++      input.onRead?.(request);
++      return input.page() as DayflowQualifiedReferencePage;
++    },
++  };
++  const authority = {
++    activeScope: () => input.active ? input.active() : currentAuthority(),
++  };
++  return { reader: () => reader, authority: () => authority };
++}
++
+ describe('Dayflow coordinator reference consumer', () => {
++  it('converts only a complete current qualified producer page into a metadata-only context manifest', async () => {
++    const adapter = createDayflowCoordinatorReferenceAdapter(qualifiedPorts({
++      page: () => qualifiedPage([reference()]),
++    }));
++    const result = await adapter.read(scope);
++    expect(result).toMatchObject({
++      availability: 'available',
++      complete: true,
++      authoritative: true,
++      sourceVersion: 'v1',
++      items: [{ canonicalId: 'canonical-a', state: 'active' }],
++      dependencyManifest: {
++        namespace: 'dayflow', sourceInstance: 'instance-a', consentGeneration: 'consent-1',
++        configurationGeneration: 'config-1', expiresAt: '2026-10-05T13:00:00.000Z',
++      },
++    });
++    if (result.availability !== 'available' || result.complete !== true || result.authoritative !== true) {
++      throw new Error('expected a qualified Dayflow context');
++    }
++    expect(result.dependencyManifest?.sourceRevision).toMatch(/^qualified:[A-Za-z0-9_-]+$/);
++    expect(result.dependencyManifest?.sourceHash).toMatch(/^[a-f0-9]{64}$/);
++    expect(JSON.stringify(result)).not.toContain('summary');
++    expect(JSON.stringify(result)).not.toContain('criterion');
++  });
++
++  it('projects a complete 27-reference qualified scan into a deterministic 25-reference context window', async () => {
++    const requests: Array<{ ownerUserId: number; projectId: string; limit?: number; cursor?: string }> = [];
++    const references = Array.from({ length: 27 }, (_, index) => reference({
++      sourceId: `source-${String(index).padStart(2, '0')}`,
++      canonicalId: `canonical-${String(index).padStart(2, '0')}`,
++      canonicalVersion: `v${index}`,
++    }));
++    const adapter = createDayflowCoordinatorReferenceAdapter(qualifiedPorts({
++      page: () => qualifiedPage(references),
++      onRead: (request) => requests.push(request),
++    }));
++    const result = await adapter.read(scope);
++    expect(requests).toEqual([
++      { ownerUserId: 7, projectId: 'project-a', limit: 3_000 },
++      { ownerUserId: 7, projectId: 'project-a', limit: 3_000 },
++    ]);
++    if (result.availability !== 'available' || result.complete !== true || result.authoritative !== true) {
++      throw new Error('expected a qualified bounded Dayflow context');
++    }
++    expect(result.coverage).toEqual({
++      strategy: 'bounded_relevance', totalItems: 27, selectedItems: 25, maxItems: 25,
++    });
++    expect(result.items.map((item) => item.canonicalId)).toEqual(
++      Array.from({ length: 25 }, (_, index) => `canonical-${String(index).padStart(2, '0')}`),
++    );
++    expect(result.dependencyManifest?.references).toHaveLength(25);
++    expect(result.dependencyManifest?.sourceHash).toMatch(/^[a-f0-9]{64}$/);
++
++    // The omitted tail remains part of the source dependency: changing it
++    // cannot leave the same selected context with a stale aggregate receipt.
++    const changedTail = [...references];
++    changedTail[26] = reference({
++      sourceId: 'source-26', canonicalId: 'canonical-26', canonicalVersion: 'v26', sourceHash: 'b'.repeat(64),
++    });
++    const changed = await createDayflowCoordinatorReferenceAdapter(qualifiedPorts({
++      page: () => qualifiedPage(changedTail),
++    })).read(scope);
++    if (changed.availability !== 'available' || changed.complete !== true || changed.authoritative !== true) {
++      throw new Error('expected a changed qualified bounded Dayflow context');
++    }
++    expect(changed.items.map((item) => item.canonicalId)).toEqual(result.items.map((item) => item.canonicalId));
++    expect(changed.dependencyManifest?.sourceHash).not.toEqual(result.dependencyManifest?.sourceHash);
++    expect(changed.dependencyManifest?.sourceRevision).not.toEqual(result.dependencyManifest?.sourceRevision);
++  });
++
++  it('withholds an incomplete, foreign, revoked, changed, or source-unavailable producer page', async () => {
++    const partial = createDayflowCoordinatorReferenceAdapter(qualifiedPorts({
++      page: () => qualifiedPage([reference()], { nextCursor: 'next:1' }),
++    }));
++    await expect(partial.read(scope)).resolves.toMatchObject({
++      availability: 'unavailable', reason: 'dependency_unqualified', items: [],
++    });
++
++    const overbounded = createDayflowCoordinatorReferenceAdapter(qualifiedPorts({
++      page: () => qualifiedPage(Array.from({ length: 3_001 }, () => reference())),
++    }));
++    await expect(overbounded.read(scope)).resolves.toMatchObject({
++      availability: 'unavailable', reason: 'dependency_unqualified', items: [],
++    });
++
++    const empty = createDayflowCoordinatorReferenceAdapter(qualifiedPorts({ page: () => qualifiedPage([]) }));
++    await expect(empty.read(scope)).resolves.toMatchObject({
++      availability: 'unavailable', reason: 'dependency_unqualified', items: [],
++    });
++
++    const foreign = createDayflowCoordinatorReferenceAdapter(qualifiedPorts({
++      page: () => qualifiedPage([reference()]),
++      active: () => currentAuthority({ scope: { ...currentAuthority().scope, ownerUserId: 8 } }),
++    }));
++    await expect(foreign.read(scope)).resolves.toMatchObject({
++      availability: 'unavailable', reason: 'authorization_unavailable', items: [],
++    });
++
++    const unavailable = createDayflowCoordinatorReferenceAdapter(qualifiedPorts({
++      page: () => ({ schemaVersion: 1, status: 'unavailable', references: [], nextCursor: null }),
++    }));
++    await expect(unavailable.read(scope)).resolves.toMatchObject({
++      availability: 'unavailable', reason: 'source_unavailable', items: [],
++    });
++
++    let active: ReturnType<typeof currentAuthority> | null = currentAuthority();
++    let reads = 0;
++    const revoked = createDayflowCoordinatorReferenceAdapter(qualifiedPorts({
++      page: () => {
++        if (++reads === 2) active = null;
++        return qualifiedPage([reference()]);
++      },
++      active: () => active,
++    }));
++    await expect(revoked.read(scope)).resolves.toMatchObject({
++      availability: 'unavailable', reason: 'authorization_unavailable', items: [],
++    });
++
++    active = currentAuthority();
++    reads = 0;
++    const changed = createDayflowCoordinatorReferenceAdapter(qualifiedPorts({
++      page: () => {
++        if (++reads === 2) {
++          active = currentAuthority({
++            binding: { ...currentAuthority().binding, sourceInstance: 'instance-b' },
++            scope: { ...currentAuthority().scope, sourceInstance: 'instance-b' },
++          });
++        }
++        return qualifiedPage([reference()]);
++      },
++      active: () => active,
++    }));
++    await expect(changed.read(scope)).resolves.toMatchObject({
++      availability: 'unavailable', reason: 'authorization_unavailable', items: [],
++    });
++  });
++
+   it('automatically projects only current scoped opaque identities and handles an incremental update without a manual import', async () => {
+     let current = envelope([reference()]);
+     const adapter = new DayflowCoordinatorReferenceAdapter(
+diff --git a/apps/api_server/src/__tests__/dayflow_shared_composition.test.ts b/apps/api_server/src/__tests__/dayflow_shared_composition.test.ts
+index 0384deb5..9d65685e 100644
+--- a/apps/api_server/src/__tests__/dayflow_shared_composition.test.ts
++++ b/apps/api_server/src/__tests__/dayflow_shared_composition.test.ts
+@@ -21,6 +21,7 @@ import { DayflowReceivingContextRepository } from '../repositories/dayflow_recei
+ import { resolveAuthenticatedDayflowConsentScope } from '../routes/dayflow_authenticated_management_routes';
+ import { DayflowReceivingContextAuthorityService } from '../services/dayflow_receiving_context_authority';
+ import { DayflowReceivingHistoryGuard } from '../services/dayflow_receiving_history_guard';
++import { createDayflowCoordinatorReferenceAdapter } from '../services/dayflow_coordinator_reference_adapter';
+ import { DayflowCanonicalEvidenceResolver, DayflowQualifiedEvidenceService, type DayflowQualifiedReader } from '../services/dayflow_qualified_evidence_service';
+ import { MemoryIndexService } from '../services/memory_index_service';
+ import { createObservationIfAbsentInVault, generateUlid } from '../services/memoryVaultWriteService';
+@@ -104,7 +105,9 @@ function receivingDb(): Database.Database {
+ 
+ /** Real proposal-01 source/consent/ledger producer; only the Dayflow fixture
+  * record and canonical resolver content below are invented test edges. */
+-async function qualifiedProducerForCrossAuthority() {
++async function qualifiedProducerForCrossAuthority(records = [
++  { id: 'cross-authority-card', start: '2026-10-05T00:00:00Z', summary: 'Synthetic qualified handoff detail.' },
++]) {
+   const root = mkdtempSync(join(tmpdir(), 'dayflow-cross-authority-'));
+   roots.push(root);
+   const store = new DayflowConfigStore(join(root, 'config.json'));
+@@ -125,7 +128,7 @@ async function qualifiedProducerForCrossAuthority() {
+     read: async () => ({
+       contractVersion: 'fixture-v1',
+       sourceInstanceId: 'cross-authority-fixture',
+-      records: [{ id: 'cross-authority-card', start: '2026-10-05T00:00:00Z', summary: 'Synthetic qualified handoff detail.' }],
++      records,
+     }),
+     hasVerifiedBinding: () => true,
+   };
+@@ -196,6 +199,91 @@ function promptBoundaryDb(): Database.Database {
+ }
+ 
+ describe('Dayflow authenticated shared composition', () => {
++  it('projects only a current persisted qualified producer into coordinator metadata, never task-completion evidence', async () => {
++    const { producer, authority } = await qualifiedProducerForCrossAuthority();
++    try {
++      const adapter = createDayflowCoordinatorReferenceAdapter({
++        reader: () => producer,
++        authority: () => authority,
++      });
++      const context = await adapter.read({
++        ownerUserId: 7,
++        projectId: 'project:1',
++        conversationId: 'coordinator:1',
++        now: new Date(CROSS_NOW),
++      });
++      expect(context).toMatchObject({
++        availability: 'available',
++        complete: true,
++        authoritative: true,
++        items: [{ state: 'active', namespace: expect.any(String), canonicalId: expect.any(String) }],
++        dependencyManifest: {
++          namespace: expect.any(String), sourceHash: expect.stringMatching(/^[a-f0-9]{64}$/),
++          sourceRevision: expect.stringMatching(/^qualified:[A-Za-z0-9_-]+$/),
++        },
++      });
++      expect(JSON.stringify(context)).not.toContain('Synthetic qualified handoff detail.');
++      expect(JSON.stringify(context)).not.toContain('criterionState');
++
++      await expect(adapter.read({
++        ownerUserId: 9,
++        projectId: 'project:other',
++        conversationId: 'coordinator:foreign',
++        now: new Date(CROSS_NOW),
++      })).resolves.toMatchObject({ availability: 'unavailable', reason: 'authorization_unavailable', items: [] });
++
++      producer.revokeAuthenticatedSourceConsent({
++        ownerUserId: 7,
++        projectId: 'project:1',
++        authorizingSessionId: 'session:later',
++      });
++      await expect(adapter.read({
++        ownerUserId: 7,
++        projectId: 'project:1',
++        conversationId: 'coordinator:revoked',
++        now: new Date(CROSS_NOW),
++      })).resolves.toMatchObject({ availability: 'not_configured', items: [] });
++    } finally {
++      producer.dispose();
++    }
++  });
++
++  it('bounds a complete 27-reference persisted qualified producer page without treating it as partial', async () => {
++    const records = Array.from({ length: 27 }, (_, index) => ({
++      id: `cross-authority-card-${String(index).padStart(2, '0')}`,
++      start: '2026-10-05T00:00:00Z',
++      summary: `Synthetic bounded qualified handoff detail ${index}.`,
++    }));
++    const { producer, authority } = await qualifiedProducerForCrossAuthority(records);
++    try {
++      const page = await producer.readQualifiedReferences({ ownerUserId: 7, projectId: 'project:1', limit: 3_000 });
++      expect(page).toMatchObject({ status: 'available', nextCursor: null });
++      expect(page.references).toHaveLength(27);
++
++      const adapter = createDayflowCoordinatorReferenceAdapter({
++        reader: () => producer,
++        authority: () => authority,
++      });
++      const context = await adapter.read({
++        ownerUserId: 7,
++        projectId: 'project:1',
++        conversationId: 'coordinator:bounded',
++        now: new Date(CROSS_NOW),
++      });
++      if (context.availability !== 'available' || context.complete !== true || context.authoritative !== true) {
++        throw new Error('expected a current qualified bounded context');
++      }
++      expect(context.coverage).toEqual({
++        strategy: 'bounded_relevance', totalItems: 27, selectedItems: 25, maxItems: 25,
++      });
++      expect(context.items).toHaveLength(25);
++      expect(context.dependencyManifest?.references).toHaveLength(25);
++      expect(JSON.stringify(context)).not.toContain('Synthetic bounded qualified handoff detail');
++    } finally {
++      producer.dispose();
++    }
++  });
++
+   it('requires durable explicit source consent and rechecks it around canonical import', async () => {
+     const { store, authority } = consentedAuthority();
+     const active = authority.activeScope()!;
+diff --git a/apps/api_server/src/server.ts b/apps/api_server/src/server.ts
+index e705bba7..a8bab706 100644
+--- a/apps/api_server/src/server.ts
++++ b/apps/api_server/src/server.ts
+@@ -65,7 +65,7 @@ async function main() {
+     { CoordinatorConversationService },
+     { selectCoordinatorSetupProfile, validateCoordinatorSetupReplay },
+     { createCoordinatorConversationContextAdapters },
+-    { DayflowCoordinatorReferenceAdapter },
++    { createDayflowCoordinatorReferenceAdapter },
+     { AgentWorkstreamsRepository },
+     { AgentSessionsRepository, listPage: listAgentSessionsPage },
+     { AgentSessionMessagesRepository },
+@@ -170,6 +170,12 @@ async function main() {
+   let workstreamCoordinator: InstanceType<typeof PersistentWorkstreamCoordinator> | undefined;
+   let managedMemorySearch: InstanceType<typeof ManagedMemorySearchService> | undefined;
+   let coordinatorConversationService: InstanceType<typeof CoordinatorConversationService> | undefined;
++  // These are initialized by the authenticated Dayflow composition below.
++  // The coordinator receives lazy ports because its durable conversation
++  // service is constructed first; status reads remain inactive until both
++  // current qualified dependencies are present.
++  let dayflowService: import('./integrations/dayflow/service').DayflowIntegrationService | undefined;
++  let dayflowQualificationAuthority: import('./integrations/dayflow/persisted_qualification_authority').DayflowPersistedQualificationAuthority | undefined;
+   if (env.workstreamsEnabled && env.dbClient === 'sqlite' && env.agentExecutionEnabled) {
+     let coordinatorRef: InstanceType<typeof PersistentWorkstreamCoordinator> | undefined;
+     const contextPolicy = {
+@@ -207,11 +213,13 @@ async function main() {
+       },
+     });
+     workstreamCoordinator = coordinatorRef;
+-    // The current frozen Dayflow management/ledger seams do not attest the
+-    // owner/project/consent reader contract. Keep its adapter honestly
+-    // not-configured until that separately owned producer supplies one; this
+-    // never blocks tasks, schedules, workstreams, or explicit plan admission.
+-    const dayflowReferences = new DayflowCoordinatorReferenceAdapter();
++    // The adapter sees only the existing qualified metadata reader plus its
++    // current persisted-consent authority. It never receives management
++    // status, a ledger, raw activity, or a generic memory-search fallback.
++    const dayflowReferences = createDayflowCoordinatorReferenceAdapter({
++      reader: () => dayflowService,
++      authority: () => dayflowQualificationAuthority,
++    });
+     const conversationSessions = new AgentSessionsRepository();
+     const conversationMessages = new AgentSessionMessagesRepository();
+     const conversationConfigs = new AgentConfigsRepository();
+@@ -979,7 +987,6 @@ async function main() {
+   // Dayflow's private config/ledger live beside the app database. Selection is
+   // always explicit in Settings; startup never discovers a journal or reads
+   // activity. Missing setup is a normal, visible "unconfigured" state.
+-  let dayflowService: import('./integrations/dayflow/service').DayflowIntegrationService | undefined;
+   let dayflowManagementService: import('./integrations/dayflow/public_contract').DayflowManagementService | undefined;
+   let dayflowQualifiedEvidence: import('./services/dayflow_qualified_evidence_service').DayflowQualifiedEvidenceService | undefined;
+   if (env.agentExecutionEnabled && env.agentLocal && env.agentOriginGuardEnabled) {
+@@ -1000,15 +1007,15 @@ async function main() {
+     ]);
+     const dayflowConfigStore = new DayflowConfigStore(path.join(resolvedStateRoot, 'config.json'));
+     const dayflowLedger = new MemoryLedger(path.join(resolvedStateRoot, 'ownership-ledger.json'));
+-    const dayflowAuthority = new DayflowPersistedQualificationAuthority(dayflowConfigStore, dayflowLedger);
++    dayflowQualificationAuthority = new DayflowPersistedQualificationAuthority(dayflowConfigStore, dayflowLedger);
+     dayflowService = new DayflowIntegrationService({
+       source: new DayflowSqliteSource(),
+-      memoryClient: new AuthenticatedDayflowMemoryClient(dayflowAuthority),
++      memoryClient: new AuthenticatedDayflowMemoryClient(dayflowQualificationAuthority),
+       configStore: dayflowConfigStore,
+       ledger: dayflowLedger,
+       journalVerifier: { verify: verifyDayflowJournal },
+       sourceForJournal: (journal) => new DayflowSqliteSource(journal),
+-      qualificationAuthority: dayflowAuthority,
++      qualificationAuthority: dayflowQualificationAuthority,
+     });
+     dayflowManagementService = createDayflowManagementAdapter(dayflowService);
+     const dayflowRecords = new DayflowReceivingContextRepository(getDb());
+@@ -1023,7 +1030,7 @@ async function main() {
+     opencodeClient.setDayflowSdkHistoryGuard(new DayflowReceivingHistoryGuard({
+       records: dayflowRecords,
+       reader: dayflowService,
+-      authority: dayflowAuthority,
++      authority: dayflowQualificationAuthority,
+     }));
+   }
+   const app = createApp({
+diff --git a/apps/api_server/src/services/dayflow_coordinator_reference_adapter.ts b/apps/api_server/src/services/dayflow_coordinator_reference_adapter.ts
+index f41c39cb..0018d83b 100644
+--- a/apps/api_server/src/services/dayflow_coordinator_reference_adapter.ts
++++ b/apps/api_server/src/services/dayflow_coordinator_reference_adapter.ts
+@@ -1,8 +1,16 @@
++import { createHash } from 'node:crypto';
+ import {
+   parseDayflowWorkstreamReferenceV1,
+   type DayflowWorkstreamReferenceV1,
+ } from '../contracts/dayflow_workstream_reference_contract';
++import {
++  dayflowReaderBinding,
++  parseDayflowQualificationScope,
++  type DayflowQualificationScope,
++  type DayflowQualifiedReferencePage,
++} from '../contracts/dayflow_coordinator_reader_contract';
+ import type {
++  CoordinatorContextCoverage,
+   CoordinatorContextRead,
+   CoordinatorConversationContextScope,
+   CoordinatorDayflowDependencyManifest,
+@@ -88,12 +96,18 @@ export type DayflowCoordinatorReferenceRead =
+     projectId: string;
+     consentGeneration: string;
+     configurationGeneration: string;
++    /** Present only when a complete qualified scan was safely projected. */
++    coverage?: CoordinatorContextCoverage;
+     references: unknown[];
+   };
+ 
+ const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
+ const SHA256 = /^[0-9a-f]{64}$/;
+ const MAX_SIGNALS = 100;
++/** The model/context projection remains deliberately small. */
++const MAX_CONTEXT_REFERENCES = 25;
++/** The existing qualified reader's largest complete single-page admission. */
++const MAX_QUALIFIED_REFERENCE_SCAN = 3_000;
+ 
+ type AvailableRead = Extract<DayflowCoordinatorReferenceRead, { kind: 'available' }>;
+ 
+@@ -168,11 +182,14 @@ function parseAvailable(
+   scope: CoordinatorConversationContextScope,
+   binding: AvailableBinding,
+ ): AvailableRead | null {
+-  if (!plain(value) || !exactKeys(value, [
++  const requiredKeys = [
+     'kind', 'complete', 'authoritative', 'observedAt', 'sourceVersion', 'namespace', 'sourceInstance',
+     'sourceRevision', 'sourceHash', 'expiresAt', 'ownerUserId', 'projectId', 'consentGeneration',
+     'configurationGeneration', 'references',
+-  ])) return null;
++  ] as const;
++  if (!plain(value) || !requiredKeys.every((key) => key in value) ||
++      !Object.keys(value).every((key) => requiredKeys.includes(key as typeof requiredKeys[number]) || key === 'coverage')) return null;
++  const coverage = value.coverage === undefined ? undefined : parseCoverage(value.coverage);
+   if (
+     value.kind !== 'available' || value.complete !== true || value.authoritative !== true ||
+     value.ownerUserId !== scope.ownerUserId || value.projectId !== scope.projectId ||
+@@ -180,7 +197,8 @@ function parseAvailable(
+     !isIdentifier(value.namespace) || !isIdentifier(value.sourceInstance) || !isIdentifier(value.sourceRevision) ||
+     typeof value.sourceHash !== 'string' || !SHA256.test(value.sourceHash) || !isIso(value.expiresAt) ||
+     Date.parse(value.expiresAt) <= scope.now.valueOf() || !isIdentifier(value.consentGeneration) ||
+-    !isIdentifier(value.configurationGeneration) || !Array.isArray(value.references) || value.references.length > 25
++    !isIdentifier(value.configurationGeneration) || !Array.isArray(value.references) || value.references.length > MAX_CONTEXT_REFERENCES ||
++    (value.coverage !== undefined && (!coverage || coverage.selectedItems !== value.references.length))
+   ) return null;
+   if (
+     value.namespace !== binding.namespace || value.sourceInstance !== binding.sourceInstance ||
+@@ -192,6 +210,24 @@ function parseAvailable(
+   return value as unknown as AvailableRead;
+ }
+ 
++function parseCoverage(value: unknown): CoordinatorContextCoverage | null {
++  if (!plain(value) || !exactKeys(value, ['strategy', 'totalItems', 'selectedItems', 'maxItems'])) return null;
++  const strategy = value.strategy;
++  const totalItems = value.totalItems;
++  const selectedItems = value.selectedItems;
++  const maxItems = value.maxItems;
++  if (
++    (strategy !== 'complete' && strategy !== 'bounded_relevance') ||
++    typeof totalItems !== 'number' || !Number.isSafeInteger(totalItems) || totalItems < 0 || totalItems > MAX_QUALIFIED_REFERENCE_SCAN ||
++    typeof selectedItems !== 'number' || !Number.isSafeInteger(selectedItems) || selectedItems < 0 ||
++    typeof maxItems !== 'number' || !Number.isSafeInteger(maxItems) || maxItems !== MAX_CONTEXT_REFERENCES ||
++    selectedItems > maxItems || selectedItems > totalItems
++  ) return null;
++  if (strategy === 'complete' && selectedItems !== totalItems) return null;
++  if (strategy === 'bounded_relevance' && totalItems <= selectedItems) return null;
++  return value as unknown as CoordinatorContextCoverage;
++}
++
+ function signalMatches(signal: DayflowCoordinatorSourceChangeSignal, current: AvailableRead): boolean {
+   return signal.projectId === current.projectId && signal.ownerUserId === current.ownerUserId &&
+     signal.namespace === current.namespace && signal.sourceInstance === current.sourceInstance &&
+@@ -205,7 +241,11 @@ function activeOpaqueReferences(
+   references: unknown[],
+   input: AvailableRead,
+   scope: CoordinatorConversationContextScope,
+-): { items: CoordinatorManualActivityReference[]; manifest: CoordinatorDayflowDependencyManifest } | null {
++): {
++  items: CoordinatorManualActivityReference[];
++  manifest: CoordinatorDayflowDependencyManifest;
++  coverage?: CoordinatorContextCoverage;
++} | null {
+   const identities = new Map<string, DayflowWorkstreamReferenceV1>();
+   for (const raw of references) {
+     let reference: DayflowWorkstreamReferenceV1;
+@@ -228,6 +268,9 @@ function activeOpaqueReferences(
+   const active = [...identities.values()]
+     .filter((reference) => reference.eligibility === 'active' && Date.parse(reference.expiresAt) > scope.now.valueOf())
+     .sort((left, right) => left.canonicalId.localeCompare(right.canonicalId));
++  // A producer-provided bounded projection may not silently lose a selected
++  // reference while this consumer revalidates its authority/expiry fields.
++  if (input.coverage && active.length !== input.coverage.selectedItems) return null;
+   const manifest: CoordinatorDayflowDependencyManifest = {
+     schemaVersion: 1,
+     namespace: input.namespace,
+@@ -249,6 +292,7 @@ function activeOpaqueReferences(
+   };
+   return {
+     manifest,
++    ...(input.coverage ? { coverage: input.coverage } : {}),
+     items: active.map((reference) => ({
+       sourceId: reference.canonicalId,
+       expectedVersion: reference.canonicalVersion,
+@@ -268,6 +312,308 @@ function activeOpaqueReferences(
+   };
+ }
+ 
++/**
++ * The qualified Dayflow producer exposes only its metadata-only reference
++ * page.  It is deliberately narrower than the receiving/evidence reader, so
++ * this optional context projection cannot read a canonical note or reuse a
++ * signed tool admission.
++ */
++export interface DayflowCoordinatorQualifiedReferenceReader {
++  readQualifiedReferences(input: {
++    ownerUserId: number;
++    projectId: string;
++    limit?: number;
++    cursor?: string;
++  }): Promise<DayflowQualifiedReferencePage>;
++}
++
++/** The persisted source-consent authority is the only scope origin. */
++export interface DayflowCoordinatorPersistedAuthority {
++  activeScope(): {
++    binding: {
++      namespace: string;
++      sourceInstance: string;
++      configurationGeneration: string;
++    };
++    scope: DayflowQualificationScope;
++  } | null;
++}
++
++export interface DayflowCoordinatorReferenceProducerPorts {
++  reader: () => DayflowCoordinatorQualifiedReferenceReader | undefined;
++  authority: () => DayflowCoordinatorPersistedAuthority | undefined;
++}
++
++type CoordinatorPortUnavailableReason = Extract<DayflowCoordinatorReferenceRead, { kind: 'unavailable' }>['reason'];
++
++function unavailablePort(reason: CoordinatorPortUnavailableReason): DayflowCoordinatorReferenceRead {
++  return { kind: 'unavailable', reason };
++}
++
++function sameQualificationScope(left: DayflowQualificationScope, right: DayflowQualificationScope): boolean {
++  return left.ownerUserId === right.ownerUserId && left.projectId === right.projectId &&
++    left.namespace === right.namespace && left.sourceInstance === right.sourceInstance &&
++    left.consentGeneration === right.consentGeneration &&
++    left.configurationGeneration === right.configurationGeneration;
++}
++
++function currentScope(value: unknown): {
++  binding: { namespace: string; sourceInstance: string; configurationGeneration: string };
++  scope: DayflowQualificationScope;
++} | null {
++  if (!plain(value) || !plain(value.binding) || !('scope' in value)) return null;
++  const binding = value.binding;
++  if (
++    !exactKeys(binding, ['namespace', 'sourceInstance', 'configurationGeneration']) ||
++    !isIdentifier(binding.namespace) || !isIdentifier(binding.sourceInstance) ||
++    !isIdentifier(binding.configurationGeneration)
++  ) return null;
++  try {
++    const scope = parseDayflowQualificationScope(value.scope);
++    if (
++      scope.namespace !== binding.namespace ||
++      scope.sourceInstance !== binding.sourceInstance ||
++      scope.configurationGeneration !== binding.configurationGeneration
++    ) return null;
++    return {
++      binding: {
++        namespace: binding.namespace,
++        sourceInstance: binding.sourceInstance,
++        configurationGeneration: binding.configurationGeneration,
++      },
++      scope,
++    };
++  } catch {
++    return null;
++  }
++}
++
++function sameCurrentScope(
++  left: NonNullable<ReturnType<typeof currentScope>>,
++  right: NonNullable<ReturnType<typeof currentScope>>,
++): boolean {
++  return sameQualificationScope(left.scope, right.scope) &&
++    left.binding.namespace === right.binding.namespace &&
++    left.binding.sourceInstance === right.binding.sourceInstance &&
++    left.binding.configurationGeneration === right.binding.configurationGeneration;
++}
++
++function qualifiedReferencePage(value: unknown): DayflowQualifiedReferencePage | null {
++  if (!plain(value) || !exactKeys(value, ['schemaVersion', 'status', 'references', 'nextCursor'])) return null;
++  if (value.schemaVersion !== 1 || !['available', 'not_configured', 'unavailable'].includes(value.status as string) ||
++      !Array.isArray(value.references) || (value.nextCursor !== null && !isIdentifier(value.nextCursor))) return null;
++  if (value.status !== 'available' && (value.references.length !== 0 || value.nextCursor !== null)) return null;
++  return value as unknown as DayflowQualifiedReferencePage;
++}
++
++function coordinatorEnvelope(
++  page: DayflowQualifiedReferencePage,
++  active: NonNullable<ReturnType<typeof currentScope>>,
++  scope: CoordinatorConversationContextScope,
++): DayflowCoordinatorReferenceRead {
++  if (page.status === 'not_configured') return unavailablePort('dependency_unqualified');
++  if (page.status === 'unavailable') return unavailablePort('source_unavailable');
++  // The coordinator has no cursor state. It may read the existing reader's
++  // complete bounded admission exactly once, never an arbitrary first page.
++  if (page.nextCursor !== null || page.references.length === 0 || page.references.length > MAX_QUALIFIED_REFERENCE_SCAN) {
++    return unavailablePort('dependency_unqualified');
++  }
++  const references: DayflowWorkstreamReferenceV1[] = [];
++  const identities = new Set<string>();
++  for (const raw of page.references) {
++    let reference: DayflowWorkstreamReferenceV1;
++    try {
++      reference = parseDayflowWorkstreamReferenceV1(raw);
++    } catch {
++      return unavailablePort('dependency_unqualified');
++    }
++    if (
++      reference.ownerUserId !== scope.ownerUserId || reference.projectId !== scope.projectId ||
++      reference.namespace !== active.scope.namespace || reference.sourceInstance !== active.scope.sourceInstance ||
++      reference.consentGeneration !== active.scope.consentGeneration ||
++      reference.configurationGeneration !== active.scope.configurationGeneration ||
++      reference.eligibility !== 'active' || Date.parse(reference.expiresAt) <= scope.now.valueOf() ||
++      identities.has(reference.canonicalId)
++    ) return unavailablePort('dependency_unqualified');
++    identities.add(reference.canonicalId);
++    references.push(reference);
++  }
++  const sourceVersion = references[0].exporterVersion;
++  const normalizerVersion = references[0].normalizerVersion;
++  if (references.some((reference) =>
++    reference.exporterVersion !== sourceVersion || reference.normalizerVersion !== normalizerVersion,
++  )) return unavailablePort('dependency_unqualified');
++  const orderedReferences = [...references].sort((left, right) =>
++    left.canonicalId.localeCompare(right.canonicalId) ||
++    left.canonicalVersion.localeCompare(right.canonicalVersion) ||
++    left.sourceRevision.localeCompare(right.sourceRevision) ||
++    left.sourceHash.localeCompare(right.sourceHash),
++  );
++  const canonicalReferences = orderedReferences.map((reference) => ({
++    schemaVersion: reference.schemaVersion,
++    namespace: reference.namespace,
++    sourceInstance: reference.sourceInstance,
++    sourceId: reference.sourceId,
++    exporterVersion: reference.exporterVersion,
++    normalizerVersion: reference.normalizerVersion,
++    sourceRevision: reference.sourceRevision,
++    sourceHash: reference.sourceHash,
++    canonicalId: reference.canonicalId,
++    canonicalVersion: reference.canonicalVersion,
++    ownerUserId: reference.ownerUserId,
++    projectId: reference.projectId,
++    consentGeneration: reference.consentGeneration,
++    configurationGeneration: reference.configurationGeneration,
++    observedStart: reference.observedStart,
++    observedEnd: reference.observedEnd,
++    expiresAt: reference.expiresAt,
++    eligibility: reference.eligibility,
++    appId: reference.appId ?? null,
++  }));
++  // The existing qualified reader has no arbitrary source-wide revision. Its
++  // bounded, complete V1 receipt set is the only safe coordinator revision.
++  // This is a composite fingerprint of real receipt metadata, not a caller
++  // label, raw observation, or ledger/management-status substitute.
++  const fingerprint = {
++    schemaVersion: 1,
++    scope: {
++      ownerUserId: active.scope.ownerUserId,
++      projectId: active.scope.projectId,
++      namespace: active.scope.namespace,
++      sourceInstance: active.scope.sourceInstance,
++      consentGeneration: active.scope.consentGeneration,
++      configurationGeneration: active.scope.configurationGeneration,
++    },
++    sourceVersion,
++    normalizerVersion,
++    references: canonicalReferences,
++  };
++  const sourceHash = createHash('sha256').update(JSON.stringify(fingerprint)).digest('hex');
++  const sourceRevision = `qualified:${dayflowReaderBinding(fingerprint)}`;
++  const observedAt = references.reduce(
++    (latest, reference) => reference.observedEnd > latest ? reference.observedEnd : latest,
++    references[0].observedEnd,
++  );
++  const expiresAt = references.reduce(
++    (earliest, reference) => reference.expiresAt < earliest ? reference.expiresAt : earliest,
++    references[0].expiresAt,
++  );
++  // The fingerprint/expiry above describe the full current receipt set. Only
++  // this deterministic relevance window reaches coordinator model context.
++  const selectedReferences = orderedReferences.slice(0, MAX_CONTEXT_REFERENCES);
++  const coverage: CoordinatorContextCoverage = {
++    strategy: references.length === selectedReferences.length ? 'complete' : 'bounded_relevance',
++    totalItems: references.length,
++    selectedItems: selectedReferences.length,
++    maxItems: MAX_CONTEXT_REFERENCES,
++  };
++  return {
++    kind: 'available',
++    complete: true,
++    authoritative: true,
++    observedAt,
++    sourceVersion,
++    namespace: active.scope.namespace,
++    sourceInstance: active.scope.sourceInstance,
++    sourceRevision,
++    sourceHash,
++    expiresAt,
++    ownerUserId: scope.ownerUserId,
++    projectId: scope.projectId,
++    consentGeneration: active.scope.consentGeneration,
++    configurationGeneration: active.scope.configurationGeneration,
++    coverage,
++    references: selectedReferences,
++  };
++}
++
++async function readQualifiedCoordinatorEnvelope(
++  ports: DayflowCoordinatorReferenceProducerPorts,
++  input: { ownerUserId: number; projectId: string; now: Date },
++): Promise<DayflowCoordinatorReferenceRead> {
++  const reader = ports.reader();
++  const authority = ports.authority();
++  if (!reader && !authority) return { kind: 'not_configured' };
++  if (!reader || !authority) return unavailablePort('dependency_unqualified');
++  let before: ReturnType<typeof currentScope>;
++  try {
++    before = currentScope(authority.activeScope());
++  } catch {
++    return unavailablePort('source_unavailable');
++  }
++  if (!before) return { kind: 'not_configured' };
++  if (before.scope.ownerUserId !== input.ownerUserId || before.scope.projectId !== input.projectId) {
++    return unavailablePort('authorization_unavailable');
++  }
++  let rawPage: unknown;
++  try {
++    rawPage = await reader.readQualifiedReferences({
++      ownerUserId: input.ownerUserId,
++      projectId: input.projectId,
++      limit: MAX_QUALIFIED_REFERENCE_SCAN,
++    });
++  } catch {
++    return unavailablePort('source_unavailable');
++  }
++  // The service and authority objects themselves are part of the current
++  // composition proof. Do not finish a read through a replaced dependency.
++  if (ports.reader() !== reader || ports.authority() !== authority) return unavailablePort('dependency_unqualified');
++  let after: ReturnType<typeof currentScope>;
++  try {
++    after = currentScope(authority.activeScope());
++  } catch {
++    return unavailablePort('source_unavailable');
++  }
++  if (!after || !sameCurrentScope(before, after)) return unavailablePort('authorization_unavailable');
++  if (after.scope.ownerUserId !== input.ownerUserId || after.scope.projectId !== input.projectId) {
++    return unavailablePort('authorization_unavailable');
++  }
++  const page = qualifiedReferencePage(rawPage);
++  if (!page) return unavailablePort('dependency_unqualified');
++  return coordinatorEnvelope(page, after, {
++    ownerUserId: input.ownerUserId,
++    projectId: input.projectId,
++    conversationId: 'coordinator-port',
++    now: input.now,
++  });
++}
++
++/**
++ * Compose the existing authenticated Dayflow producer into the coordinator's
++ * metadata-only reader. Both calls independently take a fresh bounded source
++ * snapshot; the adapter accepts a status result only when their complete
++ * qualified fingerprints match. This keeps revoke/config/source changes
++ * closed across the adapter's binding/read await boundary.
++ */
++export function createDayflowCoordinatorReferenceAdapter(
++  ports: DayflowCoordinatorReferenceProducerPorts,
++): DayflowCoordinatorReferenceAdapter {
++  const read = (input: { ownerUserId: number; projectId: string; now: Date }) =>
++    readQualifiedCoordinatorEnvelope(ports, input);
++  return new DayflowCoordinatorReferenceAdapter(
++    { read },
++    {
++      current: async (input) => {
++        const snapshot = await read(input);
++        if (snapshot.kind !== 'available') return snapshot;
++        return {
++          kind: 'available',
++          ownerUserId: snapshot.ownerUserId,
++          projectId: snapshot.projectId,
++          namespace: snapshot.namespace,
++          sourceInstance: snapshot.sourceInstance,
++          sourceVersion: snapshot.sourceVersion,
++          sourceRevision: snapshot.sourceRevision,
++          sourceHash: snapshot.sourceHash,
++          expiresAt: snapshot.expiresAt,
++          consentGeneration: snapshot.consentGeneration,
++          configurationGeneration: snapshot.configurationGeneration,
++        };
++      },
++    },
++  );
++}
++
+ /**
+  * Read-only coordinator-side consumer. It never imports, persists a cursor,
+  * reads raw capture content, or triggers inference. `noteSourceChange` is a
+@@ -342,6 +688,7 @@ export class DayflowCoordinatorReferenceAdapter {
+       observedAt: current.observedAt,
+       sourceVersion: current.sourceVersion,
+       dependencyManifest: active.manifest,
++      ...(active.coverage ? { coverage: active.coverage } : {}),
+       items: active.items,
+     };
+   }
+diff --git a/apps/api_server/src/__tests__/dayflow_coordinator_server_composition_contract.test.ts b/apps/api_server/src/__tests__/dayflow_coordinator_server_composition_contract.test.ts
+new file mode 100644
+index 00000000..a809a488
+--- /dev/null
++++ b/apps/api_server/src/__tests__/dayflow_coordinator_server_composition_contract.test.ts
+@@ -0,0 +1,34 @@
++/**
++ * server.ts starts the API at import time, so this focused contract inspects
++ * the production composition rather than importing a listener. The adapter's
++ * behavioral coverage lives beside the qualified producer tests.
++ */
++import { readFileSync } from 'node:fs';
++import path from 'node:path';
++import { describe, expect, it } from 'vitest';
++
++const source = readFileSync(path.join(__dirname, '..', 'server.ts'), 'utf8');
++
++function coordinatorReferenceConstruction(): string {
++  const start = source.indexOf('const dayflowReferences = createDayflowCoordinatorReferenceAdapter({');
++  expect(start, 'server must compose the qualified Dayflow coordinator adapter').toBeGreaterThan(-1);
++  const end = source.indexOf('const conversationSessions = new AgentSessionsRepository()', start);
++  expect(end, 'conversation construction follows the Dayflow adapter').toBeGreaterThan(start);
++  return source.slice(start, end);
++}
++
++describe('server.ts Dayflow coordinator composition', () => {
++  it('binds the durable conversation context to the current qualified reader and persisted authority', () => {
++    const construction = coordinatorReferenceConstruction();
++    expect(source).toContain('{ createDayflowCoordinatorReferenceAdapter }');
++    expect(construction).toMatch(/reader:\s*\(\)\s*=>\s*dayflowService/);
++    expect(construction).toMatch(/authority:\s*\(\)\s*=>\s*dayflowQualificationAuthority/);
++    expect(source).not.toContain('new DayflowCoordinatorReferenceAdapter()');
++
++    const authority = source.indexOf('dayflowQualificationAuthority = new DayflowPersistedQualificationAuthority');
++    const producer = source.indexOf('dayflowService = new DayflowIntegrationService');
++    expect(authority, 'server constructs the persisted authority').toBeGreaterThan(-1);
++    expect(producer, 'server constructs the existing qualified producer').toBeGreaterThan(authority);
++    expect(source.slice(producer, producer + 900)).toContain('qualificationAuthority: dayflowQualificationAuthority');
++  });
++});
+
+

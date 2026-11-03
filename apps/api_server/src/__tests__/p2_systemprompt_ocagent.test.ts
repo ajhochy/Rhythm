@@ -22,6 +22,7 @@ import Database from 'better-sqlite3';
 
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 
 // ── Hoist mocks ─────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,9 @@ vi.mock('../services/opencode_engine', () => ({
     prompt: mockPrompt,
     promptAsync: mockPromptAsync,
     abortSession: mockAbortSession,
+    updateSessionPermissionMode: vi.fn().mockResolvedValue(true),
+    updateSessionAllowlist: vi.fn().mockResolvedValue(undefined),
+    updateSessionSkillAllowlist: vi.fn().mockResolvedValue(undefined),
     listMessages: vi.fn().mockResolvedValue([]),
   },
   opencodeSessionMap: new Map<string, string>(),
@@ -226,12 +230,11 @@ describe('P2 — runner path: system_prompt + ocAgent forwarded in prompt body',
 
 // ── WS path tests ───────────────────────────────────────────────────────────────
 
-// The WS path is tested by spying on resolveProfileScope and calling handleInputFrame
-// via the exported test helper. Since ws_gateway doesn't export handleInputFrame,
-// we test it indirectly by mocking resolveProfileScope and asserting on promptAsync.
+// The WS path calls the real handleInputFrame with a persisted chat identity,
+// while the engine transport remains mocked.
 
 describe('P2 — WS path: system_prompt + ocAgent forwarded in promptAsync body', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     delete process.env.AGENT_SKILLS_ENABLED;
     delete process.env.AGENT_MEMORY_INJECTION_ENABLED;
@@ -239,6 +242,13 @@ describe('P2 — WS path: system_prompt + ocAgent forwarded in promptAsync body'
     mockCreateSession.mockResolvedValue({ id: 'sdk-session-ws-p2' });
     mockPromptAsync.mockResolvedValue(true);
     mockAbortSession.mockResolvedValue(true);
+    const modelResolver = await import('../services/agent_model_resolver');
+    vi.spyOn(modelResolver, 'resolveModelForSessionTurnWithProvenance').mockResolvedValue({
+      route: { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+      requestedSource: 'agent_config',
+      requestedTier: null,
+      routeAuthed: true,
+    });
   });
 
   afterEach(() => {
@@ -259,7 +269,14 @@ describe('P2 — WS path: system_prompt + ocAgent forwarded in promptAsync body'
     extra: Record<string, unknown> = {},
   ): Promise<void> {
     const { opencodeSessionMap } = await import('../services/opencode_engine');
-    (opencodeSessionMap as Map<string, string>).set(sessionId, opencodeId);
+    const session = new AgentSessionsRepository().insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: '/tmp/rhythm-p2-ws',
+      name: sessionId,
+    });
+    (opencodeSessionMap as Map<string, string>).set(session.id, opencodeId);
 
     const { handleInputFrame } = await import('../services/ws_gateway');
     const fakeWs = {
@@ -269,7 +286,7 @@ describe('P2 — WS path: system_prompt + ocAgent forwarded in promptAsync body'
 
     const frame: Record<string, unknown> = {
       type: 'session.input',
-      id: sessionId,
+      id: session.id,
       data,
       ...extra,
     };
@@ -293,6 +310,26 @@ describe('P2 — WS path: system_prompt + ocAgent forwarded in promptAsync body'
     expect(mockPromptAsync).toHaveBeenCalledOnce();
     const opts = mockPromptAsync.mock.calls[0][4] as Record<string, unknown>;
     expect(opts).toMatchObject({ system: 'You are a worship planning assistant.' });
+  });
+
+  it('WS path: running as own agent (engine agent === profile scope id) OMITS the duplicate system override', async () => {
+    const scopeModule = await import('../services/agent_profile_scope');
+    vi.spyOn(scopeModule, 'resolveProfileScope').mockResolvedValue({
+      model: { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+      mcpRoleConfig: null,
+      allowedSkillsJson: null,
+      systemPrompt: 'You are a theological researcher.',
+      ocAgent: 'own-profile',
+      modelTierHint: null,
+    });
+
+    await sendWsInput('sess-p2-ws-own', 'sdk-p2-ws-own', 'Research Romans 8', { agent: 'own-profile' });
+
+    expect(mockPromptAsync).toHaveBeenCalledOnce();
+    const opts = mockPromptAsync.mock.calls[0][4] as Record<string, unknown>;
+    // agent forwarded; the .md body is the single source of the profile prompt
+    expect(opts).toMatchObject({ agent: 'own-profile' });
+    expect(Object.prototype.hasOwnProperty.call(opts, 'system')).toBe(false);
   });
 
   it('WS path: profile ocAgent forwarded as agent when no per-turn override', async () => {

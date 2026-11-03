@@ -1,4 +1,6 @@
 import type { GatewayMode } from '.';
+import { isTrustedBrowserFetcher } from './browser-transport';
+import { cloudAccountFailure } from './cloud-error';
 
 export interface ProjectTemplateStep { id: string; templateId: string; title: string; offsetDays: number; offsetDescription: string | null; sortOrder: number; assigneeId: number | null; assigneeName: string | null }
 export interface ProjectTemplate { id: string; name: string; description: string | null; anchorType: string; ownerId: number | null; createdAt: string; steps: ProjectTemplateStep[] }
@@ -43,7 +45,7 @@ export interface ProjectsGateway {
 
 export class ProjectsGatewayError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 const failureText = (status: number, operation: string) => ({ 0: 'Projects service unavailable', 401: 'Authentication required', 403: 'Forbidden', 404: 'Project record not found' })[status] ?? `${operation} failed (${status})`;
-async function response<T>(operation: string, pending: Promise<Response>): Promise<T> { try { const result = await pending; if (!result.ok) throw new ProjectsGatewayError(result.status, failureText(result.status, operation)); return result.status === 204 ? undefined as T : await result.json() as T; } catch (error) { if (error instanceof ProjectsGatewayError) throw error; throw new ProjectsGatewayError(0, failureText(0, operation)); } }
+async function response<T>(operation: string, pending: Promise<Response>): Promise<T> { try { const result = await pending; if (!result.ok) throw new ProjectsGatewayError(result.status, await cloudAccountFailure(result) ?? failureText(result.status, operation)); return result.status === 204 ? undefined as T : await result.json() as T; } catch (error) { if (error instanceof ProjectsGatewayError) throw error; throw new ProjectsGatewayError(0, failureText(0, operation)); } }
 
 export function createFixtureProjectsGateway(_fetcher?: typeof fetch): ProjectsGateway {
   const unsupported = async (..._args: unknown[]): Promise<never> => { throw new ProjectsGatewayError(0, 'Fixture projects gateway is unsupported'); };
@@ -51,7 +53,7 @@ export function createFixtureProjectsGateway(_fetcher?: typeof fetch): ProjectsG
 }
 
 export function createLiveProjectsGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): ProjectsGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: an explicit projects token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: an explicit projects token is required');
   const request = (path: string, init: RequestInit = {}) => fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   const json = (value: unknown) => JSON.stringify(value);
   return {

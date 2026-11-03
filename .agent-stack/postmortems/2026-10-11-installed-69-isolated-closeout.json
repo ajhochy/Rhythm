@@ -1,0 +1,69 @@
+{
+  "run_id": "2026-10-11-installed-69-isolated-closeout",
+  "issue": "deliverables-completion",
+  "date": "2026-10-11",
+  "smoke_result": "fail",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "verification_scope_note": "No complete deliverable PASS claimed; preserve earlier epoch passes and current refusals without substitution.",
+  "criteria_results": [
+    {
+      "criterion_id": "issue-deliverables-completion-c18",
+      "text": "Normal chat yields bounded coding proposal and real same-chat approval",
+      "contract_status": "untested",
+      "smoke_status": "fail",
+      "category": "C3",
+      "notes": "Real status/proposal tool calls completed; server held; zero approval/grant. Installed binding spread conflicts with exact closed schema; source inference recorded, no fix."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c19",
+      "text": "Six repaired review/workflow rules loaded",
+      "contract_status": "untested",
+      "smoke_status": "fail",
+      "category": "C5",
+      "notes": "Repaired skills unavailable in fresh actual engine; previous user-HOME hashes cannot substitute."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c7",
+      "text": "Ordinary unenrolled work proceeds",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Owned fixture passed earlier; actual fresh normal UI stores ownerNULL and native provider guard refuses. Normal creation boundary omitted."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c22",
+      "text": "Relevant canonical Memory, budgets, body-free provenance, revoked abstention",
+      "contract_status": "untested",
+      "smoke_status": "fail",
+      "category": "C3",
+      "notes": "Canonical/budget/body-free/true retired continuation abstention pass; unrelated aquarium admitted and relevant details lost. False explanation of earlier hidden context retained."
+    },
+    {
+      "criterion_id": "current-dayflow-retest",
+      "text": "Current supported Dayflow fixture setup",
+      "contract_status": "fail",
+      "smoke_status": "not_checked",
+      "category": "C5",
+      "notes": "Six setup409 primary_designation refusals after ordinary primary-root setup. BLOCKED behavior; no rotation/bypass; earlier14passes not claimed current."
+    },
+    {
+      "criterion_id": "managed-planning-status",
+      "text": "Readable accurate run status after user Start",
+      "contract_status": "untested",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "ONE planning child succeeded2031tokens/quarantined; Coordination running/zero remains afterRefresh. No codingauthority/execution."
+    },
+    {
+      "criterion_id": "live-grid-catalog",
+      "text": "Authenticated live catalog supports routing without stale baseline fallback",
+      "contract_status": "untested",
+      "smoke_status": "fail",
+      "category": "C5",
+      "notes": "Before normal relaunch missingOpenAI/no_usable_route; after relaunch trueGridpick and supportedrestartpersistence pass. Cause not repaired."
+    }
+  ],
+  "followup_issues": [],
+  "followup_notes": "Local concrete repair actions recorded; no issue/PR creation authority added and no external messages. Coding recovery/cancellation remain blocked; unsupported quality gates preserved."
+}

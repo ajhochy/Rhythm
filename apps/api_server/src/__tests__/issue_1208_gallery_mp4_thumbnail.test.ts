@@ -97,6 +97,8 @@ describe('issue #1208 Gallery MP4 poster endpoint', () => {
     },
   );
 
+  // The invalid MP4 can hold Quick Look until its 5s execFile timeout; allow
+  // the controller to receive that rejection before Vitest ends the assertion.
   it('issue-1208-c5: poster generation failure returns not found without changing artifact access', async () => {
     // Regression caught: a failed poster breaks the original artifact route;
     // thumbnail must fail closed while artifact still resolves to the MP4.
@@ -135,7 +137,7 @@ describe('issue #1208 Gallery MP4 poster endpoint', () => {
     );
     expect(artifactErrors).toEqual([]);
     expect(artifactResponse.state.sentFile).toBe(fs.realpathSync(video));
-  });
+  }, 10_000);
 
   it('issue-1208-c7: poster endpoint rejects non-local and non-MP4 design records', async () => {
     // Regression caught: poster generation accepts remote content or unrelated

@@ -501,6 +501,7 @@ class AgentsDataSource {
     bool? fastMode,
     String? anthropicAccountId,
     String? agentId,
+    String? modelMode,
   }) async {
     final payload = <String, dynamic>{};
     if (name != null) payload['name'] = name;
@@ -520,6 +521,9 @@ class AgentsDataSource {
       payload['modelId'] = null;
     } else if (modelId != null) {
       payload['modelId'] = modelId;
+    }
+    if (modelMode != null) {
+      payload['modelMode'] = modelMode;
     }
     if (permissionMode != null) {
       payload['permissionMode'] = permissionMode;

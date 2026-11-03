@@ -8,6 +8,7 @@ export interface AgentWebhookEndpoint {
   eventTypesJson: string;
   secret: string;
   targetScheduledTaskId: string | null;
+  targetRecipeId: string | null;
   targetPrompt: string | null;
   enabled: boolean;
   lastTriggeredAt: string | null;
@@ -22,6 +23,7 @@ export interface CreateWebhookEndpointInput {
   eventTypesJson?: string;
   secret?: string;
   targetScheduledTaskId?: string;
+  targetRecipeId?: string;
   targetPrompt?: string;
   createdByUserId?: number;
 }
@@ -33,6 +35,7 @@ function rowToModel(row: Record<string, unknown>): AgentWebhookEndpoint {
     eventTypesJson: (row.event_types_json as string) ?? '["*"]',
     secret: row.secret as string,
     targetScheduledTaskId: (row.target_scheduled_task_id as string | null) ?? null,
+    targetRecipeId: (row.target_recipe_id as string | null) ?? null,
     targetPrompt: (row.target_prompt as string | null) ?? null,
     enabled: typeof row.enabled === 'boolean' ? row.enabled : row.enabled !== 0,
     lastTriggeredAt:
@@ -56,6 +59,9 @@ function rowToModel(row: Record<string, unknown>): AgentWebhookEndpoint {
 
 export class AgentWebhookEndpointsRepository {
   async createAsync(input: CreateWebhookEndpointInput): Promise<AgentWebhookEndpoint> {
+    if (input.targetScheduledTaskId && input.targetRecipeId) {
+      throw new Error('Webhook must select exactly one task or recipe target');
+    }
     const id = randomUUID();
     const now = new Date().toISOString();
     // Generate a random secret if not provided
@@ -64,13 +70,13 @@ export class AgentWebhookEndpointsRepository {
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(
         `INSERT INTO agent_webhook_endpoints
-           (id, name, event_types_json, secret, target_scheduled_task_id, target_prompt,
+           (id, name, event_types_json, secret, target_scheduled_task_id, target_recipe_id, target_prompt,
             created_by_user_id, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          RETURNING *`,
         [
           id, input.name, input.eventTypesJson ?? '["*"]', secret,
-          input.targetScheduledTaskId ?? null, input.targetPrompt ?? null,
+          input.targetScheduledTaskId ?? null, input.targetRecipeId ?? null, input.targetPrompt ?? null,
           input.createdByUserId ?? null, now, now,
         ],
       );
@@ -79,12 +85,12 @@ export class AgentWebhookEndpointsRepository {
 
     getDb().prepare(`
       INSERT INTO agent_webhook_endpoints
-        (id, name, event_types_json, secret, target_scheduled_task_id, target_prompt,
+        (id, name, event_types_json, secret, target_scheduled_task_id, target_recipe_id, target_prompt,
          created_by_user_id, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?)
+      VALUES (?,?,?,?,?,?,?,?,?,?)
     `).run(
       id, input.name, input.eventTypesJson ?? '["*"]', secret,
-      input.targetScheduledTaskId ?? null, input.targetPrompt ?? null,
+      input.targetScheduledTaskId ?? null, input.targetRecipeId ?? null, input.targetPrompt ?? null,
       input.createdByUserId ?? null, now, now,
     );
 

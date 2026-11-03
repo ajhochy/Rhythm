@@ -125,7 +125,7 @@ describe('seedSecretaryDelegation — backfill against the REAL role file', () =
       '3f9a1c2e-8b4d-4a1e-9c3f-1a2b3c4d5e6f',
       'AI Trend Researcher',
       'Theological Researcher',
-      'workflow-orchestrator',
+      'coding-agent',
       'graphic-designer',
     ];
     insertSecretaryRow(repo, {
@@ -138,11 +138,11 @@ describe('seedSecretaryDelegation — backfill against the REAL role file', () =
 
     const after = repo.getById('secretary')!;
     const roster = JSON.parse(after.allowedDelegatesJson!);
-    // Exactly the role-file's 7 slugs — the dirty entries are gone.
+    // Exactly the role-file's 8 slugs — the dirty entries are gone.
     expect(roster).toEqual(
       expect.arrayContaining(['theologian', 'librarian', 'worship-planning', 'fantasy-gm']),
     );
-    expect(roster).not.toEqual(expect.arrayContaining(['workflow-orchestrator', 'graphic-designer']));
+    expect(roster).not.toEqual(expect.arrayContaining(['coding-agent', 'graphic-designer']));
     for (const dirty of dirtyRoster) {
       expect(roster).not.toContain(dirty);
     }

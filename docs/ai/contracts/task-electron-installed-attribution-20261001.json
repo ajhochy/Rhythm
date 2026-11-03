@@ -1,0 +1,69 @@
+{
+  "task": "electron-installed-attribution-20261001",
+  "owner": "D",
+  "baseline": "c1b7e023fbd85774fe447078cfe410f228dee539",
+  "pr": 1598,
+  "status": "BLOCKED",
+  "installedQualified": false,
+  "scope": [
+    "apps/electron/test/",
+    "docs/ai/contracts/task-electron-installed-attribution-20261001.json",
+    "docs/ai/runs/2026-10-01-electron-installed-attribution-authoring.md"
+  ],
+  "harness": "apps/electron/test/installed-attribution.mjs",
+  "commandsAndPrerequisites": "apps/electron/test/installed-attribution.md",
+  "modes": {
+    "preflight": "Read-only qualification archive/installed hash, clean stamp, codesign/spctl/staple checks; exit1 while native acceptance unverified",
+    "observe": "Manager-ready attach-only packaged CDP; factory hashes, outer native-auth reload GET, optional read-only native Hermes bridge health/inventory checked against owned proxy upstream-status receipt; exit1 while trigger and full acceptance unverified",
+    "proxy": "Separate manager-owned loopback process forwards allowlisted metadata, exact synthetic trigger and bounded WebSocket traffic unchanged to real pinned backend; metadata-only JSONL upstream status receipt, no auth/body logging; authored but unrun",
+    "native-trigger": "Explicit synthetic-only runtime gate: verify exact harmless script hash and active profile; click installed Cron detail UI once; assert one owned-backend HTTP 200 POST, pending disabled control, durable terminal run, rendered history and reopen; authored but unrun",
+    "qualify": "Explicit failing UNVERIFIED gate: no native synthetic trigger/runtime result or exact reported-click attribution"
+  },
+  "realVsFixture": {
+    "helperTests": "Synthetic in-memory lane/redaction/report assertions only; no installed acceptance",
+    "artifactIdentity": "Real exact installed candidate/archive bytes and OS verification when executed later",
+    "frameAttribution": "Real packaged renderer CDP, active factory only; CDP IDs not WebContents IDs",
+    "approvalReload": "Real outer UI GET with existing native auth, synthetic owned rows only; no network mocks, no signer invocation",
+    "nativeCron": "NOT RUN; owned no-agent script fixture, native bridge health nonce/proxy receipt and guarded installed UI trigger with actual upstream POST status, terminal ledger, pending/dedupe/reopen assertions are authored, not executed",
+    "reportedPendingIds": "NOT QUERIED; pending safe supported human-read capability, not synthetic row substitution"
+  },
+  "supportedMappings": {
+    "outerRhythm": "POST /agent-schedules/:id/trigger-now",
+    "nativeHermes": "POST /api/cron/jobs/:id/trigger via production handleHermesApiRequest; not fallback proxyApiRequest",
+    "domainTask": "Neither trigger mapping",
+    "hermesPermissions": "Engine approval.pending/received/respond RPC, not signed Rhythm cards"
+  },
+  "not_tested": [
+    "Final rebuilt signed installed package",
+    "Frame/loaded renderer attribution at runtime",
+    "Actual failed reload GET receipt",
+    "Global null-session and bound-session card visibility",
+    "Mount/focus/new-creation fetch",
+    "Actionable auth/transport/shape errors",
+    "Native read-only bridge/backend version and synthetic inventory",
+    "Native synthetic click and actual POST response",
+    "Native durable run/pending/terminal/error/dedupe/reopen",
+    "Legitimate human-gesture nonce-bound signer",
+    "Reported pending ID metadata"
+  ],
+  "blockers": [
+    "Installed literal action/component/request/origin/build attribution has not run on a final signed candidate; current combined sandbox owner is the integration lead.",
+    "Current installed Mega app has invalid seal; must not modify/clean/reseal or qualify it",
+    "Final rebuilt signed fixture and manager-approved native auth/profile/runtime absent",
+    "Owned isolated synthetic Hermes job/profile/connection/durable run fixture absent; safe no-agent script shape is documented",
+    "Native trigger POST/status/durable-run receipt absent; guarded real-UI and owned loopback proxy mechanisms authored but unrun; do not count renderer network mocks or Rhythm C1"
+  ],
+  "smallestProductionRecommendation": "Only if no supported native/backend receipt exists, companion owner adds opt-in external metadata-only receipt at production handleHermesApiRequest; no signing/auth weakening; reviewed repin/final signed build required. No production change authored here.",
+  "safety": {
+    "launch": false,
+    "runtimeLifecycle": false,
+    "manualApi": false,
+    "trigger": false,
+    "decision": false,
+    "credentials": false,
+    "bundleMutation": false,
+    "commitPushPrMergeDeploy": false,
+    "computerControl": false
+  },
+  "current_status_note": "The old child sandbox lease in the source-authoring receipt is historical; the integration owner now controls the combined sandbox. The guarded native Hermes diagnostic remains authored but unrun until a final signed candidate and isolated backend/profile fixture exist. Do not treat Hermes Cron as a required delivery gate unless the literal installed user action is attributed to that surface; outer Rhythm C1 is the current source-based hypothesis. No approval signer or operational job is triggered."
+}

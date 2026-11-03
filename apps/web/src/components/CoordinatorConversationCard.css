@@ -1,0 +1,46 @@
+.coordinator-conversation-card { display: grid; gap: 10px; padding: 12px; }
+
+.coordinator-conversation-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.coordinator-conversation-card h2 { margin: 0; font-size: 14px; }
+.coordinator-subhead { margin: 4px 0 0; color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+
+.coordinator-conversation-notice,
+.coordinator-conversation-empty { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+.coordinator-goal-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.coordinator-goal { padding: 9px 10px; border-radius: 12px; background: color-mix(in oklab, var(--surface-warm), var(--surface) 40%); }
+.coordinator-goal p { margin: 2px 0 0; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.coordinator-goal small { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+
+.coordinator-run-status { font-size: 11px; font-weight: 800; color: var(--muted); }
+.coordinator-run-status.is-running { color: var(--accent); }
+.coordinator-run-status.is-needs_you { color: var(--warning, var(--accent)); }
+.coordinator-run-status.is-finished { color: var(--success, var(--fg)); }
+.coordinator-run-status.is-failed { color: var(--danger, var(--fg)); }
+
+.coordinator-conversation-card .link-button {
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+.coordinator-conversation-card .link-button:hover,
+.coordinator-conversation-card .link-button:focus-visible { text-decoration: underline; }
+.coordinator-goal { display: grid; gap: 4px; }
+.coordinator-run-open { display: grid; gap: 0; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.coordinator-run-open:disabled { cursor: default; }
+.coordinator-run-open:hover p,
+.coordinator-run-open:focus-visible p { text-decoration: underline; }
+.coordinator-run-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.coordinator-run-confirm small { margin: 0; flex-basis: 100%; }

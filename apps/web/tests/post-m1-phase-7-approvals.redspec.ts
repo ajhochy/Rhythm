@@ -24,7 +24,7 @@ test('post-m1-p7-c4d: pending approval card signs an exact approved/rejected dec
   await page.getByTestId('notifications-button').click();
   await expect(page.getByText(approval.preview)).toBeVisible();
   await expect(page.getByText(approval.consequence)).toBeVisible();
-  await page.getByRole('button', { name: 'Approve', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Approve', exact: true }).click();
   await expect.poll(() => matching(seen, 'PATCH', `/agent-approvals/${approval.id}`)[0]?.body).toMatchObject({
     status: 'approved',
     signature: expect.any(String),

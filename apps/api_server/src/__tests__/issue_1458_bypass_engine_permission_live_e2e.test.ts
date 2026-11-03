@@ -8,6 +8,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { join } from 'node:path';
 
+import Database from 'better-sqlite3';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 
@@ -93,6 +94,55 @@ async function waitFor<T>(read: () => Promise<T | null> | T | null, timeoutMs = 
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error('timed out waiting for #1458 live assertion');
+}
+
+function observeEnginePermissions(engine: string, sdkSessionId: string) {
+  const controller = new AbortController();
+  const events: Array<{ type: string; sessionID: string; directory?: string }> = [];
+  const ready = (async () => {
+    const response = await fetch(`${engine}/global/event`, { signal: controller.signal });
+    if (!response.ok || !response.body) throw new Error(`global event observer -> ${response.status}`);
+    return response.body;
+  })();
+  const finished = (async () => {
+    const body = await ready;
+    const decoder = new TextDecoder();
+    let buffer = '';
+    try {
+      for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
+        buffer += decoder.decode(chunk, { stream: true });
+        let boundary: number;
+        while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+          const frame = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          const line = frame.split('\n').find((value) => value.startsWith('data:'));
+          if (!line) continue;
+          try {
+            const envelope = JSON.parse(line.slice(5).trim()) as {
+              directory?: unknown;
+              payload?: { type?: unknown; properties?: { sessionID?: unknown } };
+            };
+            const payload = envelope.payload;
+            if (
+              (payload?.type === 'permission.asked' || payload?.type === 'permission.replied') &&
+              payload.properties?.sessionID === sdkSessionId
+            ) {
+              events.push({
+                type: payload.type,
+                sessionID: sdkSessionId,
+                ...(typeof envelope.directory === 'string' ? { directory: envelope.directory } : {}),
+              });
+            }
+          } catch {
+            // Ignore malformed unrelated engine frames in this observation-only stream.
+          }
+        }
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) throw error;
+    }
+  })();
+  return { controller, events, ready, finished };
 }
 
 afterEach(async () => {
@@ -296,4 +346,238 @@ describeLive('issue #1458 live engine-side permission bypass', () => {
       await rm(fixtureRoot, { recursive: true, force: true });
     }
   });
+
+  it('replies to a real headless-child permission through the global event directory when its persisted cwd is stale', async () => {
+    if (!SANDBOX.startsWith('/')) throw new Error('RHYTHM_SANDBOX_DIR is required');
+    const dbPath = process.env.DB_PATH ?? '';
+    if (!dbPath.startsWith(`${SANDBOX}/`)) throw new Error('DB_PATH must be the owned sandbox database');
+
+    const fixtureRoot = join(SANDBOX, `issue-1458-directory-${process.pid}`);
+    const engineDir = join(fixtureRoot, 'engine-worktree');
+    const staleDir = join(fixtureRoot, 'stale-persisted-cwd');
+    const target = join(engineDir, 'target.txt');
+    const oldText = 'issue-1458-directory-old';
+    const marker = `issue-1458-directory-green-${randomUUID()}`;
+    const finalMarker = `issue-1458-directory-final-${randomUUID()}`;
+    const providerId = `issue-1458-directory-${process.pid}`;
+    const modelId = 'directory-routing-fixture';
+    const providerRequests: Array<Record<string, unknown>> = [];
+    let provider: Server | null = null;
+    let originalConfig: Record<string, unknown> | null = null;
+    let parent: { id: string; sdkSessionId: string } | null = null;
+    let child: { id: string; sdkSessionId: string } | null = null;
+    let profileId: string | null = null;
+    let projectId: string | null = null;
+    let auth: Record<string, string> = {};
+    let childCwdMutated = false;
+    let permissionObserver: ReturnType<typeof observeEnginePermissions> | null = null;
+
+    await mkdir(engineDir, { recursive: true });
+    await mkdir(staleDir, { recursive: true });
+    await writeFile(target, oldText, 'utf8');
+
+    try {
+      provider = createServer((request, response) => {
+        if (request.method !== 'POST') {
+          response.writeHead(204);
+          response.end();
+          return;
+        }
+        const chunks: Buffer[] = [];
+        request.on('data', (chunk: Buffer) => chunks.push(chunk));
+        request.on('end', () => {
+          const raw = Buffer.concat(chunks).toString('utf8');
+          if (!raw) {
+            response.writeHead(204);
+            response.end();
+            return;
+          }
+          providerRequests.push(JSON.parse(raw) as Record<string, unknown>);
+          // Provider admission is complete before a model can request this
+          // tool. Mutate only the owned fixture's local CWD at the exact
+          // routing boundary, so admission itself retains its valid binding.
+          if (providerRequests.length === 2 && child && parent) {
+            const db = new Database(dbPath);
+            try {
+              db.prepare('UPDATE agent_sessions SET parent_session_id = ?, cwd = ? WHERE id = ?')
+                .run(parent.id, staleDir, child.id);
+              childCwdMutated = true;
+            } finally {
+              db.close();
+            }
+          }
+          const stream = providerRequests.length === 1
+            ? toolStream(modelId, 'read', { filePath: target })
+            : providerRequests.length === 2
+              ? toolStream(modelId, 'edit', { filePath: target, oldString: oldText, newString: marker })
+              : textStream(modelId, finalMarker);
+          response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+          response.end(stream);
+        });
+      });
+      await new Promise<void>((done, reject) => {
+        provider?.once('error', reject);
+        provider?.listen(0, '127.0.0.1', done);
+      });
+      const address = provider.address();
+      if (!address || typeof address === 'string') throw new Error('provider fixture did not bind');
+
+      originalConfig = await json<Record<string, unknown>>(`${ENGINE}/global/config`);
+      const config = structuredClone(originalConfig) as { provider?: Record<string, unknown> };
+      config.provider = config.provider ?? {};
+      config.provider[providerId] = {
+        npm: '@ai-sdk/anthropic',
+        name: '#1458 directory routing fixture',
+        options: { apiKey: 'issue-1458-directory-fixture', baseURL: `http://127.0.0.1:${address.port}/v1` },
+        models: { [modelId]: { name: modelId, limit: { context: 20_000, output: 1_000 } } },
+      };
+      await json(`${ENGINE}/global/config`, { method: 'PATCH', body: JSON.stringify(config) });
+
+      // Bind this synthetic turn to the stock fixture's sole owner and a
+      // fixture project. An anonymous direct engine prompt is intentionally
+      // withheld by Dayflow provider admission before any provider call.
+      const fixtureDb = new Database(dbPath, { readonly: true });
+      let authorization: string;
+      try {
+        const row = fixtureDb.prepare('SELECT token FROM sessions ORDER BY created_at DESC LIMIT 1').get() as { token?: unknown } | undefined;
+        if (!row || typeof row.token !== 'string' || row.token.length === 0) throw new Error('isolated fixture has no bearer session');
+        authorization = `Bearer ${row.token}`;
+      } finally {
+        fixtureDb.close();
+      }
+      auth = { Authorization: authorization, Origin: 'rhythm://app', 'Content-Type': 'application/json' };
+      const project = await json<{ id: string }>(`${API}/projects`, {
+        method: 'POST', headers: auth,
+        body: JSON.stringify({ name: `#1458 directory ${randomUUID()}`, cwd: engineDir }),
+      });
+      projectId = project.id;
+      const profile = await json<{ id: string }>(`${API}/agent-configs`, {
+        method: 'POST', headers: auth,
+        body: JSON.stringify({
+          id: `issue-1458-directory-${randomUUID()}`,
+          label: '#1458 directory fixture', isAgent: true, enabled: true, sessionSelectable: true,
+          ocAgent: 'build', modelProvider: providerId, modelId,
+          corePermissionsJson: JSON.stringify({ read: 'allow', edit: 'ask' }),
+          systemPrompt: 'Execute the controlled fixture request.',
+        }),
+      });
+      profileId = profile.id;
+      expect((await fetch(`${API}/system/refresh`, { method: 'POST' })).status).toBe(200);
+
+      parent = await json<{ id: string; sdkSessionId: string }>(`${API}/agent-sessions`, {
+        method: 'POST', headers: auth,
+        body: JSON.stringify({ profileId, cwd: engineDir, projectId, name: '#1458 directory parent', permissionMode: 'default' }),
+      });
+      child = await json<{ id: string; sdkSessionId: string }>(`${API}/agent-sessions`, {
+        method: 'POST', headers: auth,
+        body: JSON.stringify({ profileId, cwd: engineDir, projectId, name: '#1458 directory child', permissionMode: 'default' }),
+      });
+      created.push(parent.id, child.id);
+      const childSdkSessionId = child.sdkSessionId;
+
+      // Profile projection controls the prompt identity; install the exact
+      // fixture-only engine rules through the supported session route so this
+      // turn has one allowed read followed by one asked edit.
+      await json(`${ENGINE}/session/${encodeURIComponent(childSdkSessionId)}?directory=${encodeURIComponent(engineDir)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          permission: [
+            { permission: '*', pattern: '*', action: 'deny' },
+            { permission: 'read', pattern: '*', action: 'allow' },
+            { permission: 'edit', pattern: '*', action: 'ask' },
+          ],
+        }),
+      });
+      const engineSession = await json<{
+        permission?: Array<{ permission: string; pattern: string; action: string }>;
+      }>(`${ENGINE}/session/${encodeURIComponent(child.sdkSessionId)}?directory=${encodeURIComponent(engineDir)}`);
+      expect(engineSession.permission?.some((rule) =>
+        rule.permission === 'edit' && rule.pattern === '*' && rule.action === 'ask',
+      )).toBe(true);
+
+      permissionObserver = observeEnginePermissions(ENGINE, childSdkSessionId);
+      await permissionObserver.ready;
+
+      const turn = await fetch(`${API}/agent-sessions/${encodeURIComponent(child.id)}/prompt`, {
+        method: 'POST',
+        headers: auth,
+        signal: AbortSignal.timeout(20_000),
+        body: JSON.stringify({
+          prompt: 'Apply the controlled edit.',
+          modelOverride: { providerId, modelId },
+        }),
+      });
+      expect(turn.status, await turn.clone().text()).toBe(202);
+      await waitFor(() => providerRequests.length === 3 ? true : null);
+      expect(providerRequests).toHaveLength(3);
+      const staleChild = new Database(dbPath, { readonly: true });
+      try {
+        expect(staleChild.prepare('SELECT cwd FROM agent_sessions WHERE id = ?').get(child.id)).toEqual({ cwd: staleDir });
+      } finally {
+        staleChild.close();
+      }
+      expect(await readFile(target, 'utf8')).toBe(marker);
+      await waitFor(() =>
+        permissionObserver!.events.some((event) => event.type === 'permission.asked') &&
+        permissionObserver!.events.some((event) => event.type === 'permission.replied')
+          ? true
+          : null,
+      );
+      expect(permissionObserver.events).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'permission.asked', sessionID: childSdkSessionId, directory: engineDir }),
+        expect.objectContaining({ type: 'permission.replied', sessionID: childSdkSessionId, directory: engineDir }),
+      ]));
+
+      const pending = await json<Array<{ sessionID: string }>>(
+        `${ENGINE}/permission?directory=${encodeURIComponent(engineDir)}`,
+      );
+      expect(pending.filter((ask) => ask.sessionID === childSdkSessionId)).toEqual([]);
+      await waitFor(async () => {
+        const messages = await json<Array<{ parts?: Array<{ type?: string; text?: string }> }>>(
+          `${ENGINE}/session/${encodeURIComponent(childSdkSessionId)}/message?directory=${encodeURIComponent(engineDir)}`,
+        );
+        return messages.some((message) => message.parts?.some((part) =>
+          part.type === 'text' && part.text?.includes(finalMarker),
+        )) ? true : null;
+      });
+    } finally {
+      permissionObserver?.controller.abort();
+      await permissionObserver?.finished.catch(() => undefined);
+      if (child) {
+        await fetch(
+          `${ENGINE}/session/${encodeURIComponent(child.sdkSessionId)}/abort?directory=${encodeURIComponent(engineDir)}`,
+          { method: 'POST' },
+        ).catch(() => undefined);
+      }
+      if (childCwdMutated && child) {
+        const db = new Database(dbPath);
+        try {
+          db.prepare('UPDATE agent_sessions SET parent_session_id = NULL, cwd = ? WHERE id = ?')
+            .run(engineDir, child.id);
+        } finally {
+          db.close();
+        }
+      }
+      if (originalConfig) {
+        await fetch(`${ENGINE}/global/config`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(originalConfig),
+        }).catch(() => undefined);
+        await fetch(`${API}/system/refresh`, { method: 'POST' }).catch(() => undefined);
+      }
+      for (const local of [child, parent]) {
+        if (!local) continue;
+        await fetch(`${API}/agent-sessions/${encodeURIComponent(local.id)}`, { method: 'DELETE', headers: auth }).catch(() => undefined);
+      }
+      if (profileId) {
+        await fetch(`${API}/agent-configs/${encodeURIComponent(profileId)}`, { method: 'DELETE', headers: auth }).catch(() => undefined);
+      }
+      if (projectId) {
+        await fetch(`${API}/projects/${encodeURIComponent(projectId)}`, { method: 'DELETE', headers: auth }).catch(() => undefined);
+      }
+      await closeServer(provider);
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
+  }, 60_000);
 });

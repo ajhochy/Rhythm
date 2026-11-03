@@ -130,8 +130,9 @@ export function createFixtureResearchGateway(): ResearchGateway {
   };
 }
 
+import { isTrustedBrowserFetcher } from './browser-transport';
 export function createLiveResearchGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): ResearchGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: a research token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: a research token is required');
   const request = (path: string, init: RequestInit = {}) =>
     fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   const base = '/agent-research/projects';

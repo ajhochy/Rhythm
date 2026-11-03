@@ -22,15 +22,14 @@ async function fetchEngineJson(origin: string, path: string): Promise<unknown> {
 
 export async function loadLiveMcpToolCatalog(engineUrl?: string): Promise<LiveMcpToolCatalog> {
   if (!engineUrl && !opencodeClient.isReady) throw new Error('live MCP tool catalog is unavailable');
-  const [statuses, toolIds] = await (engineUrl
-    ? Promise.all([
-      fetchEngineJson(new URL(engineUrl).origin, '/mcp'),
-      fetchEngineJson(new URL(engineUrl).origin, '/mcp/tools'),
-    ])
-    : Promise.all([
-      opencodeClient.listMcp(),
-      opencodeClient.listMcpToolIds(),
-    ]));
+  // Status establishes the connected client before the engine resolves its
+  // composed tool IDs. Parallel requests can straddle a client replacement.
+  const statuses = engineUrl
+    ? await fetchEngineJson(new URL(engineUrl).origin, '/mcp')
+    : await opencodeClient.listMcp();
+  const toolIds = engineUrl
+    ? await fetchEngineJson(new URL(engineUrl).origin, '/mcp/tools')
+    : await opencodeClient.listMcpToolIds();
   if (!statuses || typeof statuses !== 'object' || Array.isArray(statuses)) {
     throw new Error('live MCP status response is invalid');
   }
@@ -92,7 +91,21 @@ export async function assertMcpToolGrantsKnown(
   } catch {
     return; // Engine warmup/outage makes live validation unjudgeable, never a profile-edit blocker.
   }
-  const unknown = findUnknownMcpToolGrants(allowedMcpsJson, profileId, catalog);
+  let unknown = findUnknownMcpToolGrants(allowedMcpsJson, profileId, catalog);
+  // A connected granted server with zero composed IDs is an MCP replacement
+  // snapshot, not proof that every stored grant disappeared. Re-read only that
+  // case for a short bounded window; a populated catalog with a missing tool
+  // remains an immediate real drift error.
+  const deadline = Date.now() + 2_000;
+  while (unknown.length > 0 && Date.now() < deadline && unknown.every(({ serverName }) => {
+    const prefix = `${sanitizeMcpNameSegment(serverName)}_`;
+    return ![...catalog.toolIds].some(id => id.startsWith(prefix));
+  })) {
+    await new Promise(resolve => setTimeout(resolve, 150));
+    try { catalog = await loadLiveMcpToolCatalog(); }
+    catch { break; } // Preserve the already observed unknown grant; never accept it.
+    unknown = findUnknownMcpToolGrants(allowedMcpsJson, profileId, catalog);
+  }
   if (unknown.length > 0) {
     throw new Error(
       `unknown MCP tool grant(s): ${unknown.map((entry) => `${entry.serverName}.${entry.toolName}`).join(', ')}`,

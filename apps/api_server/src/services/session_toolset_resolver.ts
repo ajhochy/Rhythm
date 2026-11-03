@@ -8,11 +8,12 @@
  * reality:
  *
  *   - named MCP server ids   — verbatim from opencodeClient.listMcp(), filtered
- *                              to servers whose status is 'connected' (a
- *                              'failed'/'disabled'/'needs_auth' server is not
- *                              "connected" and must not make a fallback skill
- *                              disappear nor a requires_toolsets skill appear).
- *   - "mcp"                  — present iff at least one server is connected.
+ *                              to usable configured/connected servers. A passive
+ *                              'configured' server is eligible: its schema may
+ *                              be cached while its transport is deliberately
+ *                              idle. Failed, disabled, or auth-blocked servers
+ *                              remain ineligible.
+ *   - "mcp"                  — present iff at least one server is eligible.
  *   - "web" / "browser"      — present iff any connected server id matches a
  *                              known naming convention for that capability
  *                              (curated list below; additive, documented so
@@ -58,7 +59,7 @@ function matchesAny(id: string, patterns: RegExp[]): boolean {
 }
 
 /**
- * Resolve the current session's connected toolset identifiers. Never throws.
+ * Resolve the current session's eligible toolset identifiers. Never throws.
  */
 export async function resolveSessionToolsets(
   opts: ResolveSessionToolsetsOptions = {},
@@ -77,17 +78,17 @@ export async function resolveSessionToolsets(
     return { toolsets };
   }
 
-  const connectedIds = Object.entries(statusMap)
-    .filter(([, entry]) => entry?.status === 'connected')
+  const eligibleIds = Object.entries(statusMap)
+    .filter(([, entry]) => entry?.status === 'connected' || entry?.status === 'configured')
     .map(([id]) => id);
 
-  for (const id of connectedIds) {
+  for (const id of eligibleIds) {
     toolsets.add(id);
     if (matchesAny(id, WEB_SERVER_PATTERNS)) toolsets.add('web');
     if (matchesAny(id, BROWSER_SERVER_PATTERNS)) toolsets.add('browser');
   }
 
-  if (connectedIds.length > 0) toolsets.add('mcp');
+  if (eligibleIds.length > 0) toolsets.add('mcp');
 
   return { toolsets };
 }

@@ -1,0 +1,86 @@
+{
+  "issue": "E1",
+  "date": "2026-10-01",
+  "test_command": "HOME=/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/e1-approval-client-home ./node_modules/.bin/playwright test --config tests/e1-approval-queue-playwright.config.ts (workdir apps/web)",
+  "waiver": null,
+  "phase_0_status": "COMPLETE for client slice: manager explicitly authorized baseline 1870574248c4f48883fd828263615cff6e9e5871; 11 behavioral assertions failed before product edits. Actual API/native criteria remain unverified until manager runtime transfer.",
+  "baseline": "1870574248c4f48883fd828263615cff6e9e5871",
+  "implementation_status": "BLOCKED: novel CRITICAL PendingApproval interface impact; no nullable-nonce interface edits made. Partial candidate must not integrate; final client run 13 passed, 2 failed.",
+  "criteria": [
+    {
+      "criterion_id": "task-e1-approval-queue-c1",
+      "text": "create synthetic global and session-bound approvals through actual supported API; pending visible promptly in global queue including newly created after mount,focus/reconnect/app resume;correct transcript association without hiding global null cards",
+      "mode": "live",
+      "test": null,
+      "status": "pass",
+      "reason": "Real API-created synthetic global, bound and unrelated pending rows reached Chromium queue after mount and focus; reconnect/reload retained association. Real browser gate passed 1/1 after CORS and empty-transcript repair. No native signer or production rows used."
+    },
+    {
+      "criterion_id": "task-e1-approval-queue-c2",
+      "text": "loaded pending never silently gone on refresh/server/auth failure;clear actionable signed-native missing/403/503/network/nonarray/schema error+safe retry;no misleading empty-success",
+      "mode": "ui",
+      "test": "apps/web/tests/e1-approval-queue.spec.ts",
+      "status": "pass",
+      "reason": "Rendered 17/17 suite covers legacy null-nonce row alongside valid siblings, error/retry matrix, latest-response fencing and retained pending state. Real API browser queue-read passed 1/1. Native signer/installed package remain separate."
+    },
+    {
+      "criterion_id": "task-e1-approval-queue-c3",
+      "text": "Metadata-safe counters survive iframe/surface differences,queue discovery accessible,keyboard/focus announced status",
+      "mode": "ui",
+      "test": "apps/web/tests/e1-approval-queue.spec.ts",
+      "status": "pass",
+      "reason": "Rendered 17/17 suite covers closed-bell announcement, keyboard/retry and metadata-safe queue status. Real browser queue-read passed; installed two-surface accessibility qualification is pending."
+    },
+    {
+      "criterion_id": "task-e1-approval-queue-c4",
+      "text": "Click approve/reject through existing real trusted native bridge after legitimate test gesture on TEST-only fixture -> nonce-bound signed intended row exactly1,no wrong session/duplicate/stalecontext mutation;negativeunauthorized/cross-user/staleframe/signer tests remain enforced",
+      "mode": "live",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Synthetic browser negative test passes: pending native refusal permits one signing attempt, disables competing gesture, sends zero PATCH and retains card. Actual trusted nonce-bound native gestures and unauthorized/cross-user/stale-frame suites NOT RUN; no signature fabricated or real card decided."
+    },
+    {
+      "criterion_id": "task-e1-approval-queue-c5",
+      "text": "Pending statuses sync authoritative after decision,existing cards remain pending unless genuine human decision (actual user's prior chatworkflow approvals NOT signed transitions)",
+      "mode": "live",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "No decisions/native readback executed. Partial client code re-reads after decision and fences pre-decision fetches; not runtime proof. Requires actual next GET and retained unrelated pending rows; chat approval must not transition rows."
+    },
+    {
+      "criterion_id": "task-e1-approval-queue-c6",
+      "text": "Session-specific card lost before reload visibility same after reconnect/reopen",
+      "mode": "live",
+      "test": null,
+      "status": "pass",
+      "reason": "Real API-created bound pending row remained associated with its session banner across browser reconnect and reload, including the empty-transcript path; live gate passed 1/1. Installed native reopen remains separate."
+    },
+    {
+      "criterion_id": "task-e1-approval-queue-c7",
+      "text": "Main loop request exact IDs metadata only via supported authorized human read if safe (else test synthetic and disclose original metadata unqueried)",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Original two IDs remain unqueried: no supported authorized human connector assigned; no auth bypass or unrelated-row read. Synthetic browser rows exercised, not actual user metadata."
+    },
+    {
+      "criterion_id": "task-e1-approval-queue-c8",
+      "text": "Actual installed-package smoke mandatory after FINAL replacement candidate,do not claim source mocked tests qualify native. Screenshot/outputs own external test dirs outside bundle.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Final replacement candidate not supplied. Run D's established qualification/attach-only path read-only against final qualified candidate after runtime transfer, with outputs outside Resources; no installed PASS claimed."
+    }
+  ],
+  "not_tested": [
+    "task-e1-approval-queue-c4",
+    "task-e1-approval-queue-c5",
+    "task-e1-approval-queue-c7",
+    "task-e1-approval-queue-c8"
+  ],
+  "recovery_reverification": {
+    "date": "2026-10-01",
+    "receipt": "docs/ai/runs/2026-10-01-memory-recovery-integration.md",
+    "scope": "Real API-created synthetic rows and Chromium read/reconnect/reload 1/1; intercepted rendered 17/17. No native signing, decision, original-row read, or installed package."
+  }
+}

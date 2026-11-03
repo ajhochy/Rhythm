@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Button, Portal, ProgressBar, Text } from 'react-native-paper';
 
 import { TopTab } from '@/components/chat/chat-controls';
-import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
+import { SessionConfigurationSheet, type SessionSettingsGate } from '@/components/chat/session-configuration-sheet';
 import { Colors } from '@/constants/theme';
 import { getSessionSubtitle } from '@/lib/opencode/format';
 import type { Session } from '@/lib/opencode/types';
@@ -20,11 +20,13 @@ import type {
   ModelOption,
   ProviderOption,
 } from '@/providers/opencode-provider';
+import { AUTO_MODEL_LABEL } from '@/providers/opencode-provider-utils';
 
 type Palette = typeof Colors.light;
 
 type ChatHeaderProps = {
   connectionStatus: GatewayConnectionStatus;
+  coordinatorEligible?: boolean;
   availableModels: ModelOption[];
   availableProfiles: AgentOption[];
   availableProviders: ProviderOption[];
@@ -42,6 +44,7 @@ type ChatHeaderProps = {
   showingChanges: boolean;
   onBack: () => void;
   onCloseMenu: () => void;
+  onOpenCoordinator?: () => void;
   onConfirmStopConversation: () => void;
   onCreateSession: () => void;
   onOpenSession: (sessionId: string) => void;
@@ -50,6 +53,11 @@ type ChatHeaderProps = {
   onOpenSettings: () => void;
   onShowChanges: () => void;
   onToggleConversationMode: () => void;
+  /** Opening the configuration is read-only; the owner may probe canonical settings. */
+  onSettingsOpened?: () => void;
+  settingsGate?: SessionSettingsGate;
+  /** Display-only title for the enabled primary; no Session row is forged. */
+  displayTitle?: string;
   onUpdateSessionPreferences: (
     preferences: Partial<ChatPreferences>,
   ) => Promise<ChatPreferences>;
@@ -70,6 +78,7 @@ export function ChatHeader({
   availableProviders,
   chatPreferences,
   connectionStatus,
+  coordinatorEligible = false,
   conversation,
   currentSessionId,
   contextLimit,
@@ -77,9 +86,11 @@ export function ChatHeader({
   insetsTop,
   isCreatingSession,
   diffCount,
+  displayTitle,
   showingChanges,
   onBack,
   onCloseMenu,
+  onOpenCoordinator,
   onConfirmStopConversation,
   onCreateSession,
   onOpenSession,
@@ -88,11 +99,13 @@ export function ChatHeader({
   onOpenSettings,
   onShowChanges,
   onToggleConversationMode,
+  onSettingsOpened,
   onUpdateSessionPreferences,
   palette,
   presentationStatus,
   selectedSession,
   sessionMenuVisible,
+  settingsGate,
   sessions,
   usage,
 }: ChatHeaderProps) {
@@ -101,9 +114,11 @@ export function ChatHeader({
   const selectedProfileLabel = availableProfiles.find(
     (profile) => profile.profileId === chatPreferences.profileId,
   )?.label;
-  const selectedModelLabel = availableModels.find(
-    (model) => model.id === chatPreferences.modelId,
-  )?.label ?? chatPreferences.modelId;
+  const selectedModelLabel = chatPreferences.modelMode === 'auto'
+    ? AUTO_MODEL_LABEL
+    : availableModels.find(
+      (model) => model.id === chatPreferences.modelId,
+    )?.label ?? chatPreferences.modelId;
   const idleSubtitle = [selectedProfileLabel, selectedModelLabel]
     .filter(Boolean)
     .join(' · ');
@@ -137,7 +152,7 @@ export function ChatHeader({
               <View style={styles.headerSessionContent}>
                 <View style={styles.headerSessionTextWrap}>
                   <Text numberOfLines={1} variant="titleMedium" style={[styles.headerTitle, { color: palette.text }]}>
-                    {selectedSession?.title || 'Untitled chat'}
+                    {displayTitle ?? (selectedSession?.title || 'Untitled chat')}
                   </Text>
                   <NativeText numberOfLines={1} accessibilityLabel={`Chat status: ${subtitle}`} style={[styles.headerUsage, { color: palette.muted }]}>
                     {subtitle}
@@ -152,7 +167,10 @@ export function ChatHeader({
               accessibilityHint="Session configuration"
               accessibilityLabel="Chat menu"
               accessibilityRole="button"
-              onPress={() => setActionsVisible(true)}
+              onPress={() => {
+                setActionsVisible(true);
+                onSettingsOpened?.();
+              }}
               style={({ pressed }) => [
                 styles.headerAction,
                 pressed && styles.headerActionPressed,
@@ -195,7 +213,20 @@ export function ChatHeader({
         onPreferencesChange={onUpdateSessionPreferences}
         palette={palette}
         preferences={chatPreferences}
+        settingsGate={settingsGate}
         visible={actionsVisible}>
+        {coordinatorEligible ? (
+          <Button
+            accessibilityRole="menuitem"
+            icon="message-text-outline"
+            onPress={() => {
+              setActionsVisible(false);
+              onOpenCoordinator?.();
+            }}
+            testID="chat-coordinate-with-rhythm">
+            Coordinate with Rhythm
+          </Button>
+        ) : null}
         <Button
           accessibilityRole="menuitem"
           icon="plus"
@@ -311,7 +342,7 @@ export function ChatHeader({
             latestUserText={conversation.latestHeardText}
             onStop={onConfirmStopConversation}
             phase={conversation.phase}
-            sessionTitle={selectedSession?.title || 'Untitled chat'}
+            sessionTitle={displayTitle ?? (selectedSession?.title || 'Untitled chat')}
           />
         ) : null}
         {usageVisible ? (

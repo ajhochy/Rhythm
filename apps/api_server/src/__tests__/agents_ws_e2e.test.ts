@@ -26,6 +26,8 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { asRhythmProfileId } from '../models/agent_session';
 
 // ---------------------------------------------------------------------------
 // Hoisted shared state used inside vi.mock factories.
@@ -110,6 +112,7 @@ vi.mock('../services/opencode_engine', () => ({
     listAuthedProviders: vi.fn().mockResolvedValue(['openrouter']),
     createSession: (...args: unknown[]) =>
       createSessionSpy(...args) as Promise<{ id: string } | null>,
+    updateSessionPermissionMode: vi.fn().mockResolvedValue(true),
     promptAsync: (...args: unknown[]) =>
       promptAsyncSpy(...args) as Promise<boolean>,
     subscribeToEvents: vi.fn().mockResolvedValue({ stream: sdkStream }),
@@ -260,12 +263,34 @@ describe('Agents WS end-to-end chat data flow', () => {
 
     await waitFor(() => promptAsyncSpy.mock.calls.length > 0 || undefined);
     expect(promptAsyncSpy).toHaveBeenCalledTimes(1);
-    const [opencodeId, text, model, cwd] = promptAsyncSpy.mock.calls[0];
+    const [opencodeId, text, model, cwd, options] = promptAsyncSpy.mock.calls[0];
     expect(opencodeId).toBe('sdk-session-1');
     expect(text).toBe('hello from the chat box');
     expect(cwd).toBe(ctx.cwd);
     expect(model).toMatchObject({ providerID: 'openrouter' });
+    expect((options as { agent?: string } | undefined)?.agent).toBeUndefined();
     ws.close();
+  });
+
+  it('runs a canonical Org Reviewer profile with null ocAgent as the registered Reviewer engine agent', async () => {
+    new AgentConfigsRepository().insert({
+      id: 'org-reviewer', label: 'Org Reviewer', icon: 'fact-check',
+      enabled: true, sessionSelectable: true, ocAgent: null,
+      modelProvider: 'openrouter', modelId: 'openai/gpt-4o-mini',
+    });
+    new AgentSessionsRepository().updateFields(ctx.localSessionId, {
+      profileId: asRhythmProfileId('org-reviewer'),
+    });
+    const { ws } = await openClient(ctx.wsUrl);
+    ws.send(JSON.stringify({
+      v: 1, type: 'session.input', id: ctx.localSessionId,
+      data: 'Read the signed Org Reviewer context.',
+    }));
+
+    await waitFor(() => promptAsyncSpy.mock.calls.length > 0 || undefined);
+    const promptOptions = promptAsyncSpy.mock.calls[0][4];
+    ws.close();
+    expect(promptOptions).toMatchObject({ agent: 'org-reviewer' });
   });
 
   it('1424:fix-busy-queue serializes rapid session.input frames in receive order', async () => {

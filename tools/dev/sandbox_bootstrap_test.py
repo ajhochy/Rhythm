@@ -43,7 +43,7 @@ class Bootstrap(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('absolute executable', result.stderr)
         source = Path(script).read_text()
-        self.assertEqual(source.count('"$NODE_BIN" "$API_DIR/dist/server.js"'), 3)
+        self.assertEqual(source.count('"$NODE_BIN" "$API_DIR/dist/server.js"'), 4)
         up = source.split('up() {', 1)[1].split('\nstop_recorded_engine_if_needed()', 1)[0]
         restart = source.split('\nrestart() {', 1)[1].split('\nrequire_owned_api()', 1)[0]
         self.assertLess(up.index('validate_node'), up.index('mkdir -m 700'))
@@ -66,8 +66,8 @@ class Bootstrap(unittest.TestCase):
         self.assertEqual(values.get('npm_config_cache'), '/private/tmp/e02-bootstrap-runtime/npm-cache')
         source = (ROOT / 'tools/dev/sandbox.sh').read_text()
         self.assertIn('[[ -f "$ROOT/apps/mcp_server/dist/index.js" ]] || fail', source)
-        self.assertIn('bun run build --single --skip-install', source)
-        self.assertIn('MODELS_DEV_API_JSON="$ROOT/apps/opencode_fork/packages/opencode/test/tool/fixtures/models-api.json"', source)
+        self.assertIn('bun --no-env-file run ./script/build.ts --single --skip-install', source)
+        self.assertIn('"MODELS_DEV_API_JSON=$ROOT/apps/opencode_fork/packages/opencode/test/tool/fixtures/models-api.json"', source)
 
     def test_explicit_offline_startup_flags_survive_environment_sanitization(self):
         result = subprocess.run(

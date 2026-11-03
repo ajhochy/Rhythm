@@ -156,7 +156,8 @@ describe('POST /opencode/mcp/curated/ensure route (c5)', () => {
       },
       opencodeSessionMap: new Map(),
     }));
-    vi.doMock('../config/env', () => ({
+    vi.doMock('../config/env', async () => ({
+      ...(await import('./helpers/opencode_paths_mock')).opencodePathMocks,
       env: { agentLocal: true, agentExecutionEnabled: true, role: 'local', corsAllowedOrigins: [], jwtSecret: 'test-secret' },
     }));
 

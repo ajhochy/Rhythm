@@ -124,12 +124,35 @@ export function normalizeApiError(
       return new MacOfflineError(offlineCode, message);
     }
 
-    const rawCode    = typeof parsed.code === 'string'    ? parsed.code    : `HTTP_${status}`;
-    const rawMessage = typeof parsed.message === 'string' ? parsed.message : `Request failed with status ${status}`;
+    // Top-level fields keep their existing precedence and behavior. Only when a top-level field is absent is the known plain
+    // nested `{ error: { code, message } }` shape read (one level, no recursion), and only that nested text is bounded.
+    const nested = parsed.error && typeof parsed.error === 'object' && !Array.isArray(parsed.error)
+      ? parsed.error as Record<string, unknown>
+      : undefined;
+    const genericMessage = `Request failed with status ${status}`;
+
+    let rawCode: string;
+    let rawMessage: string;
+    let nestedCode = false;
+    let nestedMessage = false;
+    if (typeof parsed.code === 'string') rawCode = parsed.code;
+    else if (typeof nested?.code === 'string') { rawCode = nested.code; nestedCode = true; }
+    else rawCode = `HTTP_${status}`;
+    if (typeof parsed.message === 'string') rawMessage = parsed.message;
+    else if (typeof nested?.message === 'string') { rawMessage = nested.message; nestedMessage = true; }
+    else rawMessage = genericMessage;
 
     // Actively scrub the token from server-supplied fields.
-    const code    = scrubToken(rawCode, token);
-    const message = scrubToken(rawMessage, token);
+    let code    = scrubToken(rawCode, token);
+    let message = scrubToken(rawMessage, token);
+
+    // Safe display fields for the nested shape only: a short identifier-like code, and a one-line message that is not
+    // HTML or empty. Applied after scrubbing so a redacted token is never re-exposed by truncation.
+    if (nestedCode) code = /^[A-Za-z0-9_.:-]{1,64}$/.test(code.trim()) ? code.trim() : `HTTP_${status}`;
+    if (nestedMessage) {
+      const trimmed = message.trim();
+      message = trimmed && !trimmed.startsWith('<') ? trimmed.slice(0, MAX_DISPLAY_MESSAGE) : genericMessage;
+    }
 
     return new ApiError({ source, status, code, message, retryable });
   } catch {

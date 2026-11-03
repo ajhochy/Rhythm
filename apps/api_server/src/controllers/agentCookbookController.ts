@@ -135,14 +135,7 @@ export class AgentCookbookController {
         );
       }
 
-      // Compile description + steps_json into a prompt string
-      const stepsText = _compileStepsToPrompt(recipe.stepsJson);
-      const prompt = [
-        recipe.description ? `Goal: ${recipe.description}` : null,
-        stepsText,
-      ]
-        .filter(Boolean)
-        .join('\n\n');
+      const prompt = compileAgentCookbookPrompt(recipe);
 
       const result = await AgentRunner.run({
         prompt,
@@ -164,6 +157,13 @@ export class AgentCookbookController {
       next(err);
     }
   }
+}
+
+/** Shared production prompt compilation for a selected legacy recipe. */
+export function compileAgentCookbookPrompt(recipe: Pick<import('../repositories/agent_cookbook_repository').AgentCookbook,
+  'description' | 'stepsJson'>): string {
+  return [recipe.description ? `Goal: ${recipe.description}` : null,
+    _compileStepsToPrompt(recipe.stepsJson)].filter(Boolean).join('\n\n');
 }
 
 /**

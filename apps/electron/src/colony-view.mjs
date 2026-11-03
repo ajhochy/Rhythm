@@ -4,7 +4,7 @@ import { open, readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { createColonyService } from './colony-service.mjs'
 import { resolveColonyArtifact } from './colony-desktop-artifact.mjs'
-import { validateColonyHostEvent, validateColonyRequest, validateColonyResponse } from './colony-channel.mjs'
+import { COLONY_REQUEST_SCHEMAS, validateColonyHostEvent, validateColonyRequest, validateColonyResponse } from './colony-channel.mjs'
 const ENTRY = 'rhythm-colony://app/index.html'
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
 const types = /** @type {Record<string,string>} */ ({ '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.json':'application/json', '.png':'image/png', '.svg':'image/svg+xml', '.glb':'model/gltf-binary', '.hdr':'application/octet-stream', '.woff2':'font/woff2' })
@@ -39,6 +39,8 @@ export function createColonyAssetHandler(artifact) {
 }
 
 const FRAME_BYTES = 1024 * 1024
+const CHANNEL_REVOCATION_REASONS = new Set(['frame-mismatch', 'scene-request-failed', 'port-closed', 'port-transfer-failed', 'scene-ready-duplicate', 'scene-ready-malformed', 'scene-navigation', 'render-process-gone', 'scene-destroyed'])
+const SCENE_FAILURE_PHASES = new Set(['request-validation', 'intent-policy', 'worker-request', 'scene-projection', 'response-validation', 'port-response'])
 // ponytail: the scene reassembles every page and aborts past 32 MiB total; stopping threads at 24 MiB leaves room for
 // projects/warnings. Threads arrive newest first, so only the oldest history is dropped. Upgrade path: a scanner-side cap.
 export const SCENE_THREAD_BUDGET = 24 * 1024 * 1024
@@ -81,9 +83,19 @@ export function bindColonySceneChannel(options) {
   let pendingVisibility = /** @type {any} */ (null)
   let sceneThreads = { generation: '', bytes: 0 }
   let disposal = /** @type {Promise<void> | null} */ (null)
-  const dispose = () => {
+  const dispose = (/** @type {string} */ reason = 'owner-dispose', /** @type {unknown} */ failure = null, /** @type {string} */ phase = 'lifecycle', /** @type {string} */ method = 'none') => {
     if (disposal) return disposal
     revoked = true
+    if (reason !== 'owner-dispose') {
+      try {
+        const state = service.status?.().state
+        const serviceState = ['ready', 'starting', 'failed', 'unavailable'].includes(state) ? state : 'unknown'
+        const code = /** @type {any} */ (failure)?.code
+        const errorCode = ['invalid_request', 'invalid_response', 'oversize', 'revoked', 'busy', 'unavailable'].includes(code) ? code : 'other'
+        console.error('[colony:channel:revoked]', JSON.stringify({ reason: CHANNEL_REVOCATION_REASONS.has(reason) ? reason : 'unknown', serviceState, errorCode,
+          phase: SCENE_FAILURE_PHASES.has(phase) ? phase : 'lifecycle', method: Object.hasOwn(COLONY_REQUEST_SCHEMAS, method) ? method : 'none' }))
+      } catch {}
+    }
     disposal = Promise.resolve().then(() => service.stop())
     void disposal.catch(() => {})
     try { expectedFrame?.send('colony:revoke') } catch {}
@@ -93,8 +105,8 @@ export function bindColonySceneChannel(options) {
     ipcMain.removeListener('colony:scene-ready', onReady)
     contents.removeListener('did-finish-load', onLoad)
     contents.removeListener('did-start-navigation', onNavigation)
-    contents.removeListener('render-process-gone', dispose)
-    contents.removeListener('destroyed', dispose)
+    contents.removeListener('render-process-gone', onRenderGone)
+    contents.removeListener('destroyed', onDestroyed)
     ipcMain.removeListener('colony:view:intent', onHostIntent)
     return disposal
   }
@@ -127,42 +139,53 @@ export function bindColonySceneChannel(options) {
     if (!committed && contents.getURL() === ENTRY && current?.url === ENTRY && !contents.isLoadingMainFrame()) committed = true
     if (!committed || !readyEvent || revoked || transferred) return
     if (expectedFrame === null) expectedFrame = current
-    if (readyEvent.sender !== contents || readyEvent.senderFrame !== expectedFrame || current !== expectedFrame || expectedFrame.detached || expectedFrame.url !== ENTRY) { void dispose(); return }
+    if (readyEvent.sender !== contents || readyEvent.senderFrame !== expectedFrame || current !== expectedFrame || expectedFrame.detached || expectedFrame.url !== ENTRY) { void dispose('frame-mismatch'); return }
     const channel = new MessageChannelMain()
     port = channel.port1
     transferred = true
     port?.on('message', async (event) => {
       if (revoked) return
+      let phase = 'request-validation'
       try {
         if (!event.data || typeof event.data !== 'object' || !/^request-\d{1,9}$/.test(event.data.id)) throw new Error('Invalid Colony scene request identity')
         validateColonyRequest(event.data, documentId)
         if (event.data.method.startsWith('scene.')) {
+          phase = 'intent-policy'
           const knownSelection = event.data.method !== 'scene.select' || options.ownsThreadId?.(event.data.payload.threadId) === true
           if (knownSelection) options.onSceneEvent?.(event.data.method, JSON.parse(JSON.stringify(event.data.payload)))
           const response = { v: 1, documentId, id: event.data.id, ok: true, result: null }
+          phase = 'response-validation'
           validateColonyResponse(response, documentId)
+          phase = 'port-response'
           if (!revoked) port?.postMessage(response)
           return
         }
         if (event.data.method === 'action.run') {
+          phase = 'intent-policy'
           const result = await options.runAction?.(JSON.parse(JSON.stringify(event.data.payload)))
           if (result?.ok === true && result.kind === 'rhythm-session') options.onSceneEvent?.('scene.action', JSON.parse(JSON.stringify(result)))
           const response = { v: 1, documentId, id: event.data.id, ok: true, result }
+          phase = 'response-validation'
           validateColonyResponse(response, documentId)
+          phase = 'port-response'
           if (!revoked) port?.postMessage(response)
           return
         }
+        phase = 'worker-request'
         const response = await service.request(event.data)
+        phase = 'scene-projection'
         if (event.data.method === 'inventory.page' && response?.ok === true && response.result?.collection === 'threads' &&
           Array.isArray(response.result.records)) sceneThreads = fitSceneThreads(response, event.data.payload, sceneThreads, options.sceneThread)
+        phase = 'response-validation'
         validateColonyResponse(response, documentId)
+        phase = 'port-response'
         if (!revoked) port?.postMessage(response)
-      } catch { void dispose() }
+      } catch (error) { void dispose('scene-request-failed', error, phase, event?.data?.method) }
     })
-    port?.on('close', () => { void dispose() })
+    port?.on('close', () => { void dispose('port-closed') })
     port?.start()
     try { expectedFrame.postMessage('colony:port', { v:1, documentId }, [channel.port2]) }
-    catch { channel.port2.close(); void dispose() }
+    catch { channel.port2.close(); void dispose('port-transfer-failed') }
     if (pendingVisibility && !revoked) {
       port?.postMessage(pendingVisibility)
       pendingVisibility = null
@@ -172,11 +195,30 @@ export function bindColonySceneChannel(options) {
     // Foreign frames cannot revoke another document, either.
     if (event.sender !== contents || event.senderFrame !== contents.mainFrame || (expectedFrame && event.senderFrame !== expectedFrame)) return
     if (revoked) return
-    if (readyEvent || !message || message.v !== 1 || message.product !== 'colony' || Object.keys(message).length !== 2) { void dispose(); return }
+    let validShape = false
+    try { validShape = Boolean(message && message.v === 1 && message.product === 'colony' && Object.keys(message).length === 2) } catch {}
+    // Electron can deliver two valid preload notices during the initial navigation.
+    // Neither grants a port until the exact entry document finishes loading.
+    if (validShape && readyEvent && !committed && !transferred && contents.isLoadingMainFrame() &&
+      readyEvent.sender === event.sender && readyEvent.senderFrame === event.senderFrame) return
+    if (readyEvent || !validShape) {
+      try {
+        console.error('[colony:scene-ready:refused]', JSON.stringify({
+          readySeen: Boolean(readyEvent), validShape, transferred, committed,
+          sceneEntry: event.senderFrame?.url === ENTRY,
+          currentEntry: contents.mainFrame?.url === ENTRY,
+          loading: contents.isLoadingMainFrame(),
+        }))
+      } catch {}
+      void dispose(readyEvent ? 'scene-ready-duplicate' : 'scene-ready-malformed')
+      return
+    }
     readyEvent = event
     flush()
   }
   function onLoad() { committed = true; flush() }
+  function onRenderGone() { void dispose('render-process-gone') }
+  function onDestroyed() { void dispose('scene-destroyed') }
   function revokeNextDocument() {
     const cleanup = () => {
       contents.removeListener('did-finish-load', onReloaded)
@@ -193,7 +235,7 @@ export function bindColonySceneChannel(options) {
     const main = typeof event.isMainFrame === 'boolean' ? event.isMainFrame : mainFrame
     const same = typeof event.isSameDocument === 'boolean' ? event.isSameDocument : inPlace
     if (main && !same) {
-      if (committed || transferred || expectedFrame !== null) { revokeNextDocument(); void dispose() }
+      if (committed || transferred || expectedFrame !== null) { revokeNextDocument(); void dispose('scene-navigation') }
       else readyEvent = null
     }
   }
@@ -201,8 +243,8 @@ export function bindColonySceneChannel(options) {
   ipcMain.on('colony:view:intent', onHostIntent)
   contents.on('did-finish-load', onLoad)
   contents.on('did-start-navigation', onNavigation)
-  contents.on('render-process-gone', dispose)
-  contents.on('destroyed', dispose)
+  contents.on('render-process-gone', onRenderGone)
+  contents.on('destroyed', onDestroyed)
   return { dispose, sendHostEvent }
 }
 

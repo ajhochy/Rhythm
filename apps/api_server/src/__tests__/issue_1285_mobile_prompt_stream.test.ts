@@ -1,9 +1,21 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import Database from 'better-sqlite3';
+import { setDb } from '../database/db';
+import { runMigrations } from '../database/migrations';
 
 import {
   MobileOpenCodeProxy,
   type MobileOpenCodeProxyOptions,
 } from '../services/mobile_opencode_proxy';
+
+// The proxy fails closed (409 RECONCILIATION_REQUIRED) unless the local
+// managed-session ledger positively classifies the SDK session as never
+// managed, so every test starts with an empty migrated ledger.
+beforeEach(() => {
+  const ledger = new Database(':memory:');
+  runMigrations(ledger);
+  setDb(ledger);
+});
 
 describe('issue-1285-c19: mobile prompts start desktop event persistence', () => {
   it('awaits the event bridge before forwarding prompt_async upstream', async () => {

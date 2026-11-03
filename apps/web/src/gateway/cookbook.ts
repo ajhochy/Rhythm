@@ -70,8 +70,9 @@ export function createFixtureCookbookGateway(): CookbookGateway {
   return { mode: 'fixture', list: unsupported, create: unsupported, update: unsupported, remove: unsupported, run: unsupported, session: unsupported };
 }
 
+import { isTrustedBrowserFetcher } from './browser-transport';
 export function createLiveCookbookGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): CookbookGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: a cookbook token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: a cookbook token is required');
   const request = (path: string, init: RequestInit = {}) =>
     fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   return {

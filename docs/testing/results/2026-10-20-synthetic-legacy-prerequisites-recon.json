@@ -1,0 +1,104 @@
+{
+  "phase": "Recon observations only",
+  "sourceRevision": "9dff6ab3761ea3c29a729d3c77804d8f0bf34efe",
+  "ownerUserId": 1,
+  "memory": {
+    "nonce": "0456fb50-6243-4bd7-85a2-b4c8b6728eeb",
+    "steps": {
+      "create": {
+        "status": 201,
+        "requestedId": "01M5DMVRA0GWYG6PPQ840VN4V2",
+        "returnedId": "01M5DMVRA0GWYG6PPQ840VN4V2",
+        "path": "fact/smoke-legacy-memory-inspector-0456fb50-6243-4bd7-85a2-b4c8b6.md"
+      },
+      "index": {
+        "count": 1,
+        "id": "9986fc9f-b2e6-4614-b605-51d92e4452d5",
+        "source": "obsidian-memory",
+        "path": "fact/smoke-legacy-memory-inspector-0456fb50-6243-4bd7-85a2-b4c8b6.md"
+      },
+      "selected": {
+        "catalogStatus": 200,
+        "catalogContainsId": true,
+        "selectedUrl": "rhythm://app/index.html#/tools/brain?memoryId=9986fc9f-b2e6-4614-b605-51d92e4452d5",
+        "detailVisible": true,
+        "contentVisible": true,
+        "detailStatus": 200,
+        "detailId": "9986fc9f-b2e6-4614-b605-51d92e4452d5",
+        "detailMatches": true
+      },
+      "kind": {
+        "status": 200,
+        "kindParam": "fact",
+        "itemIds": [
+          "9986fc9f-b2e6-4614-b605-51d92e4452d5"
+        ]
+      },
+      "after": {
+        "indexRows": 0,
+        "noteExists": false
+      }
+    },
+    "cleanup": [
+      {
+        "id": "9986fc9f-b2e6-4614-b605-51d92e4452d5",
+        "status": 204,
+        "noteExists": false
+      }
+    ]
+  },
+  "reportCard": {
+    "nonce": "551a9204-9173-4b69-9afb-49390b8d32d6",
+    "steps": {
+      "create": {
+        "status": 201,
+        "id": "0de15f53-dc60-4b15-813e-6b60883e4fb9",
+        "name": "[smoke] agentless report-card 551a9204-9173-4b69-9afb-49390b8d32d6",
+        "profileId": null,
+        "agentKind": "",
+        "ownerUserId": 1,
+        "sdkSessionId": "ses_ea4b21a7dffe7HC2XE5H2d1uso"
+      },
+      "sqlite": {
+        "found": true,
+        "nameMatches": true,
+        "agentKind": "",
+        "ownerUserId": 1,
+        "cwdMatches": true,
+        "sdkSessionId": "ses_ea4b21a7dffe7HC2XE5H2d1uso"
+      },
+      "engine": {
+        "status": 200,
+        "id": "ses_ea4b21a7dffe7HC2XE5H2d1uso",
+        "cwdMatches": true,
+        "titleMatches": true
+      },
+      "report": {
+        "status": 200,
+        "windowDays": 30,
+        "row": {
+          "agentKind": "",
+          "agentLabel": "Unknown agent",
+          "totalRuns": 1,
+          "unmeasuredRuns": 0
+        },
+        "rowVisible": true,
+        "inspectorText": "Unknown agent\n1 RUNS\n\nNot enough data to score this agent yet.\n\nCOMPLETION\nNot scored yet\n\nFinished the job not scored yet of the time.\n\nWASTED USAGE\nNot scored yet\n\nUsage spent on runs that did not pan out.\n\nCORRECTIONS\nNot scored yet\n\nAverage redirects per run.\n\nRun evidence\n\n0 unmeasured \u00b7 1 in progress \u00b7 0 completed \u00b7 0 escalated \u00b7 0 tokens (0 wasted) \u00b7 0 corrections"
+      },
+      "after": {
+        "ownedRows": 0,
+        "cwdExists": false
+      }
+    },
+    "cleanup": {
+      "id": "0de15f53-dc60-4b15-813e-6b60883e4fb9",
+      "status": 204,
+      "remainingRows": 0,
+      "engine": {
+        "status": 200,
+        "containsOwnedSdkId": false
+      },
+      "cwdRemoved": true
+    }
+  }
+}

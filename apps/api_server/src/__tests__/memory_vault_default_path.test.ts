@@ -21,6 +21,11 @@ import {
   resolveMemoryDirPath,
   resolveMemoryVaultPath,
 } from '../config/env.js';
+import { mapEngraphFileToSourceId } from '../services/engraph_client';
+import {
+  resolveVaultRootForMemoryDir,
+  vaultKeyToMemoryDirRelative,
+} from '../services/memoryVaultSyncService';
 
 const VAULT = 'MEMORY_VAULT_PATH';
 const SUBDIR = 'MEMORY_VAULT_SUBDIR';
@@ -66,6 +71,19 @@ describe('memory vault default path (#885 follow-up)', () => {
       expect(path.basename(resolveMemoryDirPath())).toBe('AGENT-MEMORY');
     });
 
+    it('keeps native source-id mapping and its memory-dir inverse in the clean root', () => {
+      // This is path-only: it intentionally never reads the real vault. The
+      // spaces match a normal native hit shape and protect the root/key join
+      // used before canonical candidate validation.
+      const memoryDir = resolveMemoryDirPath();
+      const sourceId = 'preference/for announcement slides/reuse verified clips.md';
+      const canonicalKey = mapEngraphFileToSourceId(sourceId, memoryDir, memoryDir);
+
+      expect(resolveVaultRootForMemoryDir(memoryDir)).toBe(memoryDir);
+      expect(canonicalKey).toBe(sourceId);
+      expect(vaultKeyToMemoryDirRelative(memoryDir, canonicalKey!)).toBe(sourceId);
+    });
+
     it('preserves the space in "Obsidian Vault" verbatim', () => {
       // A space is the classic way a path silently half-works. Assert it is
       // neither escaped, quoted, nor URL-encoded by path resolution.
@@ -96,7 +114,14 @@ describe('memory vault default path (#885 follow-up)', () => {
       const fixture = path.join(os.tmpdir(), 'rhythm-vault-fixture');
       process.env[VAULT] = fixture;
       delete process.env[SUBDIR];
-      expect(resolveMemoryDirPath()).toBe(path.join(fixture, 'memory'));
+      const memoryDir = resolveMemoryDirPath();
+      const sourceId = 'preference/legacy path with spaces.md';
+      const canonicalKey = mapEngraphFileToSourceId(sourceId, memoryDir, memoryDir);
+
+      expect(memoryDir).toBe(path.join(fixture, 'memory'));
+      expect(resolveVaultRootForMemoryDir(memoryDir)).toBe(fixture);
+      expect(canonicalKey).toBe(`memory/${sourceId}`);
+      expect(vaultKeyToMemoryDirRelative(memoryDir, canonicalKey!)).toBe(sourceId);
     });
 
     it('lets an explicit MEMORY_VAULT_SUBDIR win over both defaults', () => {
@@ -104,6 +129,7 @@ describe('memory vault default path (#885 follow-up)', () => {
       process.env[VAULT] = fixture;
       process.env[SUBDIR] = '';
       expect(resolveMemoryDirPath()).toBe(fixture);
+      expect(resolveVaultRootForMemoryDir(resolveMemoryDirPath())).toBe(fixture);
 
       process.env[SUBDIR] = 'custom';
       expect(resolveMemoryDirPath()).toBe(path.join(fixture, 'custom'));

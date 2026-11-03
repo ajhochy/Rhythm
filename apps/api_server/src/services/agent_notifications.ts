@@ -23,13 +23,16 @@ function clamp(value: string): string {
  * rejected: a caller that assembles a message from an error string must not be
  * able to lose the whole notification to a length check.
  */
-export function pushAgentNotification(title: string, body: string): number {
+export function pushAgentNotification(title: string, body: string, options: { sessionId?: string } = {}): number {
   const safeTitle = clamp(title);
   const safeBody = clamp(body);
   const row = getDb()
     .prepare(`INSERT INTO agent_notifications (title, body) VALUES (?, ?) RETURNING id`)
     .get(safeTitle, safeBody) as { id: number };
 
-  broadcast({ v: 1, type: 'notification.push', id: row.id, title: safeTitle, body: safeBody });
+  // sessionId marks a "waiting on you" notice: the desktop already raises its
+  // own clickable banner for that session's request, so it skips a second one.
+  broadcast({ v: 1, type: 'notification.push', id: row.id, title: safeTitle, body: safeBody,
+    ...(options.sessionId ? { sessionId: options.sessionId } : {}) });
   return row.id;
 }

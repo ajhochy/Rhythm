@@ -1,0 +1,9 @@
+# Private primary Auto reload Recon
+
+Exact locally signed source `5dfffb5d9978795935becfe4723c8196bb2f883d` ran one bounded synthetic-actor UI turn. The fixed private coding-profile baseline was GPT-6.1 Sol. Before the turn, the live authorized catalog exposed GPT-6 Luna, GPT-6 Sol, and GPT-6.1 Sol through normal private visibility opt-in.
+
+The single accepted foreground message asked for `12 + 7` with no tools. Decisions classified it as knowledge tier 4; the Grid recorded one pending and one applied attempt for OpenAI GPT-6 Luna with `xhigh` effort. The completed SDK assistant returned `19` with no tool parts. The canonical root, SQLite served step, Coordinator history, model provenance, and rendered model card agreed on Luna. The routine-tier contract also permits tier 3 to serve GPT-6 Sol at medium effort, as independently observed in the earlier main Auto Recon; this run does not narrow that contract.
+
+After a normal renderer reload and reopening the existing primary, the root and SDK message identities, two history messages, one foreground journal command, two Grid attempts, served step, provenance, UI prompt/answer, and model card were unchanged. The browser issued exactly one foreground message POST for the whole observation. No engine/API restart or second model message was attempted. The private run passed one observer test in 5 seconds (40.6 seconds including startup/teardown). Its whole model-loan fixture was scrubbed after metadata capture; source hashes were unchanged.
+
+This is Recon evidence for extending the checked-in primary Auto test. Independent native Confirm of that revised test remains **UNRUN**. The private raw receipt is under `/private/tmp/rhythm-main-auto-reload-recon-4fda/run-u7iwJI/observation.json`; it must not be copied into the repo because it contains fixture-specific identifiers and command metadata.

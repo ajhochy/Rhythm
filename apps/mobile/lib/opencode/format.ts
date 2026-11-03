@@ -18,12 +18,14 @@ export type TranscriptDetail =
 
 export type TranscriptEntry = {
   id: string;
-  role: Message['role'];
+  role: Message['role'] | 'system';
   createdAt: number;
   text: string;
   details: TranscriptDetail[];
   error?: string;
   internal?: boolean;
+  /** Existing server canonical row rendered through coordinator history. */
+  origin?: 'coordinator';
 };
 
 function isCompletedToolPart(

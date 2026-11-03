@@ -1,7 +1,7 @@
 // #1582 S0: loopback-only scripted OpenAI-compatible endpoint. No external calls.
 import http from 'node:http';
 
-const port = 6996;
+const port = Number(process.env.RHYTHM_SCRIPTED_PROVIDER_PORT ?? 6996);
 const key = 's0-local-synthetic-key';
 const hits = [];
 let disconnects = 0;
@@ -18,6 +18,10 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/_s0/status') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ hits, disconnects })); return;
+  }
+  if (req.url === '/v1/models' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ object: 'list', data: [{ id: 's0-local', object: 'model', owned_by: 'synthetic-loopback' }] })); return;
   }
   if (req.url !== '/v1/chat/completions' || req.method !== 'POST' || req.headers.authorization !== `Bearer ${key}`) {
     res.writeHead(403).end(); return;

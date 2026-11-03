@@ -1,0 +1,3 @@
+# Coordinator goal signed admission repair. Format: <preimage> <postimage> <path>
+0db8643147f7ca60e4193200cd4fab70e2bb380a1507dbe3cf50914fff5dcbcc 41ae4acd105c921d70a2447973aecb31b471a33cdfb62b9368c59fe5f4887a82 apps/api_server/src/controllers/external_content_security_controller.ts
+07e36ba4585d0f01b2331f254048f203c4681e9a67861e3cda9f86e3a14b635f e99c6a6e1dbc19bdc70084b1836b4caad3193b243717e4e04b3938f041077a83 apps/api_server/src/__tests__/issue_1134_external_content_security.test.ts

@@ -22,7 +22,7 @@
 
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
-import { env } from '../config/env';
+import { env, getEffectiveDecisionMode } from '../config/env';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { ProjectsRepository } from '../repositories/projects_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
@@ -39,6 +39,7 @@ import {
 } from './agent_run_failure_classification';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
 import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
+import { isAutomaticMemoryAdmissionAllowed } from './automatic_memory_preface';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
 import type { MemoryProvenanceItem } from '../repositories/agent_session_memory_provenance_repository';
@@ -496,6 +497,8 @@ export interface AgentRunResult {
   error?: string;
   /** Machine-readable classification for errors callers may safely retry. */
   errorCode?: 'capacity' | 'profile_unavailable';
+  /** Capacity deferral only: earliest retry the scheduler should use (Free Mode hold). */
+  retryAfterMs?: number;
   /** R3: why this run failed and whether a teacher retry can help. */
   failureCategory?: AgentRunFailureCategory;
 }
@@ -627,6 +630,22 @@ export function resolveRunModel(
     `[AgentRunner] resolveRunModel: no agent config or MRU model found — using default (${DEFAULT_PROVIDER}/${DEFAULT_MODEL})`,
   );
   return { providerID: DEFAULT_PROVIDER, modelID: DEFAULT_MODEL };
+}
+
+/**
+ * True when the profile's agent_configs row itself sets a model (both
+ * modelProvider and modelId). profileScope.model is ALWAYS populated (profile
+ * -> MRU -> default), so it cannot serve as the pin signal. A lookup failure
+ * counts as pinned (fail closed).
+ */
+export function profileConfiguresModel(agentConfigId?: string | null): boolean {
+  if (!agentConfigId) return false;
+  try {
+    const cfg = new AgentConfigsRepository().getById(agentConfigId);
+    return !!(cfg?.modelProvider && cfg?.modelId);
+  } catch {
+    return true;
+  }
 }
 
 // ── Session recording ─────────────────────────────────────────────────────────
@@ -853,6 +872,10 @@ function resolveRunModelLabel(configId?: string | null): string {
 // ── Main run function ─────────────────────────────────────────────────────────
 
 export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
+  if ((opts.agentConfigId ?? opts.agentKind) === ORG_REVIEWER_PROFILE_ID) {
+    const { runOrgEvaluationReview } = await import('./org_evaluation_review_runner');
+    return runOrgEvaluationReview(opts);
+  }
   const result = await _runOnce(opts);
   const classifiedResult =
     result.status === 'error'
@@ -910,9 +933,11 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   const permissionMode: PermissionMode = isOrgReviewer || opts.bridgeOrigin
     ? 'default'
     : 'bypassPermissions';
+  let authoritativeProfileId: string | null = null;
   if (effectiveConfigId) {
     const config = new AgentConfigsRepository().getById(effectiveConfigId);
     if (config) {
+      authoritativeProfileId = config.id;
       const blockReason = agentConfigExecutionBlockReason(config);
       if (blockReason) {
         logger.warn(`[AgentRunner] ${blockReason}`);
@@ -987,6 +1012,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
           | 'frontier'
           | null,
         modelOverride: modelOverride ?? null,
+        baseRoute: resolvedModel,
       });
       resolvedModel = decision.route;
       requestedTier = decision.tier;
@@ -996,6 +1022,81 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       // Non-fatal: tiered routing is a policy layer — a failure here must
       // never block a run. Fall back to the existing precedence.
       logger.warn(`[AgentRunner] resolveTieredModel failed (non-fatal): ${String(err)}`);
+    }
+  }
+  // Local decision engine (AGENT_DECISION_MODEL_ROUTING): only when nothing pins
+  // the model — no override, no task kind, no profile model or tier hint.
+  // Failure keeps the model resolved above.
+  const profilePinsModel = profileConfiguresModel(effectiveConfigId);
+  // Checked synchronously first so the default (off) path adds no async hop.
+  const runRoutingMode = getEffectiveDecisionMode('model_routing', { sessionAuto: false });
+  const runCapacityMode = getEffectiveDecisionMode('capacity_routing', { sessionAuto: false });
+  const gridSettings = (await import('./decision/decision_settings')).loadDecisionSettings();
+  const gridEngine = gridSettings.routing.engine === 'grid' && ['on', 'shadow'].includes(gridSettings.features.model_routing);
+  const gridOptIn = gridEngine && (await import('./decision/router_grid_turn')).gridRunnerEligible(effectiveConfigId, modelOverride, taskKind);
+  let gridVariant: string | undefined;
+  let gridAccountId: string | null | undefined;
+  if (
+    !gridEngine &&
+    runRoutingMode !== 'off'
+    && !modelOverride && !taskKind && !profilePinsModel && !profileScope.modelTierHint
+  ) {
+    try {
+      const { routeTurnTier } = await import('./decision/model_router');
+      const { routeModelForTier, getRouteTierClassifier } = await import('./decision/model_catalog');
+      const { classifyRouteTier: staticTier } = await import('./agent_model_resolver');
+      const classifyRouteTier = await getRouteTierClassifier().catch(() => staticTier);
+      const agentIdForRoute = effectiveConfigId ?? 'claude-code';
+      const routed = await routeTurnTier({
+        prompt,
+        agentId: agentIdForRoute,
+        requestedSource: 'agent_default',
+        baselineTier: resolvedModel ? classifyRouteTier(resolvedModel) : null,
+        ...(resolvedModel ? { baseRoute: resolvedModel } : {}),
+      });
+      if (routed.tier) {
+        // Same live-catalog pick as the interactive turn router (static table only as fallback).
+        const decision = routed.route
+          ? { route: routed.route, tier: routed.tier, downgradedForBudget: routed.downgradedForBudget ?? false }
+          : await routeModelForTier({
+              tier: routed.tier,
+              agentId: agentIdForRoute,
+              ...(resolvedModel ? { baseRoute: resolvedModel } : {}),
+            });
+        resolvedModel = decision.route;
+        requestedSource = 'tier';
+        requestedTier = decision.tier;
+        downgraded = decision.downgradedForBudget ?? false;
+      }
+    } catch (err) {
+      logger.warn(`[AgentRunner] decision routing failed (non-fatal): ${String(err)}`);
+    }
+  }
+  // Usage-capacity routing (AGENT_DECISION_CAPACITY_ROUTING): same pin rules as
+  // above. Model only — run sessions keep their profile/default account.
+  if (
+    !gridEngine &&
+    runCapacityMode !== 'off'
+    && resolvedModel && !modelOverride && !taskKind && !profilePinsModel && !profileScope.modelTierHint
+  ) {
+    try {
+      const { applyCapacityRouting } = await import('./decision/capacity_router');
+      const { classifyRouteTier: staticTier } = await import('./agent_model_resolver');
+      const { getRouteTierClassifier } = await import('./decision/model_catalog');
+      const classifyRouteTier = await getRouteTierClassifier().catch(() => staticTier);
+      const capDecision = await applyCapacityRouting({
+        agentId: effectiveConfigId ?? 'claude-code',
+        baseRoute: resolvedModel,
+        requiredTier: classifyRouteTier(resolvedModel),
+        requestedSource: requestedSource === 'tier' ? 'tier' : 'agent_default',
+      });
+      if (capDecision?.routeChanged) {
+        resolvedModel = capDecision.route;
+        requestedSource = 'tier';
+        requestedTier = classifyRouteTier(capDecision.route);
+      }
+    } catch (err) {
+      logger.warn(`[AgentRunner] capacity routing failed (non-fatal): ${String(err)}`);
     }
   }
   const effectiveSystemPrompt: string | null = profileScope.systemPrompt;
@@ -1054,10 +1155,14 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     memoryIds: string[];
     notePaths: (string | null)[];
     items: MemoryProvenanceItem[];
+    semanticStatus: import('../repositories/agent_session_memory_provenance_repository').MemorySemanticStatus;
+    semanticHitCount: number;
   } | null = null;
   if (isMemoryInjectionEnabled() && shouldInjectMemoryPreface(opts)) {
     try {
-      const memPreface = await buildMemoryPreface(prompt, ownerUserId ?? null);
+      const memPreface = await buildMemoryPreface(prompt, ownerUserId ?? null, {
+        automaticAdmission: isAutomaticMemoryAdmissionAllowed, genericAdmission: true,
+      });
       if (memPreface.text) {
         transientSystemBlocks.unshift(memPreface.text);
         logger.info(
@@ -1068,6 +1173,8 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         memoryIds: memPreface.memoryIds,
         notePaths: memPreface.notePaths,
         items: memPreface.items,
+        semanticStatus: memPreface.semanticStatus,
+        semanticHitCount: memPreface.semanticHitCount,
       };
     } catch (err) {
       // Non-fatal: a retrieval failure must never block the run.
@@ -1118,8 +1225,8 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   rhythmSessionId = _recordSession({
     name: effectiveName,
     agentKind: effectiveAgentKind,
-    profileId: isOrgReviewer ? ORG_REVIEWER_PROFILE_ID : null,
-    opencodeAgentId: isOrgReviewer ? ORG_REVIEWER_PROFILE_ID : null,
+    profileId: isOrgReviewer ? ORG_REVIEWER_PROFILE_ID : authoritativeProfileId,
+    opencodeAgentId: effectiveOcAgent,
     cwd: effectiveCwd,
     projectId,
     taskTitle: taskTitle ?? null,
@@ -1133,6 +1240,26 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     worktree,
   });
   resolvedRunEpisodeId = explicitRunEpisodeId ?? rhythmSessionId;
+  if (gridOptIn && rhythmSessionId) {
+    try {
+      const { routeGridTurn } = await import('./decision/router_grid_turn');
+      const row = new AgentSessionsRepository().findById(rhythmSessionId);
+      const routed = await routeGridTurn({ sessionId: rhythmSessionId, sessionRow: row ? { ...row, modelMode: 'auto' } : null,
+        sessionAuto: true, prompt, agentId: effectiveConfigId ?? 'claude-code', requestedSource: 'agent_default', baseRoute: resolvedModel },
+        gridSettings.features.model_routing as 'on' | 'shadow');
+      if (routed.held) {
+        // Free Mode F1: nothing was sent to any model. ponytail: one held session row per retry
+        // (15 min) per task while Free is active; upgrade: a pre-session free-state check.
+        const msg = `AgentRunner: ${routed.held.message}`;
+        _markSessionError(rhythmSessionId, msg, false, resolvedRunEpisodeId ?? undefined);
+        return { sessionId: rhythmSessionId, result: '', status: 'error', error: msg, errorCode: 'capacity', retryAfterMs: 15 * 60_000 };
+      }
+      if (routed.applied && routed.route) {
+        resolvedModel = routed.route; gridVariant = routed.variant; gridAccountId = routed.gridAccountId;
+        requestedSource = 'auto';
+      }
+    } catch { /* Keep profile/default model on any grid failure. */ }
+  }
   if (rhythmSessionId && opts.onSessionCreated) {
     await opts.onSessionCreated(rhythmSessionId);
   }
@@ -1146,6 +1273,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         memoryProvenance.memoryIds,
         memoryProvenance.notePaths,
         memoryProvenance.items,
+        {
+          semanticStatus: memoryProvenance.semanticStatus,
+          semanticHitCount: memoryProvenance.semanticHitCount,
+        },
       );
     } catch (err) {
       logger.warn(`[AgentRunner] memory provenance record failed (non-fatal): ${String(err)}`);
@@ -1209,14 +1340,18 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       if (requiredServers.length > 0) {
         try {
           const statusMap = await _withinRunDeadline(
-            opencodeClient.listMcp(),
+            opencodeClient.listMcp(effectiveCwd),
             deadlinePolicy,
             'MCP readiness preflight',
           );
           const unavailableByServer = new Map<string, string>();
           for (const name of requiredServers) {
             const status = statusMap[name]?.status;
-            if (status === 'connected') continue;
+            // Lazy MCP lifecycle reports enabled idle servers as configured.
+            // The session's allowlisted schema acquisition is the intentional
+            // connection boundary, so configured is eligible rather than a
+            // preflight failure.
+            if (status === 'connected' || status === 'configured') continue;
 
             const remediation =
               status === 'needs_auth'
@@ -1375,6 +1510,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       try {
         const sessRepo = new AgentSessionsRepository();
         sessRepo.setSdkSessionId(rhythmSessionId, sessionId);
+        if (gridAccountId) {
+          const { applyGridAccount } = await import('./decision/router_grid_turn');
+          await applyGridAccount(rhythmSessionId, resolvedModel.providerID, gridAccountId);
+        }
         // Preserve the explicit starting→working transition as the immediate
         // baseline; subsequent bridge events maintain live status and the
         // completion block below remains authoritative for final idle/error.
@@ -1573,6 +1712,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     }
 
     const promptOpts: Record<string, unknown> = {
+      ...(gridVariant ? { variant: gridVariant } : {}),
       permissionMode,
       // Treatment override wins unconditionally; it is NOT "a duplicate" of the profile prompt.
       // When present, it replaces any effectiveSystemPrompt/transient block for this cohort.
@@ -1679,6 +1819,58 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         status: 'error',
         error:
           'AgentRunner: model produced no output — check the agent profile model (provider/modelId) is valid and the provider is authenticated',
+      };
+    }
+
+    // The SDK can return a completed assistant message whose info carries a
+    // turn error. Empty parts in that case are a failed turn, not a
+    // successful no-op. Keep provider response bodies/headers out of durable
+    // task and session errors.
+    if (response.info.role === 'assistant' && response.info.error) {
+      const providerError = response.info.error;
+      const data = 'data' in providerError ? providerError.data : null;
+      const statusCode =
+        data && typeof data === 'object' && 'statusCode' in data
+          ? data.statusCode
+          : null;
+      let reason: string;
+      switch (providerError.name) {
+        case 'MessageAbortedError':
+          reason = 'AgentRunner: run interrupted — engine session was aborted';
+          break;
+        case 'MessageOutputLengthError':
+          reason = 'AgentRunner: model output limit reached — shorten the request';
+          break;
+        case 'ProviderAuthError':
+          reason = 'AgentRunner: model provider authentication failed — check the account settings';
+          break;
+        case 'APIError':
+          reason =
+            statusCode === 401
+              ? 'AgentRunner: model provider authentication failed (HTTP 401) — check the account and model settings'
+              : statusCode === 403
+                ? 'AgentRunner: model provider denied the request (HTTP 403) — check the account and model permissions'
+                : 'AgentRunner: model provider failed the request — check the account and model settings';
+          break;
+        default: {
+          const message = data && typeof data === 'object' && 'message' in data ? data.message : null;
+          const guardHold = typeof message === 'string'
+            ? /^Dayflow provider guard held this request \(([a-z_]{1,40})\)\.?$/.exec(message)
+            : null;
+          reason = guardHold
+            ? `AgentRunner: Dayflow provider guard held this request (${guardHold[1]})`
+            : 'AgentRunner: engine turn failed — check the session and model settings';
+        }
+      }
+      logger.warn(
+        `[AgentRunner] assistant turn failed (${providerError.name}, status=${typeof statusCode === 'number' ? statusCode : 'unknown'})`,
+      );
+      _markSessionError(rhythmSessionId, reason, false, resolvedRunEpisodeId ?? undefined);
+      return {
+        sessionId: rhythmSessionId ?? sessionId,
+        result: '',
+        status: 'error',
+        error: reason,
       };
     }
 

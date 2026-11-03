@@ -26,6 +26,13 @@ describe('resolveSessionToolsets (#875)', () => {
     expect(config.toolsets.has('mcp')).toBe(true);
   });
 
+  it('keeps a passively configured MCP eligible without claiming it is connected', async () => {
+    const listMcp = vi.fn().mockResolvedValue(mcpStatus(['web'], 'configured'));
+    const config = await resolveSessionToolsets({ listMcp });
+    expect(config.toolsets.has('web')).toBe(true);
+    expect(config.toolsets.has('mcp')).toBe(true);
+  });
+
   it('omits the "mcp" bucket when no MCP server is connected', async () => {
     const listMcp = vi.fn().mockResolvedValue({});
     const config = await resolveSessionToolsets({ listMcp });

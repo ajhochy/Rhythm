@@ -1,0 +1,105 @@
+{
+  "issue": "ST-1",
+  "date": "2026-09-29",
+  "test_command": "npm test -- --runInBand tests/agent-chat-event-dedupe.test.ts tests/chat/transcript-streaming.test.ts tests/chat/transcript-streaming-provider.test.tsx",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "st1-c1",
+      "text": "Live `message.part.delta` for current session updates the addressed part/field in memory and becomes visible before `session.idle`; unknown/mismatched session/part events do not corrupt state.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/transcript-streaming.test.ts",
+      "status": "pass",
+      "reason": "Reducer and real provider-context tests observe pre-idle text and reject mismatched session, part, and field updates."
+    },
+    {
+      "criterion_id": "st1-c2",
+      "text": "`message.part.updated` upserts authoritative part snapshots; `message.updated` upserts metadata while retaining existing parts unless event explicitly supplies them.",
+      "mode": "unit",
+      "test": "apps/mobile/tests/chat/transcript-streaming.test.ts",
+      "status": "pass",
+      "reason": "Focused reducer assertions cover authoritative part upsert and metadata-only message updates."
+    },
+    {
+      "criterion_id": "st1-c3",
+      "text": "Delta/updated state commits are coalesced into a bounded 75ms window (leading or max-wait behavior acceptable if deterministic). Continuous 100-delta burst cannot starve commits. Avoid a React commit per delta.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/transcript-streaming.test.ts",
+      "status": "pass",
+      "reason": "A fixed-from-first-event 75ms batch publishes a 100-delta burst in one measured React transcript commit."
+    },
+    {
+      "criterion_id": "st1-c4",
+      "text": "Existing `session.idle` refresh remains authoritative and deep-equal convergence succeeds when 20% of synthetic delta events are intentionally withheld/out of order as supported; define explicit handling for duplicate/out-of-order snapshots/deltas.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/transcript-streaming-provider.test.tsx",
+      "status": "pass",
+      "reason": "Provider test withholds/reorders synthetic stream input at reducer level and verifies session.idle GET replacement deep-equals the authoritative transcript."
+    },
+    {
+      "criterion_id": "st1-c5",
+      "text": "During a 100-delta burst, visible transcript advances before idle and pre-idle messages GET count is 0. Baseline on parent should show no pre-idle in-memory transcript advancement / eventual refetch behavior. Record identical baseline/post measurements: time/event-count to first visible text, React state commit count, messages GET count pre-idle, final reconciliation equality.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/transcript-streaming-provider.test.tsx",
+      "status": "pass",
+      "reason": "Identical baseline/post provider protocol measured none/104ms to visible text, 0/1 pre-idle commits, 1/0 pre-idle message GETs, and true/true final reconciliation."
+    },
+    {
+      "criterion_id": "st1-c6",
+      "text": "Preserve auto-scroll behaviors (8/8), current message merge/fetch generation safety, pending interactions, status handling, and offline/reconnect semantics.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/chat-content-scroll.test.tsx",
+      "status": "pass",
+      "reason": "Auto-scroll passed 8/8; combined chat passed 75/75; fetch-generation/event transport passed 11/11; offline/reconnect passed 8/8."
+    },
+    {
+      "criterion_id": "st1-c7",
+      "text": "Run focused reducer/provider/performance tests, combined changed chat tests, lint, typecheck, diff check, full mobile Jest, and the Mobile CI foundation gate. Use sandbox live-ish SSE/fake-server where possible without real provider credentials.",
+      "mode": "integration",
+      "test": "apps/mobile/package.json#verify:foundation",
+      "status": "pass",
+      "reason": "Final verification ran focused and combined chat suites, fake-server, lint, typecheck, full mobile Jest with four exact parent-red issue-1387 failures, and the complete Mobile CI foundation/browser gate."
+    },
+    {
+      "criterion_id": "st1-r1",
+      "text": "Exact production SDK `message.part.delta` payloads without a unique event ID must not collapse by messageID or partID; multiple same-message deltas all reach the reducer.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/agent-chat-event-dedupe.test.ts",
+      "status": "pass",
+      "reason": "Exact SDK-shape anonymous same-message deltas all return null stable identity and remain in the recovery stream."
+    },
+    {
+      "criterion_id": "st1-r2",
+      "text": "Recovery events with truly stable explicit IDs and unrelated event types with stable recovery identities retain duplicate suppression.",
+      "mode": "unit",
+      "test": "apps/mobile/tests/agent-chat-event-dedupe.test.ts",
+      "status": "pass",
+      "reason": "Explicit delta event IDs and unrelated message removal fallback identities still suppress duplicates."
+    },
+    {
+      "criterion_id": "st1-r3",
+      "text": "At provider level, 20% withheld and reverse-ordered supported anonymous deltas advance before idle and then deep-equal the authoritative transcript after session.idle.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/transcript-streaming-provider.test.tsx",
+      "status": "pass",
+      "reason": "Provider delivers 80 reverse-ordered anonymous deltas after withholding 20%, then session.idle deep-equals the authoritative 100-character message record."
+    },
+    {
+      "criterion_id": "st1-r4",
+      "text": "Queued streaming events remain keyed to their addressed session when the current session switches.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/transcript-streaming-provider.test.tsx",
+      "status": "pass",
+      "reason": "Provider switches sessions while a delta batch is queued, keeps the second session unchanged, and retains the addressed first-session preview."
+    },
+    {
+      "criterion_id": "st1-r5",
+      "text": "Unmount cancels queued transcript batches so no delayed state publication occurs.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/transcript-streaming-provider.test.tsx",
+      "status": "pass",
+      "reason": "Unmount before the 75ms deadline cancels the queued batch and produces zero transcript commits."
+    }
+  ],
+  "not_tested": []
+}

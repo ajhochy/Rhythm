@@ -10,7 +10,7 @@ import {
 } from '../services/media_artifact_store';
 
 /** A tokenless loopback caller (AGENT_LOCAL) is the desktop itself; everyone else is owner-checked. */
-function mayAccess(store: MediaArtifactStore, artifact: MediaArtifact, userId: number | undefined): boolean {
+async function mayAccess(store: MediaArtifactStore, artifact: MediaArtifact, userId: number | undefined): Promise<boolean> {
   return userId === undefined ? env.agentLocal === true : store.canUserAccessArtifact(artifact, userId);
 }
 
@@ -28,7 +28,7 @@ export class MediaArtifactsController {
       const artifact = await store.findProjectArtifact(req.params.id, requestedProject(req));
       if (!artifact) throw AppError.notFound('Media artifact');
       const userId = req.mobileDevice?.userId ?? req.auth?.user.id;
-      if (!mayAccess(store, artifact, userId)) throw AppError.notFound('Media artifact');
+      if (!(await mayAccess(store, artifact, userId))) throw AppError.notFound('Media artifact');
       if (userId !== undefined) res.set('X-Rhythm-Artifact-Owner-ID', String(userId));
       res.set('X-Rhythm-Artifact-Project-ID', artifact.project);
       res.set('X-Rhythm-Artifact-Session-ID', artifact.session);
@@ -65,7 +65,7 @@ export class MediaArtifactsController {
       const project = requestedProject(req);
       const artifact = await store.findProjectArtifact(req.params.id, project);
       const userId = req.mobileDevice?.userId ?? req.auth?.user.id;
-      if (!artifact || !mayAccess(store, artifact, userId)) {
+      if (!artifact || !(await mayAccess(store, artifact, userId))) {
         throw AppError.notFound('Media artifact');
       }
       const updated = await store.setPinned(

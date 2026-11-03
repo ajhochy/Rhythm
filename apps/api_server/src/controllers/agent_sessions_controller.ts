@@ -4,7 +4,6 @@ import { readFileSync, existsSync } from 'fs';
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { env } from '../config/env';
-import { getDb } from '../database/db';
 import { canonicalize, containsReal } from '../utils/path_containment';
 import { AgentSessionsRepository, listPage, listChildrenPage } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
@@ -15,7 +14,7 @@ import {
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { ProjectsRepository } from '../repositories/projects_repository';
 import { TasksRepository } from '../repositories/tasks_repository';
-import { findSolePairedUserId } from '../repositories/mobile_devices_repository';
+import { localOperatorUserId } from '../services/local_operator';
 import type { AgentKind, CreateAgentSessionDto, PermissionMode, SessionScope } from '../models/agent_session';
 import {
   asOpenCodeAgentId,
@@ -24,6 +23,7 @@ import {
   SESSION_SCOPES,
 } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
+import { isOrgReviewerSession, taskScopeForSession } from '../services/opencode_client_service';
 import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
 import {
   isReservedAgentConfigId,
@@ -192,6 +192,8 @@ const messagesRepo = new AgentSessionMessagesRepository();
 const mcpAppCapabilityBroker = new McpAppCapabilityBroker();
 
 import { getPrimaryWorktreePath, gitCheckout, probeVcs } from '../services/vcs_probe';
+import { autoPickAccountId, markAutoAccountSession, unmarkAutoAccountSession } from '../services/decision/capacity_router';
+import { RouterGridAttemptsRepository } from '../services/decision/router_grid_attempts_repository';
 
 function resolveWorktreeEngineDirectory(session: {
   projectId: string | null;
@@ -705,6 +707,13 @@ export class AgentSessionsController {
         throw AppError.badRequest(`permissionMode must be one of: ${PERMISSION_MODES.join(', ')}`);
       }
 
+      // Auto (router) model mode: interactive sessions default to 'auto';
+      // 'fixed' must be requested explicitly. Anything else is a client error.
+      if (body.modelMode !== undefined && body.modelMode !== 'auto' && body.modelMode !== 'fixed') {
+        throw AppError.badRequest("modelMode must be 'auto' or 'fixed'");
+      }
+      const requestedModelMode: 'auto' | 'fixed' = body.modelMode === 'fixed' ? 'fixed' : 'auto';
+
       // profileId is the Rhythm profile key. agentId/agentKind remain
       // compatibility aliases for older desktop clients.
       if (
@@ -780,6 +789,12 @@ export class AgentSessionsController {
         profileDefaultAnthropicAccountId = agentConfig.defaultAnthropicAccountId ?? null;
         profileDefaultOpenaiAccountId = agentConfig.defaultOpenaiAccountId ?? null;
       }
+      if (permissionMode === 'bypassPermissions' && isOrgReviewerSession({
+        profileId: normalizedAgentId,
+        opencodeAgentId: resolvedEngineAgentKind,
+      })) {
+        throw AppError.badRequest('Org Reviewer cannot use bypassPermissions');
+      }
 
       // Task D — resolve the Anthropic account this session routes to:
       // body override → profile default → store default → null (engine default).
@@ -798,9 +813,20 @@ export class AgentSessionsController {
       if (requestedAccountId && !anthropicAccountsService.getAccount(requestedAccountId)) {
         throw AppError.badRequest(`unknown anthropic account: '${requestedAccountId}'`);
       }
+      // Capacity routing (AGENT_DECISION_CAPACITY_ROUTING=on): with no requested
+      // and no profile-default account, prefer the account with the most usage
+      // headroom over the store default. Falls back to the default on any miss.
+      let autoAnthropicAccountId: string | null = null;
+      if (!requestedAccountId && !profileDefaultAnthropicAccountId) {
+        const picked = await autoPickAccountId('anthropic', { sessionAuto: requestedModelMode === 'auto' });
+        if (picked && anthropicAccountsService.getAccount(picked)) {
+          autoAnthropicAccountId = picked;
+        }
+      }
       const resolvedAccountId =
         requestedAccountId ??
         profileDefaultAnthropicAccountId ??
+        autoAnthropicAccountId ??
         anthropicAccountsService.defaultAccount()?.id ??
         null;
 
@@ -819,9 +845,17 @@ export class AgentSessionsController {
       if (requestedOpenaiAccountId && !openaiAccountsService.getAccount(requestedOpenaiAccountId)) {
         throw AppError.badRequest(`unknown openai account: '${requestedOpenaiAccountId}'`);
       }
+      let autoOpenaiAccountId: string | null = null;
+      if (!requestedOpenaiAccountId && !profileDefaultOpenaiAccountId) {
+        const picked = await autoPickAccountId('openai', { sessionAuto: requestedModelMode === 'auto' });
+        if (picked && openaiAccountsService.getAccount(picked)) {
+          autoOpenaiAccountId = picked;
+        }
+      }
       const resolvedOpenaiAccountId =
         requestedOpenaiAccountId ??
         profileDefaultOpenaiAccountId ??
+        autoOpenaiAccountId ??
         openaiAccountsService.defaultAccount()?.id ??
         null;
 
@@ -898,13 +932,14 @@ export class AgentSessionsController {
       // "unassigned"). When the client omits the field entirely, fall back to
       // cwd-prefix lookup against the projects table (longest match wins,
       // archived projects skipped).
-      const expandedCwd = expandHome(cwd.trim());
+      const expandedCwd = expandHome(cwd);
 
       // Optional branch checkout before starting the session.
       const branchParam = body.branch;
       const stashParam = body.stash;
       const createBranchParam = body.createBranch;
-      if (typeof branchParam === 'string' && branchParam.trim() !== '') {
+      const isolateWorktree = body.isolateWorktree === true;
+      if (!isolateWorktree && typeof branchParam === 'string' && branchParam.trim() !== '') {
         // Only checkout when requested branch differs from current HEAD.
         const currentBranch = (() => {
           try {
@@ -939,7 +974,6 @@ export class AgentSessionsController {
       // a non-git dir surfaces a clean 4xx/5xx before any session row exists.
       let sessionCwd = expandedCwd;
       let worktreeMeta: { name: string; path: string; branch: string | null } | null = null;
-      const isolateWorktree = body.isolateWorktree === true;
       if (isolateWorktree) {
         const worktreeNameRaw = body.worktreeName;
         if (
@@ -956,6 +990,7 @@ export class AgentSessionsController {
         }
         const created = await opencodeClient.createWorktree(expandedCwd, {
           name: typeof worktreeNameRaw === 'string' ? worktreeNameRaw : undefined,
+          ...(typeof branchParam === 'string' && branchParam.trim() !== '' ? { base: branchParam.trim() } : {}),
         });
         sessionCwd = created.directory;
         worktreeMeta = {
@@ -982,11 +1017,7 @@ export class AgentSessionsController {
       // personal Mac belongs to the one user represented by its pairing
       // history, including revoked devices. If history is empty or contains
       // more than one user, keep the session unowned instead of guessing.
-      const ownerUserId =
-        req.auth?.user.id ??
-        (env.agentLocal && env.dbClient === 'sqlite'
-          ? findSolePairedUserId(getDb())
-          : null);
+      const ownerUserId = req.auth?.user.id ?? localOperatorUserId();
 
       const dto: CreateAgentSessionDto = {
         // OPC-#710: resolvedEngineAgentKind is '' for agent-less instant-create.
@@ -1009,6 +1040,7 @@ export class AgentSessionsController {
         // OPC-#710: name defaults to '' for instant-create sessions.
         name: typeof name === 'string' ? name.trim() : '',
         projectId,
+        modelMode: requestedModelMode,
         permissionMode,
         // This controller is the interactive, user-selected session surface.
         // Internal runners that stamp operational bypassPermissions create
@@ -1019,11 +1051,19 @@ export class AgentSessionsController {
         mcpAllowedToolsJson,
         // Task D — resolved Anthropic account (null = engine default).
         anthropicAccountId: resolvedAccountId,
+        anthropicAccountSource: resolvedAccountId ? (!requestedAccountId && !profileDefaultAnthropicAccountId ? 'router' : 'pinned') : null,
         openaiAccountId: resolvedOpenaiAccountId,
+        openaiAccountSource: resolvedOpenaiAccountId ? (!requestedOpenaiAccountId && !profileDefaultOpenaiAccountId ? 'router' : 'pinned') : null,
         ownerUserId,
       };
 
       const session = repo.insert(dto);
+      if (!requestedAccountId && !profileDefaultAnthropicAccountId) {
+        markAutoAccountSession(session.id, 'anthropic');
+      }
+      if (!requestedOpenaiAccountId && !profileDefaultOpenaiAccountId) {
+        markAutoAccountSession(session.id, 'openai');
+      }
 
       // OCU-17 (#1058) — record the isolated worktree on the row so the payload
       // carries it and hard-delete can optionally clean it up later.
@@ -1097,6 +1137,7 @@ export class AgentSessionsController {
         undefined,
         undefined,
         permissionMode,
+        taskScopeForSession(session),
       );
       logger.info(`[Opencode][timing] opencodeClient.createSession took ${Date.now() - tSdkCreate}ms for session ${session.id}`);
       // #1222 — check `.id` explicitly: createSession no longer returns a bare
@@ -1117,10 +1158,14 @@ export class AgentSessionsController {
       // the engine plugin resolves the right bearer token per request. Only
       // when an account resolved; null means "engine default", no routing entry.
       if (resolvedAccountId) {
-        anthropicAccountsService.setRouting(opencodeSession.id, resolvedAccountId);
+        anthropicAccountsService.setRouting(opencodeSession.id, resolvedAccountId, {
+          pinned: !!(requestedAccountId || profileDefaultAnthropicAccountId),
+        });
       }
       if (resolvedOpenaiAccountId) {
-        openaiAccountsService.setRouting(opencodeSession.id, resolvedOpenaiAccountId);
+        openaiAccountsService.setRouting(opencodeSession.id, resolvedOpenaiAccountId, {
+          pinned: !!(requestedOpenaiAccountId || profileDefaultOpenaiAccountId),
+        });
       }
 
       // Start streaming Opencode events through the WebSocket gateway.
@@ -1165,12 +1210,23 @@ export class AgentSessionsController {
         opencodeAgentId?: ReturnType<typeof asOpenCodeAgentId> | null;
         providerId?: string | null;
         modelId?: string | null;
+        modelMode?: 'auto' | 'fixed';
         agentMode?: string | null;
         permissionMode?: PermissionMode;
         approvalBypassExplicit?: boolean;
         thinkingBudget?: number | null;
         fastMode?: boolean;
       } = {};
+
+      // Auto (router) model mode. {modelMode:'auto'} keeps the stored
+      // providerId/modelId as the fallback baseline; {modelMode:'fixed',
+      // providerId, modelId} pins. providerId/modelId are validated below.
+      if (body.modelMode !== undefined) {
+        if (body.modelMode !== 'auto' && body.modelMode !== 'fixed') {
+          throw AppError.badRequest("modelMode must be 'auto' or 'fixed'");
+        }
+        fields.modelMode = body.modelMode;
+      }
 
       if (body.name !== undefined) {
         if (typeof body.name !== 'string' || body.name.trim() === '') {
@@ -1266,13 +1322,29 @@ export class AgentSessionsController {
       // from create/resume) — written as-is via the existing updateAgentKind
       // helper, same as the resume path (~line 1253). Empty/omitted is a
       // no-op so callers that don't touch the profile are unaffected.
+      let requestedAgentKind: string | undefined;
       if (body.profileId === undefined && body.agentId !== undefined) {
         if (body.agentId !== null && typeof body.agentId !== 'string') {
           throw AppError.badRequest('agentId must be a string or null');
         }
         if (typeof body.agentId === 'string' && body.agentId.trim() !== '') {
-          repo.updateAgentKind(session.id, body.agentId.trim());
+          requestedAgentKind = body.agentId.trim();
         }
+      }
+
+      // Validate the proposed profile and mode together before any DB or SDK
+      // mutation. A combined PATCH must not move a bypass chat to Reviewer.
+      const nextPermissionMode = fields.permissionMode ?? session.permissionMode;
+      const nextTaskScope = taskScopeForSession({
+        ...session,
+        profileId: fields.profileId !== undefined ? fields.profileId : session.profileId,
+        opencodeAgentId: requestedAgentKind
+          ? asOpenCodeAgentId(requestedAgentKind)
+          : fields.opencodeAgentId !== undefined ? fields.opencodeAgentId : session.opencodeAgentId,
+        agentKind: (requestedAgentKind ?? fields.opencodeAgentId ?? session.agentKind) as AgentKind,
+      });
+      if (nextTaskScope === 'reviewer' && nextPermissionMode === 'bypassPermissions') {
+        throw AppError.badRequest('Org Reviewer cannot use bypassPermissions');
       }
 
       // Dual-account follow-up — switch the session's Claude account from the
@@ -1289,9 +1361,13 @@ export class AgentSessionsController {
         if (!anthropicAccountsService.getAccount(accountId)) {
           throw AppError.badRequest(`unknown anthropic account: '${accountId}'`);
         }
+        // Explicit intent is durable even if the audit append fails; PATCH still returns the append error truthfully.
         repo.setAnthropicAccountId(session.id, accountId);
+        repo.setAnthropicAccountSource(session.id, 'pinned');
+        unmarkAutoAccountSession(session.id, 'anthropic');
+        await new RouterGridAttemptsRepository().markPinned(session.id, 'anthropic', accountId);
         if (session.sdkSessionId) {
-          anthropicAccountsService.setRouting(session.sdkSessionId, accountId);
+          anthropicAccountsService.setRouting(session.sdkSessionId, accountId, { pinned: true });
         }
       }
 
@@ -1306,8 +1382,11 @@ export class AgentSessionsController {
           throw AppError.badRequest(`unknown openai account: '${accountId}'`);
         }
         repo.setOpenaiAccountId(session.id, accountId);
+        repo.setOpenaiAccountSource(session.id, 'pinned');
+        unmarkAutoAccountSession(session.id, 'openai');
+        await new RouterGridAttemptsRepository().markPinned(session.id, 'openai', accountId);
         if (session.sdkSessionId) {
-          openaiAccountsService.setRouting(session.sdkSessionId, accountId);
+          openaiAccountsService.setRouting(session.sdkSessionId, accountId, { pinned: true });
         }
       }
 
@@ -1352,11 +1431,12 @@ export class AgentSessionsController {
         );
       }
       if (
-        fields.permissionMode !== undefined &&
+        (fields.permissionMode !== undefined || fields.profileId !== undefined || requestedAgentKind !== undefined) &&
         session.sdkSessionId &&
         !(await opencodeClient.updateSessionPermissionMode(
           session.sdkSessionId,
-          fields.permissionMode,
+          nextPermissionMode,
+          nextTaskScope,
         ))
       ) {
         throw new AppError(
@@ -1365,6 +1445,7 @@ export class AgentSessionsController {
           'OpenCode rejected the session permission-mode update',
         );
       }
+      if (requestedAgentKind !== undefined) repo.updateAgentKind(session.id, requestedAgentKind);
       repo.updateFields(session.id, fields);
       const updated = repo.findById(session.id)!;
       broadcastSessionUpdated(updated);
@@ -1888,6 +1969,10 @@ export class AgentSessionsController {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
 
+      if (session.permissionMode === 'bypassPermissions' && isOrgReviewerSession(session)) {
+        throw AppError.badRequest('Org Reviewer cannot resume with bypassPermissions');
+      }
+
       // profileId is the authoritative Rhythm identity. agentId/agentKind are
       // retained as compatibility aliases for older desktop clients.
       const body = req.body as Record<string, unknown> | undefined ?? {};
@@ -1918,6 +2003,12 @@ export class AgentSessionsController {
           agentConfig.ocAgent && agentConfig.ocAgent.trim() !== ''
             ? agentConfig.ocAgent
             : requestedAgentId;
+        if (session.permissionMode === 'bypassPermissions' && isOrgReviewerSession({
+          profileId: agentConfig.id,
+          opencodeAgentId: resolvedEngineAgentKind,
+        })) {
+          throw AppError.badRequest('Org Reviewer cannot resume with bypassPermissions');
+        }
         repo.updateFields(session.id, {
           profileId: asRhythmProfileId(agentConfig.id),
           opencodeAgentId: asOpenCodeAgentId(resolvedEngineAgentKind),
@@ -1939,6 +2030,10 @@ export class AgentSessionsController {
           if (blockReason) throw AppError.badRequest(blockReason);
         }
       }
+
+      // Resume may have just changed the stored profile identity above.
+      const taskScopeSession = repo.findById(session.id) ?? session;
+      const taskScope = isOrgReviewerSession(taskScopeSession) ? 'reviewer' : taskScopeForSession(taskScopeSession);
 
       if (session.status !== 'resumable' || !session.sessionToken) {
         throw AppError.badRequest(
@@ -1986,6 +2081,14 @@ export class AgentSessionsController {
           return;
         }
 
+        // An old Reviewer SDK session can still carry native general/explore
+        // allows. Append the Reviewer deny before exposing the reattached ID.
+        if (taskScope === 'reviewer' && !(await opencodeClient.updateSessionPermissionMode(
+          existingSession.id, session.permissionMode, taskScope,
+        ))) {
+          throw new AppError(502, 'SESSION_PERMISSION_SYNC_FAILED', 'Could not restore Org Reviewer task scope');
+        }
+
         // Path 1: session still alive — re-attach.
         sdkSessionId = existingSession.id;
         logger.info(
@@ -2005,6 +2108,7 @@ export class AgentSessionsController {
           undefined,
           undefined,
           session.permissionMode,
+          taskScope,
         );
         // #1222 — check `.id` explicitly (see comment on the sibling create() path above).
         if (!opencodeSession.id) {
@@ -2227,6 +2331,8 @@ export class AgentSessionsController {
         memoryIds: record.memoryIds,
         notePaths: record.notePaths,
         items: record.items,
+        semanticStatus: record.semanticStatus,
+        semanticHitCount: record.semanticHitCount,
       });
     } catch (err) {
       next(err);
@@ -2549,6 +2655,7 @@ export class AgentSessionsController {
         cwd: parent.cwd,
         name: `${parent.name} (fork)`,
         projectId: parent.projectId ?? null,
+        modelMode: parent.modelMode,
       };
       const forkSession = repo.insert(forkDto);
       forkLocalId = forkSession.id;

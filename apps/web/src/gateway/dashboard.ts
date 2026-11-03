@@ -1,4 +1,6 @@
 import type { GatewayMode } from '.';
+import { isTrustedBrowserFetcher } from './browser-transport';
+import { cloudAccountFailure } from './cloud-error';
 import type { Message, MessageThread } from './messages';
 import type { ProjectInstance, ProjectInstanceStep, UpdateProjectInstanceStepInput } from './projects';
 import type { CreateTaskInput, Task, TaskCollaborator, UpdateTaskInput } from './planner';
@@ -26,7 +28,7 @@ export interface DashboardGateway {
 
 export class DashboardGatewayError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 const failureText = (status: number, operation: string) => ({ 0: 'Dashboard service unavailable', 401: 'Authentication required', 403: 'Forbidden', 404: 'Dashboard record not found' })[status] ?? `${operation} failed (${status})`;
-async function response<T>(operation: string, pending: Promise<Response>): Promise<T> { try { const result = await pending; if (!result.ok) throw new DashboardGatewayError(result.status, failureText(result.status, operation)); return result.status === 204 ? undefined as T : await result.json() as T; } catch (error) { if (error instanceof DashboardGatewayError) throw error; throw new DashboardGatewayError(0, failureText(0, operation)); } }
+async function response<T>(operation: string, pending: Promise<Response>): Promise<T> { try { const result = await pending; if (!result.ok) throw new DashboardGatewayError(result.status, await cloudAccountFailure(result) ?? failureText(result.status, operation)); return result.status === 204 ? undefined as T : await result.json() as T; } catch (error) { if (error instanceof DashboardGatewayError) throw error; throw new DashboardGatewayError(0, failureText(0, operation)); } }
 
 export function createFixtureDashboardGateway(_fetcher?: typeof fetch): DashboardGateway {
   const unsupported = async (..._args: unknown[]): Promise<never> => { throw new DashboardGatewayError(0, 'Fixture dashboard gateway is unsupported'); };
@@ -34,7 +36,7 @@ export function createFixtureDashboardGateway(_fetcher?: typeof fetch): Dashboar
 }
 
 export function createLiveDashboardGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): DashboardGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: an explicit dashboard token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: an explicit dashboard token is required');
   const request = (path: string, init: RequestInit = {}) => fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   const json = (value: unknown) => JSON.stringify(value);
   return {

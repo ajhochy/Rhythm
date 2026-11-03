@@ -366,7 +366,9 @@ describe('P0 automatic memory relevance contract', () => {
         candidate: memory({
           content: 'The rare McDonald’s World Cup collector cups are the mascot and regional team cups.',
         }),
-        expected: 0.86,
+        // 5/6 since light plural normalization folds "cup"/"cups" into one
+        // token (was 6/7); still well above the 0.60 separation threshold.
+        expected: 5 / 6,
       },
       {
         label: 'positive stored preference',

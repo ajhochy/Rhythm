@@ -1,6 +1,6 @@
 import path from "path"
 import { Global } from "@opencode-ai/core/global"
-import { Effect, Layer, Context, Option, Schema } from "effect"
+import { Effect, Layer, Context, Option, Schema, Semaphore } from "effect"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 
 export const Tokens = Schema.Struct({
@@ -46,6 +46,11 @@ export interface Interface {
   readonly updateOAuthState: (mcpName: string, oauthState: string) => Effect.Effect<void>
   readonly getOAuthState: (mcpName: string) => Effect.Effect<string | undefined>
   readonly clearOAuthState: (mcpName: string) => Effect.Effect<void>
+  /** Clear only the ephemeral values written by the exact flow being retired. */
+  readonly clearOAuthEphemeraIfMatches: (
+    mcpName: string,
+    expected: { oauthState?: string; codeVerifier?: string },
+  ) => Effect.Effect<void>
   readonly isTokenExpired: (mcpName: string) => Effect.Effect<boolean | null>
 }
 
@@ -55,6 +60,10 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
+    // Auth persistence is a read-modify-write file store. Serialize mutations
+    // so an old flow's conditional cleanup cannot overwrite a newer flow's
+    // verifier after either operation awaits filesystem I/O.
+    const writeLock = Semaphore.makeUnsafe(1)
 
     const all = Effect.fn("McpAuth.all")(function* () {
       return yield* fs.readJson(filepath).pipe(
@@ -76,33 +85,39 @@ export const layer = Layer.effect(
       return entry
     })
 
-    const set = Effect.fn("McpAuth.set")(function* (mcpName: string, entry: Entry, serverUrl?: string) {
+    const setUnsafe = Effect.fn("McpAuth.setUnsafe")(function* (mcpName: string, entry: Entry, serverUrl?: string) {
       const data = yield* all()
       if (serverUrl) entry.serverUrl = serverUrl
       yield* fs.writeJson(filepath, { ...data, [mcpName]: entry }, 0o600).pipe(Effect.orDie)
     })
 
-    const remove = Effect.fn("McpAuth.remove")(function* (mcpName: string) {
-      const data = yield* all()
-      delete data[mcpName]
-      yield* fs.writeJson(filepath, data, 0o600).pipe(Effect.orDie)
-    })
+    const set = (mcpName: string, entry: Entry, serverUrl?: string) =>
+      setUnsafe(mcpName, entry, serverUrl).pipe(Semaphore.withPermit(writeLock))
 
-    const updateField = <K extends keyof Entry>(field: K, spanName: string) =>
-      Effect.fn(`McpAuth.${spanName}`)(function* (mcpName: string, value: NonNullable<Entry[K]>, serverUrl?: string) {
-        const entry = (yield* get(mcpName)) ?? {}
-        entry[field] = value
-        yield* set(mcpName, entry, serverUrl)
-      })
+    const remove = (mcpName: string) =>
+      Effect.gen(function* () {
+        const data = yield* all()
+        delete data[mcpName]
+        yield* fs.writeJson(filepath, data, 0o600).pipe(Effect.orDie)
+      }).pipe(Semaphore.withPermit(writeLock))
 
-    const clearField = (field: keyof Entry, spanName: string) =>
-      Effect.fn(`McpAuth.${spanName}`)(function* (mcpName: string) {
-        const entry = yield* get(mcpName)
-        if (entry) {
-          delete entry[field]
-          yield* set(mcpName, entry)
-        }
-      })
+    const updateField = <K extends keyof Entry>(field: K, _spanName: string) =>
+      (mcpName: string, value: NonNullable<Entry[K]>, serverUrl?: string) =>
+        Effect.gen(function* () {
+          const entry = (yield* get(mcpName)) ?? {}
+          entry[field] = value
+          yield* setUnsafe(mcpName, entry, serverUrl)
+        }).pipe(Semaphore.withPermit(writeLock))
+
+    const clearField = (field: keyof Entry, _spanName: string) =>
+      (mcpName: string) =>
+        Effect.gen(function* () {
+          const entry = yield* get(mcpName)
+          if (entry) {
+            delete entry[field]
+            yield* setUnsafe(mcpName, entry)
+          }
+        }).pipe(Semaphore.withPermit(writeLock))
 
     const updateTokens = updateField("tokens", "updateTokens")
     const updateClientInfo = updateField("clientInfo", "updateClientInfo")
@@ -115,6 +130,24 @@ export const layer = Layer.effect(
       const entry = yield* get(mcpName)
       return entry?.oauthState
     })
+
+    const clearOAuthEphemeraIfMatches = (mcpName: string, expected: { oauthState?: string; codeVerifier?: string }) =>
+      Effect.gen(function* () {
+        if (expected.oauthState === undefined && expected.codeVerifier === undefined) return
+        const entry = yield* get(mcpName)
+        if (!entry) return
+        let changed = false
+        if (expected.oauthState !== undefined && entry.oauthState === expected.oauthState) {
+          delete entry.oauthState
+          changed = true
+        }
+        if (expected.codeVerifier !== undefined && entry.codeVerifier === expected.codeVerifier) {
+          delete entry.codeVerifier
+          changed = true
+        }
+        if (!changed) return
+        yield* setUnsafe(mcpName, entry)
+      }).pipe(Semaphore.withPermit(writeLock))
 
     const isTokenExpired = Effect.fn("McpAuth.isTokenExpired")(function* (mcpName: string) {
       const entry = yield* get(mcpName)
@@ -136,6 +169,7 @@ export const layer = Layer.effect(
       updateOAuthState,
       getOAuthState,
       clearOAuthState,
+      clearOAuthEphemeraIfMatches,
       isTokenExpired,
     })
   }),

@@ -232,7 +232,13 @@ export class DelegationCoordinator {
         parentSessionId: null,
         delegationDepth: row.depth,
         bridgeOrigin: { allowMemoryPreface },
-        onSessionCreated: (id) => { this.jobs.setChild(row.id, id); },
+        onSessionCreated: async (id) => {
+          this.jobs.setChild(row.id, id);
+          // Trusted broker parent/profile/session-key, never a model-reported remote ID.
+          const { hermesNotifyService } = await import('../services/hermes_notify_service');
+          try { hermesNotifyService.bindBridge(row.id); }
+          catch { logger.warn('[SharedAgents] notification origin withheld; broker execution authority unchanged'); }
+        },
       });
     } catch (error) {
       outcome = { sessionId: '', status: 'error', result: '', error: String(error), errorCode: 'profile_unavailable' };

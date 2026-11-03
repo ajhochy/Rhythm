@@ -78,7 +78,10 @@ cd apps/api_server && npm run dev        # http://localhost:4000 by default
 cd apps/desktop_flutter && flutter pub get && flutter run -d macos
 
 # Electron desktop client
-cd apps/electron && npm run package:mac   # build a local candidate .app
+# Normal packages require the already-authorized public desktop OAuth client ID.
+# CI supplies GOOGLE_DESKTOP_CLIENT_ID; a local wrapper must explicitly allowlist it.
+# The package script does not load .env files or accept private OAuth/token settings.
+cd apps/electron && GOOGLE_DESKTOP_CLIENT_ID=<public-desktop-client-id> npm run package:mac
 
 # React web prototype (design reference)
 cd apps/web && npm run dev                # http://localhost:5173

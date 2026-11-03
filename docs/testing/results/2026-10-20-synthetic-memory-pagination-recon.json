@@ -1,0 +1,49 @@
+{
+  "phase": "Recon observations only",
+  "sourceRevision": "9dff6ab3761ea3c29a729d3c77804d8f0bf34efe",
+  "privateSyntheticActor": true,
+  "modelCalls": 0,
+  "created": 51,
+  "uniqueExplicitIds": 51,
+  "steps": {
+    "before": {
+      "status": 200,
+      "total": 0,
+      "pageCount": 0
+    },
+    "firstPage": {
+      "status": 200,
+      "offset": null,
+      "total": 51,
+      "count": 50,
+      "loadMoreVisible": true
+    },
+    "nextPage": {
+      "status": 200,
+      "offset": "50",
+      "pageCount": 1,
+      "total": 51,
+      "oldestOwnedIndexId": "955b201f-6f0b-4949-bdd7-ef06564fb00a",
+      "oldestVisible": true
+    },
+    "selectedDeletion": {
+      "id": "955b201f-6f0b-4949-bdd7-ef06564fb00a",
+      "before": {
+        "detailVisible": true,
+        "selectedUrl": "rhythm://app/index.html#/tools/brain?memoryId=<owned-deleted-index-id>"
+      },
+      "deleteStatus": 204,
+      "deletedIndexRows": 0,
+      "refreshStatus": 200,
+      "detailPresent": true,
+      "detailStillContainsDeletedNonce": false,
+      "deletedRowVisible": false
+    },
+    "after": {
+      "remainingOwnedRows": 0
+    }
+  },
+  "remainingCleanupCount": 50,
+  "cleanupErrors": [],
+  "errors": []
+}

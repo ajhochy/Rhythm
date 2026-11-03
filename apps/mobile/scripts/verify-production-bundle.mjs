@@ -83,13 +83,12 @@ function combinedText(root) {
 }
 
 function assertKnownFrameworkLocalhostOnly(bundle) {
-  const markers = ['localhost:8081', 'localhost:3000', 'localhost:4096'];
+  // localhost:8081 is judged separately, on the plain-JS export, by
+  // assertOnlyReactNativeDevServerFallback: Hermes packs strings with shared
+  // prefixes, so in bytecode an app-added 'http://localhost:8081/x' can hide
+  // behind React Native's own 'http://localhost:8081/' and cannot be told apart.
+  const markers = ['localhost:3000', 'localhost:4096'];
   const provenances = {
-    'localhost:8081': (context) =>
-      context.includes('NativeSourceCode.default.getConstants().scriptURL') ||
-      context.includes('Expo Go:') ||
-      (context.includes('/experimental/workspace/adapter') &&
-        context.includes('OpenCode request failed')),
     // Expo Router retains an inert RSC missing-origin fallback after Hermes
     // compaction. The resolved config check above and embedded approved origin
     // prove production does not select it.
@@ -110,6 +109,29 @@ function assertKnownFrameworkLocalhostOnly(bundle) {
       offset = bundle.indexOf(marker, offset + marker.length);
     }
   }
+}
+
+// React Native's dev-server fallback (Libraries/Core/Devtools/getDevServer.js,
+// `const FALLBACK = 'http://localhost:8081/'`) is dev tooling only and inert in
+// release. In plain JS every string is its own literal, so accept at most one
+// literal containing localhost:8081, and only if it is exactly that fallback.
+const REACT_NATIVE_DEV_SERVER_FALLBACK = 'http://localhost:8081/';
+function assertOnlyReactNativeDevServerFallback(jsText) {
+  const literal = /(["'`])((?:(?!\1)[^\\\n]|\\.)*?localhost:8081(?:(?!\1)[^\\\n]|\\.)*?)\1/g;
+  const found = [...jsText.matchAll(literal)].map((match) => match[2]);
+  const unexpected = found.filter((value) => value !== REACT_NATIVE_DEV_SERVER_FALLBACK);
+  if (unexpected.length > 0 || found.length > 1) {
+    fail(
+      `exported production JS contains localhost:8081 outside React Native's dev-server fallback: ${JSON.stringify(found)}.`,
+    );
+  }
+}
+
+function jsTextBelow(root) {
+  return filesBelow(root)
+    .filter((path) => path.endsWith('.js'))
+    .map((path) => readFileSync(path, 'utf8'))
+    .join('\n');
 }
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'rhythm-production-verify-'));
@@ -171,6 +193,9 @@ try {
     fail('exported production bundle contains a native Google OAuth client ID.');
   }
   assertKnownFrameworkLocalhostOnly(exportedText);
+  const jsExportRoot = join(temporaryRoot, 'export-js');
+  run(['expo', 'export', '--platform', 'ios', '--no-bytecode', '--output-dir', jsExportRoot]);
+  assertOnlyReactNativeDevServerFallback(jsTextBelow(jsExportRoot));
   for (const [label, value] of [
     ['approved Rhythm Cloud origin', approvedCloudOrigin],
   ]) {

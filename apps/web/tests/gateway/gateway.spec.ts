@@ -3,8 +3,6 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-const gatewayModulePath = '../../src/gateway/index.ts';
-
 test('slice-2-c19: renderer CSP permits only production local services and the exact artifact bridge', async () => {
   // Regression caught: shipping CSP keeps sandbox ports or the content-addressed bridge hash drifts.
   const html = await readFile(path.resolve(import.meta.dirname, '../../index.html'), 'utf8');
@@ -18,11 +16,10 @@ test('slice-2-c19: renderer CSP permits only production local services and the e
 });
 
 async function loadGateway(): Promise<any> {
-  try {
-    return await import(gatewayModulePath);
-  } catch {
-    return null;
-  }
+  // Keep the specifier literal so Playwright transforms its TypeScript imports.
+  // A computed import escapes that loader and Node cannot resolve extensionless
+  // gateway dependencies; surfacing the original import error avoids false nulls.
+  return import('../../src/gateway/index.ts');
 }
 
 test('slice-2-c1: gateway exposes explicit mode, health, and unsupported domain boundary', async () => {
@@ -85,7 +82,7 @@ test('production gateway receipt exposes Flutter runtime ports instead of sandbo
     productionApiBase: 'https://api.vcrcapps.com',
     taskToken: 'disposable-receipt-token',
   });
-  expect(gateway.environment).toEqual({ apiPort: '4001', enginePort: '4096' });
+  expect(gateway.environment).toEqual({ apiBase: 'http://127.0.0.1:4001', apiPort: '4001', enginePort: '4096' });
 });
 
 test('credentialed production base rejects plaintext and every loopback spelling', async () => {
@@ -218,6 +215,30 @@ test('post-login local boundary omits the cloud bearer while production keeps it
     { url: 'http://127.0.0.1:4098/agent-sessions?scope=chats', authorization: null },
     { url: 'https://api.vcrcapps.com/tasks?status=all', authorization: 'Bearer disposable-cloud-token' },
   ]);
+});
+
+test('pending approvals send the cloud bearer and human-approval capability to the local API', async () => {
+  // Regression: localFetcher stripped the bearer and list sent no capability, so every load 401'd.
+  const { createLiveApprovalGateway } = await import(path.resolve(import.meta.dirname, '../../src/gateway/approvals.ts'));
+  const calls: Array<{ url: string; authorization: string | null; capability: string | null }> = [];
+  const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const headers = new Headers(init?.headers);
+    calls.push({ url: String(input), authorization: headers.get('authorization'), capability: headers.get('x-rhythm-human-approval') });
+    return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  await createLiveApprovalGateway('http://127.0.0.1:4098', 'disposable-cloud-token', fetcher, async () => 'disposable-capability').listPending();
+  expect(calls).toEqual([{ url: 'http://127.0.0.1:4098/agent-approvals?status=pending', authorization: 'Bearer disposable-cloud-token', capability: 'disposable-capability' }]);
+});
+
+test('deciding an expired approval shows the expiry, not a generic access-denied', async () => {
+  // Regression: every 403 read "Approval access denied…", so an expired card looked like an identity problem.
+  const { createLiveApprovalGateway } = await import(path.resolve(import.meta.dirname, '../../src/gateway/approvals.ts'));
+  const reply = (message: string) => async () => new Response(JSON.stringify({ error: { code: 'FORBIDDEN', message } }), { status: 403, headers: { 'content-type': 'application/json' } });
+  const material = { capability: 'c', signature: 's' };
+  await expect(createLiveApprovalGateway('http://x', 't', reply('This approval expired; ask for a new proposal')).decide('a', 'approved', material))
+    .rejects.toThrow('This approval expired; ask for a new proposal');
+  await expect(createLiveApprovalGateway('http://x', 't', reply('Forbidden')).decide('a', 'approved', material))
+    .rejects.toThrow(/Approval access denied/);
 });
 
 test('slice-2-c7: failed live requests cannot return fixture data', async () => {

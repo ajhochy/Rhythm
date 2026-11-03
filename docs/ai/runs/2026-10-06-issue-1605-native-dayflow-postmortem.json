@@ -1,0 +1,77 @@
+{
+  "run_id": "2026-10-06-issue-1605-native-dayflow",
+  "issue": 1605,
+  "date": "2026-10-06",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1605-c1",
+      "text": "**Short native viewport.** With a 445-point host viewport and a hosted native view whose intrinsic/fitting height is 558 points, the lifecycle retains a 445-point visible viewport and a separate scrollable document at least as tall as its measured minimum. Scrolling the owned AppKit document to its bottom makes the document’s bottom region visible without enlarging or moving the native host beyond its owning viewport.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "The earlier C7 run had no native AppKit viewport contract. Root-owned signed-app CUA observed a 445-point pane clipping native Dayflow content; two pages of native wheel input produced no pixel or accessibility-tree movement. The automated C7 gate passed, while its run record explicitly kept native acceptance unverified."
+    },
+    {
+      "criterion_id": "issue-1605-c2",
+      "text": "**Resize and tall viewport.** Resizing from a 944-point viewport to 445 points and back recomputes content dimensions from the current viewport and intrinsic/fitting size; it does not preserve a stale tall frame or truncate the 558-point content. At 944 points, content that fits needs no unnecessary scroll range. The scroll container remains inside the exact trusted parent and uses the current viewport coordinates and zoom.",
+      "contract_status": "absent",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "The earlier signed-app observation showed all content at the 944-point tall size, but did not exercise 944-to-445-to-944 resizing or inspect document frames."
+    },
+    {
+      "criterion_id": "issue-1605-c3",
+      "text": "**Scroll and lifecycle ownership.** Scrolling changes only the attached Dayflow document’s visible region; the owning viewport, sibling views, and unrelated windows remain fixed. Hiding for an inactive tool, modal, or hidden/minimized window prevents native interaction and preserves the scroll position for reactivation. Detach/teardown removes only the owned scroll/document views, drops stale bounds/input, and does not steal focus from another window or responder.",
+      "contract_status": "absent",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "No manual signed-app lifecycle or focus regression was observed. The new hidden-window AppKit fixture is a separate automated contract, not native UI evidence."
+    },
+    {
+      "criterion_id": "issue-1605-c4",
+      "text": "**Actual native interaction (manual).** In the signed app with the original Dayflow view at 1280×800, a native trackpad or mouse-wheel check through CUA reaches the clipped timeline content and its bottom controls, and scrolling back restores the top content. At 3440×1300, the full content remains visible without unnecessary scrolling. Record CUA/native-input evidence separately from physical-human evidence. This must be checked against the actual native view; a browser facade, synthetic DOM wheel, AppKit `scrollToPoint` fixture, or source-string check does not satisfy this criterion.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "C7 had browser-facade tests but no native interaction contract. Root-owned CUA observation on the signed normal-profile app found that native wheel input did not move the clipped timeline. Physical-human input was not claimed."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "issue-writer",
+      "acceptance-contract",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "issue-writer",
+      "acceptance-contract",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [
+    ],
+    "issues": [
+      {
+        "workflow_category": "W3",
+        "affected_skill": "acceptance-contract and failure-postmortem",
+        "description": "The skills request a TodoWrite checklist, but no TodoWrite capability was available in this task, so no checklist was created.",
+        "detected_by": "The available tool inventory contained no TodoWrite tool; transcript contains no checklist creation."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/web/src/components/tools/DayflowTool.tsx",
+    "apps/web/src/components/ToolWorkspace.css",
+    "apps/web/tests/dayflow-view.spec.ts"
+  ],
+  "failure_output": "C7 signed-app CUA: at 1280x800 the native pane was 445 points high and clipped Dayflow content; two pages of wheel input caused no pixel or accessibility-tree movement. Tall 944-point view showed all content.",
+  "overall_category": "C1",
+  "suggested_follow_up": "Keep native viewport geometry and native-input reachability in the acceptance contract, and require signed-app CUA evidence independently of renderer-facade browser tests.",
+  "scope_notes": "This record covers the earlier C7 native observation and the new follow-up issue/contract-authoring stage; it does not claim full adherence for the earlier C7 implementation chain. The C7 renderer implementation and gate were completed in the preceding run; issue 1605 implementation, final gate, and project-state update remain pending rather than skipped. No premature-completion category is inferred. The failure-pattern adaptation tool is unavailable here; this durable record is in canonical docs/ai as instructed by root, without editing .agent-stack. The native baseline copies were untracked fixture inputs before C8 and are not represented as C7 product changes."
+}

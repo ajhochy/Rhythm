@@ -135,6 +135,71 @@ describe('Tasks permissions', () => {
     expect(collaboratorTasks.map((visibleTask) => visibleTask.id)).toEqual([task.id]);
   });
 
+  it('authorizes exact task detail from the session bearer, not client owner ids or title matches', async () => {
+    const owner = usersRepo.create({ name: 'Owner', email: 'exact-owner@example.com' });
+    const collaborator = usersRepo.create({ name: 'Collaborator', email: 'exact-collaborator@example.com' });
+    const unrelated = usersRepo.create({ name: 'Unrelated', email: 'exact-unrelated@example.com' });
+    const ownerHeaders = await authHeaderFor(owner.id);
+    const collaboratorHeaders = await authHeaderFor(collaborator.id);
+    const unrelatedHeaders = await authHeaderFor(unrelated.id);
+
+    const created = await fetch(`${baseUrl}/tasks`, {
+      method: 'POST',
+      headers: { ...ownerHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Duplicate title',
+        notes: 'OWNER-EXACT-NOTES-MARKER',
+        ownerId: unrelated.id,
+      }),
+    });
+    expect(created.status).toBe(201);
+    const task = await readJson(created) as { id: string; ownerId: number };
+    expect(task.ownerId).toBe(owner.id);
+
+    const titleTwin = tasksRepo.create({
+      title: 'Duplicate title',
+      notes: 'UNRELATED-TWIN-NOTES',
+      ownerId: unrelated.id,
+    });
+    expect(titleTwin.id).not.toBe(task.id);
+
+    const ownerDetail = await fetch(`${baseUrl}/tasks/${encodeURIComponent(task.id)}`, { headers: ownerHeaders });
+    expect(ownerDetail.status).toBe(200);
+    expect(await readJson(ownerDetail)).toMatchObject({ id: task.id, notes: 'OWNER-EXACT-NOTES-MARKER' });
+
+    const hidden = await fetch(`${baseUrl}/tasks/${encodeURIComponent(task.id)}`, { headers: unrelatedHeaders });
+    expect(hidden.status).toBe(404);
+    expect(JSON.stringify(await readJson(hidden))).not.toContain('OWNER-EXACT-NOTES-MARKER');
+
+    const add = await fetch(`${baseUrl}/tasks/${encodeURIComponent(task.id)}/collaborators`, {
+      method: 'POST',
+      headers: { ...ownerHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: collaborator.id }),
+    });
+    expect(add.status).toBe(201);
+    const shared = await fetch(`${baseUrl}/tasks/${encodeURIComponent(task.id)}`, { headers: collaboratorHeaders });
+    expect(shared.status).toBe(200);
+    expect(await readJson(shared)).toMatchObject({ id: task.id, notes: 'OWNER-EXACT-NOTES-MARKER', isShared: true });
+
+    const revoke = await fetch(`${baseUrl}/tasks/${encodeURIComponent(task.id)}/collaborators/${collaborator.id}`, {
+      method: 'DELETE',
+      headers: ownerHeaders,
+    });
+    expect(revoke.status).toBe(204);
+    expect((await fetch(`${baseUrl}/tasks/${encodeURIComponent(task.id)}`, { headers: collaboratorHeaders })).status).toBe(404);
+
+    const badAuth = await fetch(`${baseUrl}/tasks/${encodeURIComponent(task.id)}`, {
+      headers: { Authorization: 'Bearer expired-or-forged' },
+    });
+    expect(badAuth.status).toBe(401);
+
+    expect((await fetch(`${baseUrl}/tasks/${encodeURIComponent(task.id)}`, {
+      method: 'DELETE',
+      headers: ownerHeaders,
+    })).status).toBe(204);
+    expect((await fetch(`${baseUrl}/tasks/${encodeURIComponent(task.id)}`, { headers: ownerHeaders })).status).toBe(404);
+  });
+
   it('returns isShared and collaborators when a collaborator patches a task', async () => {
     // Regression: findById omitted is_shared, so the PATCH response falsely serialized isShared: false.
     const owner = usersRepo.create({ name: 'Owner', email: 'patch-owner@example.com' });

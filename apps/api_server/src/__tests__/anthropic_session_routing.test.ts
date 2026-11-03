@@ -179,7 +179,8 @@ describe('POST /agent-sessions — anthropic account resolution', () => {
     expect(status).toBe(201);
     expect(body.anthropicAccountId).toBe('personal');
     expect(repo.findById(body.id)!.anthropicAccountId).toBe('personal');
-    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-session-1', 'personal');
+    // Explicit body pick is a pin (pinned-account fallback, 26bb1ff3).
+    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-session-1', 'personal', { pinned: true });
   });
 
   it('2. profile default_anthropic_account_id used when body omits it', async () => {
@@ -196,7 +197,8 @@ describe('POST /agent-sessions — anthropic account resolution', () => {
     });
     expect(status).toBe(201);
     expect(body.anthropicAccountId).toBe('team');
-    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-session-1', 'team');
+    // Profile default is an explicit pick → pinned.
+    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-session-1', 'team', { pinned: true });
   });
 
   it('3a. store defaultAccountId fallback when body and profile are silent', async () => {
@@ -207,7 +209,8 @@ describe('POST /agent-sessions — anthropic account resolution', () => {
     });
     expect(status).toBe(201);
     expect(body.anthropicAccountId).toBe('team');
-    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-session-1', 'team');
+    // Store default is automatic → unpinned.
+    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-session-1', 'team', { pinned: false });
   });
 
   it('3b. empty store → column null, NO setRouting call', async () => {
@@ -258,7 +261,7 @@ describe('PATCH /agent-sessions/:id — switch anthropic account', () => {
     expect(status).toBe(200);
     expect(body.anthropicAccountId).toBe('personal');
     expect(repo.findById(session.id)!.anthropicAccountId).toBe('personal');
-    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-switch-1', 'personal');
+    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-switch-1', 'personal', { pinned: true });
     expect(sessionUpdatedCalls).toHaveLength(1);
     expect((sessionUpdatedCalls[0] as any).anthropicAccountId).toBe('personal');
   });
@@ -314,6 +317,9 @@ describe('POST /opencode/spillover — engine plugin failover intake', () => {
       cwd: os.homedir(),
       name: 'Spill',
       anthropicAccountId: 'team',
+      // Only router-chosen (automatic) accounts may be moved by spillover;
+      // explicit/unknown provenance is rejected with 202 (see pinned_account_callers c16).
+      anthropicAccountSource: 'router',
     });
     repo.setSdkSessionId(session.id, 'sdk-spill-1');
 
@@ -327,7 +333,8 @@ describe('POST /opencode/spillover — engine plugin failover intake', () => {
 
     const updated = repo.findById(session.id)!;
     expect(updated.anthropicAccountId).toBe('personal');
-    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-spill-1', 'personal');
+    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-spill-1', 'personal', { pinned: false });
+    expect(updated.anthropicAccountSource).toBe('router');
 
     const spillEvent = broadcasts.find((b) => b.type === 'session.spillover');
     expect(spillEvent).toMatchObject({

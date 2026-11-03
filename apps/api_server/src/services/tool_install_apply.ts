@@ -7,8 +7,9 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { resolveManagedToolArtifactRoot, resolveManagedToolRoot } from '../config/env';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import { buildToolInstallProposalFingerprint, evaluateToolInstallSafetyAsync } from './tool_install_safety_policy';
-import { LOCAL_TARBALL_INSTALL_METHOD, inspectImmutableLocalTarball, parseImmutableLocalTarballSource, validateImmutableLocalTarballBytes } from './tool_install_artifact';
+import { LOCAL_TARBALL_INSTALL_METHOD, MANAGED_TOOL_MAX_ARCHIVE_BYTES, inspectImmutableLocalTarball, parseImmutableLocalTarballSource, validateImmutableLocalTarballBytes } from './tool_install_artifact';
 import { isSafeToolName } from './tool_install_safety';
+import { resolvePrivateEvaluationNpmCli } from './managed_npm_runtime';
 
 export type ToolInstallApplyReason =
   | 'tool_install_apply_unavailable'
@@ -40,6 +41,8 @@ interface ManagedInstallReceipt {
   version: 1;
   proposalId: string;
   proposalFingerprint: string;
+  /** The installation approval grants this tool only to this exact profile. */
+  agentConfigId: string;
   installMethod: typeof LOCAL_TARBALL_INSTALL_METHOD;
   artifactDigest: string;
   managedRelativePath: string;
@@ -48,11 +51,12 @@ interface ManagedInstallReceipt {
   verifiedAt: string;
 }
 
-function inputs(proposal: AgentOrgProposal): { toolName: string; source: string; method: string } | null {
+function inputs(proposal: AgentOrgProposal): { toolName: string; source: string; method: string; agentConfigId: string } | null {
   try {
     const value = JSON.parse(proposal.changeJson ?? '') as Record<string, unknown>;
     return typeof value.toolName === 'string' && typeof value.packageSource === 'string' && typeof value.installMethod === 'string'
-      ? { toolName: value.toolName, source: value.packageSource, method: value.installMethod }
+      && typeof value.agentConfigId === 'string' && value.agentConfigId.length > 0
+      ? { toolName: value.toolName, source: value.packageSource, method: value.installMethod, agentConfigId: value.agentConfigId }
       : null;
   } catch { return null; }
 }
@@ -98,7 +102,10 @@ async function ownedOrdinaryFile(root: string, child: string): Promise<string | 
 async function readOwnedFile(root: string, child: string): Promise<Buffer | null> {
   const path = await ownedOrdinaryFile(root, child);
   if (!path) return null;
-  try { return await fs.readFile(path); } catch { return null; }
+  try {
+    if ((await fs.lstat(path)).size > MANAGED_TOOL_MAX_ARCHIVE_BYTES) return null;
+    return await fs.readFile(path);
+  } catch { return null; }
 }
 
 function destinationName(toolName: string, digest: string): string {
@@ -118,22 +125,48 @@ async function readReceipt(path: string): Promise<ManagedInstallReceipt | null> 
 
 function receiptMatches(receipt: ManagedInstallReceipt | null, expected: Omit<ManagedInstallReceipt, 'installedAt' | 'verifiedAt' | 'status' | 'version'>): boolean {
   return !!receipt && receipt.proposalId === expected.proposalId && receipt.proposalFingerprint === expected.proposalFingerprint &&
+    receipt.agentConfigId === expected.agentConfigId &&
     receipt.installMethod === expected.installMethod && receipt.artifactDigest === expected.artifactDigest &&
     receipt.managedRelativePath === expected.managedRelativePath;
 }
 
 async function defaultRunner(argv: readonly string[], cwd: string): Promise<void> {
-  await new Promise<void>((resolveRun, reject) => {
-    const child = spawn(argv[0], [...argv.slice(1)], {
-      cwd, env: { PATH: process.env.PATH ?? '', npm_config_ignore_scripts: 'true', npm_config_audit: 'false', npm_config_fund: 'false' },
-      stdio: 'ignore', shell: false,
+  // npm must not consult the operator's home, npmrc, or cache. Each install
+  // already has a private staging directory, including in the shipping app.
+  const userConfig = join(cwd, '.npmrc-user');
+  const globalConfig = join(cwd, '.npmrc-global');
+  const cache = join(cwd, '.npm-cache');
+  try {
+    await fs.writeFile(userConfig, '', { mode: 0o600, flag: 'wx' });
+    await fs.writeFile(globalConfig, '', { mode: 0o600, flag: 'wx' });
+    await new Promise<void>((resolveRun, reject) => {
+      const child = spawn(argv[0], [...argv.slice(1)], {
+        cwd, env: { PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, HOME: cwd, TMPDIR: cwd,
+          npm_config_cache: cache,
+          npm_config_userconfig: userConfig, npm_config_globalconfig: globalConfig,
+          npm_config_ignore_scripts: 'true', npm_config_audit: 'false',
+          npm_config_fund: 'false', npm_config_offline: 'true',
+          npm_config_update_notifier: 'false' },
+        // sandbox-exec denies the /dev/null write used by stdio:'ignore'.
+        // Anonymous pipes stay inside the worker; drain and discard every byte.
+        stdio: ['pipe', 'pipe', 'pipe'], shell: false,
+      });
+      child.stdin.on('error', () => { /* npm never reads stdin */ });
+      child.stdin.end();
+      child.stdout.resume();
+      child.stderr.resume();
+      child.once('error', reject);
+      child.once('close', (code) => code === 0 ? resolveRun() : reject(new Error('managed installer failed')));
     });
-    child.once('error', reject);
-    child.once('exit', (code) => code === 0 ? resolveRun() : reject(new Error('managed installer failed')));
-  });
+  } finally {
+    // These paths were created inside this exclusive staging directory only.
+    await Promise.all([fs.rm(userConfig, { force: true }),
+      fs.rm(globalConfig, { force: true }), fs.rm(cache, { recursive: true, force: true })]);
+  }
 }
 
 function npmCliPath(): string | null {
+  if (process.env.RHYTHM_EVALUATION_WORKER === '1') return resolvePrivateEvaluationNpmCli();
   try { return require.resolve('npm/bin/npm-cli.js'); } catch {
     const bundled = join(dirname(process.execPath), '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
     return existsSync(bundled) ? bundled : null;
@@ -193,7 +226,7 @@ async function applyImmutableLocalTarballAsync(proposal: AgentOrgProposal, deps:
   const destination = join(tools, leaf);
   const expected: Omit<ManagedInstallReceipt, 'installedAt' | 'verifiedAt' | 'status' | 'version'> = {
     proposalId: proposal.id, proposalFingerprint: fingerprint, installMethod: LOCAL_TARBALL_INSTALL_METHOD,
-    artifactDigest: digest, managedRelativePath: relativeDestination,
+    artifactDigest: digest, managedRelativePath: relativeDestination, agentConfigId: candidate.agentConfigId,
   };
   try {
     const existing = await fs.lstat(destination).catch(() => null);
@@ -250,6 +283,37 @@ async function applyImmutableLocalTarballAsync(proposal: AgentOrgProposal, deps:
       if (lockHeld) await removeOwnedChild(lockRoot, lockName);
     }
   } catch { return { applied: false, reason: 'tool_install_apply_failed' }; }
+}
+
+export interface ActivatedManagedTool {
+  proposalId: string;
+  agentConfigId: string;
+  toolName: string;
+  artifactDigest: string;
+  artifactPath: string;
+}
+
+/** Discovery revalidates the actual installer receipt; package files alone
+ * cannot make an unapproved or differently scoped tool executable. */
+export async function inspectActivatedManagedToolAsync(proposal: AgentOrgProposal, agentConfigId: string,
+  deps: Pick<ToolInstallApplyDeps, 'managedRoot'> = {}): Promise<ActivatedManagedTool | null> {
+  if (proposal.kind !== 'tool-install' || !['applied', 'measuring', 'active'].includes(proposal.status)) return null;
+  const candidate = inputs(proposal);
+  const fingerprint = buildToolInstallProposalFingerprint(proposal);
+  if (!candidate || !fingerprint || candidate.agentConfigId !== agentConfigId ||
+      candidate.method !== LOCAL_TARBALL_INSTALL_METHOD || !isSafeToolName(candidate.toolName)) return null;
+  const digest = parseImmutableLocalTarballSource(candidate.source);
+  if (!digest) return null;
+  const root = await ownedDirectory(deps.managedRoot ?? resolveManagedToolRoot());
+  const tools = root && await ownedChildDirectory(root, 'tools');
+  if (!tools) return null;
+  const leaf = destinationName(candidate.toolName, digest);
+  const expected: Omit<ManagedInstallReceipt, 'version' | 'status' | 'installedAt' | 'verifiedAt'> = { proposalId: proposal.id, proposalFingerprint: fingerprint, agentConfigId,
+    installMethod: LOCAL_TARBALL_INSTALL_METHOD, artifactDigest: digest, managedRelativePath: join('tools', leaf) };
+  if (!(await verifyActivated(tools, leaf, digest, candidate.toolName, expected))) return null;
+  const artifactPath = await ownedOrdinaryFile(join(tools, leaf), 'artifact.tgz');
+  return artifactPath ? { proposalId: proposal.id, agentConfigId, toolName: candidate.toolName,
+    artifactDigest: digest, artifactPath } : null;
 }
 
 export async function applyVettedToolInstallAsync(

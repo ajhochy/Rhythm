@@ -1,0 +1,57 @@
+{
+  "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+  "launchAgent": {
+    "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+    "label": "com.ajhochhalter.rhythm-web-host",
+    "plistPath": "/Users/ajhochhalter/Library/LaunchAgents/com.ajhochhalter.rhythm-web-host.plist",
+    "desktopPid": 67591,
+    "RunAtLoad": true,
+    "KeepAlive": true,
+    "workstreamsEnabled": true,
+    "managedContextExports": true,
+    "credentialContentsInspected": false,
+    "manualCandidateStopped": true,
+    "bootstrapExitCode": 0,
+    "plistLintExitCode": 0,
+    "noTailscaleChanges": true
+  },
+  "automaticRecovery": {
+    "recovery": "passed",
+    "oldDesktopPid": 67591,
+    "newDesktopPid": 68041,
+    "restartTrigger": "SIGTERM exact owned desktop process",
+    "launchctlKickstartUsed": false,
+    "launchdAutomaticRestart": true
+  },
+  "launchdState": "running",
+  "launchdRuns": 2,
+  "runtime": {
+    "schemaVersion": 1,
+    "kind": "web-real-account-candidate-v1",
+    "appPath": "/Users/ajhochhalter/.local/share/opencode/worktree/a4784d9c54aa2929a09fdab2213ff827a3cb60a5/eager-star/apps/electron/dist/Rhythm.app",
+    "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+    "apiPid": 68048,
+    "enginePid": 68094,
+    "localOwnerId": 1
+  },
+  "browser": {
+    "sourceRevision": "89596fc186fa2662da66e0ba2f19413cbf6559c7",
+    "url": "https://ajs-macbook-pro-3.tail3798ec.ts.net:4001/#/tasks",
+    "rendered": true,
+    "reload": true,
+    "webOwnerBound": true,
+    "cloudAvailable": true,
+    "nativeBridgeAbsent": true,
+    "webSocketHandshake101": true,
+    "mutations": 0,
+    "pageErrors": 0
+  },
+  "httpsHttpStatus": 200,
+  "tlsCertificateVerification": 0,
+  "tailscaleServeUnchanged": true,
+  "plistSha256": "38f4751cdc8fe370b79ee1d98b8e2ece02453ae0a98dc05a8c69b7b07c2be536",
+  "logAndPlistPermissions": "0600",
+  "logsDirectoryPermissions": "0700",
+  "fullLogoutLoginPerformed": false,
+  "cloudCredentialContentsInspected": false
+}

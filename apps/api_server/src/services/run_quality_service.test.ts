@@ -81,6 +81,18 @@ describe('run_quality_service (#865)', () => {
     msgSeq = 0;
   });
 
+  it('labels blank historical identities without losing separate run groups', () => {
+    insertSession(db, { id: 'blank-kind', agentKind: '', status: 'closed' });
+    insertSession(db, { id: 'named-kind', agentKind: 'codex', status: 'closed' });
+    insertSession(db, { id: 'labeled-kind', agentKind: 'claude-code', status: 'closed' });
+    db.prepare(`INSERT INTO agent_configs (id, label, icon, command) VALUES (?, ?, 'robot', '') ON CONFLICT(id) DO UPDATE SET label = excluded.label`).run('codex', '');
+    db.prepare(`INSERT INTO agent_configs (id, label, icon, command) VALUES (?, ?, 'robot', '') ON CONFLICT(id) DO UPDATE SET label = excluded.label`).run('claude-code', 'Claude Code');
+    const rollup = getRunQualityRollup({}, { db });
+    expect(rollup.agents.find((agent) => agent.agentKind === '')?.agentLabel).toBe('Unknown agent');
+    expect(rollup.agents.find((agent) => agent.agentKind === 'codex')?.agentLabel).toBe('codex');
+    expect(rollup.agents.find((agent) => agent.agentKind === 'claude-code')?.agentLabel).toBe('Claude Code');
+  });
+
   it('issue-865-c1: reports completion vs escalation, token waste, and corrections per agent', () => {
     // 6 completed runs, 2 escalated runs -> measurable = 8 >= MIN_RUNS_FOR_SIGNAL.
     for (let i = 0; i < 6; i++) {

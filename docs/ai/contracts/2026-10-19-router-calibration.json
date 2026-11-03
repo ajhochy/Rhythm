@@ -1,0 +1,49 @@
+{
+  "request": "Fix calibration so simple edits do not get bumped to tier 2; rebuild the mega candidate locally and rerun Playwright",
+  "megaBase": "894c16f44d30c77dc25d41e7d9a57a644b6ffcfa",
+  "criteria": [
+    {
+      "id": "calibration-c1",
+      "mode": "unit",
+      "expectation": "Observed literal-edit score 0.85 and single-file level 1 map to tier 3; boundary 1.5 maps to tier 2",
+      "test": "router_grid_calibration.test.ts",
+      "status": "pass"
+    },
+    {
+      "id": "calibration-c2",
+      "mode": "ui",
+      "expectation": "A real one-literal-edit Auto turn classifies and serves a tier 3/4 route with canonical engine output and reload persistence",
+      "test": "packaged-model-router.spec.ts: a one-literal edit is served by a routine-tier model",
+      "status": "pass"
+    },
+    {
+      "id": "calibration-c3",
+      "mode": "integration",
+      "expectation": "Twelve synthetic real Decisions cases keep trivial/routine work cheap and multi-file/hard work capable",
+      "test": "packaged-model-router.spec.ts: model router classifier",
+      "status": "pass"
+    },
+    {
+      "id": "calibration-c4",
+      "mode": "integration",
+      "expectation": "The locally rebuilt signed bundle and engine identify the committed mega-base-plus-fix source revision",
+      "test": "feature-test.ts: audit",
+      "status": "pass"
+    }
+  ],
+  "redEvidence": "router_grid_calibration.test.ts: three failed, four passed before the default changed; existing Playwright literal-edit expectation repeatedly failed with score 0.85 mapped to tier 2",
+  "not_tested": [],
+  "builtSourceRevision": "d7fb554735f93c0d0a76785cbadd583d0f866610",
+  "evidence": {
+    "unit": "40 decision files / 649 tests passed; calibration red/restored-green 3 fail then 7 pass",
+    "sandbox": "one real isolated HTTP/default-policy test passed",
+    "packaged": "final full router suite 17 passed, 0 skipped/flaky",
+    "report": "docs/ai/runs/2026-10-19-router-calibration-fix.md"
+  },
+  "known_limits": [
+    "Small synthetic regression set, not production held-out quality qualification",
+    "Earlier full app log audit exposed existing Google/PCO OAuth server configuration errors",
+    "The original aggregate PR command was not rerun after targeted test/harness repairs; no clean one-shot full-PR receipt",
+    "Existing Auto sessions retain saved first-prompt decisions; explicit override files stay authoritative"
+  ]
+}

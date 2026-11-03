@@ -1,0 +1,9 @@
+# Astra acceptance of the signed goal admission correction
+
+Approve Sol plan `coordinator-goal-signed-admission-repair-plan.md` SHA `50fc72762f2278ffdbdadbd170c5587350607fb61c72afef4d374d0528cef10b` for the existing 5a API owner after its active chat turn exits and freezes. Preserve the failing a34 API/engine receipt and source. This is the current coordinator release blocker.
+
+Only the explicit server-fixed `(delegation.start-async, rhythm_start_coordinator_goal)` pair may select the existing goal tool verifier expectation; preserve the scalar generic mapping and all cryptographic, payload, approval, taint, replay and downstream current-authority checks. Strict goal-only signed argument/payload shape and signed optional approval binding are required. No arbitrary expected-tool input, prefix alias, verification retry, generic delegation substitution, auth/grant expansion or producer rename. The exact envelope must continue through the distinct downstream goal nonce scope.
+
+Production allowlist: existing external_content_security_controller.ts only, plus its existing actual-route tests and bounded run record. Any required additional production path needs another evidence-based review. Same 5a owns the turn; no competing writer. Preserve chat changes separately so builder can select the narrow correction independently.
+
+Acceptance is actual consume RED→GREEN with unchanged signature verification and real approval service, strict substitution/taint/replay negatives and generic delegation regression; then exact frozen Sol review and builder's existing single-goal real API/engine fixture with exactly one child, durable linkage and existing callback/continuation assertions. Stop and report a subsequent independent authority failure; never widen this change to pass it. No unrelated broad retest or new server framework. Normal installed app remains unchanged until builder's proof and fresh idle checks.

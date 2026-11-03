@@ -1,0 +1,959 @@
+[
+  {
+    "observation": "AI_RECON",
+    "route": "agents",
+    "observations": [
+      {
+        "path": "/opencode/commands",
+        "queryKeys": [],
+        "status": 200,
+        "shape": "array",
+        "count": 275,
+        "rowKeys": [
+          "name",
+          "description",
+          "source",
+          "managed",
+          "hints"
+        ]
+      }
+    ],
+    "ui": {
+      "ids": [
+        "tool-brain",
+        "tool-deep-research",
+        "tool-tasks",
+        "tool-webhooks",
+        "tool-profiles",
+        "tool-skills",
+        "tool-playbooks",
+        "tool-cookbook",
+        "tool-review",
+        "tool-report-card",
+        "tool-email",
+        "tool-gallery",
+        "tool-agent-tools",
+        "page-state-loading",
+        "research-magazine-tools",
+        "research-magazine-versions",
+        "research-magazine-diff",
+        "research-magazine-export-html",
+        "research-magazine-export-markdown",
+        "research-magazine-comments-toggle"
+      ],
+      "hosts": [],
+      "alerts": []
+    }
+  },
+  {
+    "observation": "AI_RECON",
+    "route": "tools",
+    "observations": [],
+    "ui": {
+      "ids": [
+        "page-state-loading",
+        "research-magazine-tools",
+        "research-magazine-versions",
+        "research-magazine-diff",
+        "research-magazine-export-html",
+        "research-magazine-export-markdown",
+        "research-magazine-comments-toggle"
+      ],
+      "hosts": [],
+      "alerts": []
+    }
+  },
+  {
+    "observation": "AI_RECON",
+    "route": "tools/brain",
+    "observations": [
+      {
+        "path": "/agent-memory",
+        "queryKeys": [
+          "withCounts",
+          "limit"
+        ],
+        "status": 200,
+        "shape": [
+          "items",
+          "counts",
+          "total",
+          "offset",
+          "limit"
+        ],
+        "count": 50,
+        "rowKeys": [
+          "id",
+          "kind",
+          "content",
+          "title",
+          "source",
+          "sourceId",
+          "tagsJson",
+          "status",
+          "staleAfter",
+          "verifiedJson",
+          "sourcesJson",
+          "generatedBy",
+          "generatedAt",
+          "trustTier",
+          "autoInjectable",
+          "ownerUserId",
+          "createdAt",
+          "updatedAt",
+          "lifecycleState",
+          "unverifiable"
+        ]
+      }
+    ],
+    "ui": {
+      "title": "Agent Memory",
+      "ids": [
+        "tool-page-brain",
+        "tool-back",
+        "tool-state-select",
+        "tool-workspace-content",
+        "tool-content-action-gate"
+      ],
+      "hosts": [],
+      "alerts": []
+    }
+  },
+  {
+    "observation": "AI_RECON",
+    "route": "tools/skills",
+    "observations": [],
+    "ui": {
+      "title": "Skills",
+      "ids": [
+        "tool-page-skills",
+        "tool-back",
+        "tool-state-select",
+        "tool-workspace-content",
+        "tool-content-action-gate",
+        "tool-trace",
+        "page-state-loading",
+        "research-magazine-tools",
+        "research-magazine-versions",
+        "research-magazine-diff",
+        "research-magazine-export-html",
+        "research-magazine-export-markdown",
+        "research-magazine-comments-toggle"
+      ],
+      "hosts": [],
+      "alerts": []
+    }
+  },
+  {
+    "observation": "AI_RECON",
+    "route": "tools/playbooks",
+    "observations": [
+      {
+        "path": "/opencode/commands",
+        "queryKeys": [],
+        "status": 200,
+        "shape": "array",
+        "count": 275,
+        "rowKeys": [
+          "name",
+          "description",
+          "source",
+          "managed",
+          "hints"
+        ]
+      }
+    ],
+    "ui": {
+      "title": "Playbooks",
+      "ids": [
+        "tool-page-playbooks",
+        "tool-back",
+        "tool-state-select",
+        "tool-workspace-content",
+        "tool-content-action-gate",
+        "playbook-init",
+        "playbook-review",
+        "playbook-gitnexus:detect_impact",
+        "playbook-gitnexus:generate_map",
+        "playbook-customize-opencode",
+        "playbook-ministry-sunday-service-prep",
+        "playbook-ffb-roster",
+        "playbook-ponytail-review",
+        "playbook-bugfix",
+        "playbook-scrapling",
+        "playbook-daily-email-triage",
+        "playbook-monday-worship-planning",
+        "playbook-hyperframes-studio",
+        "playbook-agent-reach",
+        "playbook-accessibility-review",
+        "playbook-obsidian-cli",
+        "playbook-rhythm-onboarding",
+        "playbook-ffb-podcast-vibes",
+        "playbook-smoke-test-writer",
+        "playbook-support-code-review",
+        "playbook-opencode-review",
+        "playbook-ffb-trades",
+        "playbook-archive-research-sources",
+        "playbook-pco-song-usage-sync",
+        "playbook-obsidian-manager",
+        "playbook-verification-gate",
+        "playbook-ffb-tuesday-refresh",
+        "playbook-ponytail-gain",
+        "playbook-social-video-pipeline",
+        "playbook-superpowers-executing-plans",
+        "playbook-ffb-tff-vibes",
+        "playbook-domain-intel",
+        "playbook-gitnexus-impact-analysis",
+        "playbook-gitnexus-pr-review",
+        "playbook-review-agent-org-health",
+        "playbook-subagents-management",
+        "playbook-study-passage",
+        "playbook-planning-agent",
+        "playbook-fix-agent-reach-skill-blocked-by-bash-permissions-and-missing-mcp",
+        "playbook-solidity-debug"
+      ],
+      "hosts": [],
+      "alerts": []
+    }
+  },
+  {
+    "observation": "AI_RECON",
+    "route": "tools/tasks",
+    "observations": [
+      {
+        "path": "/agent-schedules",
+        "queryKeys": [],
+        "status": 200,
+        "shape": "array",
+        "count": 33,
+        "rowKeys": [
+          "id",
+          "name",
+          "description",
+          "scheduleType",
+          "scheduledTime",
+          "scheduledDay",
+          "cronExpression",
+          "runAt",
+          "timezone",
+          "nextRunAt",
+          "prompt",
+          "agentKind",
+          "agentConfigId",
+          "modelProvider",
+          "modelId",
+          "allowedMcpsJson",
+          "allowedSkillsJson",
+          "enabled",
+          "lastRunAt",
+          "lastRunStatus",
+          "lastError",
+          "createdByUserId",
+          "createdAt",
+          "updatedAt"
+        ]
+      }
+    ],
+    "ui": {
+      "title": "Agent Schedules",
+      "ids": [
+        "tool-page-tasks",
+        "tool-back",
+        "tool-state-select",
+        "tool-header-action-gate",
+        "schedule-new",
+        "tool-workspace-content",
+        "tool-content-action-gate",
+        "schedule-toggle",
+        "schedule-edit",
+        "schedule-delete",
+        "schedule-run-context",
+        "schedule-trigger"
+      ],
+      "hosts": [],
+      "alerts": []
+    }
+  },
+  {
+    "observation": "AI_RECON",
+    "route": "tools/webhooks",
+    "observations": [],
+    "ui": {
+      "title": "Webhook Endpoints",
+      "ids": [
+        "tool-page-webhooks",
+        "tool-back",
+        "tool-state-select",
+        "tool-workspace-content",
+        "tool-content-action-gate",
+        "tool-trace",
+        "page-state-loading",
+        "research-magazine-tools",
+        "research-magazine-versions",
+        "research-magazine-diff",
+        "research-magazine-export-html",
+        "research-magazine-export-markdown",
+        "research-magazine-comments-toggle"
+      ],
+      "hosts": [],
+      "alerts": []
+    }
+  },
+  {
+    "observation": "AI_RECON",
+    "route": "tools/cookbook",
+    "observations": [
+      {
+        "path": "/agent-cookbook",
+        "queryKeys": [],
+        "status": 200,
+        "shape": "array",
+        "count": 0,
+        "rowKeys": []
+      }
+    ],
+    "ui": {
+      "title": "Cookbook",
+      "ids": [
+        "tool-page-cookbook",
+        "tool-back",
+        "tool-state-select",
+        "tool-workspace-content",
+        "tool-content-action-gate",
+        "tool-trace",
+        "page-state-loading",
+        "research-magazine-tools",
+        "research-magazine-versions",
+        "research-magazine-diff",
+        "research-magazine-export-html",
+        "research-magazine-export-markdown",
+        "research-magazine-comments-toggle"
+      ],
+      "hosts": [],
+      "alerts": []
+    }
+  },
+  {
+    "observation": "AI_RECON",
+    "route": "tools/review",
+    "observations": [
+      {
+        "path": "/agent-org-proposals",
+        "queryKeys": [
+          "status"
+        ],
+        "status": 200,
+        "shape": "array",
+        "count": 0,
+        "rowKeys": []
+      }
+    ],
+    "ui": {
+      "title": "Review Queue",
+      "ids": [
+        "tool-page-review",
+        "tool-back",
+        "tool-state-select",
+        "tool-workspace-content",
+        "tool-content-action-gate",
+        "review-filter",
+        "review-refresh",
+        "tool-trace",
+        "page-state-loading",
+        "research-magazine-tools",
+        "research-magazine-versions",
+        "research-magazine-diff",
+        "research-magazine-export-html",
+        "research-magazine-export-markdown",
+        "research-magazine-comments-toggle"
+      ],
+      "hosts": [],
+      "alerts": []
+    }
+  },
+  {
+    "observation": "AI_RECON",
+    "route": "tools/report-card",
+    "observations": [],
+    "ui": {
+      "title": "Agent Report Card",
+      "ids": [
+        "tool-page-report-card",
+        "tool-back",
+        "tool-state-select",
+        "tool-workspace-content",
+        "tool-content-action-gate",
+        "report-window",
+        "report-refresh",
+        "tool-trace",
+        "page-state-loading",
+        "research-magazine-tools",
+        "research-magazine-versions",
+        "research-magazine-diff",
+        "research-magazine-export-html",
+        "research-magazine-export-markdown",
+        "research-magazine-comments-toggle"
+      ],
+      "hosts": [],
+      "alerts": []
+    }
+  },
+  {
+    "observation": "AI_RECON",
+    "route": "tools/gallery",
+    "observations": [],
+    "ui": {
+      "title": "Creative Media",
+      "ids": [
+        "tool-page-gallery",
+        "tool-back",
+        "tool-state-select",
+        "tool-workspace-content",
+        "tool-content-action-gate",
+        "gallery-folders",
+        "gallery-folder-all",
+        "gallery-folder-unfiled",
+        "gallery-folder-new",
+        "gallery-refresh",
+        "tool-trace",
+        "page-state-loading",
+        "research-magazine-tools",
+        "research-magazine-versions",
+        "research-magazine-diff",
+        "research-magazine-export-html",
+        "research-magazine-export-markdown",
+        "research-magazine-comments-toggle"
+      ],
+      "hosts": [],
+      "alerts": []
+    }
+  },
+  {
+    "observation": "AI_RECON",
+    "route": "tools/deep-research",
+    "observations": [],
+    "ui": {
+      "title": "Research Projects",
+      "ids": [
+        "tool-page-deep-research",
+        "tool-back",
+        "tool-state-select",
+        "tool-workspace-content",
+        "tool-content-action-gate",
+        "research-new-project",
+        "tool-trace",
+        "page-state-loading",
+        "research-magazine-tools",
+        "research-magazine-versions",
+        "research-magazine-diff",
+        "research-magazine-export-html",
+        "research-magazine-export-markdown",
+        "research-magazine-comments-toggle"
+      ],
+      "hosts": [],
+      "alerts": []
+    }
+  },
+  {
+    "observation": "AI_RECON",
+    "route": "tools/shared-agents",
+    "observations": [],
+    "ui": {
+      "ids": [
+        "shared-agents-screen",
+        "page-state-loading",
+        "research-magazine-tools",
+        "research-magazine-versions",
+        "research-magazine-diff",
+        "research-magazine-export-html",
+        "research-magazine-export-markdown",
+        "research-magazine-comments-toggle"
+      ],
+      "hosts": [],
+      "alerts": []
+    }
+  },
+  {
+    "observation": "AI_RECON",
+    "route": "tools/agent-settings",
+    "observations": [],
+    "ui": {
+      "title": "Agent settings",
+      "ids": [
+        "tool-page-agent-settings",
+        "tool-back",
+        "tool-state-select",
+        "tool-workspace-content",
+        "tool-content-action-gate",
+        "tool-trace",
+        "page-state-loading",
+        "research-magazine-tools",
+        "research-magazine-versions",
+        "research-magazine-diff",
+        "research-magazine-export-html",
+        "research-magazine-export-markdown",
+        "research-magazine-comments-toggle"
+      ],
+      "hosts": [],
+      "alerts": []
+    }
+  },
+  {
+    "observation": "AI_RECON",
+    "route": "tools/dayflow",
+    "observations": [
+      {
+        "path": "/agents/run-quality",
+        "queryKeys": [
+          "windowDays"
+        ],
+        "status": 200,
+        "shape": [
+          "generatedAt",
+          "windowDays",
+          "agents"
+        ],
+        "count": 31,
+        "rowKeys": [
+          "agentKind",
+          "agentLabel",
+          "totalRuns",
+          "completedRuns",
+          "escalatedRuns",
+          "inProgressRuns",
+          "unmeasuredRuns",
+          "notEnoughData",
+          "completionRate",
+          "escalationRate",
+          "totalTokens",
+          "wastedTokens",
+          "wastePercentOfSpend",
+          "totalUserCorrections",
+          "avgCorrectionsPerRun",
+          "repeatedMistakes"
+        ]
+      },
+      {
+        "path": "/agent-research/projects",
+        "queryKeys": [],
+        "status": 200,
+        "shape": "array",
+        "count": 2,
+        "rowKeys": [
+          "id",
+          "ownerUserId",
+          "name",
+          "question",
+          "goals",
+          "domain",
+          "profileId",
+          "passConfig",
+          "modelPolicy",
+          "criticConfig",
+          "synthesisConfig",
+          "scheduleRef",
+          "budget",
+          "magazineArtifactId",
+          "archivedAt",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      {
+        "path": "/agent-designs",
+        "queryKeys": [],
+        "status": 200,
+        "shape": "array",
+        "count": 22,
+        "rowKeys": [
+          "id",
+          "title",
+          "provider",
+          "artifactUrl",
+          "projectUrl",
+          "canvaUrl",
+          "artifactType",
+          "thumbnailUrl",
+          "sessionId",
+          "folderId",
+          "createdAt"
+        ]
+      }
+    ],
+    "ui": {
+      "ids": [
+        "tool-page-dayflow",
+        "dayflow-native-host",
+        "page-state-loading",
+        "research-magazine-tools",
+        "research-magazine-versions",
+        "research-magazine-diff",
+        "research-magazine-export-html",
+        "research-magazine-export-markdown",
+        "research-magazine-comments-toggle"
+      ],
+      "hosts": [
+        {
+          "tag": "DIV",
+          "busy": null,
+          "phase": "unavailable"
+        }
+      ],
+      "alerts": []
+    }
+  },
+  {
+    "observation": "AI_RECON",
+    "route": "hermes",
+    "observations": [
+      {
+        "path": "/shared-agents/v1/catalog",
+        "queryKeys": [],
+        "status": 200,
+        "shape": [
+          "schema",
+          "generatedAt",
+          "scope",
+          "agents"
+        ],
+        "count": 54,
+        "rowKeys": [
+          "schema",
+          "id",
+          "revision",
+          "canonical",
+          "runtimes"
+        ]
+      }
+    ],
+    "ui": {
+      "ids": [
+        "page-hermes",
+        "page-state-loading",
+        "research-magazine-tools",
+        "research-magazine-versions",
+        "research-magazine-diff",
+        "research-magazine-export-html",
+        "research-magazine-export-markdown",
+        "research-magazine-comments-toggle"
+      ],
+      "hosts": [
+        {
+          "tag": "DIV",
+          "busy": null,
+          "phase": null
+        }
+      ],
+      "alerts": []
+    }
+  },
+  {
+    "observation": "AI_RECON",
+    "route": "colony",
+    "observations": [],
+    "ui": {
+      "ids": [
+        "page-colony",
+        "page-state-loading",
+        "research-magazine-tools",
+        "research-magazine-versions",
+        "research-magazine-diff",
+        "research-magazine-export-html",
+        "research-magazine-export-markdown",
+        "research-magazine-comments-toggle"
+      ],
+      "hosts": [
+        {
+          "tag": "DIV",
+          "busy": null,
+          "phase": null
+        }
+      ],
+      "alerts": []
+    }
+  },
+  {
+    "observation": "AI_BRIDGE",
+    "keys": [
+      "version",
+      "appVersion",
+      "platform",
+      "openExternal",
+      "gateway",
+      "auth",
+      "humanApproval",
+      "agentServer",
+      "updates",
+      "dayflowDesktop",
+      "dayflowView",
+      "selectDirectory",
+      "saveFile",
+      "hermes",
+      "hermesView",
+      "colonyView",
+      "openDesignView",
+      "aiAccounts",
+      "remoteEnvironments"
+    ],
+    "hermes": {
+      "state": "stopped"
+    },
+    "colony": {
+      "available": true,
+      "enabled": true
+    },
+    "dayflow": {
+      "state": "unavailable",
+      "code": "unavailable"
+    },
+    "desktop": {
+      "status": "unavailable",
+      "code": "ARTIFACT_INVALID"
+    }
+  },
+  {
+    "observation": "FOCUS_RECON",
+    "slug": "skills",
+    "status": 200,
+    "keys": "array",
+    "rowKeys": [
+      "name",
+      "description",
+      "location",
+      "managed",
+      "source",
+      "metadata"
+    ],
+    "count": 269
+  },
+  {
+    "observation": "FOCUS_RECON",
+    "slug": "report-card",
+    "status": 200,
+    "keys": [
+      "generatedAt",
+      "windowDays",
+      "agents"
+    ],
+    "rowKeys": [
+      "agentKind",
+      "agentLabel",
+      "totalRuns",
+      "completedRuns",
+      "escalatedRuns",
+      "inProgressRuns",
+      "unmeasuredRuns",
+      "notEnoughData",
+      "completionRate",
+      "escalationRate",
+      "totalTokens",
+      "wastedTokens",
+      "wastePercentOfSpend",
+      "totalUserCorrections",
+      "avgCorrectionsPerRun",
+      "repeatedMistakes"
+    ],
+    "count": 31
+  },
+  {
+    "observation": "FOCUS_RECON",
+    "slug": "gallery",
+    "status": 200,
+    "keys": "array",
+    "rowKeys": [
+      "id",
+      "title",
+      "provider",
+      "artifactUrl",
+      "projectUrl",
+      "canvaUrl",
+      "artifactType",
+      "thumbnailUrl",
+      "sessionId",
+      "folderId",
+      "createdAt"
+    ],
+    "count": 22
+  },
+  {
+    "observation": "FOCUS_RECON",
+    "slug": "deep-research",
+    "status": 200,
+    "keys": "array",
+    "rowKeys": [
+      "id",
+      "ownerUserId",
+      "name",
+      "question",
+      "goals",
+      "domain",
+      "profileId",
+      "passConfig",
+      "modelPolicy",
+      "criticConfig",
+      "synthesisConfig",
+      "scheduleRef",
+      "budget",
+      "magazineArtifactId",
+      "archivedAt",
+      "createdAt",
+      "updatedAt"
+    ],
+    "count": 2
+  },
+  {
+    "observation": "FOCUS_RECON",
+    "slug": "shared-agents",
+    "status": 200,
+    "keys": [
+      "schema",
+      "generatedAt",
+      "scope",
+      "agents"
+    ],
+    "rowKeys": [
+      "schema",
+      "id",
+      "revision",
+      "canonical",
+      "runtimes"
+    ],
+    "count": 54
+  },
+  {
+    "observation": "COOKBOOK_RECON",
+    "status": 201,
+    "keys": [
+      "id",
+      "title",
+      "description",
+      "stepsJson",
+      "boundConfigId",
+      "ownerUserId",
+      "createdAt",
+      "updatedAt",
+      "schemaVersion",
+      "definitionJson",
+      "format"
+    ],
+    "rowVisible": true
+  },
+  {
+    "observation": "COOKBOOK_CLEANUP",
+    "deleted": 204,
+    "readback": 404
+  },
+  {
+    "observation": "CHILD_RECON",
+    "route": "hermes",
+    "children": [
+      {
+        "protocol": "file:",
+        "path": "hermes-desktop/renderer/index.html",
+        "title": "Hermes",
+        "controls": [
+          {
+            "tag": "INPUT",
+            "placeholder": "Search sessions\u2026",
+            "label": "Search sessions"
+          },
+          {
+            "tag": "DIV",
+            "placeholder": null,
+            "label": "Message"
+          },
+          {
+            "tag": "TEXTAREA",
+            "placeholder": null,
+            "label": null
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "observation": "CHILD_RECON",
+    "route": "colony",
+    "children": [
+      {
+        "protocol": "file:",
+        "path": "hermes-desktop/renderer/index.html",
+        "title": "Hermes",
+        "controls": [
+          {
+            "tag": "INPUT",
+            "placeholder": "Search sessions\u2026",
+            "label": "Search sessions"
+          },
+          {
+            "tag": "DIV",
+            "placeholder": null,
+            "label": "Message"
+          },
+          {
+            "tag": "TEXTAREA",
+            "placeholder": null,
+            "label": null
+          }
+        ]
+      },
+      {
+        "protocol": "rhythm-colony:",
+        "path": "/index.html",
+        "title": "Bot Crossing",
+        "controls": [
+          {
+            "tag": "INPUT",
+            "placeholder": "Find project, branch, path or task",
+            "label": "Search projects and sessions"
+          },
+          {
+            "tag": "INPUT",
+            "placeholder": null,
+            "label": null
+          },
+          {
+            "tag": "INPUT",
+            "placeholder": null,
+            "label": "Tilt-shift blur"
+          },
+          {
+            "tag": "INPUT",
+            "placeholder": null,
+            "label": "Tilt-shift angle"
+          },
+          {
+            "tag": "INPUT",
+            "placeholder": null,
+            "label": "Render scale"
+          },
+          {
+            "tag": "INPUT",
+            "placeholder": null,
+            "label": "Scatter"
+          },
+          {
+            "tag": "INPUT",
+            "placeholder": null,
+            "label": "Max bots"
+          },
+          {
+            "tag": "INPUT",
+            "placeholder": null,
+            "label": "Time of day"
+          },
+          {
+            "tag": "INPUT",
+            "placeholder": null,
+            "label": "Cycle length"
+          },
+          {
+            "tag": "INPUT",
+            "placeholder": null,
+            "label": "Environment"
+          }
+        ]
+      }
+    ]
+  }
+]

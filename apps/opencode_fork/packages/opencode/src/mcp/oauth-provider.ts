@@ -23,6 +23,9 @@ export interface McpOAuthConfig {
 
 export interface McpOAuthCallbacks {
   onRedirect: (url: URL) => void | Promise<void>
+  canPersist?: () => boolean
+  onState?: (state: string) => void
+  onCodeVerifier?: (codeVerifier: string) => void
 }
 
 export class McpOAuthProvider implements OAuthClientProvider {
@@ -81,6 +84,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async saveClientInformation(info: OAuthClientInformationFull): Promise<void> {
+    if (this.callbacks.canPersist && !this.callbacks.canPersist()) {
+      throw new Error(`OAuth flow is no longer active for MCP server: ${this.mcpName}`)
+    }
     await Effect.runPromise(
       this.auth.updateClientInfo(
         this.mcpName,
@@ -116,6 +122,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async saveTokens(tokens: OAuthTokens): Promise<void> {
+    if (this.callbacks.canPersist && !this.callbacks.canPersist()) {
+      throw new Error(`OAuth flow is no longer active for MCP server: ${this.mcpName}`)
+    }
     await Effect.runPromise(
       this.auth.updateTokens(
         this.mcpName,
@@ -137,6 +146,10 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async saveCodeVerifier(codeVerifier: string): Promise<void> {
+    if (this.callbacks.canPersist && !this.callbacks.canPersist()) {
+      throw new Error(`OAuth flow is no longer active for MCP server: ${this.mcpName}`)
+    }
+    this.callbacks.onCodeVerifier?.(codeVerifier)
     await Effect.runPromise(this.auth.updateCodeVerifier(this.mcpName, codeVerifier))
   }
 
@@ -149,12 +162,20 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async saveState(state: string): Promise<void> {
+    if (this.callbacks.canPersist && !this.callbacks.canPersist()) {
+      throw new Error(`OAuth flow is no longer active for MCP server: ${this.mcpName}`)
+    }
+    this.callbacks.onState?.(state)
     await Effect.runPromise(this.auth.updateOAuthState(this.mcpName, state))
   }
 
   async state(): Promise<string> {
     const entry = await Effect.runPromise(this.auth.get(this.mcpName))
     if (entry?.oauthState) {
+      if (this.callbacks.canPersist && !this.callbacks.canPersist()) {
+        throw new Error(`OAuth flow is no longer active for MCP server: ${this.mcpName}`)
+      }
+      this.callbacks.onState?.(entry.oauthState)
       return entry.oauthState
     }
 
@@ -165,11 +186,18 @@ export class McpOAuthProvider implements OAuthClientProvider {
     const newState = Array.from(crypto.getRandomValues(new Uint8Array(32)))
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("")
+    if (this.callbacks.canPersist && !this.callbacks.canPersist()) {
+      throw new Error(`OAuth flow is no longer active for MCP server: ${this.mcpName}`)
+    }
+    this.callbacks.onState?.(newState)
     await Effect.runPromise(this.auth.updateOAuthState(this.mcpName, newState))
     return newState
   }
 
   async invalidateCredentials(type: "all" | "client" | "tokens"): Promise<void> {
+    if (this.callbacks.canPersist && !this.callbacks.canPersist()) {
+      throw new Error(`OAuth flow is no longer active for MCP server: ${this.mcpName}`)
+    }
     log.info("invalidating credentials", { mcpName: this.mcpName, type })
     const entry = await Effect.runPromise(this.auth.get(this.mcpName))
     if (!entry) {

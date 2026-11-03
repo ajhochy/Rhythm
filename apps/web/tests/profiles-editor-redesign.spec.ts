@@ -110,7 +110,14 @@ test('capability summaries, disclosure, filtering and bulk edits retain individu
   await skills.getByRole('button', { name: 'Select all shown in group: Workspace skills' }).click();
   await expect(skills.locator('summary')).toContainText('2 of 6 selected');
   await page.getByTestId('profile-capability-filter').fill('');
+  await expect(skills).not.toHaveAttribute('open', '');
   await skills.locator('summary').click();
+  await expect(skills).toHaveAttribute('open', '');
+  await skills.locator('summary').focus();
+  await page.keyboard.press('Space');
+  await expect(skills).not.toHaveAttribute('open', '');
+  await page.keyboard.press('Enter');
+  await expect(skills).toHaveAttribute('open', '');
   await skills.getByRole('button', { name: 'Clear group: Workspace skills' }).click();
   await expect(skills.locator('summary')).toContainText('0 of 6 selected');
   await page.getByTestId('skill-planning').check();
@@ -225,13 +232,13 @@ test('small windows, 200 percent zoom equivalent, RTL and long text keep control
 
 // Data fixtures through the existing E22 canonical gateway harness. No actual
 // engine/API requests are permitted; this is rendered contract evidence only.
-async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: string; allowedSkillsJson?: string | null; extraProfiles?: string[]; catalog?: Array<Record<string, unknown>> | (() => Array<Record<string, unknown>>); modelProvider?: string; modelId?: string; skillTags?: Record<string, string[]> } = {}) {
+async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: string; allowedSkillsJson?: string | null; extraProfiles?: string[]; catalog?: Array<Record<string, unknown>> | (() => Array<Record<string, unknown>>); modelProvider?: string; modelId?: string; skillTags?: Record<string, string[]>; revisioned?: boolean } = {}) {
   const profiles = ['alpha', 'beta', ...options.extraProfiles ?? []].map(id => ({
     id, label: id, icon: 'AG', enabled: true, isAgent: true, isManager: false, sessionSelectable: true,
     modelProvider: options.modelProvider ?? 'custom', modelId: options.modelId ?? 'model-one', defaultAnthropicAccountId: null, systemPrompt: '',
     allowedMcpsJson: options.allowedMcpsJson ?? '{"server":[], "other":["keep"]}', allowedSkillsJson: options.allowedSkillsJson === undefined ? null : options.allowedSkillsJson,
     allowedDelegatesJson: '[]', corePermissionsJson: '{"bash":{"*":"ask","git *":"allow"}, "future":{"x":"deny"}}',
-    updatedAt: '2026-09-18T00:00:00Z',
+    updatedAt: '2026-09-18T00:00:00Z', ...(options.revisioned ? { revision: 0 } : {}),
   }));
   const writes: Array<{ id: string; body: Record<string, unknown> }> = [];
   const skills = [
@@ -268,7 +275,11 @@ async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: str
       const id = path.split('/').at(-1)!; const body = request.postDataJSON(); writes.push({ id, body });
       if (hold) await new Promise<void>(resolve => { pending = resolve; });
       if (fail) return send({ error: 'Fixture save rejected' }, 403);
-      const profile = profiles.find(item => item.id === id)!; Object.assign(profile, body, { updatedAt: '2026-09-18T01:00:00Z' });
+      const profile = profiles.find(item => item.id === id)!;
+      if (options.revisioned && body.expectedRevision !== profile.revision) return send({ error: 'Agent config changed; reload before saving', currentRevision: profile.revision }, 409);
+      const { expectedRevision: _expectedRevision, ...fields } = body;
+      Object.assign(profile, fields, { updatedAt: '2026-09-18T01:00:00Z' });
+      if (options.revisioned) profile.revision = (profile.revision ?? 0) + 1;
       return send(profile);
     }
     if (path === '/agent-configs') return send(profiles);
@@ -307,6 +318,12 @@ async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: str
   await expect(page.getByTestId('profile-label')).toHaveValue('alpha');
   return {
     writes, profiles, skillWrites, skills,
+    advanceProfile: (id: string, label: string) => {
+      const profile = profiles.find(item => item.id === id)!;
+      profile.label = label;
+      if (options.revisioned) profile.revision = (profile.revision ?? 0) + 1;
+      profile.updatedAt = '2026-09-18T01:00:00Z';
+    },
     reject: (value: boolean) => { fail = value; },
     hold: () => { hold = true; },
     release: () => { hold = false; pending?.(); },
@@ -315,6 +332,32 @@ async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: str
     rejectSkillDelete: (value: boolean) => { failSkillDelete = value; },
   };
 }
+
+test('live profile edit rejects a stale revision and retains the UI draft', async ({ page }) => {
+  const fixture = await openCanonicalFixture(page, { revisioned: true });
+  await page.getByTestId('profile-label').fill('UI draft');
+  fixture.advanceProfile('alpha', 'API winner');
+  await page.getByTestId('profile-save').click();
+  await expect.poll(() => fixture.writes.length).toBe(1);
+  expect(fixture.writes[0]).toEqual({ id: 'alpha', body: { expectedRevision: 0, label: 'UI draft' } });
+  await expect(page.locator('.profile-save-error')).toContainText('changed');
+  await expect(page.getByTestId('profile-label')).toHaveValue('UI draft');
+  expect(fixture.profiles.find(profile => profile.id === 'alpha')).toMatchObject({ label: 'API winner', revision: 1 });
+  expect(fixture.writes).toHaveLength(1);
+});
+
+test('live profile edit advances its captured revision after each successful save', async ({ page }) => {
+  const fixture = await openCanonicalFixture(page, { revisioned: true });
+  await page.getByTestId('profile-label').fill('First edit');
+  await page.getByTestId('profile-save').click();
+  await expect(page.getByTestId('profile-save-status')).toHaveText('Profile saved');
+  expect(fixture.writes.at(-1)).toEqual({ id: 'alpha', body: { expectedRevision: 0, label: 'First edit' } });
+  await page.getByTestId('profile-label').fill('Second edit');
+  await page.getByTestId('profile-save').click();
+  await expect(page.getByTestId('profile-save-status')).toHaveText('Profile saved');
+  expect(fixture.writes.at(-1)).toEqual({ id: 'alpha', body: { expectedRevision: 1, label: 'Second edit' } });
+  expect(fixture.profiles.find(profile => profile.id === 'alpha')).toMatchObject({ label: 'Second edit', revision: 2 });
+});
 
 test('canonical fixture: inheritance, large catalogs, grouped selection and policy survive gateway readback', async ({ page }) => {
   const fixture = await openCanonicalFixture(page);

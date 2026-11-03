@@ -18,6 +18,8 @@ import {
 import type { WorkspaceMember } from '../../gateway/workspace-members';
 import { useFixtures } from '../../store';
 import { ColonySettings } from '../colony/settings';
+import { SessionRetentionSettings } from './session-retention';
+import { DayflowSettingsSection } from './DayflowSettingsSection';
 import './SettingsPage.css';
 
 type SettingsMember = WorkspaceMember & { isFacilitiesManager?: boolean };
@@ -26,6 +28,7 @@ const settingsGroups = [
   { id: 'preferences', label: 'Personal preferences' },
   { id: 'workspace', label: 'Workspace administration' },
   { id: 'local-apps', label: 'Local apps' },
+  { id: 'activity', label: 'Activity' },
   { id: 'account', label: 'Account and desktop' },
   { id: 'related', label: 'Related settings' },
 ];
@@ -185,7 +188,9 @@ export function SettingsPage() {
     { id: 'notifications', title: 'Notifications', subtitle: `Email notifications ${emailEnabled ? 'on' : 'off'} · User preference`, group: 'account' },
     { id: 'accounts', title: 'Accounts & access', subtitle: auth?.user.email ?? 'No signed-in account', group: 'account' },
     { id: 'runtime', title: 'Runtime & updates', subtitle: `API ${runtime.api} · Engine ${runtime.engine}`, group: 'account' },
+    { id: 'session-retention', title: 'Session cleanup', subtitle: 'Nightly trim of old tool output · This Mac', group: 'account' },
     { id: 'bot-crossing', title: 'Bot Crossing', subtitle: 'Local-only task scanning and state import', group: 'local-apps' },
+    { id: 'dayflow', title: 'Dayflow', subtitle: 'Off until configured', group: 'activity' },
     { id: 'agent-settings', title: 'Agent Settings', subtitle: 'AI accounts, profiles, and tool access', group: 'related' },
     { id: 'shared-agents', title: 'Shared Agents', subtitle: 'Canonical agents across OpenCode and Hermes', group: 'related' },
     { id: 'integrations', title: 'Integrations', subtitle: 'Google, Gmail, and Planning Center', group: 'related' },
@@ -195,15 +200,16 @@ export function SettingsPage() {
 
   const inspectorFeedback = <>
     {busy && <p className="settings-feedback" role="status">Saving workspace setting…</p>}
-    {loadError && <div className="settings-load-error" role="alert"><p>{loadError}</p><button className="secondary-button" type="button" onClick={() => void loadWorkspace(true)}>Try again</button></div>}
+    {settings && loadError && <div className="settings-load-error" role="alert"><p>{loadError}</p><button className="secondary-button" type="button" onClick={() => void loadWorkspace(true)}>Try again</button></div>}
     {actionError && <p className="settings-feedback error" role="alert">{actionError}</p>}
   </>;
 
   const renderInspector = (item: ListInspectorItem | null): ReactNode => {
     if (!item) return <p className="settings-empty">Select a settings section to inspect its current values and actions.</p>;
 
-    const workspaceDependent = ['workspace', 'members', 'join-code', 'facilities-access'].includes(item.id);
+    const workspaceDependent = ['workspace', 'members', 'join-code', 'facilities-access', 'notifications'].includes(item.id);
     const workspaceError = workspaceDependent && loadError ? <div className="settings-load-error" role="alert" data-testid="settings-workspace-error"><p>{loadError}</p><button className="secondary-button" type="button" onClick={() => void loadWorkspace(true)}>Try again</button></div> : null;
+    if (!settings && workspaceDependent) return workspaceError;
 
     let content: ReactNode;
     switch (item.id) {
@@ -350,8 +356,14 @@ export function SettingsPage() {
           {shell?.updates && <button className="primary-button" type="button" onClick={() => void shell.updates!.openDownloadPage()}>Check Rhythm releases</button>}
         </>;
         break;
+      case 'session-retention':
+        content = <SessionRetentionSettings />;
+        break;
       case 'bot-crossing':
         content = <ColonySettings />;
+        break;
+      case 'dayflow':
+        content = <DayflowSettingsSection dayflow={gateway.domains.dayflow} />;
         break;
       default:
         content = <p className="settings-section-intro">This settings destination opens in its own workspace.</p>;
@@ -373,7 +385,7 @@ export function SettingsPage() {
       selectedId={selectedId}
       onSelect={selectSetting}
       loading={loading}
-      error={loadError && selectedId !== 'bot-crossing' ? <div className="settings-load-error"><p>{loadError}</p><button className="secondary-button" type="button" onClick={() => void loadWorkspace(true)}>Try again</button></div> : undefined}
+      error={settings && loadError && selectedId !== 'bot-crossing' ? <div className="settings-load-error"><p>{loadError}</p><button className="secondary-button" type="button" onClick={() => void loadWorkspace(true)}>Try again</button></div> : undefined}
       emptyState={<p>No settings sections are available.</p>}
       inspector={renderInspector}
       className="settings-list-inspector"

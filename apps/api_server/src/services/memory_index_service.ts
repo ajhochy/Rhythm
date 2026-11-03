@@ -30,7 +30,8 @@
  */
 
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
-import { resolveMemoryVaultPath } from '../config/env';
+import { env, resolveMemoryVaultPath } from '../config/env';
+import { getDb } from '../database/db';
 import { logger } from '../utils/logger';
 import {
   MEMORY_VAULT_SOURCE,
@@ -151,7 +152,8 @@ export class MemoryIndexService {
    * operation.
    *
    * Properties:
-   *   • Idempotent — running twice yields identical rows (clear + repopulate).
+   *   • Idempotent — running twice refreshes rows while preserving each unique
+   *     canonical source/owner UUID. Ambiguous identities get no UUID reuse.
    *   • Rebuildable — after a clear the same scan reproduces the same index, so
    *     `searchAsync` results are reproduced exactly.
    *   • Boundary-safe — a missing / empty vault path produces zero notes, so the
@@ -171,6 +173,19 @@ export class MemoryIndexService {
     );
     logger.info(`[MemoryIndex] startup scan complete: notes=${notes.length}`);
 
+    // Preserve only identity metadata for this exact source and owner. Content,
+    // status, dates and trust fields must still come entirely from the fresh scan.
+    const db = env.dbClient === 'sqlite' ? getDb() : null;
+    const priorIds = new Map<string, string | null>();
+    if (db) {
+      const prior = db.prepare('SELECT id,source_id FROM agent_memory WHERE source=? AND owner_user_id IS ?')
+        .all(MEMORY_VAULT_SOURCE, this.ownerUserId) as Array<{ id: string; source_id: string | null }>;
+      for (const row of prior) {
+        if (!row.source_id) continue;
+        priorIds.set(row.source_id, priorIds.has(row.source_id) ? null : row.id);
+      }
+    }
+
     // Clear first so the index is a pure function of the current vault — no
     // stale rows survive a rebuild.
     const cleared = await this.repo.clearAllAsync();
@@ -179,6 +194,21 @@ export class MemoryIndexService {
     let indexed = 0;
     for (const note of notes) {
       await this.upsertNote(note);
+      const priorId = priorIds.get(note.sourceId);
+      if (db && priorId) {
+        if (getDb() !== db) throw new Error('Memory index database changed during rebuild');
+        db.transaction(() => {
+          const current = db.prepare('SELECT id FROM agent_memory WHERE source=? AND source_id=? AND owner_user_id IS ? LIMIT 2')
+            .all(MEMORY_VAULT_SOURCE, note.sourceId, this.ownerUserId) as Array<{ id: string }>;
+          if (current.length !== 1) throw new Error('Rebuilt memory identity is ambiguous');
+          const collision = db.prepare('SELECT id FROM agent_memory WHERE id=? AND id<>?').get(priorId, current[0].id);
+          if (collision) throw new Error('Rebuilt memory identity collides');
+          if (current[0].id !== priorId && db.prepare('UPDATE agent_memory SET id=? WHERE id=? AND source=? AND source_id=? AND owner_user_id IS ?')
+            .run(priorId, current[0].id, MEMORY_VAULT_SOURCE, note.sourceId, this.ownerUserId).changes !== 1) {
+            throw new Error('Rebuilt memory identity changed before restoration');
+          }
+        })();
+      }
       indexed += 1;
       if (indexed % 100 === 0) {
         logger.info(`[MemoryIndex] startup rebuild progress: indexed=${indexed}`);

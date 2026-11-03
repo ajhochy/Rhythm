@@ -1,0 +1,75 @@
+{
+  "phase": "Recon -> Codify -> Confirm",
+  "feature": "Engraph semantic reference retrieval and disabled fallback",
+  "scope": "real installed Engraph CLI through isolated API and Rhythm fork; no shipping Flutter UI",
+  "source": {
+    "baselineFullApi": "884 passed, 180 skipped files; 8799 passed, 385 skipped tests before later Auto and Engraph status edits",
+    "sandboxDHead": "086bfcb5d02851c2cede1677672ff82d8138ea4e",
+    "engraphManagerSourceSha256": "f7f61abd9286833eafb8ebb957e069f0be358b4946f8c56f99177ad36ec7bc87",
+    "engraphManagerCompiledSha256": "c9d08e1d8486092ac3227ef9c5e2603eee4322332d4521e5393b22bf675802da",
+    "forkSkillSourceSha256": "842bc9be2b8005081f47966413af9aefbbb52bc946a96502f8ccf3d938c838f0"
+  },
+  "fixture": {
+    "kind": "private synthetic SQLite and safe local MCP config, both mode 0400",
+    "sourceDbSha256BeforeAfter": "50bb06c4a08c864c02578d9aba3cba39358bbbfe8789b02945d5ba01068cef06",
+    "sourceConfigSha256BeforeAfter": "d6eeed8165189dfd70bfb615e8bdc0d0fbd8263de4ac6cbe4117f3995978944e",
+    "cliVersion": "engraph 1.7.2",
+    "cliSha256": "aee732429b1e98bfeb45fc68525b5975d47065eaaf5407352edf70adef7048df",
+    "modelCalls": 0,
+    "operatorDataOrCredentialsUsed": false,
+    "apiPort": 4098,
+    "enginePort": 4097,
+    "gatewayPort": 4099
+  },
+  "recon": {
+    "sandboxB": {
+      "log": "/private/tmp/rhythm-engraph-real-recon-20261020-b.log",
+      "observed": "ready/owned/1, real health 18 ms, native reference used with one hit, disabled/none/0, explicit reference unavailable, FTS still found private note, exact DELETE 204"
+    },
+    "sandboxC": {
+      "firstConfirm": "failed: cleanup correctly refused transient foreign classification; primary assertion was then preserved with AggregateError",
+      "secondConfirm": "failed: API reported ready/none/0 during a queued real index refresh, then foreign while an owner reservation was incomplete",
+      "logs": [
+        "/private/tmp/rhythm-engraph-real-confirm-20261020-c.log",
+        "/private/tmp/rhythm-engraph-real-confirm-20261020-c2.log"
+      ],
+      "safety": "exact private PID, PPID, PGID, command, cwd, socket and owner marker captured; disable sent only after API status returned owned; no foreign process signaled",
+      "diagnostics": "/private/tmp/rhythm-engraph-real-sandbox-20261020-c.evidence.kMSCUR"
+    },
+    "sandboxDIdentityObservation": {
+      "log": "/private/tmp/rhythm-engraph-real-reference-observe-20261020-d.log",
+      "vaultPostId": "01M5DSB6E4C4HPQTFPH2180KAE",
+      "ftsIndexId": "82fc46e0-061f-4671-a853-bf8459dd0f51",
+      "referenceSourceId": "memory:82fc46e0-061f-4671-a853-bf8459dd0f51",
+      "ftsSourceIdMatchedOwnedVaultPath": true,
+      "referenceVersionMatchedExactCanonicalFileSha": true,
+      "cleanup": "API disable 200 and exact owned note DELETE 204"
+    }
+  },
+  "codify": {
+    "deterministicRed": "approved-root refresh request returned persisted ready while managed retrieval was unavailable; expected indexing",
+    "redLog": "/private/tmp/rhythm-engraph-refresh-status-red-20261020.log",
+    "change": "derive indexing for queued/running freshness and error for failed freshness without changing backend ownership or signal rules",
+    "unitGreen": "19/19 ownership cases; five related API files 106/106; TypeScript noEmit exit 0",
+    "unitGreenLogs": [
+      "/private/tmp/rhythm-engraph-refresh-status-green-20261020.log",
+      "/private/tmp/rhythm-engraph-refresh-cluster-20261020.log",
+      "/private/tmp/rhythm-engraph-refresh-tsc-20261020.log"
+    ]
+  },
+  "confirm": {
+    "sandboxDInitialAssertion": "failed only because test assumed vault POST ULID was the SQLite index UUID; raw Recon established the distinct identities before correction",
+    "initialLog": "/private/tmp/rhythm-engraph-real-confirm-20261020-d.log",
+    "liveTest": "apps/api_server/src/__tests__/live_e2e_engraph_real_references.test.ts",
+    "result": "pass, 1/1, 5.89 seconds, guarded exit 0",
+    "log": "/private/tmp/rhythm-engraph-real-confirm-20261020-d2.log",
+    "observed": "initial disabled/none; chosen real CLI; ready/owned/1 and health; native used reference with exact FTS index ID, source path and canonical byte SHA; disabled/none/0; native backend_unavailable while FTS retained note; exact DELETE 204 removed file and index row",
+    "cleanup": "Engraph owner marker and owned process absent, sandbox.sh down exit 0, foreground guard exit 0, sandbox root removed, ports 4098/4097/4099 free",
+    "diagnostics": "/private/tmp/rhythm-engraph-real-sandbox-20261020-d.evidence.RkPqIB"
+  },
+  "limits": [
+    "The original aggregate's five spawn_failed assertions have no preserved OS diagnostics; two controlled aggregate runs did not reproduce them.",
+    "The full serial API pass predates this manager status edit and later Auto/Grid work, so a final post-change aggregate remains pending.",
+    "The shipping Flutter Settings UI was not driven; this is backend/API/fork real-CLI evidence only."
+  ]
+}

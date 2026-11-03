@@ -2,9 +2,9 @@ import { useLayoutEffect, useRef } from 'react';
 import { Icon } from '../icons';
 
 export function FocusDialog({
-  open, title, description, onClose, children, testId, wide = false, dismissible = true,
+  open, title, description, onClose, children, testId, wide = false, dismissible = true, returnFocusTo,
 }: {
-  open: boolean; title: string; description?: string; onClose(): void; children: React.ReactNode; testId: string; wide?: boolean; dismissible?: boolean;
+  open: boolean; title: string; description?: string; onClose(): void; children: React.ReactNode; testId: string; wide?: boolean; dismissible?: boolean; returnFocusTo?: HTMLElement | null;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
@@ -19,6 +19,9 @@ export function FocusDialog({
     restoreFrameRef.current = requestAnimationFrame(() => {
       restoreFrameRef.current = null;
       if (openRef.current) return;
+      // A configuration action can synchronously hand off to another dialog after this one
+      // commits closed. Never let the old trap steal focus from that active destination.
+      if (document.querySelector('dialog[open]')) return;
       const returnTarget = returnFocusRef.current;
       const target = returnTarget?.isConnected ? returnTarget : document.getElementById('main-content');
       target?.focus({ preventScroll: true });
@@ -35,7 +38,8 @@ export function FocusDialog({
     if (!open) return;
     const panel = dialogRef.current;
     const activeElement = document.activeElement;
-    if (returnFocusRef.current && !returnFocusRef.current.isConnected) returnFocusRef.current = null;
+    if (returnFocusTo?.isConnected) returnFocusRef.current = returnFocusTo;
+    else if (returnFocusRef.current && !returnFocusRef.current.isConnected) returnFocusRef.current = null;
     if (!returnFocusRef.current && activeElement instanceof HTMLElement && !panel?.contains(activeElement)) {
       returnFocusRef.current = document.querySelector<HTMLElement>('[aria-haspopup="menu"][aria-expanded="true"]') ?? activeElement;
     }
@@ -59,7 +63,7 @@ export function FocusDialog({
       if (panel.open) panel.close();
       scheduleFocusRestore();
     };
-  }, [open]);
+  }, [open, returnFocusTo]);
 
   if (!open) return null;
   return (

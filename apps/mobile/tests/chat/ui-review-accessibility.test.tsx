@@ -273,8 +273,11 @@ test('task-chat-polish-c3: messages use document flow without assistant chrome o
     paddingVertical: 10,
   }));
   expect(bubbleStyle.paddingRight).toBeUndefined();
-  expect(StyleSheet.flatten(user.getByTestId('message-actions').props.style)).toEqual(expect.objectContaining({ alignSelf: 'flex-end', minHeight: 44 }));
+  // Compact trailing slot inside the content row: exactly one touch target wide
+  // (no wider gutter), top aligned, and not an extra closed-menu row.
+  expect(StyleSheet.flatten(user.getByTestId('message-actions').props.style)).toEqual(expect.objectContaining({ alignSelf: 'flex-start', height: 44, width: 44 }));
   expect(StyleSheet.flatten(user.getByTestId('message-actions').props.style).position).toBeUndefined();
+  expect(StyleSheet.flatten(user.getByTestId('message-content-row').props.style)).toEqual(expect.objectContaining({ flexDirection: 'row', alignItems: 'flex-start' }));
 
   const assistant = render(
     <PaperProvider>
@@ -321,4 +324,46 @@ test('reviewed chat controls retain 44 point touch targets and prototype radius'
   expect(StyleSheet.flatten(chatViewStyles.todoToggleButton)).toEqual(expect.objectContaining({ height: MinimumTouchTarget, width: MinimumTouchTarget }));
   expect(StyleSheet.flatten(chatViewStyles.todoItemRow)).toEqual(expect.objectContaining({ minHeight: MinimumTouchTarget }));
   expect(Radii.control).toBe(10);
+});
+
+
+test('enabled primary display title does not forge or rename the ordinary session', () => {
+  const props = {
+    availableModels: [],
+    availableProfiles: [],
+    availableProviders: [],
+    chatPreferences: {} as never,
+    connectionStatus: 'connected' as const,
+    conversation: { active: false, phase: 'off' as const },
+    currentSessionId: 'session-1',
+    diffCount: 2,
+    insetsTop: 0,
+    isCreatingSession: false,
+    isUsageLoading: false,
+    onBack: jest.fn(),
+    onCloseMenu: jest.fn(),
+    onConfirmStopConversation: jest.fn(),
+    onCreateSession: jest.fn(),
+    onManage: jest.fn(),
+    onOpenSession: jest.fn(),
+    onOpenSessionMenu: jest.fn(),
+    onOpenSettings: jest.fn(),
+    onShowChanges: jest.fn(),
+    onToggleConversationMode: jest.fn(),
+    onUpdateSessionPreferences: jest.fn(async () => ({} as never)),
+    palette: Colors.light,
+    running: false,
+    selectedSession: { id: 'session-1', title: 'Test chat' } as never,
+    sessionMenuVisible: false,
+    sessions: [],
+    showingChanges: false,
+    usage: { cost: 0, costStatus: 'free', providers: [] } as never,
+  };
+  const screen = render(<PaperProvider><ChatHeader {...props} displayTitle="Rhythm" /></PaperProvider>);
+  expect(screen.getByText('Rhythm')).toBeTruthy();
+  expect(screen.queryByText('Test chat')).toBeNull();
+  expect((props.selectedSession as unknown as { title: string }).title).toBe('Test chat');
+  screen.rerender(<PaperProvider><ChatHeader {...props} /></PaperProvider>);
+  expect(screen.getByText('Test chat')).toBeTruthy();
+  expect(screen.queryByText('Rhythm')).toBeNull();
 });

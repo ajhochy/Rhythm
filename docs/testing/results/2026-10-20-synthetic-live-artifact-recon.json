@@ -1,0 +1,298 @@
+{
+  "phase": "Recon only; new signed-build Confirm required",
+  "sourceRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
+  "runtime": "disposable synthetic actor; no model calls",
+  "observation": {
+    "step": "Private live artifact",
+    "observed": {
+      "kind": "Live Artifact Recon observations only",
+      "sourceRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
+      "ownerUserId": 1,
+      "workspaceId": 1,
+      "nonce": "b82726cd-a2df-47bb-8a8f-9b8cc866a703",
+      "steps": {
+        "preview": {
+          "title": "[smoke] Live artifact b82726cd-a2df-47bb-8a8f-9b8cc866a703",
+          "sourceMarker": true
+        },
+        "create": {
+          "status": 201,
+          "origin": "http://127.0.0.1:4001",
+          "method": "POST",
+          "title": "[smoke] Live artifact b82726cd-a2df-47bb-8a8f-9b8cc866a703",
+          "id": "05236c29-5db3-4fe3-9fb9-2a900066b64c",
+          "actorBearer": true,
+          "workspaceId": 1,
+          "ownerUserId": 1,
+          "bundleRevision": 1,
+          "stateRevision": 1
+        },
+        "initial": {
+          "detail": {
+            "status": 200,
+            "body": {
+              "id": "05236c29-5db3-4fe3-9fb9-2a900066b64c",
+              "title": "[smoke] Live artifact b82726cd-a2df-47bb-8a8f-9b8cc866a703",
+              "ownerUserId": 1,
+              "workspaceId": 1,
+              "visibility": "private",
+              "currentBundleRevision": 1,
+              "currentStateRevision": 1,
+              "state": {}
+            }
+          },
+          "render": {
+            "status": 200,
+            "bytes": 1729,
+            "sha256": "188e65b62821a98a0985db13c7c419e1f70c08596476391cad45bffa4f2ed183",
+            "markerPresent": true,
+            "contentType": "text/html; charset=utf-8"
+          },
+          "db": {
+            "row": {
+              "id": "05236c29-5db3-4fe3-9fb9-2a900066b64c",
+              "title": "[smoke] Live artifact b82726cd-a2df-47bb-8a8f-9b8cc866a703",
+              "owner_user_id": 1,
+              "workspace_id": 1,
+              "visibility": "private",
+              "current_bundle_revision": 1,
+              "current_bundle_hash": "cd420d23f7f870a662c722035edc30e7813475804c2d82a757eb8602ae3264a3",
+              "current_state_revision": 1,
+              "current_state_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "deleted_at": null
+            },
+            "bundleRevisions": [
+              {
+                "revision": 1,
+                "hash": "cd420d23f7f870a662c722035edc30e7813475804c2d82a757eb8602ae3264a3",
+                "actor_user_id": 1
+              }
+            ],
+            "stateRevisions": [
+              {
+                "revision": 1,
+                "hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+                "actor_user_id": 1
+              }
+            ],
+            "contents": [
+              {
+                "kind": "bundle",
+                "hash": "cd420d23f7f870a662c722035edc30e7813475804c2d82a757eb8602ae3264a3",
+                "size": 230
+              },
+              {
+                "kind": "state",
+                "hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+                "size": 2
+              }
+            ],
+            "collaborators": []
+          },
+          "legacyStorage": {
+            "exists": false,
+            "canonicalOwnedDirectory": false
+          },
+          "tabTitle": "[smoke] Live artifact b82726cd-a2df-47bb-8a8f-9b8cc866a703",
+          "surface": "[smoke] Live artifact b82726cd-a2df-47bb-8a8f-9b8cc866a703Updated by [smoke] b9fccdc7-b7a7-43cf-a0eb-a6abdcd52506 \u00b7 4:19 PMTuesday, October 20, 2026 at 4:19:06 PM PDT \u00b7 bundle revision 1 \u00b7 state revision 1 \u00b7 privateSharingReload",
+          "frameSandbox": "allow-scripts",
+          "frameMarker": "first-b82726cd-a2df-47bb-8a8f-9b8cc866a703"
+        },
+        "patch": {
+          "status": 200,
+          "body": {
+            "id": "05236c29-5db3-4fe3-9fb9-2a900066b64c",
+            "title": "[smoke] Live artifact b82726cd-a2df-47bb-8a8f-9b8cc866a703 edited",
+            "ownerUserId": 1,
+            "currentBundleRevision": 1,
+            "currentStateRevision": 1,
+            "currentBundleHash": "cd420d23f7f870a662c722035edc30e7813475804c2d82a757eb8602ae3264a3",
+            "currentStateHash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "currentBundleRevisionOnConflict": 1
+          }
+        },
+        "bundle": {
+          "status": 200,
+          "body": {
+            "id": "05236c29-5db3-4fe3-9fb9-2a900066b64c",
+            "title": "[smoke] Live artifact b82726cd-a2df-47bb-8a8f-9b8cc866a703 edited",
+            "ownerUserId": 1,
+            "currentBundleRevision": 2,
+            "currentStateRevision": 1,
+            "currentBundleHash": "d97f765b02564d2240089a255bc88168555704d02fa328febed719a37c404c71",
+            "currentStateHash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "currentBundleRevisionOnConflict": 2
+          }
+        },
+        "state": {
+          "status": 200,
+          "body": {
+            "id": "05236c29-5db3-4fe3-9fb9-2a900066b64c",
+            "title": "[smoke] Live artifact b82726cd-a2df-47bb-8a8f-9b8cc866a703 edited",
+            "ownerUserId": 1,
+            "currentBundleRevision": 2,
+            "currentStateRevision": 2,
+            "currentBundleHash": "d97f765b02564d2240089a255bc88168555704d02fa328febed719a37c404c71",
+            "currentStateHash": "de7d17ee90ef8d78afee7a9157fd4f16d30fdb768ccabb35cc5b5cdc377d2772",
+            "currentBundleRevisionOnConflict": 2
+          }
+        },
+        "edited": {
+          "detail": {
+            "status": 200,
+            "body": {
+              "id": "05236c29-5db3-4fe3-9fb9-2a900066b64c",
+              "title": "[smoke] Live artifact b82726cd-a2df-47bb-8a8f-9b8cc866a703 edited",
+              "ownerUserId": 1,
+              "workspaceId": 1,
+              "visibility": "private",
+              "currentBundleRevision": 2,
+              "currentStateRevision": 2,
+              "state": {
+                "marker": "second-b82726cd-a2df-47bb-8a8f-9b8cc866a703"
+              }
+            }
+          },
+          "render": {
+            "status": 200,
+            "bytes": 1737,
+            "sha256": "59ac1bd981fa2fed4ba0e5eee77f8f34d0f4b596acca56b7dee82a3d5d155fc7",
+            "markerPresent": true,
+            "contentType": "text/html; charset=utf-8"
+          },
+          "db": {
+            "row": {
+              "id": "05236c29-5db3-4fe3-9fb9-2a900066b64c",
+              "title": "[smoke] Live artifact b82726cd-a2df-47bb-8a8f-9b8cc866a703 edited",
+              "owner_user_id": 1,
+              "workspace_id": 1,
+              "visibility": "private",
+              "current_bundle_revision": 2,
+              "current_bundle_hash": "d97f765b02564d2240089a255bc88168555704d02fa328febed719a37c404c71",
+              "current_state_revision": 2,
+              "current_state_hash": "de7d17ee90ef8d78afee7a9157fd4f16d30fdb768ccabb35cc5b5cdc377d2772",
+              "deleted_at": null
+            },
+            "bundleRevisions": [
+              {
+                "revision": 1,
+                "hash": "cd420d23f7f870a662c722035edc30e7813475804c2d82a757eb8602ae3264a3",
+                "actor_user_id": 1
+              },
+              {
+                "revision": 2,
+                "hash": "d97f765b02564d2240089a255bc88168555704d02fa328febed719a37c404c71",
+                "actor_user_id": 1
+              }
+            ],
+            "stateRevisions": [
+              {
+                "revision": 1,
+                "hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+                "actor_user_id": 1
+              },
+              {
+                "revision": 2,
+                "hash": "de7d17ee90ef8d78afee7a9157fd4f16d30fdb768ccabb35cc5b5cdc377d2772",
+                "actor_user_id": 1
+              }
+            ],
+            "contents": [
+              {
+                "kind": "bundle",
+                "hash": "cd420d23f7f870a662c722035edc30e7813475804c2d82a757eb8602ae3264a3",
+                "size": 230
+              },
+              {
+                "kind": "bundle",
+                "hash": "d97f765b02564d2240089a255bc88168555704d02fa328febed719a37c404c71",
+                "size": 238
+              },
+              {
+                "kind": "state",
+                "hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+                "size": 2
+              },
+              {
+                "kind": "state",
+                "hash": "de7d17ee90ef8d78afee7a9157fd4f16d30fdb768ccabb35cc5b5cdc377d2772",
+                "size": 56
+              }
+            ],
+            "collaborators": []
+          },
+          "legacyStorage": {
+            "exists": false,
+            "canonicalOwnedDirectory": false
+          },
+          "tabTitle": "[smoke] Live artifact b82726cd-a2df-47bb-8a8f-9b8cc866a703",
+          "surface": "Loading live artifact\u2026",
+          "frameMarker": "second-b82726cd-a2df-47bb-8a8f-9b8cc866a703"
+        },
+        "picker": {
+          "optionVisible": true
+        },
+        "missing": {
+          "api": {
+            "status": 404,
+            "body": {
+              "error": {
+                "code": "NOT_FOUND",
+                "message": "Live artifact not found"
+              }
+            }
+          },
+          "uiNetwork": {
+            "status": 404,
+            "body": {
+              "error": {
+                "code": "NOT_FOUND",
+                "message": "Live artifact not found"
+              }
+            }
+          },
+          "visible": true,
+          "terminalText": "This live artifact is unavailable.",
+          "text": "This live artifact is unavailable.Reload",
+          "tabVisible": true
+        },
+        "preferences": [
+          "05236c29-5db3-4fe3-9fb9-2a900066b64c",
+          "6855af1d-0940-43a6-bdc8-8a0a004c46b9"
+        ]
+      },
+      "cleanup": {
+        "deleted": [
+          {
+            "id": "05236c29-5db3-4fe3-9fb9-2a900066b64c",
+            "status": 204
+          }
+        ],
+        "cleaned": [
+          "05236c29-5db3-4fe3-9fb9-2a900066b64c"
+        ],
+        "tombstones": [
+          {
+            "id": "05236c29-5db3-4fe3-9fb9-2a900066b64c",
+            "detail": {
+              "status": 410,
+              "body": {
+                "error": {
+                  "code": "artifact_deleted",
+                  "message": "Artifact deleted"
+                }
+              }
+            },
+            "listStatus": {
+              "status": 200,
+              "ownedVisible": false
+            }
+          }
+        ],
+        "finalRows": [],
+        "finalTabs": []
+      },
+      "cleanupErrors": []
+    }
+  }
+}

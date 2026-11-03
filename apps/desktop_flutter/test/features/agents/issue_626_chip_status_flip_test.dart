@@ -142,6 +142,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool? fastMode,
     String? anthropicAccountId,
     String? agentId,
+    String? modelMode,
   }) async =>
       throw UnimplementedError();
 

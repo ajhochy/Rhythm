@@ -56,7 +56,7 @@ The goal is to make it possible to rebuild the UI tree without having to redisco
 ### Responsibility
 
 - render transcript area and changes area
-- render empty states, connection issues, running indicators, and pending interactions
+- render empty states, connection issues, the compact agent typing bubble, and pending interactions
 - render server-owned tasks in a collapsible chat overlay
 
 ### Prop contract
@@ -68,7 +68,6 @@ type ChatContentProps = {
   awaitingUserInput: boolean
   connection: { status: 'idle' | 'connecting' | 'connected' | 'error'; message: string }
   copiedMessageId?: string
-  currentActivityLabel?: string
   currentDiffs: FileDiff[]
   currentPendingPermissions: PendingPermissionRequest[]
   currentPendingQuestions: PendingQuestionRequest[]
@@ -104,6 +103,15 @@ type ChatContentProps = {
 - transcript messages use FlashList virtualization; it starts at the bottom, follows additions only from the bottom, and preserves the visible position otherwise
 - `changes` tab shows diff accordions
 - displays starter prompts when there are no display transcript messages
+- renders the typing bubble only while work is active and there is no pending permission or question
+
+## `components/chat/agent-typing-bubble.tsx`
+
+### Responsibility
+
+- render the compact incoming agent-working bubble with three decorative white dots
+- expose one `Agent working` accessibility label while hiding its decorative children
+- begin static until the asynchronous reduced-motion preference is known, then respond to newer system preference events and clean up on unmount
 
 ## `components/chat/chat-composer.tsx`
 
@@ -453,6 +461,30 @@ Main relevant props:
 - provider marketing copy and settings option lists
 
 ## Shared UI Components
+
+## `components/tools/tool-dialog.tsx`
+
+### Responsibility
+
+- present long Tools forms in a safe-area and keyboard-bounded Paper dialog
+- keep title/context and fields scrollable while preserving a persistent action footer
+- retain keyboard taps for form controls and use native drag dismissal behavior
+
+### Prop contract
+
+```ts
+type ToolDialogProps = {
+  actions: readonly ReactNode[]
+  children: ReactNode
+  contentStyle?: StyleProp<ViewStyle>
+  onDismiss: () => void
+  testID?: string
+  title: ReactNode
+  visible: boolean
+}
+```
+
+This documents the source-level presentation contract; physical-device keyboard and touch qualification remains separate.
 
 ## `components/ui/native-select.tsx`
 

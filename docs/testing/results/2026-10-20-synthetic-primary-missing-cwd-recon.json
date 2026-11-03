@@ -1,0 +1,149 @@
+{
+  "phase": "Recon observations only; authored assertions and updated-build confirmation pending",
+  "sourceRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
+  "runtime": "fresh disposable synthetic actor; no model calls",
+  "observation": {
+    "step": "Missing private primary cwd",
+    "observed": {
+      "phase": "Recon observations only",
+      "sourceRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
+      "ownerUserId": 1,
+      "rootId": "151b313d-99da-4f95-b577-c96d0d6cc452",
+      "projectId": "c3210562-e325-4989-9e3a-a1cbffad8630",
+      "cwd": "<private-fixture>/live-artifacts/coordinator-workspaces/rhythm-3fb127da-43d2-47eb-af47-acbce45f6acb",
+      "backup": "<private-fixture>/live-artifacts/coordinator-workspaces/.smoke-missing-cwd-3ff205cd-f5b4-48ba-94aa-b7f8a2c9d347",
+      "guard": {
+        "projectSessions": 1,
+        "rootChildren": 0,
+        "journalCommands": 0,
+        "mirroredMessages": 0,
+        "asyncDelegations": 0,
+        "workstreams": 0,
+        "pendingChildren": 0,
+        "engineBefore": {
+          "sessions": 0,
+          "statusKeys": 0
+        }
+      },
+      "steps": {
+        "before": {
+          "api": {
+            "resolve": {
+              "status": 200,
+              "kind": "resolved",
+              "sessionId": "151b313d-99da-4f95-b577-c96d0d6cc452",
+              "projectId": "c3210562-e325-4989-9e3a-a1cbffad8630",
+              "messageCount": null
+            },
+            "open": {
+              "status": 200,
+              "kind": "replay",
+              "sessionId": "151b313d-99da-4f95-b577-c96d0d6cc452",
+              "projectId": "c3210562-e325-4989-9e3a-a1cbffad8630",
+              "messageCount": null
+            },
+            "history": {
+              "status": 200,
+              "kind": "history",
+              "sessionId": "151b313d-99da-4f95-b577-c96d0d6cc452",
+              "projectId": "c3210562-e325-4989-9e3a-a1cbffad8630",
+              "messageCount": 0
+            }
+          },
+          "ui": {
+            "resolveStatus": 200,
+            "resolveKind": "resolved",
+            "resolveRootId": "151b313d-99da-4f95-b577-c96d0d6cc452",
+            "selectedRoot": "true",
+            "primaryStatus": "Rhythm is ready.",
+            "setupDialogVisible": false
+          }
+        },
+        "missing": {
+          "api": {
+            "resolve": {
+              "status": 200,
+              "kind": "resolved",
+              "sessionId": "151b313d-99da-4f95-b577-c96d0d6cc452",
+              "projectId": "c3210562-e325-4989-9e3a-a1cbffad8630",
+              "messageCount": null
+            },
+            "open": {
+              "status": 200,
+              "kind": "replay",
+              "sessionId": "151b313d-99da-4f95-b577-c96d0d6cc452",
+              "projectId": "c3210562-e325-4989-9e3a-a1cbffad8630",
+              "messageCount": null
+            },
+            "history": {
+              "status": 200,
+              "kind": "history",
+              "sessionId": "151b313d-99da-4f95-b577-c96d0d6cc452",
+              "projectId": "c3210562-e325-4989-9e3a-a1cbffad8630",
+              "messageCount": 0
+            }
+          },
+          "ui": {
+            "resolveStatus": 200,
+            "resolveKind": "resolved",
+            "resolveRootId": "151b313d-99da-4f95-b577-c96d0d6cc452",
+            "selectedRoot": "true",
+            "primaryStatus": "Rhythm could not be opened. Your ordinary chats are unchanged.",
+            "setupDialogVisible": false
+          },
+          "db": {
+            "projectSessions": 1,
+            "rootChildren": 0,
+            "journalCommands": 0,
+            "mirroredMessages": 0,
+            "asyncDelegations": 0,
+            "workstreams": 0,
+            "pendingChildren": 0
+          },
+          "originalAbsent": true,
+          "backupInodeMatches": true
+        }
+      },
+      "restore": {
+        "restored": true,
+        "inodeMatches": true,
+        "api": {
+          "resolve": {
+            "status": 200,
+            "kind": "resolved",
+            "sessionId": "151b313d-99da-4f95-b577-c96d0d6cc452",
+            "projectId": "c3210562-e325-4989-9e3a-a1cbffad8630",
+            "messageCount": null
+          },
+          "open": {
+            "status": 200,
+            "kind": "replay",
+            "sessionId": "151b313d-99da-4f95-b577-c96d0d6cc452",
+            "projectId": "c3210562-e325-4989-9e3a-a1cbffad8630",
+            "messageCount": null
+          },
+          "history": {
+            "status": 200,
+            "kind": "history",
+            "sessionId": "151b313d-99da-4f95-b577-c96d0d6cc452",
+            "projectId": "c3210562-e325-4989-9e3a-a1cbffad8630",
+            "messageCount": 0
+          }
+        },
+        "db": {
+          "projectSessions": 1,
+          "rootChildren": 0,
+          "journalCommands": 0,
+          "mirroredMessages": 0,
+          "asyncDelegations": 0,
+          "workstreams": 0,
+          "pendingChildren": 0
+        }
+      }
+    }
+  },
+  "limitations": [
+    "Proves existing empty primary read/navigation behavior when its exact owned cwd is absent. No prompt was sent and no populated journal/execution recovery is qualified.",
+    "Folder was restored with same device/inode. UI retry after restoration was not part of this observation."
+  ]
+}

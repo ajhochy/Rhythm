@@ -1,5 +1,9 @@
 export const config = {
-    ccVersion: "2.1.112",
+    // rhythm: the API gates new models on this claimed Claude Code version
+    // (opus-5-5/sonnet-5-5/fable-5-1 need >= 2.1.280). Bump to the installed
+    // `claude --version` when a new model 400s with "does not support this
+    // model"; ANTHROPIC_CLI_VERSION overrides at runtime without a rebuild.
+    ccVersion: "2.1.296",
     baseBetas: [
         "claude-code-20250219",
         "oauth-2025-04-20",

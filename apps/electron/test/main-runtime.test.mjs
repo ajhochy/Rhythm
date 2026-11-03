@@ -7,10 +7,11 @@ import test from 'node:test';
 test('e11-c6 / 1555:electron-local-runtime-restart-ipc:6 / review:main.mjs:774 restart IPC fails closed during shutdown', async () => {
   const handlers = new Map(), sent = [], dialogs = [];
   let service;
+  let started = false;
   class Server {
     constructor() { service = this; this.status = { status: 'starting' }; }
     onStatusChange(fn) { this.listener = fn; }
-    async start() { throw new Error('filesystem rejected'); }
+    async start() { started = true; throw new Error('filesystem rejected'); }
     async restart() {
       this.listener({ status: 'failed', failureReason: 'startupFailed', errorMessage: 'restart failed' });
       return { ok: false, reason: 'startup_failed' };
@@ -23,10 +24,10 @@ test('e11-c6 / 1555:electron-local-runtime-restart-ipc:6 / review:main.mjs:774 r
     whenReady: async () => {}, getVersion: () => 'test', quit() {}, exit() {},
   });
   const contents = Object.assign(new EventEmitter(), { mainFrame: { url: 'rhythm://app/index.html#/agents' }, isDestroyed: () => false, send: (...args) => sent.push(args), setWindowOpenHandler() {}, executeJavaScript: async () => {} });
-  class Window { constructor() { this.webContents = contents; } isDestroyed() { return false; } async loadURL() { contents.emit('did-finish-load'); } }
-  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: {}, cwd: () => '/fixture', stderr: { write() {} } }), URL, Response, console });
+  class Window extends EventEmitter { constructor() { super(); this.webContents = contents; } isDestroyed() { return false; } async loadURL() { contents.emit('did-finish-load'); } }
+  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: {}, resourcesPath: '/fixture/Resources', arch: 'arm64', cwd: () => '/fixture', stderr: { write() {} } }), URL, Response, console });
   const file = new URL('../src/main.mjs', import.meta.url);
-  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
+  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.url = file.href; meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
     let values;
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showErrorBox: (...args) => dialogs.push(args), showMessageBox: async (options) => { dialogs.push([options.title, options.message, options.buttons]); return { response: 1 }; } } };
@@ -40,6 +41,8 @@ test('e11-c6 / 1555:electron-local-runtime-restart-ipc:6 / review:main.mjs:774 r
   // A source assertion first prevents executing that known unsafe path in RED.
   assert.match(await readFile(file, 'utf8'), /agentServer\.start\(\)\.catch/);
   await module.evaluate();
+  for (let attempt = 0; attempt < 20 && !started; attempt += 1) await new Promise((r) => setImmediate(r));
+  assert.equal(started, true, 'initial runtime start did not begin');
   await new Promise((r) => setImmediate(r));
   assert.equal(handlers.get('rhythm:agent-server:status')().failureReason, 'startupFailed');
   assert.ok(sent.some(([channel, snapshot]) => channel === 'rhythm:agent-server:status-changed' && snapshot.failureReason === 'startupFailed'));
@@ -75,10 +78,10 @@ test('1584: failure dialog Retry routes through restart(), which respawns, not t
     whenReady: async () => {}, getVersion: () => 'test', quit() {}, exit() {},
   });
   const contents = Object.assign(new EventEmitter(), { mainFrame: { url: 'rhythm://app/index.html#/agents' }, isDestroyed: () => false, send() {}, setWindowOpenHandler() {}, executeJavaScript: async () => {} });
-  class Window { constructor() { this.webContents = contents; } isDestroyed() { return false; } async loadURL() { contents.emit('did-finish-load'); } }
-  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: {}, cwd: () => '/fixture', stderr: { write() {} } }), URL, Response, console });
+  class Window extends EventEmitter { constructor() { super(); this.webContents = contents; } isDestroyed() { return false; } async loadURL() { contents.emit('did-finish-load'); } }
+  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: {}, resourcesPath: '/fixture/Resources', arch: 'arm64', cwd: () => '/fixture', stderr: { write() {} } }), URL, Response, console });
   const file = new URL('../src/main.mjs', import.meta.url);
-  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
+  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.url = file.href; meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
     let values;
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle() {} }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showErrorBox() {}, showMessageBox: async () => ({ response: 0 }) } };
@@ -89,7 +92,8 @@ test('1584: failure dialog Retry routes through restart(), which respawns, not t
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
   await module.evaluate();
-  await new Promise((r) => setImmediate(r));
+  for (let attempt = 0; attempt < 20 && !calls.includes('start'); attempt += 1) await new Promise((r) => setImmediate(r));
+  assert.ok(calls.includes('start'), 'initial runtime start did not settle');
   calls.length = 0;
   service.listener({ status: 'failed', failureReason: 'healthCheckTimeout', errorMessage: 'The local runtime did not respond within 45 seconds.' });
   await new Promise((r) => setImmediate(r));
@@ -130,9 +134,11 @@ async function hermesRuntimeFixture({ argv = ['--interactive-smoke'], enabled = 
     async start() { calls.push('start-agent'); }
     async stopGracefully() { calls.push('stop-agent'); }
   }
-  class Window {
+  let resolveWindowLoaded;
+  const windowLoaded = new Promise((resolve) => { resolveWindowLoaded = resolve; });
+  class Window extends EventEmitter {
     static getAllWindows() { return windows; }
-    constructor() {
+    constructor() { super();
       this.webContents = Object.assign(new EventEmitter(), {
         mainFrame: { url: 'rhythm://app/index.html#/agents' },
         send() {}, isDestroyed: () => false, setWindowOpenHandler() {}, executeJavaScript: async () => {},
@@ -140,7 +146,7 @@ async function hermesRuntimeFixture({ argv = ['--interactive-smoke'], enabled = 
       windows.push(this);
     }
     isDestroyed() { return false; }
-    async loadURL() { this.webContents.emit('did-finish-load'); }
+    async loadURL() { this.webContents.emit('did-finish-load'); resolveWindowLoaded(); }
   }
   const app = Object.assign(new EventEmitter(), {
     getPath: () => '/fixture', setPath() {}, requestSingleInstanceLock: () => true, isReady: () => false,
@@ -149,6 +155,7 @@ async function hermesRuntimeFixture({ argv = ['--interactive-smoke'], enabled = 
   const processBoundary = Object.assign(new EventEmitter(), {
     argv,
     env: { RHYTHM_HERMES_ENABLED: enabled, RHYTHM_SHELL_USER_DATA: '/fixture' },
+    resourcesPath: '/fixture/Resources', arch: 'arm64',
     cwd: () => '/fixture',
     stdout: { write: (text) => stdout.push(String(text)) },
     stderr: { write: (text) => calls.push(['stderr', String(text)]) },
@@ -156,7 +163,7 @@ async function hermesRuntimeFixture({ argv = ['--interactive-smoke'], enabled = 
   });
   const file = new URL('../src/main.mjs', import.meta.url);
   const context = createContext({ process: processBoundary, URL, Response, console });
-  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
+  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.url = file.href; meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
     let values;
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showErrorBox() {}, showMessageBox: async () => ({ response: 1 }) } };
@@ -168,8 +175,15 @@ async function hermesRuntimeFixture({ argv = ['--interactive-smoke'], enabled = 
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
   await module.evaluate();
-  await tick();
-  await tick();
+  if (!argv.includes('--smoke') && !argv.includes('--missing-dist')) {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Hermes fixture owning document did not finish loading')), 2000);
+      windowLoaded.then(() => { clearTimeout(timer); resolve(); });
+    });
+  } else {
+    await tick();
+    await tick();
+  }
   const event = windows[0] ? { sender: windows[0].webContents, senderFrame: windows[0].webContents.mainFrame } : undefined;
   return {
     app, calls, event, handlers, options, processBoundary, stdout, supervisor,
@@ -182,6 +196,8 @@ test('issue-1542-desktop-c5: feature flag never starts the retired dashboard sid
   const attached = await hermesRuntimeFixture();
   assert.ok(!attached.calls.includes('start-hermes'), 'Desktop host, not the shell, owns Hermes service discovery and startup');
   assert.ok(!attached.calls.includes('construct-agent'), 'attached mode must not take ownership of the Flutter runtime');
+  await assert.rejects(async () => attached.handlers.get('hermes:install')({ sender: attached.event.sender, senderFrame: { url: attached.event.senderFrame.url } }), /Privileged IPC denied/);
+  await assert.rejects(async () => attached.handlers.get('hermes:install')({ sender: {}, senderFrame: attached.event.senderFrame }), /Privileged IPC denied/);
   await attached.handlers.get('hermes:install')(attached.event);
   await attached.handlers.get('hermes:restart')(attached.event);
   assert.ok(!attached.calls.includes('install-hermes'));

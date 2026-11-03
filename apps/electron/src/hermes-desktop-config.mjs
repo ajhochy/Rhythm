@@ -1,6 +1,6 @@
 // Update this only with the corresponding reviewed embedded artifact source.
 // Runtime checks prevent a mutable local Hermes installation from being loaded.
-export const PINNED_HERMES_DESKTOP_SOURCE_COMMIT = 'd747cbd9e81870704347738cb702d3f229818557';
+export const PINNED_HERMES_DESKTOP_SOURCE_COMMIT = '2ad39a4cdb2c3c986219f8ca828fef8060e76273';
 
 // Ed25519 release key (issue-1570). The private half is only the CI secret
 // HERMES_DESKTOP_MANIFEST_SIGNING_KEY; add a key here before rotating it, remove the old one after.

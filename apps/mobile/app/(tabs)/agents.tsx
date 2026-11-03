@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   InteractionManager,
@@ -24,6 +25,7 @@ import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useActivity } from '@/providers/activity-provider';
 import { useAgentChat } from '@/providers/agent-chat-provider';
+import { useCoordinatorConversation } from '@/providers/coordinator-conversation-provider';
 import {
   getAgentCategoryCounts,
   type AgentCategory,
@@ -252,6 +254,7 @@ export function AgentsOverflowMenu({
 }
 
 export default function AgentsScreen() {
+  const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
   const [section, setSection] =
@@ -259,10 +262,51 @@ export default function AgentsScreen() {
   const chatController = useChatListController();
   const activity = useActivity();
   const chat = useAgentChat();
+  const coordinator = useCoordinatorConversation();
+  const primaryRequestRef = useRef(false);
   const counts = useMemo(
     () => getAgentCategoryCounts(chat.sessions, activity.items),
     [activity.items, chat.sessions],
   );
+
+  useEffect(() => {
+    if (!primaryRequestRef.current) return;
+    if (coordinator.primaryEntry.phase === 'ready') {
+      primaryRequestRef.current = false;
+      router.push('/agents/chat' as never);
+    } else if (coordinator.primaryEntry.phase === 'unavailable' ||
+      coordinator.primaryEntry.phase === 'setup_required' ||
+      coordinator.primaryEntry.phase === 'setup_choice') {
+      primaryRequestRef.current = false;
+    }
+  }, [coordinator.primaryEntry.phase, router]);
+
+  const openRhythm = () => {
+    if (coordinator.primaryEntry.phase === 'resolving' ||
+      coordinator.primaryEntry.phase === 'switching_project' ||
+      coordinator.primaryEntry.phase === 'opening_root' ||
+      coordinator.primaryEntry.phase === 'opening_coordination') return;
+    primaryRequestRef.current = true;
+    void coordinator.resolvePrimary().then((accepted) => {
+      if (!accepted) primaryRequestRef.current = false;
+    });
+  };
+  const openingRhythm = coordinator.primaryEntry.phase === 'resolving' ||
+    coordinator.primaryEntry.phase === 'setting_up' ||
+    coordinator.primaryEntry.phase === 'switching_project' ||
+    coordinator.primaryEntry.phase === 'opening_root' ||
+    coordinator.primaryEntry.phase === 'opening_coordination';
+  const setupChoices = coordinator.primaryEntry.setup?.profileChoices;
+  const showRhythmSetup = coordinator.primaryEntry.phase === 'setup_required' ||
+    coordinator.primaryEntry.phase === 'setup_choice' ||
+    coordinator.primaryEntry.phase === 'setting_up';
+  const startRhythmSetup = (profileId?: string) => {
+    if (openingRhythm) return;
+    primaryRequestRef.current = true;
+    void coordinator.setupPrimary(profileId).then((accepted) => {
+      if (!accepted) primaryRequestRef.current = false;
+    });
+  };
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}>
@@ -275,6 +319,21 @@ export default function AgentsScreen() {
             Chats
           </Text>
           <View style={styles.headerActions}>
+            <Pressable
+              accessibilityLabel="Open Rhythm"
+              accessibilityRole="button"
+              accessibilityState={{ busy: openingRhythm }}
+              disabled={openingRhythm}
+              onPress={openRhythm}
+              style={({ pressed }) => [
+                styles.rhythmEntry,
+                pressed && !openingRhythm && styles.headerActionPressed,
+              ]}
+              testID="rhythm-primary-entry">
+              <Text numberOfLines={1} style={[styles.rhythmEntryLabel, { color: palette.text }]}>
+                {openingRhythm ? 'Opening…' : 'Rhythm'}
+              </Text>
+            </Pressable>
             <AgentsOverflowMenu
               chatController={chatController}
               counts={counts}
@@ -283,6 +342,43 @@ export default function AgentsScreen() {
             />
           </View>
         </View>
+        {coordinator.primaryEntry.notice ? (
+          <Text accessibilityLiveRegion="polite" style={[styles.rhythmNotice, { color: palette.muted }]}>
+            {coordinator.primaryEntry.notice}
+          </Text>
+        ) : null}
+        {showRhythmSetup ? (
+          <View accessibilityLabel="Rhythm setup" style={[styles.rhythmSetup, { borderColor: palette.border, backgroundColor: palette.surface }]}>
+            <Text style={[styles.rhythmSetupTitle, { color: palette.text }]}>Set up Rhythm</Text>
+            <Text style={[styles.rhythmSetupCopy, { color: palette.muted }]}>Choose a currently eligible profile only if Rhythm asks. This does not change model, permission, or workspace authority.</Text>
+            {setupChoices?.length ? (
+              <View style={styles.rhythmSetupChoices}>
+                {setupChoices.map((choice) => (
+                  <Pressable
+                    accessibilityLabel={`Use Rhythm profile ${choice.label}`}
+                    accessibilityRole="button"
+                    disabled={openingRhythm}
+                    key={choice.id}
+                    onPress={() => startRhythmSetup(choice.id)}
+                    style={({ pressed }) => [styles.rhythmSetupButton, { borderColor: palette.tint }, pressed && !openingRhythm && styles.headerActionPressed]}
+                    testID={`rhythm-setup-profile-${choice.id}`}>
+                    <Text numberOfLines={1} style={{ color: palette.tint }}>{choice.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : (
+              <Pressable
+                accessibilityLabel="Set up Rhythm"
+                accessibilityRole="button"
+                disabled={openingRhythm}
+                onPress={() => startRhythmSetup()}
+                style={({ pressed }) => [styles.rhythmSetupButton, { borderColor: palette.tint }, pressed && !openingRhythm && styles.headerActionPressed]}
+                testID="rhythm-setup-start">
+                <Text style={{ color: palette.tint }}>{openingRhythm ? 'Setting up…' : 'Set up Rhythm'}</Text>
+              </Pressable>
+            )}
+          </View>
+        ) : null}
       </SafeAreaView>
       {section === 'chats' ? (
         <ChatList controller={chatController} />
@@ -347,14 +443,27 @@ export default function AgentsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  header: { paddingBottom: 8, paddingHorizontal: 16, paddingTop: 8 },
+  header: { paddingBottom: 4, paddingHorizontal: 12, paddingTop: 4 },
   headerRow: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
   headerActions: { alignItems: 'center', flexDirection: 'row', gap: 4 },
-  largeTitle: { fontSize: 34, fontWeight: '700', lineHeight: 41 },
+  rhythmEntry: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: 8,
+  },
+  rhythmEntryLabel: { fontSize: 15, fontWeight: '700' },
+  rhythmNotice: { paddingBottom: 4, paddingHorizontal: 4 },
+  rhythmSetup: { borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, gap: 8, marginBottom: 8, padding: 10 },
+  rhythmSetupTitle: { fontSize: 15, fontWeight: '700' },
+  rhythmSetupCopy: { fontSize: 13, lineHeight: 18 },
+  rhythmSetupChoices: { gap: 6 },
+  rhythmSetupButton: { alignItems: 'center', borderRadius: 9, borderWidth: 1, justifyContent: 'center', minHeight: 44, paddingHorizontal: 12 },
+  largeTitle: { fontSize: 22, fontWeight: '700', lineHeight: 28 },
   headerAction: {
     alignItems: 'center',
     justifyContent: 'center',

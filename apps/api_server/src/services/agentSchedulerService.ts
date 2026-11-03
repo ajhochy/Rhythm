@@ -39,6 +39,23 @@ import {
   formatAgentRunFailure,
 } from './agent_run_failure_classification';
 import { sweepPostApplyLifecycleAsync } from './post_apply_lifecycle';
+import { localOperatorUserId } from './local_operator';
+
+/**
+ * Who a scheduled run acts for. Legacy schedules carry no creator, yet their
+ * runs' MCP calls authenticate as the local operator; an unowned run session
+ * then failed every owner-checked call (e.g. delegation) once a human replied.
+ */
+export function scheduledRunOwnerUserId(task: { createdByUserId: number | null }): number | null {
+  if (task.createdByUserId !== null) return task.createdByUserId;
+  // Attribution is optional; a failed lookup must not stop the run itself.
+  try {
+    return localOperatorUserId();
+  } catch (error) {
+    logger.warn(`[AgentScheduler] local operator lookup failed; run stays unowned: ${String(error)}`);
+    return null;
+  }
+}
 
 // ── scope inheritance (scheduled tasks inherit profile scope) ──────────────
 //
@@ -723,7 +740,13 @@ export function notifyInfraFailureOnce(
   }
 }
 
+// ponytail: one local scheduler owner; serialize selection/dispatch, not async runs.
+// A multi-process scheduler would need a database claim instead.
+let schedulerChecking = false;
 async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
+  if (schedulerChecking) return;
+  schedulerChecking = true;
+  try {
   let dueTasks: Awaited<ReturnType<typeof repo.findDueAsync>>;
   try {
     dueTasks = await repo.findDueAsync();
@@ -783,7 +806,7 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
     // inside its own period. Skipping is expected behaviour, not a failure, so
     // it raises no notification -- but it must never be silent: it advances the
     // schedule, stamps `skipped_stale`, and writes a run-history row.
-    if (isMissedRunStale(task)) {
+    if (task.lastRunStatus !== 'queued' && isMissedRunStale(task)) {
       const skipNote =
         `Skipped: scheduled for ${task.nextRunAt} but the machine was asleep past ` +
         `the next occurrence of this schedule.`;
@@ -861,7 +884,7 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
           // FOLLOW-UP (memory injection): thread the task owner so memory
           // retrieval is OWNER-SCOPED to whoever created this scheduled task.
           // Null owner → only instance-global memory is injected (fail-safe).
-          ownerUserId: task.createdByUserId ?? null,
+          ownerUserId: scheduledRunOwnerUserId(task),
         }).then(async (result) => {
           const capacityDeferred = result.errorCode === 'capacity';
           const failure =
@@ -888,7 +911,7 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
           // global resource cap and retry on the next scheduler tick instead
           // of waiting for the task's next normal recurrence.
           const resultNextRun = capacityDeferred
-            ? new Date(Date.now() + CAPACITY_RETRY_MS).toISOString()
+            ? new Date(Date.now() + (result.retryAfterMs ?? CAPACITY_RETRY_MS)).toISOString()
             : nextRun;
           try {
             await repo.updateNextRunAsync(task.id, resultNextRun, runStart, status, errMsg);
@@ -969,6 +992,17 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
       await recordRunHistory({ taskId: task.id, startedAt: runStart, status: 'error', error: errMsg });
     }
   }
+  } finally {
+    schedulerChecking = false;
+  }
+}
+
+/** Run one production due-task selection inside the isolated evaluation worker. */
+export async function checkDueTasksForOrgEvaluationAsync(): Promise<void> {
+  if (process.env.RHYTHM_EVALUATION_WORKER !== '1' || env.dbClient !== 'sqlite' || env.agentLocal) {
+    throw new Error('Evaluation scheduler tick requires the private SQLite trigger worker');
+  }
+  await checkDueTasks();
 }
 
 export interface AgentSchedulerJob {
@@ -976,7 +1010,23 @@ export interface AgentSchedulerJob {
   boot: Promise<void>;
 }
 
-export function startAgentSchedulerJob(): AgentSchedulerJob | null {
+/** Optional callback for an already-owned, bounded local coordinator sweep. */
+export interface AgentSchedulerOptions {
+  onOneShotWorkstreamTick?: () => Promise<void> | void;
+}
+
+async function runOneShotWorkstreamTick(options: AgentSchedulerOptions): Promise<void> {
+  if (!options.onOneShotWorkstreamTick) return;
+  try {
+    await options.onOneShotWorkstreamTick();
+  } catch (error) {
+    // The callback owns its own durable holds.  Never make legacy scheduler
+    // work retry or advance because a one-shot coordinator observation fails.
+    logger.warn(`[AgentScheduler] one-shot workstream sweep failed-nonfatal: ${String(error)}`);
+  }
+}
+
+export function startAgentSchedulerJob(options: AgentSchedulerOptions = {}): AgentSchedulerJob | null {
   // Local smoke must be observational. Do not reset stale rows, advance
   // next_run, create sessions, or execute any scheduled prompt against the
   // user's real local database.
@@ -1094,6 +1144,7 @@ export function startAgentSchedulerJob(): AgentSchedulerJob | null {
     await sweepPostApplyLifecycleAsync().catch(() => {
       logger.warn('[AgentScheduler] post-apply sweep outcome=failed-nonfatal');
     });
+    await runOneShotWorkstreamTick(options);
   })();
 
   // 1-minute tick — same granularity as Odysseus's asyncio loop
@@ -1117,6 +1168,7 @@ export function startAgentSchedulerJob(): AgentSchedulerJob | null {
     void sweepPostApplyLifecycleAsync().catch(() => {
       logger.warn('[AgentScheduler] post-apply sweep outcome=failed-nonfatal');
     });
+    void runOneShotWorkstreamTick(options);
   });
 
   logger.info('[AgentScheduler] Scheduler started (1-min tick)');

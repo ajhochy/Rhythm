@@ -1,4 +1,6 @@
 import type { GatewayMode } from '.';
+import { isTrustedBrowserFetcher } from './browser-transport';
+import { cloudAccountFailure } from './cloud-error';
 
 export interface Facility { id: number; name: string; description: string | null; capacity: number | null; location: string | null; building: string | null; createdAt: string; updatedAt: string }
 export interface Reservation { id: number; facilityId: number; seriesId: string | null; groupId: string | null; title: string; requesterName: string; requesterUserId: number | null; createdByName: string | null; createdByUserId: number | null; startTime: string; endTime: string; notes: string | null; externalEventId: string | null; externalSource: string | null; createdByRhythm: boolean; isConflicted: boolean; conflictReason: string | null; createdAt: string; updatedAt: string }
@@ -44,7 +46,7 @@ export interface FacilitiesGateway {
 
 export class FacilitiesGatewayError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 const failureText = (status: number, operation: string) => ({ 0: 'Facilities service unavailable', 401: 'Authentication required', 403: 'Forbidden', 404: 'Facility record not found' })[status] ?? `${operation} failed (${status})`;
-async function response<T>(operation: string, pending: Promise<Response>): Promise<T> { try { const result = await pending; if (!result.ok) throw new FacilitiesGatewayError(result.status, failureText(result.status, operation)); return result.status === 204 ? undefined as T : await result.json() as T; } catch (error) { if (error instanceof FacilitiesGatewayError) throw error; throw new FacilitiesGatewayError(0, failureText(0, operation)); } }
+async function response<T>(operation: string, pending: Promise<Response>): Promise<T> { try { const result = await pending; if (!result.ok) throw new FacilitiesGatewayError(result.status, await cloudAccountFailure(result) ?? failureText(result.status, operation)); return result.status === 204 ? undefined as T : await result.json() as T; } catch (error) { if (error instanceof FacilitiesGatewayError) throw error; throw new FacilitiesGatewayError(0, failureText(0, operation)); } }
 function query(values: Record<string, string | number | boolean | undefined>): string { const params = new URLSearchParams(); for (const [key, value] of Object.entries(values)) if (value !== undefined) params.set(key, String(value)); const encoded = params.toString(); return encoded ? `?${encoded}` : ''; }
 
 export function createFixtureFacilitiesGateway(_fetcher?: typeof fetch): FacilitiesGateway {
@@ -53,7 +55,7 @@ export function createFixtureFacilitiesGateway(_fetcher?: typeof fetch): Facilit
 }
 
 export function createLiveFacilitiesGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): FacilitiesGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: an explicit facilities token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: an explicit facilities token is required');
   const request = (path: string, init: RequestInit = {}) => fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   const json = (value: unknown) => JSON.stringify(value);
   const reservationQuery = (filters: ReservationFilters = {}, grouped = false) => query({ ...filters, grouped: grouped || undefined });

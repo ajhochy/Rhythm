@@ -74,6 +74,8 @@ import {
   type ProposalApplyResult,
   type ProposalValidator,
 } from './org_proposal_apply_service';
+import { registerOrgEvaluationBodyAppliers } from './org_evaluation_body_appliers';
+import { assertOrgEvaluationApplyFenceSync } from './org_evaluation_apply_fence';
 import { registerNewAgentApplier } from './generators/new_agent_generator';
 import { registerDelegationApplier } from './generators/delegation_generator';
 import { registerWebhookWiringApplier } from './generators/webhook_wiring_generator';
@@ -89,6 +91,7 @@ import {
   deleteManagedSkill,
   managedSkillExists,
   readManagedSkillBytes,
+  readManagedSkillBody,
   slugForSkillName,
   InvalidSkillNameError,
 } from './rhythm_managed_skills';
@@ -122,6 +125,7 @@ import {
 import { alignMcpName } from './mcp_name_alignment';
 import { opencodeClient } from './opencode_engine';
 import { env } from '../config/env';
+import { getDb, getPostgresPool } from '../database/db';
 import { resolveProdApiBase } from './opencode_plugin_config';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import type { CuratedMcpServer } from '../config/curated_mcp_servers';
@@ -602,6 +606,11 @@ function prepareDeferredHumanScopeMutation(input: {
   ) {
     throw AppError.conflict(`${input.proposal.kind} prepared scope snapshot does not match its target bytes`);
   }
+  const evaluationSnapshot = assertOrgEvaluationApplyFenceSync(input.proposal);
+  const frozenProfile = evaluationSnapshot?.profiles.find(profile => profile.id === input.agentConfigId);
+  if (evaluationSnapshot && !frozenProfile) {
+    throw AppError.conflict('Evaluated scope target is missing from the frozen profile snapshot');
+  }
   return {
     measurable: input.measurable,
     beforeSnapshotJson: JSON.stringify(input.snapshot),
@@ -611,6 +620,7 @@ function prepareDeferredHumanScopeMutation(input: {
       field: input.field,
       priorValue: input.priorValue,
       nextValue: input.nextValue,
+      ...(frozenProfile ? { frozenTargetRevision: frozenProfile.revision } : {}),
     },
     postApplyTarget: { profileId: input.agentConfigId, changeType: 'scope' },
   };
@@ -976,6 +986,7 @@ async function validateRefineConfig(proposal: AgentOrgProposal): Promise<Proposa
  * validator that already ran, not re-checking business rules themselves.
  */
 const refineConfigApplier: ProposalApplier = (proposal): ProposalApplyResult => {
+  const evaluationSnapshot = assertOrgEvaluationApplyFenceSync(proposal);
   const change = parseChange(proposal.changeJson);
   const protectedField = protectedGenericConfigField(change);
   if (protectedField) {
@@ -999,7 +1010,12 @@ const refineConfigApplier: ProposalApplier = (proposal): ProposalApplyResult => 
     expectedAppliedValue: patch.value,
   });
 
-  configsRepo.update(patch.agentConfigId, agentConfigFieldPatch(patch.field, patch.value));
+  const originalRevision = evaluationSnapshot?.profiles.find((profile) => profile.id === patch.agentConfigId)?.revision;
+  if (evaluationSnapshot && originalRevision === undefined) throw AppError.conflict('Evaluated target profile is missing');
+  if (!configsRepo.update(patch.agentConfigId, agentConfigFieldPatch(patch.field, patch.value),
+    originalRevision ?? config.revision)) {
+    throw AppError.conflict('refine-config target changed immediately before the fenced write');
+  }
   const updated = configsRepo.getById(patch.agentConfigId);
   if (updated) projectAgentProfileAfterWrite(updated, 'config-update');
 
@@ -1367,6 +1383,7 @@ function validateWorkflowPromptFix(proposal: AgentOrgProposal): ProposalValidati
 }
 
 const workflowPromptFixApplier: ProposalApplier = (proposal): ProposalApplyResult => {
+  assertOrgEvaluationApplyFenceSync(proposal);
   const change = parseChange(proposal.changeJson);
   const concreteFix = typeof change?.concreteFix === 'string' ? change.concreteFix : '';
   if (!concreteFix.trim()) {
@@ -1397,6 +1414,12 @@ const workflowPromptFixApplier: ProposalApplier = (proposal): ProposalApplyResul
 };
 
 // ── refine-skill (#976 approve half — change_json is already a BodyRefinementChange) ──
+// Compare the proposal preimage with the same semantic source that the
+// reviewer reads at submission: managed SKILL.md when present, DB otherwise.
+function refineSkillPreimageMatches(skill: AgentSkill, priorBody: string): boolean {
+  return (readManagedSkillBody(skill.title) ?? skill.body ?? '') === priorBody;
+}
+
 function validateRefineSkill(proposal: AgentOrgProposal): ProposalValidationResult {
   const change = parseChange(proposal.changeJson);
   if (typeof change?.priorBody !== 'string' || typeof change?.revisedBody !== 'string') {
@@ -1405,23 +1428,34 @@ function validateRefineSkill(proposal: AgentOrgProposal): ProposalValidationResu
       reason: 'refine-skill requires a BodyRefinementChange {priorBody, revisedBody} in change_json',
     };
   }
-  if (!resolveSkillForProposal(proposal)) {
+  const skill = resolveSkillForProposal(proposal);
+  if (!skill) {
     return {
       valid: false,
       reason: `refine-skill ${describeSkillResolutionFailure(proposal)}`,
     };
   }
+  if (!refineSkillPreimageMatches(skill, change.priorBody)) {
+    return { valid: false, reason: 'refine-skill target content changed after proposal submission' };
+  }
   return { valid: true };
 }
 
 const refineSkillApplier: ProposalApplier = (proposal): ProposalApplyResult => {
+  assertOrgEvaluationApplyFenceSync(proposal);
   const change = parseChange(proposal.changeJson);
   const revisedBody = typeof change?.revisedBody === 'string' ? change.revisedBody : null;
   if (revisedBody == null) {
     throw AppError.badRequest('refine-skill change_json is missing its revisedBody at apply time');
   }
+  if (typeof change?.priorBody !== 'string') {
+    throw AppError.badRequest('refine-skill change_json is missing its priorBody at apply time');
+  }
   const skill = resolveSkillForProposal(proposal);
   if (!skill) throw AppError.badRequest(`refine-skill ${describeSkillResolutionFailure(proposal)}`);
+  if (!refineSkillPreimageMatches(skill, change.priorBody)) {
+    throw AppError.conflict('refine-skill target content changed after proposal submission');
+  }
   return applySkillBodyRevision(skill, revisedBody);
 };
 
@@ -1454,6 +1488,7 @@ const refineTaskApplier: ProposalApplier = async (proposal): Promise<ProposalApp
   const tasksRepo = new AgentScheduledTasksRepository();
   const task = await tasksRepo.findByIdAsync(patch.scheduledTaskId);
   if (!task) throw AppError.badRequest(`refine-task target '${patch.scheduledTaskId}' no longer exists`);
+  const evaluationSnapshot = assertOrgEvaluationApplyFenceSync(proposal);
 
   const priorValue = readScheduledTaskField(task, patch.field);
   const beforeSnapshotJson = JSON.stringify({
@@ -1462,7 +1497,40 @@ const refineTaskApplier: ProposalApplier = async (proposal): Promise<ProposalApp
     priorValue,
   });
 
-  await tasksRepo.updateAsync(patch.scheduledTaskId, scheduledTaskFieldPatch(patch.field, patch.value));
+  if (evaluationSnapshot) {
+    const frozen = evaluationSnapshot.schedules.find((schedule) => schedule.id === patch.scheduledTaskId);
+    if (proposal.targetRef !== `scheduled_task:${patch.scheduledTaskId}` || !frozen
+      || task.updatedAt !== evaluationSnapshot.targetRevision
+      || task.name !== frozen.name || task.description !== frozen.description
+      || task.prompt !== frozen.prompt || task.agentKind !== frozen.agentKind
+      || task.agentConfigId !== frozen.agentConfigId || task.modelProvider !== frozen.modelProvider
+      || task.modelId !== frozen.modelId || task.enabled !== frozen.enabled
+      || task.scheduleType !== frozen.scheduleType || task.scheduledTime !== frozen.scheduledTime
+      || task.scheduledDay !== frozen.scheduledDay || task.timezone !== frozen.timezone
+      || task.cronExpression !== frozen.cronExpression || task.runAt !== frozen.runAt
+      || task.allowedMcpsJson !== frozen.allowedMcpsJson
+      || task.allowedSkillsJson !== frozen.allowedSkillsJson
+      || priorValue === patch.value) {
+      throw AppError.conflict('Evaluated scheduled task changed after approval validation');
+    }
+    const column = {
+      prompt: 'prompt', description: 'description', cronExpression: 'cron_expression',
+      scheduledTime: 'scheduled_time', agentConfigId: 'agent_config_id',
+    }[patch.field];
+    const stamp = new Date().toISOString();
+    const changed = env.dbClient === 'postgres'
+      ? (await getPostgresPool().query(
+        `UPDATE agent_scheduled_tasks SET ${column}=$1, updated_at=$2
+         WHERE id=$3 AND updated_at=$4::timestamptz AND ${column} IS NOT DISTINCT FROM $5 RETURNING id`,
+        [patch.value, stamp, patch.scheduledTaskId, evaluationSnapshot.targetRevision, priorValue],
+      )).rowCount
+      : getDb().prepare(`UPDATE agent_scheduled_tasks SET ${column}=?, updated_at=?
+          WHERE id=? AND updated_at=? AND ${column} IS ?`)
+        .run(patch.value, stamp, patch.scheduledTaskId, evaluationSnapshot.targetRevision, priorValue).changes;
+    if (changed !== 1) throw AppError.conflict('Evaluated scheduled task changed before the fenced write');
+  } else {
+    await tasksRepo.updateAsync(patch.scheduledTaskId, scheduledTaskFieldPatch(patch.field, patch.value));
+  }
 
   const result: ProposalApplyResult = { measurable: true, beforeSnapshotJson };
 
@@ -1569,6 +1637,15 @@ const publishToOrgApplier: ProposalApplier = async (proposal): Promise<ProposalA
     );
   }
 
+  // Read the skill and its managed bytes under the approval's frozen snapshot
+  // immediately before forming the outbound request body.
+  const evaluationSnapshot = assertOrgEvaluationApplyFenceSync(proposal);
+  if (evaluationSnapshot && !evaluationSnapshot.skills.some((skill) =>
+    (proposal.targetRef === `skill:${skill.id}` || proposal.targetRef === `skill:${skill.title}`)
+    && skill.title === change.skillName)) {
+    throw AppError.conflict('Evaluated publication target differs from frozen skill');
+  }
+
   try {
     if (change.action === 'unpublish') {
       await callOrgSkillsEndpoint(change.skillName, { method: 'DELETE' });
@@ -1621,6 +1698,7 @@ export function registerAllProposalAppliers(registry: AppliersRegistry = {
   registerProposalApplier,
   registerProposalValidator,
 }): void {
+  registerOrgEvaluationBodyAppliers(registry);
   const configsRepo = new AgentConfigsRepository();
 
   try {

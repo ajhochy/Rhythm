@@ -171,6 +171,7 @@ test.describe('shipping-shaped Agents tools', () => {
 
     await page.setViewportSize({ width: 1024, height: 800 });
     await page.getByTestId('session-actions').click();
+    await page.getByTestId('session-actions-secondary').click();
     await expect(page.getByTestId('session-actions-prepare')).toBeVisible();
     await page.getByTestId('session-actions-prepare').click();
     await expect(page.getByTestId('prepare-project-dialog')).toBeVisible();

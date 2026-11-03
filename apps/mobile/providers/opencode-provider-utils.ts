@@ -71,7 +71,117 @@ export type SessionExecutionState = {
   modelId: string | null;
   thinkingBudget: number | null;
   permissionMode: PermissionMode;
+  /** 'auto' lets the server-side router pick the model; absent on older Macs. */
+  modelMode?: ModelMode;
+  /** Absent on older Macs: Fast is then unknown, never false and never written back. */
+  fastMode?: boolean;
+  /** Present only on explicit-selector (settings contract v1) responses. */
+  settingsContractVersion?: 1;
+  settingsIdentity?: SessionSettingsIdentity;
+  sdkSessionId?: string | null;
 };
+
+export type SessionSettingsIdentity = 'sdk' | 'local-primary';
+
+/**
+ * Exact settings target. `local-primary` is exactly
+ * `MobileCoordinatorBinding.sessionId`; `sdk` is the ordinary catalog SDK id.
+ */
+export type SessionSettingsTarget = { identity: SessionSettingsIdentity; id: string };
+
+export type SessionSettingsEntry =
+  | { status: 'ready'; state: SessionExecutionState }
+  | { status: 'unsupported' };
+
+export function sessionSettingsKey(projectId: string, target: SessionSettingsTarget): string {
+  return [projectId, target.identity, target.id].join('\u0000');
+}
+
+/** Partial settings body of the v1 contract: only fields the user explicitly changed. */
+export type SessionSettingsPatch = {
+  modelMode?: ModelMode;
+  providerId?: string;
+  modelId?: string;
+  thinkingBudget?: number | null;
+  fastMode?: boolean;
+};
+
+const PROFILE_AVAILABILITIES = ['available', 'unassigned', 'unavailable'];
+const PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
+
+/**
+ * Accepts a v1 settings response only with version 1 and an exact echo of the
+ * requested identity; anything else means the editor stays disabled.
+ */
+export function parseSessionSettingsState(
+  value: unknown,
+  target: SessionSettingsTarget,
+): SessionExecutionState | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const state = value as Record<string, unknown>;
+  const nullableString = (field: unknown) => field === null || typeof field === 'string';
+  // v1 identity is exact: a present nonempty canonical local id for both selectors, and an SDK id that is
+  // present as string-or-null (null = inert primary). The selector's own id must additionally echo.
+  const echoed = target.identity === 'local-primary'
+    ? state.localSessionId === target.id
+    : state.sdkSessionId === target.id;
+  if (
+    state.settingsContractVersion !== 1 ||
+    state.settingsIdentity !== target.identity ||
+    typeof state.localSessionId !== 'string' || state.localSessionId.length === 0 ||
+    !('sdkSessionId' in state) || !(state.sdkSessionId === null || typeof state.sdkSessionId === 'string') ||
+    !echoed ||
+    typeof state.fastMode !== 'boolean' ||
+    !(state.thinkingBudget === null || (Number.isInteger(state.thinkingBudget) && (state.thinkingBudget as number) >= 0)) ||
+    (state.modelMode !== 'auto' && state.modelMode !== 'fixed') ||
+    !nullableString(state.providerId) || !nullableString(state.modelId) ||
+    !nullableString(state.profileId) || !nullableString(state.opencodeAgentId) ||
+    !PROFILE_AVAILABILITIES.includes(state.profileAvailability as string) ||
+    !PERMISSION_MODES.includes(state.permissionMode as string)
+  ) return undefined;
+  return state as unknown as SessionExecutionState;
+}
+
+/**
+ * Diff of an explicit user edit against the displayed preferences. Unchanged
+ * fields are omitted, so a model or Fast edit never touches the exact stored
+ * reasoning budget and opening/switching can never produce a body.
+ */
+export function diffSessionSettings(
+  current: ChatPreferences,
+  next: ChatPreferences,
+  options: { fastSupported: boolean },
+): SessionSettingsPatch {
+  const patch: SessionSettingsPatch = {};
+  const modelChanged = next.modelMode !== current.modelMode ||
+    (next.modelMode !== 'auto' && (next.modelId !== current.modelId || next.providerId !== current.providerId));
+  if (modelChanged) {
+    if (next.modelMode === 'auto') {
+      patch.modelMode = 'auto';
+    } else {
+      const parts = getSelectedModelParts(next.modelId);
+      if (!parts) throw new Error('Choose an available model.');
+      patch.modelMode = 'fixed';
+      patch.providerId = parts.providerID;
+      patch.modelId = parts.modelID;
+    }
+  }
+  if (next.reasoning !== current.reasoning) {
+    patch.thinkingBudget = thinkingBudgetForReasoning(next.reasoning);
+  }
+  if (options.fastSupported && next.fastMode !== undefined && next.fastMode !== current.fastMode) {
+    patch.fastMode = next.fastMode;
+  }
+  return patch;
+}
+
+/** Fields owned by profile/approval edits, which the settings-only contract never carries. */
+export function changesProfileOrApproval(current: ChatPreferences, next: ChatPreferences): boolean {
+  return next.profileId !== current.profileId ||
+    next.mode !== current.mode ||
+    next.permissionMode !== current.permissionMode ||
+    next.autoApprove !== current.autoApprove;
+}
 
 type SessionWithExecutionMetadata = {
   rhythm?: SessionExecutionState;
@@ -113,11 +223,18 @@ export function getSessionExecutionState(
   };
 }
 
+export type ModelMode = 'auto' | 'fixed';
+export const AUTO_MODEL_LABEL = 'Auto (router)';
+
 export type ChatPreferences = {
   profileId?: RhythmProfileId;
   mode: OpenCodeAgentId;
   providerId?: string;
   modelId?: string;
+  /** Auto (router) is the default; `modelId` is then only the fallback baseline. */
+  modelMode?: ModelMode;
+  /** Session Fast tier; `undefined` means unknown (older Mac), never false. */
+  fastMode?: boolean;
   enabledModelIds: string[];
   providerModelSelections: Record<string, string>;
   reasoning: ReasoningLevel;
@@ -139,6 +256,7 @@ export type ChatPreferences = {
 
 export const defaultChatPreferences: ChatPreferences = {
   mode: 'build' as OpenCodeAgentId,
+  modelMode: 'auto',
   enabledModelIds: [],
   providerModelSelections: {},
   reasoning: 'default',
@@ -194,7 +312,10 @@ export function buildPromptExecutionPlan(
 
   return {
     agent: preferences.mode || undefined,
-    model: getSelectedModelParts(preferences.modelId),
+    // Auto: omit `model` so the proxy fills in the routed pick.
+    model: preferences.modelMode === 'auto'
+      ? undefined
+      : getSelectedModelParts(preferences.modelId),
     system: buildSystemPrompt(preferences),
     persistAllowed: true,
   };
@@ -351,7 +472,9 @@ export function getNewSessionPreferences(
       profile.opencodeAgentId,
     ].some((value) => value.trim().toLocaleLowerCase() === 'secretary'));
   const selected = secretary ?? profiles[0];
-  return selected ? applyProfileDefaults(selected, current) : undefined;
+  return selected
+    ? { ...applyProfileDefaults(selected, current), modelMode: 'auto' }
+    : undefined;
 }
 
 export const NO_SELECTABLE_PROFILE_MESSAGE =
@@ -438,6 +561,10 @@ export function hydratePreferencesFromSession(
     mode: session.opencodeAgentId ?? ('' as OpenCodeAgentId),
     providerId: session.providerId ?? undefined,
     modelId,
+    // Sessions with an explicit stored model keep it unless the server says auto.
+    modelMode: session.modelMode ?? (modelId ? 'fixed' : current.modelMode),
+    // Never inherit another chat's Fast: absent stays unknown.
+    fastMode: session.fastMode,
     reasoning: reasoningForThinkingBudget(session.thinkingBudget),
     permissionMode: session.permissionMode,
     autoApprove: session.permissionMode === 'bypassPermissions',
@@ -643,4 +770,27 @@ export function groupPendingRequestsBySession<T extends { id: string; sessionID:
     acc[request.sessionID] = [...existing, request];
     return acc;
   }, {});
+}
+
+type PickMessage = { info?: { role?: string; modelID?: string; providerID?: string } };
+
+/** The model the router chose, from the newest assistant message that names one. */
+export function getRouterPick(messages: readonly PickMessage[] | undefined) {
+  for (let index = (messages?.length ?? 0) - 1; index >= 0; index -= 1) {
+    const info = messages![index]?.info;
+    if (info?.role === 'assistant' && info.modelID) {
+      return { providerID: info.providerID, modelID: info.modelID };
+    }
+  }
+  return undefined;
+}
+
+/** Muted composer/header text: "Auto → <modelID>". Undefined when a concrete model is selected. */
+export function routerPickLabel(
+  preferences: Pick<ChatPreferences, 'modelMode'>,
+  messages: readonly PickMessage[] | undefined,
+): string | undefined {
+  if (preferences.modelMode !== 'auto') return undefined;
+  const pick = getRouterPick(messages);
+  return pick ? `Auto \u2192 ${pick.modelID}` : undefined;
 }

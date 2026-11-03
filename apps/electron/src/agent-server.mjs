@@ -9,7 +9,7 @@
 // RHYTHM_SHELL_USER_DATA; main.mjs never starts this service for --smoke runs.
 import { execFile, spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { homedir } from 'node:os';
@@ -18,6 +18,8 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { normalizeRemoteProductionApiBase } from '../../shared/production-api-base.mjs';
 import { capabilityMaterial } from './human-approval-main-signer.mjs';
+import { createQualificationApprovalSigner } from './qualification-approval-signer.mjs';
+import { assertQualificationModelLoan } from './qualification-model-loan.mjs';
 
 const run = promisify(execFile);
 const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,7 +27,8 @@ const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 /**
  * @typedef {'nodeNotFound' | 'bundleNotFound' | 'spawnThrew' | 'healthCheckTimeout' | 'lostConnection' | 'approvalCredentialsUnavailable' | 'portConflict' | 'startupFailed' | 'stopFailed'} AgentServerFailureReason
  * @typedef {'electron' | 'external' | 'none'} AgentServerOwnership
- * @typedef {{ status: 'starting' | 'ready' | 'failed' | 'stopping' | 'stopped', ownership: AgentServerOwnership, owned: boolean, failureReason: AgentServerFailureReason | null, stderrTail: string | null, errorMessage: string | null }} AgentServerStatus
+ * @typedef {{ configured: boolean, source: 'preference' | 'environment_override', workstreamsEnabled: boolean, managedContextExports: boolean }} ManualWorkstreamsLaunch
+ * @typedef {{ status: 'starting' | 'ready' | 'failed' | 'stopping' | 'stopped', ownership: AgentServerOwnership, owned: boolean, failureReason: AgentServerFailureReason | null, stderrTail: string | null, errorMessage: string | null, manualWorkstreamsLaunch: ManualWorkstreamsLaunch | null }} AgentServerStatus
  * @typedef {{ executable: string, args: string[], workingDir: string, mcpRolesDir: string | undefined }} ServerEntry
  */
 
@@ -80,7 +83,63 @@ export function findServerEntry(nodePath, executablePath = process.execPath) {
   return null;
 }
 
+/** @param {{manifestPath?: string, buildIdentityPath?: string}} [options] */
+function readQualificationFixtureManifest({ manifestPath = process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST, buildIdentityPath = resolve(dirname(dirname(process.execPath)), 'Resources/api_server/build-identity.json') } = {}) {
+  if (manifestPath) {
+    /** @param {string} p @param {number} mode @param {boolean} [directory] */
+    const owned = (p, mode, directory = false) => {
+      const st = lstatSync(p);
+      if (realpathSync(p) !== p || st.isSymbolicLink() || (directory ? !st.isDirectory() : !st.isFile()) || st.uid !== process.getuid?.() || (!directory && st.nlink!==1) || (st.mode & 0o777) !== mode) throw new Error('qualification fixture ownership invalid');
+    };
+    if (!manifestPath.startsWith('/private/tmp/') || resolve(manifestPath) !== manifestPath) throw new Error('qualification fixture manifest path invalid');
+    owned(dirname(manifestPath), 0o700, true); owned(manifestPath, 0o600);
+    const m = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    const build = JSON.parse(readFileSync(buildIdentityPath, 'utf8'));
+    if (m.schemaVersion !== 1 || !/^[a-f0-9]{40}$/.test(m.sourceRevision) || build.schemaVersion !== 1 || build.sourceRevision !== m.sourceRevision ||
+        !/^[a-f0-9]{64}$/.test(m.tokenSha256) || !m.ownerId || !Number.isSafeInteger(m.ownerUserId) || m.ownerUserId <= 0 ||
+        typeof m.fixtureRoot !== 'string' || !m.fixtureRoot.startsWith('/private/tmp/') || resolve(m.fixtureRoot) !== m.fixtureRoot || m.dbPath !== join(m.fixtureRoot, 'rhythm.db')) throw new Error('qualification fixture build or scope invalid');
+    owned(m.fixtureRoot, 0o700, true);
+    try { const db=lstatSync(m.dbPath); if(!db.isFile() || db.isSymbolicLink() || realpathSync(m.dbPath)!==m.dbPath || db.uid!==process.getuid?.() || db.nlink!==1 || (db.mode & 0o077)!==0)throw new Error('qualification fixture database ownership invalid'); } catch(e){if(!(e && typeof e==='object' && 'code' in e && e.code==='ENOENT'))throw e;}
+    if(m.syntheticActor){
+      const actor=m.syntheticActor,expiry=Date.parse(actor.expiresAt);
+      if(actor.tokenPath!==join(m.fixtureRoot,'actor-token') || !/^qualification-fixture:[A-Za-z0-9_-]{1,128}$/.test(m.publicUserSeed?.googleSub) ||
+        !/^[^@\s]+@[^@\s]+\.invalid$/.test(m.publicUserSeed?.email) || !Number.isFinite(expiry) || expiry<=Date.now() || expiry>Date.now()+86_400_000)
+        throw new Error('qualification synthetic actor scope invalid');
+      owned(actor.tokenPath,0o600);
+      const token=readFileSync(actor.tokenPath,'utf8');
+      if(!/^[a-f0-9]{64}$/.test(token) || createHash('sha256').update(token).digest('hex')!==m.tokenSha256)
+        throw new Error('qualification synthetic actor token invalid');
+      assertQualificationModelLoan(m);
+      return {manifest:m,token};
+    }
+    return {manifest:m,token:null};
+  }
+  return null;
+}
+
+/** @param {{manifestPath?: string, buildIdentityPath?: string, userDataPath?: string}} [options] */
+export function loadQualificationSyntheticActor(options = {}) {
+  const fixture=readQualificationFixtureManifest(options);
+  if(!fixture?.token)return null;
+  const userDataPath=options.userDataPath ?? process.env.RHYTHM_SHELL_USER_DATA;
+  if(userDataPath!==join(fixture.manifest.fixtureRoot,'electron-user-data'))throw new Error('qualification synthetic actor userData path invalid');
+  const userData=lstatSync(userDataPath);
+  if(realpathSync(userDataPath)!==userDataPath || !userData.isDirectory() || userData.isSymbolicLink() || userData.uid!==process.getuid?.() || (userData.mode&0o777)!==0o700)
+    throw new Error('qualification synthetic actor userData ownership invalid');
+  if(['auth-session.bin','remote-attach-grant.bin','server-config.json'].some(name=>existsSync(join(userDataPath,name))))
+    throw new Error('qualification synthetic actor userData contains regular account state');
+  const approvalSigner=fixture.manifest.syntheticActor.approvalSigner
+    ? createQualificationApprovalSigner({
+      manifestPath:options.manifestPath ?? process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST ?? '',
+      readAuthority:()=>readQualificationFixtureManifest(options),
+    }) : undefined;
+  return Object.freeze({token:fixture.token,ownerUserId:fixture.manifest.ownerUserId,fixtureRoot:fixture.manifest.fixtureRoot,
+    ...(approvalSigner?{approvalSigner}:{})});
+}
+
 export function electronDbPath() {
+  const fixture=readQualificationFixtureManifest();
+  if(fixture)return fixture.manifest.dbPath;
   const supportDir = join(homedir(), 'Library/Application Support/Rhythm Electron');
   return join(supportDir, 'rhythm.db');
 }
@@ -95,12 +154,39 @@ export function relayUplinkUrlForProductionApiBase(value) {
 }
 
 /**
+ * Resolve the pair only for a child this process owns. A caller-provided value
+ * for either member is an explicit launch override, including explicit-off and
+ * intentionally contradictory values; the device preference never repairs it.
+ * @param {NodeJS.ProcessEnv} baseEnv
+ * @param {unknown} configured
+ * @returns {ManualWorkstreamsLaunch}
+ */
+export function manualWorkstreamsLaunchForEnvironment(baseEnv, configured) {
+  const hasEnvironmentOverride = Object.hasOwn(baseEnv, 'RHYTHM_WORKSTREAMS_ENABLED')
+    || Object.hasOwn(baseEnv, 'RHYTHM_MANAGED_CONTEXT_EXPORTS');
+  if (hasEnvironmentOverride) {
+    return {
+      configured: configured === true,
+      source: 'environment_override',
+      workstreamsEnabled: baseEnv.RHYTHM_WORKSTREAMS_ENABLED === 'true',
+      managedContextExports: baseEnv.RHYTHM_MANAGED_CONTEXT_EXPORTS === '1',
+    };
+  }
+  return {
+    configured: configured === true,
+    source: 'preference',
+    workstreamsEnabled: configured === true,
+    managedContextExports: configured === true,
+  };
+}
+
+/**
  * api_server_service.dart:46-92 field-for-field, adapted to Electron's persisted main-process
  * session. The restored session is paired with only the validated selected API base; explicit relay
  * configuration, including an intentional empty value, never receives it automatically.
- * @param {{ baseEnv: NodeJS.ProcessEnv, port: number, enginePort: number, dbPathValue: string, humanApprovalPublicKey: string, humanApprovalCapabilitySha256: string, bridgeRegistrarSha256?: string | undefined, mcpRolesDir: string | undefined, relaySessionToken?: string | undefined, relayProductionApiBase?: string | undefined }} options
+ * @param {{ baseEnv: NodeJS.ProcessEnv, port: number, enginePort: number, dbPathValue: string, humanApprovalPublicKey: string, humanApprovalCapabilitySha256: string, bridgeRegistrarSha256?: string | undefined, mcpRolesDir: string | undefined, relaySessionToken?: string | undefined, relayProductionApiBase?: string | undefined, manualWorkstreamsPreference?: boolean | undefined }} options
  */
-export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, humanApprovalPublicKey, humanApprovalCapabilitySha256, bridgeRegistrarSha256, mcpRolesDir, relaySessionToken, relayProductionApiBase }) {
+export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, humanApprovalPublicKey, humanApprovalCapabilitySha256, bridgeRegistrarSha256, mcpRolesDir, relaySessionToken, relayProductionApiBase, manualWorkstreamsPreference = false }) {
   /** @type {NodeJS.ProcessEnv} */
   const env = { ...baseEnv };
   for (const key of Object.keys(env)) if (key.startsWith('HUMAN_APPROVAL_')) delete env[key];
@@ -108,10 +194,52 @@ export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, human
   env.PORT = String(port);
   env.RHYTHM_OPENCODE_ENGINE_PORT = String(enginePort);
   env.DB_PATH = dbPathValue;
+  if(baseEnv.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST){
+    const m=readQualificationFixtureManifest({manifestPath:baseEnv.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST})?.manifest;
+    if(!m)throw new Error('qualification fixture missing');
+    if(electronDbPath()!==dbPathValue)throw new Error('qualification database differs');
+    env.DB_CLIENT='sqlite';
+    if(m.syntheticActor){
+      env.HOME=join(m.fixtureRoot,'home');
+      delete env.RHYTHM_RELAY_URLS;delete env.RHYTHM_RELAY_BEARER;
+      delete env.RHYTHM_ELECTRON_MIGRATE_LEGACY;
+      // A fixture must not inherit provider credentials or auth-file pointers from the operator shell.
+      for(const key of Object.keys(env))if(/(?:^|_)(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?|AUTH)(?:_|$)/.test(key) ||
+        /^(?:AWS|AZURE|CLOUDSDK|GOOGLE_APPLICATION)_/.test(key))delete env[key];
+      if(mcpRolesDir)env.MCP_ROLES_DIR=mcpRolesDir;else delete env.MCP_ROLES_DIR;
+    }
+    env.XDG_CONFIG_HOME=join(m.fixtureRoot,'xdg-config');
+    // The engine derives its data/cache/state dirs (opencode.db, auth.json, logs) from
+    // these, else from HOME: config alone left the 0.18.69 qualification engine
+    // writing the user's regular ~/.local/share/opencode/opencode.db.
+    env.XDG_DATA_HOME=join(m.fixtureRoot,'xdg-data');
+    env.XDG_CACHE_HOME=join(m.fixtureRoot,'xdg-cache');
+    env.XDG_STATE_HOME=join(m.fixtureRoot,'xdg-state');
+    env.RHYTHM_MANAGED_COMMANDS_DIR=join(m.fixtureRoot,'opencode-config','commands');
+    env.RHYTHM_API_LOG_PATH=join(m.fixtureRoot,'logs','api_server.log'); // not the user's ~/Library/Logs/Rhythm
+    env.OPENCODE_TEST_HOME=join(m.fixtureRoot,'engine-home');
+    env.OPENCODE_CONFIG_DIR=join(m.fixtureRoot,'opencode-config');
+    env.RHYTHM_MANAGED_SKILLS_DIR=join(env.OPENCODE_CONFIG_DIR,'skills');
+    env.RHYTHM_LEGACY_MANAGED_SKILLS_DIR=join(m.fixtureRoot,'legacy-managed-skills');
+    env.RHYTHM_OPENCODE_CONFIG_PATH=join(env.OPENCODE_CONFIG_DIR,'opencode.json');
+    env.RHYTHM_ORG_INSTRUCTIONS_FILE=join(env.OPENCODE_CONFIG_DIR,'rhythm-org-instructions.md');
+    env.MEMORY_VAULT_PATH=join(m.fixtureRoot,'memory');env.MEMORY_VAULT_SUBDIR='';
+    env.LIVE_ARTIFACT_STORAGE_DIR=join(m.fixtureRoot,'live-artifacts');
+    env.RHYTHM_DECISION_ROUTER_FILE=join(m.fixtureRoot,'decision-router.json');
+    env.RHYTHM_ACCOUNTS_FILE=join(m.fixtureRoot,'anthropic-accounts.json');env.RHYTHM_OPENAI_ACCOUNTS_FILE=join(m.fixtureRoot,'openai-accounts.json');
+  }
   env.AGENT_LOCAL = 'true';
   env.RHYTHM_LOCAL_RENDERER_ORIGINS = 'rhythm://app';
   // Research Projects are on for the Electron desktop; an explicit caller value still wins.
   if (!Object.hasOwn(baseEnv, 'RHYTHM_RESEARCH_PROJECTS_ENABLED')) env.RHYTHM_RESEARCH_PROJECTS_ENABLED = 'true';
+  const manualWorkstreamsLaunch = manualWorkstreamsLaunchForEnvironment(baseEnv, manualWorkstreamsPreference);
+  // The saved device choice only fills a wholly absent launch pair. Any explicit
+  // environment value, including an explicit-off or contradictory pair, is the
+  // launch authority and remains byte-for-byte intact in the child environment.
+  if (manualWorkstreamsLaunch.source === 'preference' && manualWorkstreamsLaunch.workstreamsEnabled) {
+    env.RHYTHM_WORKSTREAMS_ENABLED = 'true';
+    env.RHYTHM_MANAGED_CONTEXT_EXPORTS = '1';
+  }
   env.HUMAN_APPROVAL_PUBLIC_KEY = humanApprovalPublicKey;
   env.HUMAN_APPROVAL_CAPABILITY_SHA256 = humanApprovalCapabilitySha256;
   if (typeof bridgeRegistrarSha256 === 'string' && /^[a-f0-9]{64}$/.test(bridgeRegistrarSha256)) {
@@ -229,14 +357,29 @@ export class AgentServerService {
   #relayConfigurationProvider;
   /** @type {string | undefined} */
   #bridgeRegistrarSecret;
+  /** @type {ManualWorkstreamsLaunch | undefined} */
+  #manualWorkstreamsLaunch;
+  /** @type {(() => Promise<boolean | undefined> | boolean | undefined) | undefined} */
+  #manualWorkstreamsPreferenceProvider;
 
-  /** @param {{ relayConfigurationProvider?: (() => Promise<{ token?: string, productionApiBase?: string } | undefined> | { token?: string, productionApiBase?: string } | undefined) | undefined }} [options] */
-  constructor({ relayConfigurationProvider } = {}) {
+  /** @param {{ relayConfigurationProvider?: (() => Promise<{ token?: string, productionApiBase?: string } | undefined> | { token?: string, productionApiBase?: string } | undefined) | undefined, manualWorkstreamsPreferenceProvider?: (() => Promise<boolean | undefined> | boolean | undefined) | undefined }} [options] */
+  constructor({ relayConfigurationProvider, manualWorkstreamsPreferenceProvider } = {}) {
     this.#relayConfigurationProvider = relayConfigurationProvider;
+    this.#manualWorkstreamsPreferenceProvider = manualWorkstreamsPreferenceProvider;
   }
 
   /** @returns {AgentServerStatus} */
-  get status() { return { status: this.#status, ownership: this.#ownership, owned: this.#ownership === 'electron', failureReason: this.#failureReason ?? null, stderrTail: this.#stderrTail(), errorMessage: this.#errorMessage ?? null }; }
+  get status() {
+    return {
+      status: this.#status,
+      ownership: this.#ownership,
+      owned: this.#ownership === 'electron',
+      failureReason: this.#failureReason ?? null,
+      stderrTail: this.#stderrTail(),
+      errorMessage: this.#errorMessage ?? null,
+      manualWorkstreamsLaunch: this.#ownership === 'electron' ? this.#manualWorkstreamsLaunch ?? null : null,
+    };
+  }
 
   bridgeRegistrar() {
     if (this.#usingExisting || this.#status !== 'ready' || !this.#process || !this.#bridgeRegistrarSecret) return undefined;
@@ -302,13 +445,23 @@ export class AgentServerService {
     this.#failureReason = undefined;
     this.#errorMessage = undefined;
     this.#bridgeRegistrarSecret = undefined;
+    this.#manualWorkstreamsLaunch = undefined;
     this.#emit();
+
+    const qualificationFixture=Boolean(process.env.RHYTHM_QUALIFICATION_FIXTURE_MANIFEST);
+    if(qualificationFixture)electronDbPath(); // Validate the immutable exact-build authority before probing or adopting anything.
+    const actor=qualificationFixture ? loadQualificationSyntheticActor() : null;
+    const syntheticActor=Boolean(actor);
 
     const occupied = [];
     for (const port of [AGENT_SERVER_PORT, AGENT_SERVER_ENGINE_PORT]) {
       if (!await this.#bounded(portAvailable(port), `checking port ${port}`)) occupied.push(port);
     }
     if (occupied.length) {
+      if(qualificationFixture){
+        this.#setFailed('portConflict', `Qualification fixture requires vacant API and engine ports ${occupied.join(' / ')}.`);
+        return this.status;
+      }
       const healthy = await runningRhythmRuntime();
       if (generation !== this.#generation) return this.status;
       if (healthy) {
@@ -323,13 +476,23 @@ export class AgentServerService {
     }
     if (generation !== this.#generation) return this.status;
 
-    let material;
-    try {
-      material = await this.#bounded(capabilityMaterial(), 'reading the approval identity', this.#capabilityBudgetMs);
-    } catch (error) {
-      this.#appendStderr(error instanceof Error ? error.message : String(error));
-      this.#setFailed('approvalCredentialsUnavailable', 'Rhythm could not access its approval identity. Complete any macOS Keychain authorization, then retry.');
-      return this.status;
+    let material={humanApprovalPublicKey:'',humanApprovalCapabilitySha256:''};
+    if(actor?.approvalSigner){
+      try {
+        material=await this.#bounded(actor.approvalSigner.capabilityMaterial(), 'reading the qualification approval identity', this.#capabilityBudgetMs);
+      } catch(error){
+        this.#appendStderr(error instanceof Error ? error.message : String(error));
+        this.#setFailed('approvalCredentialsUnavailable','The private qualification approval identity is unavailable.');
+        return this.status;
+      }
+    }else if(!syntheticActor){
+      try {
+        material = await this.#bounded(capabilityMaterial(), 'reading the approval identity', this.#capabilityBudgetMs);
+      } catch (error) {
+        this.#appendStderr(error instanceof Error ? error.message : String(error));
+        this.#setFailed('approvalCredentialsUnavailable', 'Rhythm could not access its approval identity. Complete any macOS Keychain authorization, then retry.');
+        return this.status;
+      }
     }
 
     const nodePath = await this.#bounded(findNode(), 'locating Node.js');
@@ -347,7 +510,7 @@ export class AgentServerService {
     const targetDbPath = electronDbPath();
     await this.#bounded(mkdir(dirname(targetDbPath), { recursive: true }), 'creating the data folder');
     const legacyDb = legacyFlutterDbPath();
-    if (!existsSync(targetDbPath) && process.env.RHYTHM_ELECTRON_MIGRATE_LEGACY === '1' && existsSync(legacyDb)) {
+    if (!qualificationFixture && !existsSync(targetDbPath) && process.env.RHYTHM_ELECTRON_MIGRATE_LEGACY === '1' && existsSync(legacyDb)) {
       const migrationScript = resolve(serverInfo.workingDir, 'scripts/migrate_desktop_db.mjs');
       await run(nodePath, [migrationScript, legacyDb, targetDbPath, resolve(dirname(targetDbPath), 'migration-receipt.json')], { cwd: serverInfo.workingDir, timeout: 120_000, maxBuffer: 256 * 1024 });
     }
@@ -361,6 +524,16 @@ export class AgentServerService {
       relayConfiguration = undefined;
     }
     if (generation !== this.#generation) return this.status;
+
+    let manualWorkstreamsPreference = false;
+    try {
+      manualWorkstreamsPreference = (await this.#bounded(this.#manualWorkstreamsPreferenceProvider?.(), 'reading manual workstreams preference')) === true;
+    } catch {
+      // A local preference read failure is safely equivalent to the default off.
+      manualWorkstreamsPreference = false;
+    }
+    if (generation !== this.#generation) return this.status;
+    const manualWorkstreamsLaunch = manualWorkstreamsLaunchForEnvironment(process.env, manualWorkstreamsPreference);
 
     const env = buildEnvironment({
       baseEnv: process.env,
@@ -376,6 +549,7 @@ export class AgentServerService {
       mcpRolesDir: serverInfo.mcpRolesDir,
       relaySessionToken: relayConfiguration?.token,
       relayProductionApiBase: relayConfiguration?.productionApiBase,
+      manualWorkstreamsPreference,
     });
 
     try {
@@ -385,6 +559,7 @@ export class AgentServerService {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       this.#ownership = 'electron';
+      this.#manualWorkstreamsLaunch = manualWorkstreamsLaunch;
     } catch (error) {
       this.#appendStderr(error instanceof Error ? error.message : String(error));
       this.#setFailed('spawnThrew', "Couldn't start the local runtime process. Quit and reopen Rhythm to retry. See technical details below.");
@@ -413,6 +588,7 @@ export class AgentServerService {
       proc.off('exit', onExit); proc.off('error', onError);
       if (this.#process === proc) this.#process = undefined;
       this.#bridgeRegistrarSecret = undefined;
+      this.#manualWorkstreamsLaunch = undefined;
       this.#abort.abort();
     };
     proc.on('error', onError); proc.on('exit', onExit);

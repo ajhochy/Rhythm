@@ -8,6 +8,8 @@
       "inherit": true,
       "allowedTools": [
         "rhythm_read_org_review_context",
+        "rhythm_read_org_review_session",
+        "rhythm_read_org_review_catalog",
         "rhythm_submit_org_review_proposal"
       ]
     }

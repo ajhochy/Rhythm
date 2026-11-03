@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
 import { logger } from '../utils/logger';
-import { env, resolveMemoryVaultPath } from '../config/env';
+import { env, resolveMemoryVaultPath, opencodeConfigFile } from '../config/env';
 import { resolveSmallModel } from './agent_model_resolver';
 import { UsersRepository } from '../repositories/users_repository';
 import {
@@ -88,7 +88,9 @@ export function rhythmSessionContextPluginPath(): string | null {
  * `configPath` is overridable for tests only.
  */
 export function ensureRequiredPlugins(
-  configPath: string = OPENCODE_CONFIG_PATH,
+  // Same override every other writer here honors: qualification points it at the
+  // fixture, and the hard-coded default rewrote the user's real opencode.json.
+  configPath: string = resolveOpencodeConfigPath(),
 ): boolean {
   let parsed: Record<string, unknown> = {};
   if (existsSync(configPath)) {
@@ -189,8 +191,7 @@ export function resolveProdApiBase(): string {
  * Unset (the default) leaves today's real path unchanged.
  */
 function resolveOpencodeConfigPath(): string {
-  const override = process.env.RHYTHM_OPENCODE_CONFIG_PATH?.trim();
-  return override && override.length > 0 ? override : OPENCODE_CONFIG_PATH;
+  return opencodeConfigFile();
 }
 
 /**
@@ -294,9 +295,9 @@ function resolveDocsDir(): string {
  * policies, per key:
  *
  *  - `small_model` / `username` — RHYTHM-OWNED: recomputed and kept current
- *    on every call. `small_model` is skipped entirely (never written, never
- *    cleared) when no candidate provider is authed — see
- *    `agent_model_resolver.resolveSmallModel`'s fail-safe contract.
+ *    on every call. A missing live catalog leaves the old key untouched;
+ *    a live catalog that proves the managed model ineligible clears it so
+ *    OpenCode can fall back to the session model.
  *  - `reference` — ADDITIVE: Rhythm's own alias entries (`vault`, `docs`) are
  *    kept current; every other alias key a user added is preserved untouched.
  *    Each Rhythm entry is skipped when its target path doesn't exist, rather
@@ -329,13 +330,21 @@ export async function ensureManagedDefaults(
 
   let changed = false;
 
-  // small_model — RHYTHM-OWNED. Skip (never write/clear) when unauthed.
+  // small_model — RHYTHM-OWNED. Never clear on transient catalog unavailability.
   try {
     const small = await resolveSmallModel();
     if (small) {
       const value = `${small.providerID}/${small.modelID}`;
       if (parsed.small_model !== value) {
         parsed.small_model = value;
+        changed = true;
+      }
+    } else if (typeof parsed.small_model === 'string') {
+      const { getRoutableModels } = await import('./decision/model_catalog');
+      const catalog = await getRoutableModels();
+      if (catalog.source === 'live' && !catalog.models.some((model) =>
+        model.tier === 'cheap' && `${model.providerID}/${model.modelID}` === parsed.small_model)) {
+        delete parsed.small_model;
         changed = true;
       }
     }

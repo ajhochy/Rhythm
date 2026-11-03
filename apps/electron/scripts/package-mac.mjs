@@ -1,16 +1,22 @@
 import { execFile } from 'node:child_process';
+import { ensureBuildGuard } from '../../../tools/build/ensure-guard.mjs';
 import { createHash } from 'node:crypto';
-import { access, chmod, cp, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, cp, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { buildAndStageApprovalHelper } from './build-approval-helper.mjs';
 import { hardenElectronFuses } from './harden-electron-fuses.mjs';
+import { renderPackagedBuildConfig, resolveRequiredGoogleDesktopClientId } from './package-build-config.mjs';
 import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from '../src/hermes-desktop-config.mjs';
 import { refreshHermesDesktopArtifactIntegrity, resolveHermesDesktopArtifact } from '../src/hermes-desktop-artifact.mjs';
+import { resolveHermesBackendArtifact } from '../src/hermes-backend-artifact.mjs';
 import { EXPECTED_COLONY_ELECTRON_MAJOR, PINNED_COLONY_SOURCE_COMMIT } from '../src/colony-desktop-config.mjs';
 import { refreshColonyArtifactIntegrity, resolveColonyArtifact } from '../src/colony-desktop-artifact.mjs';
+import { stageNativeDayflow } from './stage-native-dayflow.mjs';
+import { stageNodeNpmRuntime } from './stage-node-npm-runtime.mjs';
+import { stageDayflowDesktopArtifact } from '../src/dayflow-desktop-artifact.mjs';
 
 const run = promisify(execFile);
 
@@ -143,6 +149,17 @@ export async function stageHermesDesktopArtifact({ resources, artifactRoot = pro
   return destination;
 }
 
+/** The pinned Python backend is a separate sealed resource, shared by ordinary and private Hermes. */
+export async function stageHermesBackendArtifact({ resources, artifactRoot = process.env.RHYTHM_HERMES_BACKEND_ARTIFACT_DIR }) {
+  if (typeof artifactRoot !== 'string' || !artifactRoot) throw new Error('Pinned Hermes backend artifact is required for packaging.');
+  resolveHermesBackendArtifact(artifactRoot);
+  const destination = resolve(resources, 'hermes-backend');
+  await rm(destination, { recursive: true, force: true });
+  await cp(artifactRoot, destination, { recursive: true, verbatimSymlinks: true });
+  resolveHermesBackendArtifact(destination);
+  return destination;
+}
+
 /** Stage only a verified artifact created by the pinned Colony (Bot Crossing) source builder.
  * It deliberately has no development-checkout/PATH fallback, and refuses a payload built for a
  * different packaged Node than this packaging run installs (see packagedNode below). */
@@ -176,8 +193,11 @@ export async function stageColonyArtifact({ resources, artifactRoot = process.en
 // Importing the assembly boundary for controlled-input tests must not build the app.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+await ensureBuildGuard({ repoRoot: resolve(electronRoot, '../..') });
 const packageNodeMajor = Number.parseInt(process.versions.node.split('.')[0], 10);
 if (packageNodeMajor !== 22) throw new Error(`Electron release packaging requires Node 22; received ${process.versions.node}`);
+// Resolve all required package inputs before creating or deleting an existing artifact.
+const googleDesktopClientId = resolveRequiredGoogleDesktopClientId();
 const sourceApp = resolve(electronRoot, 'node_modules/electron/dist/Electron.app');
 // The pinned Hermes/Colony artifacts are built for this exact Electron. A worktree whose
 // node_modules is symlinked to another checkout silently packages that checkout's Electron.
@@ -195,6 +215,11 @@ const packagedApp = resolve(resources, 'app');
 const packagedShared = resolve(resources, 'shared');
 const apiServerSource = resolve(electronRoot, '../api_server');
 const packagedApiServer = resolve(resources, 'api_server');
+// Rhythm MCP server (#814), sibling of api_server. resolveRhythmMcpCommand launches
+// Resources/mcp_server/dist/index.js by absolute path; without it the rhythm MCP falls
+// back to npx, and a config written by an older app keeps pointing at a missing file.
+const mcpServerSource = resolve(electronRoot, '../mcp_server');
+const packagedMcpServer = resolve(resources, 'mcp_server');
 const packagedNode = resolve(resources, 'node/bin/node');
 const infoPlist = resolve(stagingArtifact, 'Contents/Info.plist');
 const releaseVersion = process.env.RELEASE_VERSION?.trim() || '0.1.0';
@@ -233,9 +258,24 @@ await run('npm', ['--prefix', '../web', 'run', 'build'], {
   env: rendererBuildEnvironment,
 });
 await run('npm', ['--prefix', '../api_server', 'run', 'build'], { cwd: electronRoot });
+await run('npm', ['--prefix', '../mcp_server', 'run', 'build'], { cwd: electronRoot });
 await cp(sourceApp, stagingArtifact, { recursive: true, verbatimSymlinks: true });
+if (process.env.RHYTHM_NATIVE_DAYFLOW_LAYOUT) {
+  stageNativeDayflow({
+    layoutDir: process.env.RHYTHM_NATIVE_DAYFLOW_LAYOUT,
+    signingInputsPath: process.env.RHYTHM_NATIVE_DAYFLOW_SIGNING_INPUTS
+      || '/Users/ajhochhalter/Documents/Codex/2026-10-04/task-4/native-dayflow-full-host-signing-inputs.json',
+    stagingAppDir: stagingArtifact,
+    inventoryPath: resolve(distRoot, 'native-dayflow-staging-inventory.json'),
+    log: (line) => process.stdout.write(`${line}\n`),
+  });
+} else {
+  process.stdout.write('RHYTHM_NATIVE_DAYFLOW_LAYOUT not set; packaging without native Dayflow.\n');
+}
 await stageHermesDesktopArtifact({ resources });
+await stageHermesBackendArtifact({ resources });
 await stageColonyArtifact({ resources });
+await stageDayflowDesktopArtifact({ resources, execute: run });
 await stageRhythmIcon({
   appiconsetDir: resolve(electronRoot, '../desktop_flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset'),
   resources,
@@ -246,6 +286,10 @@ await buildAndStageApprovalHelper({ electronRoot, resources });
 await mkdir(resolve(packagedApp, 'src'), { recursive: true });
 await mkdir(packagedShared, { recursive: true });
 await mkdir(packagedApiServer, { recursive: true });
+const sourceRevision = (await run('git', ['rev-parse', 'HEAD'], { cwd: electronRoot })).stdout.trim();
+if (!/^[a-f0-9]{40}$/.test(sourceRevision)) throw new Error('packaged source identity unavailable');
+await writeFile(resolve(packagedApiServer, 'build-identity.json'), `${JSON.stringify({schemaVersion:1,sourceRevision})}\n`);
+await mkdir(packagedMcpServer, { recursive: true });
 await Promise.all([
   // Ship every runtime module in src/ (the renderer and main load them by path and import);
   // a hand-maintained list silently dropped new modules. build-config.mjs is generated below.
@@ -261,12 +305,10 @@ await Promise.all([
   cp(resolve(apiServerSource, 'package.json'), resolve(packagedApiServer, 'package.json')),
   cp(resolve(apiServerSource, 'package-lock.json'), resolve(packagedApiServer, 'package-lock.json')),
   cp(resolve(electronRoot, '../../.mcp-roles'), resolve(packagedApiServer, '.mcp-roles'), { recursive: true }),
-  writeFile(resolve(packagedApp, 'src/build-config.mjs'), [
-    '// Generated by package-mac.mjs. The OAuth client ID is public; no client secret is embedded.',
-    `export const GOOGLE_DESKTOP_CLIENT_ID = ${JSON.stringify(process.env.GOOGLE_DESKTOP_CLIENT_ID?.trim() ?? '')};`,
-    "export const RHYTHM_AUTH_API_BASE = 'https://api.vcrcapps.com';",
-    '',
-  ].join('\n')),
+  cp(resolve(mcpServerSource, 'dist'), resolve(packagedMcpServer, 'dist'), { recursive: true }),
+  cp(resolve(mcpServerSource, 'package.json'), resolve(packagedMcpServer, 'package.json')),
+  cp(resolve(mcpServerSource, 'package-lock.json'), resolve(packagedMcpServer, 'package-lock.json')),
+  writeFile(resolve(packagedApp, 'src/build-config.mjs'), renderPackagedBuildConfig(googleDesktopClientId)),
 ]);
 
 // Match the shipping Flutter bundle: install production dependencies in the detached payload.
@@ -279,6 +321,14 @@ await run('npm', ['install', '--omit=dev'], {
   env: { ...process.env, SKIP_BETTER_SQLITE3_REBUILD: '1' },
 });
 await run('npm', ['install', '--omit=dev'], { cwd: resolve(packagedApiServer, 'config_seeds/tools') });
+// --ignore-scripts: dist/ is already built above; npm's prepare hook would otherwise re-run tsc,
+// which --omit=dev does not install. mcp_server has no native runtime dependencies.
+await run('npm', ['install', '--omit=dev', '--ignore-scripts'], { cwd: packagedMcpServer });
+for (const required of ['dist/index.js', 'package.json', 'node_modules/@modelcontextprotocol/sdk/package.json']) {
+  await access(resolve(packagedMcpServer, required)).catch((cause) => {
+    throw new Error(`Packaged rhythm MCP server is missing ${required}`, { cause });
+  });
+}
 await rm(resolve(packagedApiServer, '.node-runtime.json'), { force: true });
 
 const betterSqlitePrebuilds = [
@@ -300,9 +350,7 @@ await access(resolve(betterSqlitePrebuildDir, targetBetterSqlitePrebuild)).catch
   throw new Error(`Missing better-sqlite3 prebuild for packaged architecture: ${targetBetterSqlitePrebuild}`, { cause });
 });
 
-await mkdir(dirname(packagedNode), { recursive: true });
-await cp(process.execPath, packagedNode);
-await chmod(packagedNode, 0o755);
+await stageNodeNpmRuntime({ sourceNode: process.execPath, resources, nodeVersion: process.version });
 // Probe native addons in separate processes. Loading node-pty after creating a better-sqlite3
 // Statement can force that Statement's GC during Node 24 addon teardown and abort inside
 // RemoveEnvironmentCleanupHook even though each addon is ABI-correct.
@@ -337,7 +385,9 @@ const approvalHelper = resolve(resources, 'human-approval/rhythm-approval-signer
 await hardenElectronFuses(resolve(stagingArtifact, 'Contents/MacOS/Rhythm'));
 await run('codesign', ['--force', '--identifier', 'com.rhythm.desktop.approval-signer', '--sign', '-', approvalHelper]);
 await run('codesign', ['--verify', '--strict', approvalHelper]);
-await run('codesign', ['--force', '--deep', '--sign', '-', stagingArtifact]);
+// Do not use --deep here: it would re-sign the independently verified upstream Dayflow.app.
+// The outer seal covers the resource while retaining Dayflow's upstream Developer ID signature.
+await run('codesign', ['--force', '--sign', '-', stagingArtifact]);
 const stagedHermesArtifact = resolve(resources, 'hermes-desktop');
 await refreshHermesDesktopArtifactIntegrity({ artifactRoot: stagedHermesArtifact });
 await resolveHermesDesktopArtifact({
@@ -346,6 +396,7 @@ await resolveHermesDesktopArtifact({
   expectedSourceCommit: PINNED_HERMES_DESKTOP_SOURCE_COMMIT,
   allowDirty: false,
 });
+resolveHermesBackendArtifact(resolve(resources, 'hermes-backend'));
 const stagedColonyArtifact = resolve(resources, 'colony-desktop');
 await refreshColonyArtifactIntegrity({ artifactRoot: stagedColonyArtifact });
 await resolveColonyArtifact({
@@ -395,4 +446,3 @@ export async function assertPackagedModuleGraph(srcDir, entries) {
     throw new Error(`Packaged app is missing runtime modules: ${missing.join(', ')}`);
   }
 }
-

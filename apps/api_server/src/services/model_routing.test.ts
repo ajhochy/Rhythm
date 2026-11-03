@@ -65,13 +65,12 @@ describe('resolveTieredModel — cross-agent routing selection', () => {
     expect(decision.route.modelID).toMatch(/opus/);
   });
 
-  it('falls back to the first route at the target tier when no route is authed', async () => {
+  it('refuses a phantom static route when no provider is authenticated', async () => {
     listAuthedProviders.mockResolvedValue([]); // nothing authed
-    const decision = await resolveTieredModel({ agentId: 'claude-code', taskKind: 'triage' });
-    expect(decision.tier).toBe('cheap');
-    // Still returns SOME concrete route rather than throwing/hanging.
-    expect(decision.route.providerID).toEqual(expect.any(String));
-    expect(decision.route.modelID).toEqual(expect.any(String));
+    // The old contract returned the first Anthropic route despite zero auth.
+    // A background task must surface the missing route, not dispatch it.
+    await expect(resolveTieredModel({ agentId: 'claude-code', taskKind: 'triage' }))
+      .rejects.toThrow(/no routes configured/);
   });
 
   it('an unrecognized agentId with no configured routes throws rather than silently hanging', async () => {

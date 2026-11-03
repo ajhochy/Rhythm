@@ -15,6 +15,8 @@ import crypto from 'node:crypto';
 import { AppError } from '../errors/app_error';
 import { AgentWebhookEndpointsRepository } from '../repositories/agent_webhook_endpoints_repository';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
+import { AgentCookbookRepository } from '../repositories/agent_cookbook_repository';
+import { compileAgentCookbookPrompt } from './agentCookbookController';
 import { ClaudeTriggersRepository } from '../repositories/claude_triggers_repository';
 import { logger } from '../utils/logger';
 import { getDb, getPostgresPool } from '../database/db';
@@ -60,12 +62,14 @@ export class AgentWebhookController {
 
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const { name, eventTypes, targetScheduledTaskId, targetPrompt } = req.body as Record<string, unknown>;
+      const { name, eventTypes, targetScheduledTaskId, targetRecipeId, targetPrompt } = req.body as Record<string, unknown>;
       if (!name || typeof name !== 'string') throw AppError.badRequest('name is required');
       if (name.length > 120 || (targetPrompt !== undefined &&
         (typeof targetPrompt !== 'string' || targetPrompt.length > 4096)) ||
         (targetScheduledTaskId !== undefined &&
-          (typeof targetScheduledTaskId !== 'string' || targetScheduledTaskId.length > 128)) ||
+          (typeof targetScheduledTaskId !== 'string' || targetScheduledTaskId.length === 0 || targetScheduledTaskId.length > 128)) ||
+        (targetRecipeId !== undefined &&
+          (typeof targetRecipeId !== 'string' || targetRecipeId.length === 0 || targetRecipeId.length > 128)) ||
         (eventTypes !== undefined && (!Array.isArray(eventTypes) || eventTypes.length > 32 ||
           !eventTypes.every((event) => typeof event === 'string' && event.length > 0 && event.length <= 128)))) {
         throw AppError.badRequest('Invalid webhook configuration');
@@ -80,11 +84,22 @@ export class AgentWebhookController {
       ) {
         throw AppError.notFound('AgentScheduledTask');
       }
+      if (typeof targetScheduledTaskId === 'string' && typeof targetRecipeId === 'string') {
+        throw AppError.badRequest('Webhook must select exactly one task or recipe target');
+      }
+      if (typeof targetRecipeId === 'string') {
+        const ownerId = req.mobileDevice?.userId ?? req.auth?.user.id;
+        const recipe = ownerId == null
+          ? await new AgentCookbookRepository().findByIdAsync(targetRecipeId)
+          : await new AgentCookbookRepository().findByIdForOwnerAsync(targetRecipeId, ownerId);
+        if (!recipe) throw AppError.notFound('AgentCookbook');
+      }
 
       const endpoint = await repo.createAsync({
         name,
         eventTypesJson: Array.isArray(eventTypes) ? JSON.stringify(eventTypes) : '["*"]',
         targetScheduledTaskId: typeof targetScheduledTaskId === 'string' ? targetScheduledTaskId : undefined,
+        targetRecipeId: typeof targetRecipeId === 'string' ? targetRecipeId : undefined,
         targetPrompt: typeof targetPrompt === 'string' ? targetPrompt : undefined,
         createdByUserId: req.auth?.user.id,
       });
@@ -212,7 +227,18 @@ export class AgentWebhookController {
       const target = endpoint.targetScheduledTaskId
         ? await new AgentScheduledTasksRepository().findByIdAsync(endpoint.targetScheduledTaskId)
         : null;
-      const instructions = endpoint.targetPrompt ?? target?.prompt ?? 'Review the webhook event.';
+      const recipe = endpoint.targetRecipeId
+        ? endpoint.createdByUserId == null
+          ? await new AgentCookbookRepository().findByIdAsync(endpoint.targetRecipeId)
+          : await new AgentCookbookRepository().findByIdForOwnerAsync(endpoint.targetRecipeId, endpoint.createdByUserId)
+        : null;
+      if (endpoint.targetRecipeId && (!recipe ||
+          endpoint.createdByUserId === null && recipe.ownerUserId !== null)) {
+        throw AppError.conflict('Webhook recipe target is unavailable');
+      }
+      const instructions = recipe
+        ? [compileAgentCookbookPrompt(recipe), endpoint.targetPrompt].filter(Boolean).join('\n\n')
+        : endpoint.targetPrompt ?? target?.prompt ?? 'Review the webhook event.';
       // ponytail: scan decoded leaves and keys before JSON escaping hides commands.
       const externalJson = JSON.stringify({ event: eventType, payload });
       const text: string[] = [rawBody, externalJson];
@@ -244,12 +270,13 @@ export class AgentWebhookController {
         await getPostgresPool().query(
           `INSERT INTO pending_claude_triggers
              (task_id, triggered_by_user_id, scheduled_task_id, webhook_endpoint_id,
-              prompt, created_at)
-           VALUES (NULL, $1, $2, $3, $4, $5)`,
+              recipe_id, prompt, created_at)
+           VALUES (NULL, $1, $2, $3, $4, $5, $6)`,
           [
             endpoint.createdByUserId,
             endpoint.targetScheduledTaskId ?? null,
             id,
+            recipe?.id ?? null,
             prompt,
             now,
           ],
@@ -258,12 +285,13 @@ export class AgentWebhookController {
         getDb().prepare(`
           INSERT INTO pending_claude_triggers
             (task_id, triggered_by_user_id, scheduled_task_id, webhook_endpoint_id,
-             prompt, created_at)
-          VALUES (NULL, ?, ?, ?, ?, ?)
+             recipe_id, prompt, created_at)
+          VALUES (NULL, ?, ?, ?, ?, ?, ?)
         `).run(
           endpoint.createdByUserId,
           endpoint.targetScheduledTaskId ?? null,
           id,
+          recipe?.id ?? null,
           prompt,
           now,
         );

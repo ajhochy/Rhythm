@@ -68,8 +68,9 @@ function parseSnapshot(value: unknown): UsageBudgetSnapshot {
   return { providers: body.providers.map(parseProvider), fetchedAt: typeof body.fetchedAt === 'string' ? body.fetchedAt : undefined };
 }
 
+import { isTrustedBrowserFetcher } from './browser-transport';
 export function createLiveUsageBudgetGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): UsageBudgetGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: a usage-budget token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: a usage-budget token is required');
   return {
     mode: 'live',
     get: async (options) => {

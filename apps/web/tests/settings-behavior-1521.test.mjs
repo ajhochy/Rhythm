@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
+import { sourceModuleUrl } from './helpers/source-module.mjs';
+
+const {
   CANCEL_TURN_KEY_OPTIONS,
   DEFAULT_LOCAL_USER_PREFERENCES,
   matchesCancelTurnKey,
@@ -11,7 +13,7 @@ import {
   NEW_SESSION_KEY_OPTIONS,
   readLocalUserPreferences,
   SWITCH_SESSION_KEY_OPTIONS,
-} from '../src/gateway/user-preferences.ts';
+} = await import(sourceModuleUrl(new URL('../src/gateway/user-preferences.ts', import.meta.url)));
 
 test('issue-1521: invalid persisted composer shortcuts fall back to Enter', () => {
   const storage = {

@@ -80,6 +80,129 @@ export const RevertPayload = Schema.Struct(Struct.omit(SessionRevert.RevertInput
 export const PermissionResponsePayload = Schema.Struct({
   response: Permission.Reply,
 })
+const ManagedContextIdentifier = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256))
+export const RhythmPromptAnchor = Schema.Struct({ messageID: MessageID })
+export const RhythmActiveTool = Schema.Struct({
+  sdkSessionId: SessionID,
+  assistantId: MessageID,
+  userMessageId: MessageID,
+  partId: PartID,
+  toolCallId: ManagedContextIdentifier,
+  toolKey: ManagedContextIdentifier,
+  agentName: ManagedContextIdentifier,
+  serverName: ManagedContextIdentifier,
+  toolName: ManagedContextIdentifier,
+})
+
+// Rhythm Dayflow provider-admission contract (schema version 1). Exact shapes are
+// enforced again by the strict parsers in session/rhythm_provider_guard.ts.
+const GuardId = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200))
+const GuardGeneration = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128))
+const GuardRequest = Schema.Struct({
+  schemaVersion: Schema.Literal(1),
+  sdkSessionId: GuardId,
+  userMessageId: GuardId,
+  requestNonce: Schema.String.check(Schema.isMinLength(24), Schema.isMaxLength(64)),
+  engineGeneration: GuardGeneration,
+  runnerGeneration: GuardGeneration,
+  attempt: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(100)),
+  purpose: Schema.Literals(["answer", "compaction", "summary"]),
+  inputDigest: Schema.String.check(Schema.isMinLength(64), Schema.isMaxLength(64)),
+})
+export const RhythmProviderFrame = Schema.Union([
+  Schema.Struct({
+    schemaVersion: Schema.Literal(1),
+    status: Schema.Literal("pending"),
+    request: GuardRequest,
+    agentName: GuardId,
+    userKind: Schema.Literals(["authored", "control"]),
+    initiatingUserMessageId: Schema.NullOr(GuardId),
+    inputGroupCount: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+    originCoverage: Schema.Literals(["complete", "ambiguous"]),
+    sourceProofs: Schema.Array(
+      Schema.Struct({
+        sourceAnchorId: GuardId,
+        stored: Schema.Boolean,
+        visible: Schema.Boolean,
+        relation: Schema.Literals(["before_current", "current", "after_current", "unknown"]),
+        derivedSummaryIds: Schema.Array(GuardId),
+      }),
+    ),
+  }),
+  Schema.Struct({
+    schemaVersion: Schema.Literal(1),
+    status: Schema.Literals(["cancelled", "replaced", "not_pending"]),
+  }),
+  Schema.Struct({
+    schemaVersion: Schema.Literal(2),
+    kind: Schema.Literal("coordinator_workflow_provider_frame"),
+    binding: Schema.Struct({
+      schemaVersion: Schema.Literal(1),
+      jobId: GuardId,
+      rootSdkSessionId: GuardId,
+      managerSdkSessionId: GuardId,
+      expiresAt: Schema.String,
+    }),
+    scope: Schema.Union([
+      Schema.Struct({ kind: Schema.Literal("manager_lineage") }),
+      Schema.Struct({ kind: Schema.Literal("root_turn"), userMessageId: GuardId }),
+    ]),
+    accounting: Schema.Union([
+      Schema.Struct({ kind: Schema.Literal("persisted_assistant"), assistantMessageId: GuardId, parentMessageId: GuardId }),
+      Schema.Struct({ kind: Schema.Literal("unmetered_auxiliary"), sourceUserMessageId: GuardId }),
+    ]),
+    nativeLineageDigest: Schema.String.check(Schema.isMinLength(64), Schema.isMaxLength(64)),
+    frame: Schema.Struct({
+      schemaVersion: Schema.Literal(1),
+      status: Schema.Literal("pending"),
+      request: GuardRequest,
+      agentName: GuardId,
+      userKind: Schema.Literals(["authored", "control"]),
+      initiatingUserMessageId: Schema.NullOr(GuardId),
+      inputGroupCount: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+      originCoverage: Schema.Literals(["complete", "ambiguous"]),
+      sourceProofs: Schema.Array(
+        Schema.Struct({
+          sourceAnchorId: GuardId,
+          stored: Schema.Boolean,
+          visible: Schema.Boolean,
+          relation: Schema.Literals(["before_current", "current", "after_current", "unknown"]),
+          derivedSummaryIds: Schema.Array(GuardId),
+        }),
+      ),
+    }),
+  }),
+])
+export const RhythmProviderFrameQuery = Schema.Struct({
+  ...WorkspaceRoutingQueryFields,
+  sourceAnchorIds: Schema.optional(Schema.String),
+})
+export const RhythmDayflowGuardResponse = Schema.Union([
+  Schema.Struct({
+    schemaVersion: Schema.Literal(1),
+    sdkSessionId: GuardId,
+    engineGeneration: GuardGeneration,
+    guarded: Schema.Literal(true),
+  }),
+  Schema.Struct({
+    schemaVersion: Schema.Literal(2),
+    kind: Schema.Literal("coordinator_workflow_enrollment"),
+    sdkSessionId: GuardId,
+    engineGeneration: GuardGeneration,
+    guarded: Schema.Literal(true),
+    binding: Schema.Struct({
+      schemaVersion: Schema.Literal(1),
+      jobId: GuardId,
+      rootSdkSessionId: GuardId,
+      managerSdkSessionId: GuardId,
+      expiresAt: Schema.String,
+    }),
+    scope: Schema.Union([
+      Schema.Struct({ kind: Schema.Literal("manager_lineage") }),
+      Schema.Struct({ kind: Schema.Literal("root_turn"), userMessageId: GuardId }),
+    ]),
+  }),
+])
 
 export const SessionPaths = {
   list: root,
@@ -90,6 +213,10 @@ export const SessionPaths = {
   diff: `${root}/:sessionID/diff`,
   messages: `${root}/:sessionID/message`,
   message: `${root}/:sessionID/message/:messageID`,
+  rhythmPromptAnchor: `${root}/:sessionID/rhythm-prompt-anchor`,
+  rhythmActiveTool: `${root}/:sessionID/rhythm-active-tool/:assistantID/:callID`,
+  rhythmProviderFrame: `${root}/:sessionID/rhythm-provider-frame/:requestNonce`,
+  rhythmDayflowGuard: `${root}/:sessionID/rhythm-dayflow-guard`,
   mcpAppResource: `${root}/:sessionID/mcp-app-resource/:callID`,
   mcpAppExecutionProof: `${root}/:sessionID/mcp-app-execution/:callID/proof`,
   mcpAppExecution: `${root}/:sessionID/mcp-app-execution/:callID`,
@@ -207,6 +334,51 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.message",
             summary: "Get message",
             description: "Retrieve a specific message from a session by its message ID.",
+          }),
+        ),
+        HttpApiEndpoint.post("rhythmPromptAnchor", SessionPaths.rhythmPromptAnchor, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          success: described(RhythmPromptAnchor, "Mint a managed prompt anchor"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.rhythmPromptAnchor",
+            summary: "Mint a managed prompt anchor",
+          }),
+        ),
+        HttpApiEndpoint.get("rhythmActiveTool", SessionPaths.rhythmActiveTool, {
+          params: { sessionID: SessionID, assistantID: MessageID, callID: ManagedContextIdentifier },
+          query: WorkspaceRoutingQuery,
+          success: described(RhythmActiveTool, "Read one live managed tool owner"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.rhythmActiveTool",
+            summary: "Read one live managed tool owner",
+          }),
+        ),
+        HttpApiEndpoint.get("rhythmProviderFrame", SessionPaths.rhythmProviderFrame, {
+          params: { sessionID: SessionID, requestNonce: Schema.String },
+          query: RhythmProviderFrameQuery,
+          success: described(RhythmProviderFrame, "Read one pending managed provider frame"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.rhythmProviderFrame",
+            summary: "Read one pending managed provider frame",
+          }),
+        ),
+        HttpApiEndpoint.post("rhythmDayflowGuard", SessionPaths.rhythmDayflowGuard, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          payload: Schema.Unknown,
+          success: described(RhythmDayflowGuardResponse, "Enroll a managed SDK session for Dayflow history protection"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.rhythmDayflowGuard",
+            summary: "Enroll a managed SDK session for Dayflow history protection",
           }),
         ),
         HttpApiEndpoint.post("create", SessionPaths.create, {

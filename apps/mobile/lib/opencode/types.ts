@@ -1,4 +1,5 @@
 import type { AppSkillsResponse } from '@opencode-ai/sdk/v2/client';
+import type { SnapshotFileDiff } from '@opencode-ai/sdk/v2/client';
 
 export type {
   Agent,
@@ -41,8 +42,9 @@ export type {
   WorktreeResetInput,
   AppSkillsResponse as Skills,
   GlobalSession,
-  SnapshotFileDiff as FileDiff,
 } from '@opencode-ai/sdk/v2/client';
+
+export type FileDiff = SnapshotFileDiff & { patchOmitted?: string };
 
 export type Skill = AppSkillsResponse[number];
 

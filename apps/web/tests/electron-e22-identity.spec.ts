@@ -51,11 +51,22 @@ export async function open(page: Page, empty = false, sessionOverrides: Record<s
 
 // Profiles is a column browser: open a setting group before using its controls.
 const openGroup = (page: import('@playwright/test').Page, name: string) => page.getByTestId('settings-column-groups').getByRole('option', { name, exact: true }).click();
+async function openChatConfiguration(page: Page) {
+  await page.getByTestId('session-actions').click();
+  await expect(page.getByTestId('chat-configuration-dialog')).toBeVisible();
+}
+async function openSecondaryChatActions(page: Page) {
+  await openChatConfiguration(page);
+  await page.getByTestId('session-actions-secondary').click();
+}
 
 test('E22-c1 live catalogs replace fixture choices and empty profiles remain usable', async ({ page }) => {
   const h = await open(page, true);
   await expect(page.getByTestId('new-chat-instant')).toBeDisabled();
+  await openChatConfiguration(page);
   await expect(page.getByTestId('composer-model')).toBeDisabled();
+  await expect(page.getByText('No authorized models are available. Refresh configuration after an account or provider is available.')).toBeVisible();
+  await page.getByTestId('chat-configuration-dialog-close').click();
   await page.getByRole('button', { name: 'Switch surface' }).click();
   await expect(page.getByTestId('profile-create')).toBeVisible();
   await page.getByTestId('profile-create').click();
@@ -86,7 +97,7 @@ test('E22-c2 profile duplicate is a POST draft with canonical nested policy; cre
 });
 
 test('E22-c3 persisted session settings use canonical profile/model/budget/mode and survive readback', async ({ page }) => {
-  const h = await open(page); await page.getByTestId('session-actions').click(); await page.getByTestId('session-actions-settings').click();
+  const h = await open(page); await openSecondaryChatActions(page); await page.getByTestId('session-actions-session-defaults').click();
   const dialog = page.getByTestId('session-settings-dialog');
   await expect(dialog.locator('[name=thinking]')).toHaveAttribute('type', 'number');
   await dialog.locator('[name=name]').fill('Settings saved'); await dialog.locator('[name=profile]').selectOption('beta');
@@ -95,6 +106,7 @@ test('E22-c3 persisted session settings use canonical profile/model/budget/mode 
   await page.getByTestId('save-session-settings').click();
   await expect.poll(() => h.writes.find(w => w.method === 'PATCH' && w.path === '/agent-sessions/selected')?.body).toMatchObject({ name: 'Settings saved', profileId: 'beta', providerId: 'custom', modelId: 'turn-model', thinkingBudget: 4096, permissionMode: 'plan', fastMode: true });
   await page.reload(); await expect(page.getByTestId('state')).toContainText('Settings saved');
+  await openChatConfiguration(page);
   await expect(page.getByTestId('composer-model')).toHaveValue('custom/turn-model');
   await expect(page.getByTestId('composer-thinking')).toHaveValue('4096');
   await expect(page.getByTestId('composer-permission-mode')).toHaveValue('plan');
@@ -103,9 +115,12 @@ test('E22-c3 persisted session settings use canonical profile/model/budget/mode 
 
 test('E22-c4 agent/model override is explicit exactly once, then persisted defaults, never profile fallback', async ({ page }) => {
   const h = await open(page);
+  await openChatConfiguration(page);
+  await expect(page.getByTestId('chat-configuration-dialog')).toBeVisible();
   await page.getByTestId('composer-profile').selectOption('beta');
   await expect(page.getByTestId('agent-this-turn')).toBeVisible();
   await page.getByTestId('agent-this-turn').click();
+  await openChatConfiguration(page);
   await page.getByTestId('composer-model').selectOption('custom/turn-model'); await page.getByTestId('model-this-turn').click();
   await page.getByTestId('composer-input').fill('first'); await page.getByTestId('composer-input').press('Enter');
   await expect.poll(() => h.frames.filter(f => f.type === 'session.input').length).toBe(1);
@@ -117,6 +132,48 @@ test('E22-c4 agent/model override is explicit exactly once, then persisted defau
   expect(inputs[1].agent).toBeUndefined(); expect(h.session().profileId).toBe('alpha'); expect(h.session().modelId).toBe('default-model');
 });
 
+test('E22-c4b Escape closes Chat configuration without canceling a working response', async ({ page }) => {
+  const h = await open(page, false, { status: 'working' });
+  await openChatConfiguration(page);
+  await expect(page.getByTestId('chat-configuration-dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('chat-configuration-dialog')).not.toBeVisible();
+  await expect(page.getByTestId('composer-cancel')).toBeVisible();
+  expect(h.session().status).toBe('working');
+});
+
+test('E22-c4c secondary Chat actions hand dialog dismissal back to the Chat menu trigger', async ({ page }) => {
+  await open(page);
+  await openSecondaryChatActions(page);
+  await page.getByTestId('session-actions-session-defaults').click();
+  await expect(page.getByTestId('session-settings-dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('session-settings-dialog')).not.toBeVisible();
+  await expect(page.getByTestId('session-actions')).toBeFocused();
+});
+
+test('E22-c4d direct Prepare dismissal returns to its direct header opener', async ({ page }) => {
+  await open(page);
+  await page.getByTestId('prepare-project').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('prepare-project-dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('prepare-project-dialog')).not.toBeVisible();
+  await expect(page.getByTestId('prepare-project')).toBeFocused();
+});
+
+test('E22-c4e Details can open at 1440 without clipping the Chat menu hit target', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(page);
+  await page.getByTestId('session-details').click();
+  const chatMenu = page.getByTestId('session-actions');
+  await expect(chatMenu).toBeVisible();
+  expect(await chatMenu.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    return element.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2));
+  })).toBe(true);
+});
+
 test('E22-c6 policy controls round-trip canonical values, preserving pattern rules; managed skills explicitly unavailable', async ({ page }) => {
   const h = await open(page); await page.getByRole('button', { name: 'Switch surface' }).click();
   await openGroup(page, 'Provider, model & account');
@@ -124,7 +181,7 @@ test('E22-c6 policy controls round-trip canonical values, preserving pattern rul
   await expect(page.getByTestId('profile-provider').locator('option[value=unauthed]')).toHaveCount(0);
   await page.getByTestId('profile-account').selectOption('account-22');
   await openGroup(page, 'Availability & defaults');
-  await expect(page.getByTestId('profile-managed-skills')).toBeDisabled();
+  await expect(page.getByTestId('profile-managed-skills')).toHaveCount(0);
   await openGroup(page, 'Permissions');
   await expect(page.getByTestId('profile-auto-approve')).toBeVisible();
   await page.getByTestId('profile-auto-approve').check();
@@ -174,7 +231,7 @@ test('E22-c5 default is used for instant create; advanced submits real account/t
 // (gateway/sessions.ts accountOptionLabel).
 test('E22-c8 OpenAI account picker refreshes on open and marks the true default', async ({ page }) => {
   const h = await open(page, false, { providerId: 'openai', modelId: 'default-model' });
-  await page.getByTestId('session-actions').click(); await page.getByTestId('session-actions-settings').click();
+  await openSecondaryChatActions(page); await page.getByTestId('session-actions-session-defaults').click();
   let dialog = page.getByTestId('session-settings-dialog');
   const picker = () => dialog.getByTestId('session-openai-account');
   await expect(picker().locator('option')).toHaveText(['Keep current account', 'Actual OpenAI account · default']);
@@ -185,7 +242,7 @@ test('E22-c8 OpenAI account picker refreshes on open and marks the true default'
   // session's picker was already loaded.
   h.setOpenaiAccounts([{ id: 'default', label: 'Actual OpenAI account', status: 'ok' }, { id: 'openai-2', label: 'Second account', status: 'ok' }], 'openai-2');
 
-  await page.getByTestId('session-actions').click(); await page.getByTestId('session-actions-settings').click();
+  await openSecondaryChatActions(page); await page.getByTestId('session-actions-session-defaults').click();
   dialog = page.getByTestId('session-settings-dialog');
   await expect(picker().locator('option')).toHaveText(['Keep current account', 'Actual OpenAI account', 'Second account · default']);
 });
@@ -197,7 +254,7 @@ test('E22-c8 OpenAI account picker refreshes on open and marks the true default'
 // dialog-open force-refresh this suite already covers for OpenAI accounts (E22-c8).
 test('E22-c9 the session settings model picker drops a hidden model without reload', async ({ page }) => {
   const h = await open(page);
-  await page.getByTestId('session-actions').click(); await page.getByTestId('session-actions-settings').click();
+  await openSecondaryChatActions(page); await page.getByTestId('session-actions-session-defaults').click();
   let dialog = page.getByTestId('session-settings-dialog');
   const modelSelect = () => dialog.locator('[name=model]');
   await expect(modelSelect().locator('option')).toHaveText(['Profile default', 'profile-model · custom', 'default-model · custom', 'turn-model · custom']);
@@ -206,7 +263,7 @@ test('E22-c9 the session settings model picker drops a hidden model without relo
 
   h.setModelIds(['profile-model', 'default-model']);
 
-  await page.getByTestId('session-actions').click(); await page.getByTestId('session-actions-settings').click();
+  await openSecondaryChatActions(page); await page.getByTestId('session-actions-session-defaults').click();
   dialog = page.getByTestId('session-settings-dialog');
   await expect(modelSelect().locator('option')).toHaveText(['Profile default', 'profile-model · custom', 'default-model · custom']);
 });

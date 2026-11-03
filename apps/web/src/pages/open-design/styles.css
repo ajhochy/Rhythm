@@ -1,0 +1,7 @@
+.open-design-page { display: grid; min-height: 0; height: 100%; padding: 16px; color: var(--fg); }
+.open-design-host { position: relative; min-height: 360px; height: 100%; border: 1px solid var(--border-soft); border-radius: var(--r-md); background: var(--surface); outline: none; }
+.open-design-host:focus-visible { box-shadow: var(--focus); }
+.open-design-opening { position: absolute; inset: 50% auto auto 50%; margin: 0; color: var(--muted); transform: translate(-50%, -50%); }
+.open-design-state { align-self: center; justify-self: center; max-width: 520px; padding: 24px; border: 1px solid var(--border-soft); border-radius: var(--r-md); background: var(--surface); }
+.open-design-state h2 { margin-top: 0; }
+.open-design-state p { color: var(--muted); }

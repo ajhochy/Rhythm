@@ -1,0 +1,670 @@
+{
+  "phase": "Recon observations only; not feature assertions or updated-source confirmation",
+  "sourceRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
+  "privateRuntime": "fresh disposable synthetic owner; no model or operator data",
+  "observations": [
+    {
+      "step": "Memory metadata",
+      "observed": {
+        "phase": "Recon observations only",
+        "sourceRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
+        "ownerUserId": 1,
+        "nonce": "535f578f-17a8-4054-8c72-bfe967b0d3d4",
+        "requestedId": "01M5DRHEYWV30SRWTDVSK9JE3H",
+        "steps": {
+          "create": {
+            "status": 201,
+            "returnedId": "01M5DRHEYWV30SRWTDVSK9JE3H",
+            "path": "fact/smoke-memory-metadata-535f578f-17a8-4054-8c72-bfe967b0d3d4-h.md"
+          },
+          "sqlite": [
+            {
+              "id": "85ecdf8d-4d8b-414c-bb6c-dcecd572c661",
+              "ownerUserId": null,
+              "source": "obsidian-memory",
+              "sourceId": "fact/smoke-memory-metadata-535f578f-17a8-4054-8c72-bfe967b0d3d4-h.md",
+              "createdAt": "2026-10-20T22:57:30.093Z",
+              "updatedAt": "2026-10-20T22:57:30.093Z"
+            }
+          ],
+          "vault": {
+            "exists": true,
+            "frontmatter": "id: 01M5DRHEYWV30SRWTDVSK9JE3H\nkind: fact\ntags:\n  - smoke\n  - 535f578f-17a8-4054-8c72-bfe967b0d3d4\ncreated: 2026-10-20\nupdated: 2026-10-20\nsource: manual\nstatus: stable\ngenerated:\n  by: agent:rhythm/1\n  at: '2026-10-20T22:57:30.080Z'"
+          },
+          "selection": {
+            "listStatus": 200,
+            "listHasId": true,
+            "uiBearerMatches": true,
+            "selectedUrl": "rhythm://app/index.html#/tools/brain?memoryId=85ecdf8d-4d8b-414c-bb6c-dcecd572c661",
+            "rowText": "[smoke] memory metadata 535f578f-17a8-4054-8c72-bfe967b0d3d4\nHarmless private note. \u00b7 fact \u00b7 active \u00b7 3:57 PM",
+            "inspector": {
+              "visible": true,
+              "testId": "brain-inspector-detail",
+              "source": {
+                "visible": true,
+                "text": "fact/smoke-memory-metadata-535f578f-17a8-4054-8c72-bfe967b0d3d4-h.md",
+                "dateTime": null,
+                "title": null
+              },
+              "created": {
+                "visible": true,
+                "text": "3:57 PMTuesday, October 20, 2026 at 3:57:30 PM PDT",
+                "dateTime": "2026-10-20T22:57:30.093Z",
+                "title": "Tuesday, October 20, 2026 at 3:57:30 PM PDT"
+              },
+              "updated": {
+                "visible": true,
+                "text": "3:57 PMTuesday, October 20, 2026 at 3:57:30 PM PDT",
+                "dateTime": "2026-10-20T22:57:30.093Z",
+                "title": "Tuesday, October 20, 2026 at 3:57:30 PM PDT"
+              },
+              "text": "Fact\n[smoke] memory metadata 535f578f-17a8-4054-8c72-bfe967b0d3d4\n\n[smoke] memory metadata 535f578f-17a8-4054-8c72-bfe967b0d3d4. Harmless private note.\n\nStatus\nactive\nTrust\nunverified\nTags\nsmoke \u00b7 535f578f-17a8-4054-8c72-bfe967b0d3d4\nSource\nfact/smoke-memory-metadata-535f578f-17a8-4054-8c72-bfe967b0d3d4-h.md\nCreated\n3:57 PM\nTuesday, October 20, 2026 at 3:57:30 PM PDT\nUpdated\n3:57 PM\nTuesday, October 20, 2026 at 3:57:30 PM PDT"
+            },
+            "api": {
+              "status": 200,
+              "id": "85ecdf8d-4d8b-414c-bb6c-dcecd572c661",
+              "sourceId": "fact/smoke-memory-metadata-535f578f-17a8-4054-8c72-bfe967b0d3d4-h.md",
+              "createdAt": "2026-10-20T22:57:30.093Z",
+              "updatedAt": "2026-10-20T22:57:30.093Z",
+              "contentMatches": true
+            }
+          },
+          "afterDelete": {
+            "deleteStatus": 204,
+            "refreshStatus": 200,
+            "listHasDeletedId": false,
+            "rowVisible": false,
+            "inspector": {
+              "visible": true,
+              "testId": "brain-inspector-detail",
+              "source": {
+                "visible": false,
+                "text": null,
+                "dateTime": null,
+                "title": null
+              },
+              "created": {
+                "visible": false,
+                "text": null,
+                "dateTime": null,
+                "title": null
+              },
+              "updated": {
+                "visible": false,
+                "text": null,
+                "dateTime": null,
+                "title": null
+              },
+              "text": "Select a memory to inspect its details."
+            },
+            "indexCount": 0,
+            "vaultExists": false
+          },
+          "afterCleanup": {
+            "indexCount": 0,
+            "vaultExists": false
+          }
+        },
+        "cleanup": []
+      }
+    },
+    {
+      "step": "Managed skill",
+      "observed": {
+        "phase": "Recon observations only",
+        "sourceRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
+        "ownerUserId": 1,
+        "name": "smoke-skill-466f27575c8347bd8feeebe021fde950",
+        "nonce": "466f27575c8347bd8feeebe021fde950",
+        "steps": {
+          "before": {
+            "file": {
+              "exists": false,
+              "path": "<private-fixture>/opencode-config/skills/smoke-skill-466f27575c8347bd8feeebe021fde950/SKILL.md",
+              "hash": null,
+              "containsNonce": false,
+              "frontmatter": null
+            },
+            "catalogs": {
+              "api": {
+                "status": 200,
+                "count": 5,
+                "item": null
+              },
+              "engineSameApiDirectory": {
+                "status": 200,
+                "count": 5,
+                "item": null
+              },
+              "engine": {
+                "status": 200,
+                "count": 5,
+                "item": null
+              }
+            }
+          },
+          "initial": {
+            "status": 200,
+            "uiBearerMatchesPrivateToken": true
+          },
+          "create": {
+            "status": 200,
+            "name": "smoke-skill-466f27575c8347bd8feeebe021fde950",
+            "location": "<private-fixture>/opencode-config/skills/smoke-skill-466f27575c8347bd8feeebe021fde950/SKILL.md",
+            "managed": true,
+            "file": {
+              "exists": true,
+              "path": "<private-fixture>/opencode-config/skills/smoke-skill-466f27575c8347bd8feeebe021fde950/SKILL.md",
+              "hash": "1b133b20432859839fad10ba50ef78ee3e4c6d469ef97cfaadcc80ce365e9497",
+              "containsNonce": true,
+              "frontmatter": "name: smoke-skill-466f27575c8347bd8feeebe021fde950\ndescription: \"[smoke] harmless private skill 466f27575c8347bd8feeebe021fde950\""
+            }
+          },
+          "postCreate": {
+            "rowText": "smoke-skill-466f27575c8347bd8feeebe021fde950[smoke] harmless private skill 466f27575c8347bd8feeebe021fde950 \u00b7 managedManaged",
+            "inspector": {
+              "containsMarker": true,
+              "containsError": false,
+              "length": 265
+            },
+            "apiContent": {
+              "status": 200,
+              "name": "smoke-skill-466f27575c8347bd8feeebe021fde950",
+              "containsNonce": true,
+              "text": "---\nname: smoke-skill-466f27575c8347bd8feeebe021fde950\ndescription: \"[smoke] harmless private skill 466f27575c8347bd8feeebe021fde950\"\n---\n\n# Private observation 466f27575c8347bd8feeebe021fde950\n\nThis text labels a disposable test record. It has no external action.\n"
+            },
+            "catalogs": {
+              "api": {
+                "status": 200,
+                "count": 6,
+                "item": {
+                  "name": "smoke-skill-466f27575c8347bd8feeebe021fde950",
+                  "description": "[smoke] harmless private skill 466f27575c8347bd8feeebe021fde950",
+                  "managed": true,
+                  "source": "managed",
+                  "location": "<private-fixture>/opencode-config/skills/smoke-skill-466f27575c8347bd8feeebe021fde950/SKILL.md",
+                  "metadataStatus": "active"
+                }
+              },
+              "engineSameApiDirectory": {
+                "status": 200,
+                "count": 6,
+                "item": {
+                  "name": "smoke-skill-466f27575c8347bd8feeebe021fde950",
+                  "description": "[smoke] harmless private skill 466f27575c8347bd8feeebe021fde950",
+                  "location": "<private-fixture>/opencode-config/skills/smoke-skill-466f27575c8347bd8feeebe021fde950/SKILL.md",
+                  "content": "\n# Private observation 466f27575c8347bd8feeebe021fde950\n\nThis text labels a disposable test record. It has no external action.\n"
+                }
+              },
+              "engine": {
+                "status": 200,
+                "count": 5,
+                "item": null
+              }
+            }
+          },
+          "edit": {
+            "status": 200,
+            "descriptionBefore": "[smoke] harmless private skill 466f27575c8347bd8feeebe021fde950",
+            "bodyBeforeContainsNonce": true,
+            "responseLocation": "<private-fixture>/opencode-config/skills/smoke-skill-466f27575c8347bd8feeebe021fde950/SKILL.md",
+            "file": {
+              "exists": true,
+              "path": "<private-fixture>/opencode-config/skills/smoke-skill-466f27575c8347bd8feeebe021fde950/SKILL.md",
+              "hash": "89c0da195b143837af465e9aede422343e960a380de9a27181e12ff71cb51d9f",
+              "containsNonce": true,
+              "frontmatter": "name: smoke-skill-466f27575c8347bd8feeebe021fde950\ndescription: \"[smoke] harmless private skill 466f27575c8347bd8feeebe021fde950\""
+            },
+            "apiContent": {
+              "status": 200,
+              "name": "smoke-skill-466f27575c8347bd8feeebe021fde950",
+              "containsNonce": true,
+              "text": "---\nname: smoke-skill-466f27575c8347bd8feeebe021fde950\ndescription: \"[smoke] harmless private skill 466f27575c8347bd8feeebe021fde950\"\n---\n\n# Private observation 466f27575c8347bd8feeebe021fde950\n\nThis text labels a disposable test record. It has no external action.\n\nEdited private marker 466f27575c8347bd8feeebe021fde950.\n"
+            },
+            "catalogs": {
+              "api": {
+                "status": 200,
+                "count": 6,
+                "item": {
+                  "name": "smoke-skill-466f27575c8347bd8feeebe021fde950",
+                  "description": "[smoke] harmless private skill 466f27575c8347bd8feeebe021fde950",
+                  "managed": true,
+                  "source": "managed",
+                  "location": "<private-fixture>/opencode-config/skills/smoke-skill-466f27575c8347bd8feeebe021fde950/SKILL.md",
+                  "metadataStatus": "active"
+                }
+              },
+              "engineSameApiDirectory": {
+                "status": 200,
+                "count": 6,
+                "item": {
+                  "name": "smoke-skill-466f27575c8347bd8feeebe021fde950",
+                  "description": "[smoke] harmless private skill 466f27575c8347bd8feeebe021fde950",
+                  "location": "<private-fixture>/opencode-config/skills/smoke-skill-466f27575c8347bd8feeebe021fde950/SKILL.md",
+                  "content": "\n# Private observation 466f27575c8347bd8feeebe021fde950\n\nThis text labels a disposable test record. It has no external action.\n\nEdited private marker 466f27575c8347bd8feeebe021fde950.\n"
+                }
+              },
+              "engine": {
+                "status": 200,
+                "count": 5,
+                "item": null
+              }
+            }
+          },
+          "reload": {
+            "status": 200,
+            "uiBearerMatchesPrivateToken": true,
+            "rowText": "smoke-skill-466f27575c8347bd8feeebe021fde950[smoke] harmless private skill 466f27575c8347bd8feeebe021fde950 \u00b7 managedManaged",
+            "inspector": {
+              "containsMarker": true,
+              "containsError": false,
+              "length": 322
+            },
+            "apiContent": {
+              "status": 200,
+              "name": "smoke-skill-466f27575c8347bd8feeebe021fde950",
+              "containsNonce": true,
+              "text": "---\nname: smoke-skill-466f27575c8347bd8feeebe021fde950\ndescription: \"[smoke] harmless private skill 466f27575c8347bd8feeebe021fde950\"\n---\n\n# Private observation 466f27575c8347bd8feeebe021fde950\n\nThis text labels a disposable test record. It has no external action.\n\nEdited private marker 466f27575c8347bd8feeebe021fde950.\n"
+            },
+            "catalogs": {
+              "api": {
+                "status": 200,
+                "count": 6,
+                "item": {
+                  "name": "smoke-skill-466f27575c8347bd8feeebe021fde950",
+                  "description": "[smoke] harmless private skill 466f27575c8347bd8feeebe021fde950",
+                  "managed": true,
+                  "source": "managed",
+                  "location": "<private-fixture>/opencode-config/skills/smoke-skill-466f27575c8347bd8feeebe021fde950/SKILL.md",
+                  "metadataStatus": "active"
+                }
+              },
+              "engineSameApiDirectory": {
+                "status": 200,
+                "count": 6,
+                "item": {
+                  "name": "smoke-skill-466f27575c8347bd8feeebe021fde950",
+                  "description": "[smoke] harmless private skill 466f27575c8347bd8feeebe021fde950",
+                  "location": "<private-fixture>/opencode-config/skills/smoke-skill-466f27575c8347bd8feeebe021fde950/SKILL.md",
+                  "content": "\n# Private observation 466f27575c8347bd8feeebe021fde950\n\nThis text labels a disposable test record. It has no external action.\n\nEdited private marker 466f27575c8347bd8feeebe021fde950.\n"
+                }
+              },
+              "engine": {
+                "status": 200,
+                "count": 5,
+                "item": null
+              }
+            }
+          },
+          "uiDelete": {
+            "status": 204,
+            "file": {
+              "exists": false,
+              "path": "<private-fixture>/opencode-config/skills/smoke-skill-466f27575c8347bd8feeebe021fde950/SKILL.md",
+              "hash": null,
+              "containsNonce": false,
+              "frontmatter": null
+            },
+            "catalogs": {
+              "api": {
+                "status": 200,
+                "count": 5,
+                "item": null
+              },
+              "engineSameApiDirectory": {
+                "status": 200,
+                "count": 5,
+                "item": null
+              },
+              "engine": {
+                "status": 200,
+                "count": 5,
+                "item": null
+              }
+            }
+          }
+        },
+        "cleanup": {
+          "fileAbsent": true,
+          "catalogs": {
+            "api": {
+              "status": 200,
+              "count": 5,
+              "item": null
+            },
+            "engineSameApiDirectory": {
+              "status": 200,
+              "count": 5,
+              "item": null
+            },
+            "engine": {
+              "status": 200,
+              "count": 5,
+              "item": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "step": "Missing private primary cwd",
+      "observed": {
+        "phase": "Recon observations only",
+        "sourceRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
+        "ownerUserId": 1,
+        "rootId": "08e3e8de-5a8f-4858-867a-6b6d690ce88e",
+        "projectId": "16c0fa5a-bd77-43cd-ad46-e415b05dccbe",
+        "cwd": "<private-fixture>/live-artifacts/coordinator-workspaces/rhythm-0f6f27bb-0fa3-4075-be27-7c4b53c95179",
+        "backup": "<private-fixture>/live-artifacts/coordinator-workspaces/.smoke-missing-cwd-4e5d6959-9ea3-4482-a20d-d20ea8404115",
+        "guard": {
+          "projectSessions": 1,
+          "rootChildren": 0,
+          "journalCommands": 0,
+          "mirroredMessages": 0,
+          "asyncDelegations": 0,
+          "workstreams": 0,
+          "pendingChildren": 0,
+          "engineBefore": {
+            "sessions": 0,
+            "statusKeys": 0
+          }
+        },
+        "steps": {
+          "before": {
+            "api": {
+              "resolve": {
+                "status": 200,
+                "kind": "resolved",
+                "sessionId": "08e3e8de-5a8f-4858-867a-6b6d690ce88e",
+                "projectId": "16c0fa5a-bd77-43cd-ad46-e415b05dccbe",
+                "messageCount": null
+              },
+              "open": {
+                "status": 200,
+                "kind": "replay",
+                "sessionId": "08e3e8de-5a8f-4858-867a-6b6d690ce88e",
+                "projectId": "16c0fa5a-bd77-43cd-ad46-e415b05dccbe",
+                "messageCount": null
+              },
+              "history": {
+                "status": 400,
+                "kind": null,
+                "sessionId": null,
+                "projectId": null,
+                "messageCount": null
+              }
+            },
+            "ui": {
+              "resolveStatus": 200,
+              "resolveKind": "resolved",
+              "resolveRootId": "08e3e8de-5a8f-4858-867a-6b6d690ce88e",
+              "selectedRoot": "true",
+              "primaryStatus": "Opening Rhythm\u2026",
+              "setupDialogVisible": false
+            }
+          },
+          "missing": {
+            "api": {
+              "resolve": {
+                "status": 200,
+                "kind": "resolved",
+                "sessionId": "08e3e8de-5a8f-4858-867a-6b6d690ce88e",
+                "projectId": "16c0fa5a-bd77-43cd-ad46-e415b05dccbe",
+                "messageCount": null
+              },
+              "open": {
+                "status": 200,
+                "kind": "replay",
+                "sessionId": "08e3e8de-5a8f-4858-867a-6b6d690ce88e",
+                "projectId": "16c0fa5a-bd77-43cd-ad46-e415b05dccbe",
+                "messageCount": null
+              },
+              "history": {
+                "status": 400,
+                "kind": null,
+                "sessionId": null,
+                "projectId": null,
+                "messageCount": null
+              }
+            },
+            "ui": {
+              "resolveStatus": 200,
+              "resolveKind": "resolved",
+              "resolveRootId": "08e3e8de-5a8f-4858-867a-6b6d690ce88e",
+              "selectedRoot": "true",
+              "primaryStatus": "Opening Rhythm\u2026",
+              "setupDialogVisible": false
+            },
+            "db": {
+              "projectSessions": 1,
+              "rootChildren": 0,
+              "journalCommands": 0,
+              "mirroredMessages": 0,
+              "asyncDelegations": 0,
+              "workstreams": 0,
+              "pendingChildren": 0
+            },
+            "originalAbsent": true,
+            "backupInodeMatches": true
+          }
+        },
+        "restore": {
+          "restored": true,
+          "inodeMatches": true,
+          "api": {
+            "resolve": {
+              "status": 200,
+              "kind": "resolved",
+              "sessionId": "08e3e8de-5a8f-4858-867a-6b6d690ce88e",
+              "projectId": "16c0fa5a-bd77-43cd-ad46-e415b05dccbe",
+              "messageCount": null
+            },
+            "open": {
+              "status": 200,
+              "kind": "replay",
+              "sessionId": "08e3e8de-5a8f-4858-867a-6b6d690ce88e",
+              "projectId": "16c0fa5a-bd77-43cd-ad46-e415b05dccbe",
+              "messageCount": null
+            },
+            "history": {
+              "status": 400,
+              "kind": null,
+              "sessionId": null,
+              "projectId": null,
+              "messageCount": null
+            }
+          },
+          "db": {
+            "projectSessions": 1,
+            "rootChildren": 0,
+            "journalCommands": 0,
+            "mirroredMessages": 0,
+            "asyncDelegations": 0,
+            "workstreams": 0,
+            "pendingChildren": 0
+          }
+        }
+      }
+    },
+    {
+      "step": "Dayflow geometry",
+      "observed": {
+        "sourceRevision": "28bcc2aa44a873b1c1c6091cdc8a533d0b1499c3",
+        "observations": {
+          "initial": {
+            "window": null,
+            "ui": {
+              "route": "#/agents",
+              "viewport": {
+                "width": 1280,
+                "height": 768,
+                "deviceScaleFactor": 2
+              },
+              "host": null,
+              "notificationOverlay": {
+                "open": false,
+                "menuRect": null,
+                "reserved": false
+              }
+            }
+          },
+          "normal": {
+            "window": null,
+            "ui": {
+              "route": "#/tools/dayflow",
+              "viewport": {
+                "width": 1280,
+                "height": 768,
+                "deviceScaleFactor": 2
+              },
+              "host": {
+                "phase": "attached",
+                "ariaBusy": null,
+                "rect": {
+                  "x": 35,
+                  "y": 85,
+                  "width": 1210,
+                  "height": 642
+                },
+                "display": "block",
+                "visibility": "visible"
+              },
+              "notificationOverlay": {
+                "open": false,
+                "menuRect": null,
+                "reserved": false
+              }
+            },
+            "dayflowStatus": {
+              "available": true,
+              "state": "ready",
+              "code": null
+            }
+          },
+          "notificationsOpen": {
+            "window": null,
+            "ui": {
+              "route": "#/tools/dayflow",
+              "viewport": {
+                "width": 1280,
+                "height": 768,
+                "deviceScaleFactor": 2
+              },
+              "host": {
+                "phase": "attached",
+                "ariaBusy": null,
+                "rect": {
+                  "x": 35,
+                  "y": 85,
+                  "width": 1210,
+                  "height": 642
+                },
+                "display": "block",
+                "visibility": "visible"
+              },
+              "notificationOverlay": {
+                "open": true,
+                "menuRect": {
+                  "x": 858,
+                  "y": 64,
+                  "width": 360,
+                  "height": 226
+                },
+                "reserved": true
+              }
+            }
+          },
+          "notificationsClosed": {
+            "window": null,
+            "ui": {
+              "route": "#/tools/dayflow",
+              "viewport": {
+                "width": 1280,
+                "height": 768,
+                "deviceScaleFactor": 2
+              },
+              "host": {
+                "phase": "attached",
+                "ariaBusy": null,
+                "rect": {
+                  "x": 35,
+                  "y": 85,
+                  "width": 1210,
+                  "height": 642
+                },
+                "display": "block",
+                "visibility": "visible"
+              },
+              "notificationOverlay": {
+                "open": false,
+                "menuRect": null,
+                "reserved": false
+              }
+            }
+          },
+          "tabHidden": {
+            "window": null,
+            "ui": {
+              "route": "#/agents",
+              "viewport": {
+                "width": 1280,
+                "height": 768,
+                "deviceScaleFactor": 2
+              },
+              "host": null,
+              "notificationOverlay": {
+                "open": false,
+                "menuRect": null,
+                "reserved": false
+              }
+            }
+          },
+          "tabReturned": {
+            "window": null,
+            "ui": {
+              "route": "#/tools/dayflow",
+              "viewport": {
+                "width": 1280,
+                "height": 768,
+                "deviceScaleFactor": 2
+              },
+              "host": {
+                "phase": "attached",
+                "ariaBusy": null,
+                "rect": {
+                  "x": 35,
+                  "y": 85,
+                  "width": 1210,
+                  "height": 642
+                },
+                "display": "block",
+                "visibility": "visible"
+              },
+              "notificationOverlay": {
+                "open": false,
+                "menuRect": null,
+                "reserved": false
+              }
+            },
+            "dayflowStatus": {
+              "available": true,
+              "state": "ready",
+              "code": null
+            }
+          }
+        },
+        "errors": {
+          "windowProtocol": "Error",
+          "narrow": "normal_window_with_cdp_and_adequate_width_required",
+          "short": "normal_window_with_cdp_and_adequate_height_required"
+        },
+        "restored": null
+      }
+    }
+  ],
+  "limitations": [
+    "Skill shared-library edits refresh the API home instance but leave a separately cached default engine instance stale. A subsequent fork regression reproduces this and repair awaits updated live/package confirmation.",
+    "Missing-cwd direct history probe omitted required limit and returned400; that is a probe error. UI status sampled before open/history settled; it does not establish readiness. Rename and same-inode restore succeeded; no model/session/journal work was created.",
+    "Dayflow native attachment, overlay reservation and tab return were observed. CDP window bounds protocol was unavailable, so resize and native pixel geometry remain unqualified."
+  ]
+}

@@ -1,4 +1,5 @@
 import type { Request, RequestHandler, Response, Router } from 'express';
+import { AppError } from '../../errors/app_error';
 
 import {
   BRIDGE_SCOPES,
@@ -79,7 +80,16 @@ async function registerGrantHandler(
     return;
   }
 
-  const user = await deps.resolveBearer(body.sessionToken);
+  let user;
+  try {
+    user = await deps.resolveBearer(body.sessionToken);
+  } catch (error) {
+    if (error instanceof AppError && error.statusCode === 503 && error.code === 'AUTH_UNAVAILABLE') {
+      sendBridgeError(res, 503, 'bridge_unavailable');
+      return;
+    }
+    throw error;
+  }
   if (!user) {
     sendBridgeError(res, 403, 'grant_identity_unresolved');
     return;
@@ -122,8 +132,8 @@ async function registerGrantHandler(
 function createRegisterGrantHandler(
   deps: BridgeDeps,
 ): RequestHandler<Record<string, never>, RegisterGrantResponse | BridgeErrorResponse, RegisterGrantRequest> {
-  return function handleRegisterGrant(req, res) {
-    return registerGrantHandler(req, res, deps);
+  return function handleRegisterGrant(req, res, next): void {
+    void registerGrantHandler(req, res, deps).catch(next);
   };
 }
 

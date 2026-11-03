@@ -370,7 +370,7 @@ describe('OpencodeStreamBridge — transcript.append emission', () => {
         undefined,
       );
     });
-    expect(engineSpies.updateSessionAllowlist).toHaveBeenCalledWith(SDK_ID, null, 'google');
+    expect(engineSpies.updateSessionAllowlist).toHaveBeenCalledWith(SDK_ID, null, 'google', 'retained bridge prompt');
     expect(new AgentSessionsRepository().findById(localId)?.providerId).toBe('google');
     expect(
       broadcastSpy.mock.calls

@@ -115,7 +115,19 @@ test('issue-1174: chat session maintenance initializes, shells, edits, and delet
 
   await expect(page.getByTestId('chat-message-part-input')).toHaveValue('Create an editable message');
   await page.getByTestId('chat-message-part-input').fill('Edited from mobile parity');
+  const partUpdateResponse = page.waitForResponse((response) => (
+    response.request().method() === 'PATCH' &&
+    /\/session\/[^/]+\/message\/[^/]+\/part\/[^/]+$/.test(new URL(response.url()).pathname)
+  ));
   await page.getByTestId('chat-message-part-save').click();
+  const savedPartResponse = await partUpdateResponse;
+  expect(savedPartResponse.ok()).toBeTruthy();
+  expect(savedPartResponse.request().postDataJSON().text).toBe('Edited from mobile parity');
+  await expect.poll(async () => {
+    const sessions = await (await request.get(`${fakeServer}/session`)).json();
+    const records = await (await request.get(`${fakeServer}/session/${sessions[0].id}/message`)).json();
+    return records.flatMap((record) => record.parts).some((part) => part.text === 'Edited from mobile parity');
+  }).toBe(true);
   await expect(page.getByText('Edited from mobile parity', { exact: true }).first()).toBeVisible();
 
   const sessions = await (await request.get(`${fakeServer}/session`)).json();
@@ -147,6 +159,29 @@ test('issue-1174: chat session maintenance initializes, shells, edits, and delet
       fullPage: true,
     });
   }
+});
+
+test('issue-1174: older edit selection survives new turns and reconciles when removed', async ({ page, request }) => {
+  await openReadyChat(page, request);
+  await page.getByPlaceholder('Ask anything...').fill('First editable message');
+  await page.getByTestId('chat-primary-button').click();
+  await expect(page.getByText(/Finished: First editable message/).first()).toBeVisible({ timeout: 20_000 });
+  await page.getByPlaceholder('Ask anything...').fill('Latest editable message');
+  await page.getByTestId('chat-primary-button').click();
+  await expect(page.getByText(/Finished: Latest editable message/).first()).toBeVisible({ timeout: 20_000 });
+
+  await page.getByLabel('Chat menu').locator('visible=true').click();
+  await page.getByTestId('chat-session-tools-toggle').locator('visible=true').click();
+  await expect(page.getByTestId('chat-message-part-input')).toHaveValue('Latest editable message');
+  await page.getByRole('button', { name: '1', exact: true }).click();
+  await expect(page.getByTestId('chat-message-part-input')).toHaveValue('First editable message');
+  await page.getByPlaceholder('Ask anything...').fill('Third editable message');
+  await page.getByTestId('chat-primary-button').click();
+  await expect(page.getByText(/Finished: Third editable message/).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('chat-message-part-input')).toHaveValue('First editable message');
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page.getByTestId('chat-message-delete').click();
+  await expect(page.getByTestId('chat-message-part-input')).toHaveValue('Third editable message');
 });
 
 test('issue-1174: terminal detail and resize use the PTY adapter surface', async ({ page, request }, testInfo) => {

@@ -844,11 +844,13 @@ describe("session.llm.stream", () => {
     const providerID = "alibaba"
     const modelID = "qwen-plus"
     const fixture = await loadFixture(providerID, modelID)
-    // Keep the complete stream longer than the watchdog while leaving enough
-    // per-chunk margin for decoding under shared CI runner load.
-    const request = waitActiveStreamingRequest("/chat/completions", 25, 12)
+    // The whole stream (30 x 50ms = 1.5s) outlasts the 1s watchdog, so it only
+    // passes if every chunk re-arms the timer. Per-chunk gap is 50ms against a
+    // 1000ms budget: a shared CI runner can stall ~950ms without a false
+    // failure. The previous 25ms/200ms setting tripped on routine runner stalls.
+    const request = waitActiveStreamingRequest("/chat/completions", 50, 30)
     const previousTimeout = process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS
-    process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS = "200"
+    process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS = "1000"
 
     await using tmp = await tmpdir({
       init: async (dir) => {

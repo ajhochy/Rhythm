@@ -23,6 +23,8 @@
  * `STREAM_BACKPRESSURE` condition the per-device proxy already reported.
  */
 
+import { randomUUID } from 'node:crypto';
+
 /** The wire shape of one `/global/event` frame. */
 export interface GlobalEventEnvelope {
   directory?: string;
@@ -141,3 +143,49 @@ export class OpencodeEventHub {
 }
 
 export const opencodeEventHub = new OpencodeEventHub();
+
+/**
+ * Identity-only, lossy invalidation hint: a canonical coordinator transcript or
+ * state commit happened for this local primary root. It carries no bodies, SDK
+ * selectors, owner identity, controlRevision or ordering claim, and grants no
+ * authority. Reserved for local producers: the bridge rejects this type from
+ * raw engine ingress and the mobile proxy delivers it from the hub only.
+ */
+export const COORDINATOR_CHANGED_EVENT = 'rhythm.coordinator.changed';
+
+export interface CoordinatorChangedScope {
+  /** Server-resolved canonical project directory (hub envelope shaping). */
+  directory: string;
+  projectId: string;
+  conversationId: string;
+  localSessionId: string;
+}
+
+/**
+ * Fresh bounded ID per call so distinct commits never collapse in dedupe. The
+ * relay mints these without a Mac directory (it has no filesystem authority),
+ * so `directory` is optional on the envelope builder only.
+ */
+export function coordinatorChangedEnvelope(
+  scope: Omit<CoordinatorChangedScope, 'directory'> & { directory?: string },
+): GlobalEventEnvelope {
+  return {
+    ...(scope.directory === undefined ? {} : { directory: scope.directory }),
+    payload: {
+      type: COORDINATOR_CHANGED_EVENT,
+      id: randomUUID(),
+      properties: {
+        projectId: scope.projectId,
+        conversationId: scope.conversationId,
+        localSessionId: scope.localSessionId,
+      },
+    },
+  };
+}
+
+export function publishCoordinatorChanged(
+  scope: CoordinatorChangedScope,
+  hub: OpencodeEventHub = opencodeEventHub,
+): void {
+  hub.publish(coordinatorChangedEnvelope(scope));
+}

@@ -21,6 +21,7 @@ import { serviceUse } from "@/effect/service-use"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { SyncEvent } from "@/sync"
 import { SessionEvent } from "@/v2/session-event"
+import { buildProviderOrigins } from "./rhythm_provider_projection"
 
 const log = Log.create({ service: "session.compaction" })
 
@@ -223,14 +224,14 @@ export interface Interface {
     sessionID: SessionID
     auto: boolean
     overflow?: boolean
-  }) => Effect.Effect<"continue" | "stop">
+  }) => Effect.Effect<{ status: "continue" | "stop"; followup?: MessageID }>
   readonly create: (input: {
     sessionID: SessionID
     agent: string
     model: { providerID: ProviderID; modelID: ModelID }
     auto: boolean
     overflow?: boolean
-  }) => Effect.Effect<void>
+  }) => Effect.Effect<MessageV2.User>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionCompaction") {}
@@ -489,6 +490,28 @@ export const layer: Layer.Layer<
           },
         ],
         model,
+        // Real selected-head identities plus the synthetic control prompt (Dayflow provider guard).
+        // Previous-summary / plugin-context spans are derived; a plugin-replaced prompt is
+        // unknowable, so it carries no static-only text (a projection then holds).
+        origins: () =>
+          buildProviderOrigins({
+            purpose: "compaction",
+            userMessageId: userMessage.id,
+            context: input.messages,
+            messages: msgs,
+            convertedCount: async (m) =>
+              (
+                await MessageV2.toModelMessages([m as MessageV2.WithParts], model, {
+                  stripMedia: true,
+                  toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
+                })
+              ).length,
+            trailingControl: {
+              id: userMessage.id,
+              derived: previousSummary !== undefined || compacting.context.length > 0 || compacting.prompt !== undefined,
+              staticText: compacting.prompt === undefined ? buildPrompt({ context: [] }) : undefined,
+            },
+          }),
       })
 
       if (result === "compact") {
@@ -499,7 +522,7 @@ export const layer: Layer.Layer<
         }).toObject()
         processor.message.finish = "error"
         yield* session.updateMessage(processor.message)
-        return "stop"
+        return { status: "stop" as const }
       }
 
       if (compactionPart && selected.tail_start_id && compactionPart.tail_start_id !== selected.tail_start_id) {
@@ -520,6 +543,7 @@ export const layer: Layer.Layer<
         })
       }
 
+      let followup: MessageID | undefined
       if (result === "continue" && input.auto && !loopExhausted) {
         if (replay) {
           const original = replay.info
@@ -534,6 +558,7 @@ export const layer: Layer.Layer<
             tools: original.tools,
             system: original.system,
           })
+          followup = replayMsg.id
           for (const part of replay.parts) {
             if (part.type === "compaction") continue
             const replayPart =
@@ -581,6 +606,7 @@ export const layer: Layer.Layer<
               agent: userMessage.agent,
               model: userMessage.model,
             })
+            followup = continueMsg.id
             const text =
               (input.overflow
                 ? "The previous request exceeded the provider's size limit due to large media attachments. The conversation was compacted and media files were removed from context. If the user was asking about attached images or files, explain that the attachments were too large to process and suggest they try again with smaller or fewer files.\n\n"
@@ -606,7 +632,7 @@ export const layer: Layer.Layer<
         }
       }
 
-      if (processor.message.error) return "stop"
+      if (processor.message.error) return { status: "stop" as const }
       if (result === "continue") {
         const summary = summaryText(
           fullHistory.find((item) => item.info.id === msg.id) ?? {
@@ -624,8 +650,11 @@ export const layer: Layer.Layer<
         }
         yield* bus.publish(Event.Compacted, { sessionID: input.sessionID })
       }
-      if (loopExhausted) return "stop"
-      return result
+      const status: "continue" | "stop" = loopExhausted || result === "stop" ? "stop" : "continue"
+      return {
+        status,
+        ...(followup ? { followup } : {}),
+      }
     })
 
     const create = Effect.fn("SessionCompaction.create")(function* (input: {
@@ -658,6 +687,7 @@ export const layer: Layer.Layer<
           reason: input.auto ? "auto" : "manual",
         })
       }
+      return msg
     })
 
     return Service.of({

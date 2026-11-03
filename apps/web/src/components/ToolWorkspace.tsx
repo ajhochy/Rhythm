@@ -3,7 +3,8 @@ import { FIXED_NOW } from '../fixtures';
 import { useGateway } from '../gateway/context';
 import type { AgentMemory } from '../gateway/memory';
 import type { OrgProposal } from '../gateway/org-proposals';
-import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRun } from '../gateway/schedules';
+import { ScheduleGatewayError, type ScheduledTask, type ScheduledTaskInput, type ScheduledTaskRun } from '../gateway/schedules';
+import { formatLocalDateTime, isConsumedOnceSchedule, localDateTimeToIso, scheduleTimeZones, validateScheduleTiming } from '../scheduleTiming.mjs';
 import type { AgentRunQuality } from '../gateway/run-quality';
 import type { CommandEntry, ManagedCommandContent } from '../gateway/commands';
 import type { CookbookRecipe } from '../gateway/cookbook';
@@ -25,7 +26,12 @@ import { researchExportName, saveTextFile } from '../saveTextFile';
 import { guidanceFrom, magazineState, publishMagazine } from '../research/magazineArtifact';
 import { FixtureAgentSettingsTool, LiveSettingsTool } from './tools/AgentSettingsTool';
 import { SharedAgentsTool } from './tools/SharedAgentsTool';
+import { AgentToolsCatalog } from './tools/AgentToolsCatalog';
+import { DayflowTool } from './tools/DayflowTool';
 import { GalleryFolders, matchesGalleryFilter, type GalleryFilter } from './tools/GalleryFolders';
+import { OrgEvaluationPanel } from './tools/OrgEvaluationPanel';
+import { availableAgentToolIds } from '../agentTools/hosts';
+import { useAuthUser } from '../gateway/auth';
 import './ToolWorkspace.css';
 
 // Parses a JSON array field defensively — live rows always carry these as JSON text
@@ -827,7 +833,15 @@ function LiveSchedulesTool() {
   const [loading, setLoading] = useState(true);
   const [runState, setRunState] = useState<{ taskId: string | null; runs: ScheduledTaskRun[]; error: string | null; loading: boolean }>({ taskId: null, runs: [], error: null, loading: false });
   const runRequest = useRef(0);
+  const triggering = useRef(new Set<string>());
+  const [triggerStates, setTriggerStates] = useState<Record<string, 'queueing' | 'reconciling' | undefined>>({});
+  const [triggerErrors, setTriggerErrors] = useState<Record<string, string | undefined>>({});
+  const uncertain = useRef(new Map<string, { lastRunAt: string | null; runIds: string[] | null }>());
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const tasksLoaded = useRef(false);
   const [editing, setEditing] = useState<ScheduledTask | 'new' | null>(null);
+  const [editorType, setEditorType] = useState('daily');
+  const [timingError, setTimingError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<ScheduledTask | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-schedules', detail: 'Loading live schedules' });
@@ -841,13 +855,30 @@ function LiveSchedulesTool() {
   useEffect(() => { if (selectedId === null && tasks[0]) setSelectedId(tasks[0].id); }, [selectedId, tasks, setSelectedId]);
 
   const loadTasks = async () => {
-    setError(null);
-    setLoading(true);
+    if (!tasksLoaded.current) { setError(null); setLoading(true); }
     try {
       const next = await gateway.domains.schedules!.list();
+      tasksLoaded.current = true;
       setTasks(next);
+      setError(null);
+      setRefreshError(null);
+      for (const [id, before] of uncertain.current) {
+        const task = next.find(item => item.id === id);
+        if (!task) continue;
+        const history = await gateway.domains.schedules!.runs(id);
+        // ponytail: absence cannot prove a lost POST was rejected; keep retry blocked until durable acceptance is observed.
+        if (['queued', 'running'].includes(task.lastRunStatus ?? '') || task.lastRunAt !== before.lastRunAt || (before.runIds !== null && history.some(run => !before.runIds!.includes(run.id)))) {
+          uncertain.current.delete(id);
+          triggering.current.delete(id);
+          setTriggerStates(current => ({ ...current, [id]: undefined }));
+          setTriggerErrors(current => ({ ...current, [id]: undefined }));
+        }
+      }
       setTrace({ method: 'GET', route: '/agent-schedules', detail: `${next.length} schedules loaded` });
-    } catch (err) { setError(err instanceof Error ? err.message : 'Schedules failed to load'); }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Schedules failed to load';
+      if (tasksLoaded.current) setRefreshError(message); else setError(message);
+    }
     finally { setLoading(false); }
   };
   useEffect(() => { void loadTasks(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -874,11 +905,21 @@ function LiveSchedulesTool() {
       await gateway.domains.schedules!.rootSession(run.rootSessionId);
       await selectLiveSession(run.rootSessionId);
       setTrace({ method: 'GET', route: `/agent-sessions/${run.rootSessionId}`, detail: 'Opened linked run session' });
-      navigate('/agents');
+      // Scheduled roots may be outside the default chat list after a reload.
+      navigate(`/agents?sessionId=${encodeURIComponent(run.rootSessionId)}`);
     } catch (err) { notify(err instanceof Error ? err.message : 'Could not open the linked session'); }
   };
 
   const toggleEnabled = async (task: ScheduledTask) => {
+    if (!task.enabled) {
+      const timingError = validateScheduleTiming({ ...task, enabled: true });
+      if (timingError) {
+        setEditorType(task.scheduleType);
+        setTimingError(timingError);
+        setEditing({ ...task, enabled: true });
+        return;
+      }
+    }
     try {
       const next = await gateway.domains.schedules!.update(task.id, { enabled: !task.enabled });
       setTasks((current) => current.map((item) => (item.id === next.id ? next : item)));
@@ -887,14 +928,44 @@ function LiveSchedulesTool() {
   };
 
   const triggerNow = async () => {
-    if (!selected) return;
+    if (!selected || triggering.current.has(selected.id) || ['queued', 'running'].includes(selected.lastRunStatus ?? '')) return;
+    const id = selected.id;
+    triggering.current.add(id);
+    setTriggerStates(current => ({ ...current, [id]: 'queueing' }));
+    setTriggerErrors(current => ({ ...current, [id]: undefined }));
     try {
-      const next = await gateway.domains.schedules!.triggerNow(selected.id);
+      const next = await gateway.domains.schedules!.triggerNow(id);
       setTasks((current) => current.map((item) => (item.id === next.id ? next : item)));
-      setTrace({ method: 'POST', route: `/agent-schedules/${selected.id}/trigger-now`, detail: 'Scheduled job triggered now' });
-      void loadRuns(selected.id);
-    } catch (err) { notify(err instanceof Error ? err.message : 'Trigger failed'); }
+      setTrace({ method: 'POST', route: `/agent-schedules/${id}/trigger-now`, detail: `Run ${next.lastRunStatus ?? 'accepted'}` });
+      void loadRuns(id);
+    } catch (err) {
+      setTriggerErrors(current => ({ ...current, [id]: err instanceof Error ? err.message : 'Trigger failed. Refresh and retry.' }));
+      if (err instanceof ScheduleGatewayError && err.status === 0) {
+        uncertain.current.set(id, { lastRunAt: selected.lastRunAt, runIds: runsLoading ? null : runs.map(run => run.id) });
+        setTriggerStates(current => ({ ...current, [id]: 'reconciling' }));
+        void loadTasks();
+      }
+    } finally {
+      if (!uncertain.current.has(id)) {
+        triggering.current.delete(id);
+        setTriggerStates(current => ({ ...current, [id]: undefined }));
+      }
+    }
   };
+
+  useEffect(() => {
+    if (!tasks.some(task => ['queued', 'running'].includes(task.lastRunStatus ?? '')) && !uncertain.current.size) return;
+    // Poll only while work is in flight; durable state is also read on reopen/refresh.
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      await loadTasks();
+      if (!cancelled && currentTaskId.current) void loadRuns(currentTaskId.current);
+      if (!cancelled) timer = setTimeout(() => void refresh(), 2000);
+    };
+    timer = setTimeout(() => void refresh(), 2000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [tasks, gateway, triggerStates]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const removeTask = async (task: ScheduledTask) => {
     try {
@@ -908,7 +979,36 @@ function LiveSchedulesTool() {
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    const input: ScheduledTaskInput = { name: String(data.get('name')), prompt: String(data.get('prompt')), scheduleType: String(data.get('type')), enabled: data.get('enabled') === 'on' };
+    const scheduleType = String(data.get('type'));
+    const enabled = data.get('enabled') === 'on';
+    const input: ScheduledTaskInput = { name: String(data.get('name')), prompt: String(data.get('prompt')), scheduleType, enabled };
+    if (scheduleType === 'once') {
+      const localValue = String(data.get('runAt') ?? '');
+      const originalValue = event.currentTarget.dataset.originalRunAtInput ?? '';
+      const originalIso = editing && editing !== 'new' ? editing.runAt : null;
+      if (localValue) {
+        const runAt = localDateTimeToIso(localValue, originalValue, originalIso);
+        if (runAt) input.runAt = runAt;
+      }
+    } else {
+      const timeZone = String(data.get('timezone') ?? '');
+      input.timezone = timeZone;
+      if (scheduleType === 'cron') {
+        const expression = String(data.get('cronExpression') ?? '').trim();
+        if (expression) input.cronExpression = expression;
+      } else {
+        const scheduledTime = String(data.get('scheduledTime') ?? '');
+        if (scheduledTime) input.scheduledTime = scheduledTime;
+        if (scheduleType === 'weekly' || scheduleType === 'monthly') {
+          const rawDay = String(data.get('scheduledDay') ?? '');
+          const day = Number(rawDay);
+          if (rawDay !== '') input.scheduledDay = day;
+        }
+      }
+    }
+    const validationError = validateScheduleTiming(input);
+    if (validationError) { setTimingError(validationError); return; }
+    setTimingError(null);
     try {
       if (editing === 'new') {
         const created = await gateway.domains.schedules!.create(input);
@@ -919,13 +1019,18 @@ function LiveSchedulesTool() {
         setTasks((current) => current.map((item) => (item.id === updated.id ? updated : item)));
         setTrace({ method: 'PATCH', route: `/agent-schedules/${editing.id}`, detail: 'Schedule updated' });
       }
-    } catch (err) { notify(err instanceof Error ? err.message : 'Save failed'); }
+    } catch (err) { setTimingError(err instanceof Error ? err.message : 'Save failed'); return; }
     setEditing(null);
   };
 
-  return <ToolFrame slug="tasks" title="Agent Schedules" description="Create and operate recurring or one-time agent jobs, with linked session history." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => void loadTasks()} data-testid="schedules-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => setEditing('new')} data-testid="schedule-new"><Icon name="plus" size={14} />New Schedule</button></>}>
+  const openNew = () => { setError(null); setTimingError(null); setEditorType('daily'); setEditing('new'); };
+  const openEdit = (task: ScheduledTask) => { setError(null); setTimingError(null); setEditorType(task.scheduleType); setEditing(task); };
+  const zoneChoices = scheduleTimeZones(editing && editing !== 'new' ? editing.timezone : Intl.DateTimeFormat().resolvedOptions().timeZone);
+
+  return <ToolFrame slug="tasks" title="Agent Schedules" description="Create and operate recurring or one-time agent jobs, with linked session history." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => void loadTasks()} data-testid="schedules-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={openNew} data-testid="schedule-new"><Icon name="plus" size={14} />New Schedule</button></>}>
     <ListInspector
       label="Scheduled agent jobs"
+      toolbar={refreshError ? <p role="status" data-testid="schedule-refresh-error">Progress may be stale; retrying. Use Refresh to check again. {refreshError}</p> : undefined}
       items={tasks.map((task) => ({ id: `schedule-${task.id}`, title: task.name, subtitle: `${task.scheduleType} · ${task.enabled ? 'Enabled' : 'Disabled'}` }))}
       selectedId={effectiveId === null ? null : `schedule-${effectiveId}`}
       onSelect={(id) => setSelectedId(id.slice('schedule-'.length))}
@@ -937,7 +1042,7 @@ function LiveSchedulesTool() {
           <div><span className={`state-badge ${selected.enabled ? 'completed' : ''}`}>{selected.enabled ? 'Enabled' : 'Disabled'}</span><p>{selected.prompt}</p></div>
           <div className="row-actions">
             <button className="secondary-button compact" type="button" onClick={() => void toggleEnabled(selected)} data-testid="schedule-toggle">{selected.enabled ? 'Disable' : 'Enable'}</button>
-            <button className="secondary-button compact" type="button" onClick={() => setEditing(selected)} data-testid="schedule-edit"><Icon name="rename" size={13} />Edit</button>
+            <button className="secondary-button compact" type="button" onClick={() => openEdit(selected)} data-testid="schedule-edit"><Icon name="rename" size={13} />Edit</button>
             <button className="text-danger-button" type="button" onClick={() => setDeleting(selected)} data-testid="schedule-delete"><Icon name="delete" size={13} />Delete</button>
           </div>
         </header>
@@ -946,8 +1051,11 @@ function LiveSchedulesTool() {
           <div><dt>Timezone</dt><dd>{selected.timezone}</dd></div>
           <div><dt>Last run</dt><dd>{selected.lastRunAt ? <Timestamp value={selected.lastRunAt} /> : 'Never'}</dd></div>
         </dl>
+        {selected.enabled && !selected.nextRunAt && !isConsumedOnceSchedule(selected) && <p role="alert" data-testid="schedule-timing-warning">This schedule is enabled, but no next run is scheduled. Edit its timing before relying on it.</p>}
         <div className="run-history">
-          <header><h3>Run history</h3><button className="primary-button" type="button" onClick={() => void triggerNow()} data-testid="schedule-trigger"><Icon name="resume" size={13} />Trigger now</button></header>
+          <header data-testid="schedule-run-context" aria-busy={Boolean(triggerStates[selected.id])}><h3>Run history</h3><button className="primary-button" type="button" aria-disabled={Boolean(triggerStates[selected.id]) || ['queued', 'running'].includes(selected.lastRunStatus ?? '')} onClick={() => void triggerNow()} data-testid="schedule-trigger"><Icon name="resume" size={13} />{triggerStates[selected.id] === 'queueing' ? 'Queueing…' : 'Trigger now'}</button></header>
+          <p role="status" aria-live="polite" aria-atomic="true" data-testid="schedule-progress">{triggerStates[selected.id] === 'queueing' ? 'Queueing…' : triggerStates[selected.id] === 'reconciling' ? 'Checking whether the run was accepted…' : selected.lastRunStatus ? `Run ${selected.lastRunStatus}${selected.lastError ? ` · ${selected.lastError}` : ''}` : ''}</p>
+          {triggerErrors[selected.id] && <p role="alert" data-testid="schedule-trigger-error">{triggerErrors[selected.id]}</p>}
           {runsLoading && <p role="status">Loading run history…</p>}
           {runsError && <p role="alert">{runsError}</p>}
           {runs.map((run) => <button key={run.id} type="button" onClick={() => void openRun(run)} data-testid={`schedule-run-${run.id}`}><span className={`status-dot ${run.status}`} /><strong><Timestamp value={run.startedAt} /></strong><small>{run.status}{run.error ? ` · ${run.error}` : ''}</small></button>)}
@@ -955,7 +1063,24 @@ function LiveSchedulesTool() {
         </div>
       </> : <p>Select a schedule to inspect its details.</p>}
     />
-    <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title={editing === 'new' ? 'New Schedule' : 'Edit Schedule'} description="Schedule times use the task's own timezone." testId="schedule-editor" wide><form className="form-grid" onSubmit={save}><label className="field">Name<input name="name" required data-autofocus defaultValue={editing && editing !== 'new' ? editing.name : ''} /></label><label className="field">Schedule Type<select name="type" defaultValue={editing && editing !== 'new' ? editing.scheduleType : 'daily'}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="cron">Cron Expression</option><option value="once">Once</option></select></label><label className="field span-2">Instructions / Prompt<textarea name="prompt" required rows={4} defaultValue={editing && editing !== 'new' ? editing.prompt : ''} /></label><label className="check-label span-2"><input type="checkbox" name="enabled" defaultChecked={editing && editing !== 'new' ? editing.enabled : true} />Enabled</label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid="schedule-save">Save</button></footer></form></FocusDialog>
+    <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title={editing === 'new' ? 'New Schedule' : 'Edit Schedule'} description="Recurring times use the selected timezone; one-time dates use this Mac's local time." testId="schedule-editor" wide>
+      <form className="form-grid" onSubmit={save} data-original-run-at-input={formatLocalDateTime(editing && editing !== 'new' ? editing.runAt : null)}>
+        <label className="field">Name<input name="name" required data-autofocus defaultValue={editing && editing !== 'new' ? editing.name : ''} /></label>
+        <label className="field">Schedule Type<select name="type" value={editorType} onChange={(event) => { setEditorType(event.target.value); setTimingError(null); }}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="cron">Cron Expression</option><option value="once">Once</option></select></label>
+        <label className="field span-2">Instructions / Prompt<textarea name="prompt" required rows={4} defaultValue={editing && editing !== 'new' ? editing.prompt : ''} /></label>
+        {editorType === 'once' ? <label className="field span-2">Run at (this Mac's local time)<input type="datetime-local" name="runAt" step="0.001" defaultValue={formatLocalDateTime(editing && editing !== 'new' ? editing.runAt : null)} /></label> : <>
+          {editorType === 'cron' ? <label className="field span-2">Cron expression<input name="cronExpression" defaultValue={editing && editing !== 'new' ? editing.cronExpression ?? '' : ''} /></label> : <>
+            <label className="field">Time<input type="time" name="scheduledTime" defaultValue={editing && editing !== 'new' ? editing.scheduledTime ?? '' : ''} /></label>
+            {editorType === 'weekly' && <label className="field">Weekday<select name="scheduledDay" defaultValue={editing && editing !== 'new' ? String(editing.scheduledDay ?? '') : ''}><option value="">Choose a day</option>{['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((day, index) => <option key={day} value={index}>{day}</option>)}</select></label>}
+            {editorType === 'monthly' && <label className="field">Day of month<select name="scheduledDay" defaultValue={editing && editing !== 'new' ? String(editing.scheduledDay ?? '') : ''}><option value="">Choose a day</option>{Array.from({ length: 31 }, (_, index) => index + 1).map(day => <option key={day} value={day}>{day}</option>)}</select></label>}
+          </>}
+          <label className="field">Timezone<select name="timezone" defaultValue={editing && editing !== 'new' ? editing.timezone : Intl.DateTimeFormat().resolvedOptions().timeZone}>{zoneChoices.map(zone => <option key={zone} value={zone}>{zone}</option>)}</select></label>
+        </>}
+        <label className="check-label span-2"><input type="checkbox" name="enabled" defaultChecked={editing && editing !== 'new' ? editing.enabled : true} />Enabled</label>
+        {timingError && <p role="alert" className="span-2" data-testid="schedule-timing-error">{timingError}</p>}
+        <footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid="schedule-save">Save</button></footer>
+      </form>
+    </FocusDialog>
     <ConfirmDialog open={Boolean(deleting)} title="Delete scheduled task?" description={deleting ? `Delete “${deleting.name}”? This cannot be undone.` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (deleting) void removeTask(deleting); }} testId="schedule-delete-dialog" />
   </ToolFrame>;
 }
@@ -1276,10 +1401,10 @@ function LiveCookbookTool() {
     const steps = String(data.get('steps')).split('\n').map((value) => value.trim()).filter(Boolean);
     try {
       await gateway.domains.cookbook!.create({ title: String(data.get('title')), description: String(data.get('description') || '') || null, stepsJson: JSON.stringify(steps) });
+      setEditing(null);
       setTrace({ method: 'POST', route: '/agent-cookbook', detail: 'Recipe created with {title,description,stepsJson}' });
       await load();
     } catch (err) { notify(err instanceof Error ? err.message : 'Recipe save failed'); }
-    setEditing(null);
   };
 
   const run = async (recipe: CookbookRecipe) => {
@@ -1347,11 +1472,12 @@ function LiveReviewTool() {
   useEffect(() => { void load(); }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
   const approveable = (proposal: OrgProposal) => proposal.kind === 'tool-install' ? proposal.status === 'sandbox-vetted' : proposal.status === 'proposed' || proposal.status === 'failed';
   const rejectable = (proposal: OrgProposal) => proposal.kind === 'tool-install' ? proposal.status === 'sandbox-vetted' || proposal.status === 'pending' : proposal.status === 'proposed';
-  const canApprove = (proposal: OrgProposal) => proposal.kind !== 'tool-install' || proposal.toolSafety?.state === 'ready' && ['safe', 'conditional'].includes(proposal.toolSafety.verdict);
-  const mutate = async () => { if (!confirmation) return; const { proposal, action } = confirmation; setConfirmation(null); setActionError(null); let failed = false; try { if (action === 'approve' || action === 'conditional') await gateway.domains.orgProposals!.approve(proposal.id, action === 'conditional'); if (action === 'reject') await gateway.domains.orgProposals!.reject(proposal.id); if (action === 'revert') await gateway.domains.orgProposals!.revert(proposal.id); } catch (err) { failed = true; setActionError(err instanceof Error ? err.message : 'Proposal update failed'); } await load(status, !failed); };
+  const canApprove = (proposal: OrgProposal) => !proposal.evaluationProofInvalid && (proposal.source !== 'org-reviewer-evaluated' || proposal.preReviewEvaluation?.status === 'qualified') && (proposal.kind !== 'tool-install' || proposal.toolSafety?.state === 'ready' && ['safe', 'conditional'].includes(proposal.toolSafety.verdict));
+  const mutate = async () => { if (!confirmation) return; const { proposal, action } = confirmation; setConfirmation(null); setActionError(null); let failed = false; try { if (action === 'approve' || action === 'conditional') { const proof = proposal.preReviewEvaluation; await gateway.domains.orgProposals!.approve(proposal.id, action === 'conditional', proof ? { expectedEvaluationId: proof.evaluationId, finalCandidateHash: proof.finalCandidateHash, originalHash: proof.originalHash } : undefined); } if (action === 'reject') await gateway.domains.orgProposals!.reject(proposal.id); if (action === 'revert') await gateway.domains.orgProposals!.revert(proposal.id); } catch (err) { failed = true; setActionError(err instanceof Error ? err.message : 'Proposal update failed'); } await load(status, !failed); };
   const title = confirmation?.action === 'conditional' ? 'Approve conditional tool install?' : confirmation?.action === 'approve' ? 'Approve proposal?' : confirmation?.action === 'reject' ? 'Reject proposal?' : 'Revert applied change?';
   const description = confirmation?.action === 'conditional' ? 'This tool install is conditional. Confirm that you explicitly approve the closed safety review above.' : 'The server remains authoritative. The queue will refresh after this decision.';
   return <ToolFrame slug="review" title="Review Queue" description="Review organization proposals and their applied-change history." trace={trace}>
+    <OrgEvaluationPanel />
     <ListInspector
       label="Organization proposals"
       items={items.map((proposal) => ({ id: `proposal-${proposal.id}`, title: proposal.title, subtitle: proposal.rationale ?? 'No rationale provided.', meta: proposal.kind, badge: `${proposal.risk} risk` }))}
@@ -1362,7 +1488,7 @@ function LiveReviewTool() {
       toolbar={<><label>Status<select value={status} onChange={(event) => setStatus(event.target.value)} data-testid="review-filter">{reviewStatuses.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="review-refresh"><Icon name="refresh" size={14} />Refresh</button></>}
       listFooter={<>{actionError && <p className="tool-notice error" role="alert" data-testid="review-action-error">{actionError}</p>}{appliedStatuses.has(status) && <p className="tool-notice"><strong>Applied Changes</strong> · deployment history remains separate from measured outcome.</p>}</>}
       emptyState={<EmptyState title="Nothing waiting for review">Choose a proposal status to inspect its review or applied-change history.</EmptyState>}
-          inspector={(item) => item && selected ? <article className="proposal-card" data-testid={`proposal-${selected.id}-details`}><header><span className="kind-badge">{selected.kind}</span><span className={`risk-badge ${selected.risk}`}>{selected.risk} risk</span></header><p>{selected.rationale ?? 'No rationale provided.'}</p><dl className="proposal-statuses"><div><dt>Deployment</dt><dd>{`Deployment: ${selected.status}`}</dd></div><div><dt>Outcome</dt><dd>{`Outcome: ${selected.outcomeStatus}`}</dd></div><div><dt>Created</dt><dd>{selected.createdAt ? <Timestamp value={selected.createdAt} /> : 'Unknown'}</dd></div><div><dt>Updated</dt><dd>{selected.updatedAt ? <Timestamp value={selected.updatedAt} /> : 'Unknown'}</dd></div></dl>{selected.experimentSummary && <div className="tool-notice experiment-summary"><strong>{selected.experimentSummary.collectingProgress === 'no_experiment' ? 'No experiment' : selected.experimentSummary.collectingProgress[0].toUpperCase() + selected.experimentSummary.collectingProgress.slice(1)} · {selected.experimentSummary.eligibleCount} eligible · {selected.experimentSummary.missingCount} missing</strong><span>Integrity: {selected.experimentSummary.treatmentIntegrity} · Guardrails: {selected.experimentSummary.guardrailStatus}</span>{selected.experimentSummary.terminalReason && <span>Decision: {selected.experimentSummary.terminalReason}</span>}{selected.experimentSummary.staleBeforeApplyConflict && <span role="alert">Candidate is stale before apply.</span>}</div>}{selected.kind === 'tool-install' && <ToolSafetyDetails proposal={selected} />}<footer>{rejectable(selected) && <button className="secondary-button" type="button" onClick={() => setConfirmation({ proposal: selected, action: 'reject' })} data-testid={`proposal-reject-${selected.id}`}>Reject</button>}{approveable(selected) && <button className="primary-button" type="button" disabled={!canApprove(selected)} title={!canApprove(selected) ? 'A safe or conditionally safe closed tool-safety projection is required.' : undefined} onClick={() => setConfirmation({ proposal: selected, action: selected.kind === 'tool-install' && selected.toolSafety?.verdict === 'conditional' ? 'conditional' : 'approve' })} data-testid={`proposal-approve-${selected.id}`}>Approve</button>}{selected.status === 'active' && <button className="danger-button" type="button" onClick={() => setConfirmation({ proposal: selected, action: 'revert' })} data-testid={`proposal-revert-${selected.id}`}>Revert</button>}</footer></article> : <p>Select a proposal to inspect its evidence and available review actions.</p>}
+          inspector={(item) => item && selected ? <article className="proposal-card" data-testid={`proposal-${selected.id}-details`}><header><span className="kind-badge">{selected.kind}</span><span className={`risk-badge ${selected.risk}`}>{selected.risk} risk</span></header><p>{selected.rationale ?? 'No rationale provided.'}</p><dl className="proposal-statuses"><div><dt>Deployment</dt><dd>{`Deployment: ${selected.status}`}</dd></div><div><dt>Outcome</dt><dd>{`Outcome: ${selected.outcomeStatus}`}</dd></div><div><dt>Created</dt><dd>{selected.createdAt ? <Timestamp value={selected.createdAt} /> : 'Unknown'}</dd></div><div><dt>Updated</dt><dd>{selected.updatedAt ? <Timestamp value={selected.updatedAt} /> : 'Unknown'}</dd></div></dl>{selected.preReviewEvaluation && <p className="tool-notice">Qualified evaluation {selected.preReviewEvaluation.evaluationId} · final version {selected.preReviewEvaluation.finalCandidateHash}</p>}{selected.evaluationProofInvalid && <p className="tool-notice error" role="alert">Approval unavailable: evaluated version proof is incomplete.</p>}{selected.experimentSummary && <div className="tool-notice experiment-summary"><strong>{selected.experimentSummary.collectingProgress === 'no_experiment' ? 'No experiment' : selected.experimentSummary.collectingProgress[0].toUpperCase() + selected.experimentSummary.collectingProgress.slice(1)} · {selected.experimentSummary.eligibleCount} eligible · {selected.experimentSummary.missingCount} missing</strong><span>Integrity: {selected.experimentSummary.treatmentIntegrity} · Guardrails: {selected.experimentSummary.guardrailStatus}</span>{selected.experimentSummary.terminalReason && <span>Decision: {selected.experimentSummary.terminalReason}</span>}{selected.experimentSummary.staleBeforeApplyConflict && <span role="alert">Candidate is stale before apply.</span>}</div>}{selected.kind === 'tool-install' && <ToolSafetyDetails proposal={selected} />}<footer>{rejectable(selected) && <button className="secondary-button" type="button" onClick={() => setConfirmation({ proposal: selected, action: 'reject' })} data-testid={`proposal-reject-${selected.id}`}>Reject</button>}{approveable(selected) && <button className="primary-button" type="button" disabled={!canApprove(selected)} title={!canApprove(selected) ? selected.evaluationProofInvalid ? 'Evaluated version proof is incomplete.' : 'A safe or conditionally safe closed tool-safety projection is required.' : undefined} onClick={() => setConfirmation({ proposal: selected, action: selected.kind === 'tool-install' && selected.toolSafety?.verdict === 'conditional' ? 'conditional' : 'approve' })} data-testid={`proposal-approve-${selected.id}`}>Approve</button>}{selected.status === 'active' && <button className="danger-button" type="button" onClick={() => setConfirmation({ proposal: selected, action: 'revert' })} data-testid={`proposal-revert-${selected.id}`}>Revert</button>}</footer></article> : <p>Select a proposal to inspect its evidence and available review actions.</p>}
     />
     <FocusDialog open={Boolean(confirmation)} onClose={() => setConfirmation(null)} title={title} description={description} testId={confirmation?.action === 'conditional' ? 'proposal-conditional-dialog' : confirmation?.action === 'revert' ? 'proposal-revert-dialog' : 'proposal-confirm-dialog'}><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setConfirmation(null)}>Cancel</button><button className={confirmation?.action === 'revert' ? 'danger-button' : 'primary-button'} type="button" onClick={() => void mutate()} data-testid={confirmation?.action === 'conditional' ? 'proposal-conditional-confirm' : confirmation?.action === 'revert' ? 'proposal-revert-confirm' : 'proposal-confirm'}>Confirm</button></div></FocusDialog>
   </ToolFrame>;
@@ -1435,7 +1561,7 @@ function LiveReportCardTool() {
   return <ToolFrame slug="report-card" title="Agent Report Card" description={`How each agent has been doing over the last ${days} days - separate from how much they cost.`} trace={trace}>
     <ListInspector
       label="Agent report cards"
-      items={agents.map((agent) => ({ id: `report-agent-${agent.agentKind}`, title: agent.agentLabel ?? agent.agentKind, subtitle: `${agent.totalRuns} runs`, meta: `${agent.completedRuns} completed`, badge: agent.notEnoughData ? 'Not scored yet' : formatRate(agent.completionRate, false) }))}
+      items={agents.map((agent) => ({ id: `report-agent-${agent.agentKind}`, title: agent.agentLabel?.trim() || agent.agentKind?.trim() || 'Unknown agent', subtitle: `${agent.totalRuns} runs`, meta: `${agent.completedRuns} completed`, badge: agent.notEnoughData ? 'Not scored yet' : formatRate(agent.completionRate, false) }))}
       selectedId={effectiveKind === null ? null : `report-agent-${effectiveKind}`}
       onSelect={(rowId) => setSelectedKind(rowId.slice('report-agent-'.length))}
       loading={loading}
@@ -1765,7 +1891,7 @@ function LiveGalleryTool() {
       inspector={(item) => item && selected ? <><div className="tool-inspector-preview"><DesignPreview key={selected.id} design={selected} /></div><section className="gallery-detail" aria-live="polite" data-testid="gallery-detail"><span className="tool-icon"><Icon name={selected.artifactType === 'html' ? 'artifact' : 'gallery'} /></span><div><span className="eyebrow">Selected artifact</span>{renaming
         ? <form onSubmit={renameDesign}><input name="title" aria-label="Design title" defaultValue={selected.title ?? ''} autoFocus maxLength={200} data-testid="gallery-design-rename-input" onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); setRenaming(false); } }} onBlur={(event) => event.currentTarget.form?.requestSubmit()} /></form>
         : <strong className="gallery-design-title" onDoubleClick={() => setRenaming(true)}>{selected.title ?? selected.id}</strong>}<p>{selected.artifactType ?? 'unknown'} · {selected.provider ?? 'unknown provider'}</p>
-        <label className="gallery-move">Move to <select value={selected.folderId ?? ''} onChange={(event) => moveDesign(selected.id, event.target.value || null)} data-testid="gallery-move-select"><option value="">Unfiled</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label></div></section><div className="row-actions"><button className="text-button" type="button" onClick={() => void open(selected)} data-testid={`gallery-open-${selected.id}`}>Open deliverable</button>{browserUrl && openExternal && <button className="text-button" type="button" onClick={() => void openExternal(browserUrl).catch(() => notify('Could not open the browser'))} data-testid={`gallery-browser-${selected.id}`}>Open in browser</button>}{selected.projectUrl && <button className="text-button" type="button" onClick={() => { setTrace({ method: 'LOCAL', route: selected.projectUrl!, detail: 'Opened project preview' }); navigate('/projects'); }} data-testid={`gallery-project-${selected.id}`}>Open project</button>}<button className="text-button" type="button" onClick={() => setRenaming(true)} data-testid="gallery-design-rename">Rename</button><button className="text-danger-button" type="button" onClick={() => setConfirm({ design: selected })} data-testid="gallery-design-delete">Delete</button><button className="primary-button" type="button" onClick={() => void launch()} data-testid="gallery-launch"><Icon name="gallery" size={14} />Launch Creative Media</button></div></> : <p>Select an artifact to inspect its preview and actions.</p>}
+        <label className="gallery-move">Move to <select value={selected.folderId ?? ''} onChange={(event) => moveDesign(selected.id, event.target.value || null)} data-testid="gallery-move-select"><option value="">Unfiled</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label></div></section><div className="row-actions"><button className="text-button" type="button" disabled={!selected.artifactUrl} onClick={() => void open(selected)} data-testid={`gallery-open-${selected.id}`}>{selected.artifactUrl ? 'Open deliverable' : 'Deliverable unavailable'}</button>{browserUrl && openExternal && <button className="text-button" type="button" onClick={() => void openExternal(browserUrl).catch(() => notify('Could not open the browser'))} data-testid={`gallery-browser-${selected.id}`}>Open in browser</button>}{selected.projectUrl && <button className="text-button" type="button" onClick={() => { setTrace({ method: 'LOCAL', route: selected.projectUrl!, detail: 'Opened project preview' }); navigate('/projects'); }} data-testid={`gallery-project-${selected.id}`}>Open project</button>}<button className="text-button" type="button" onClick={() => setRenaming(true)} data-testid="gallery-design-rename">Rename</button><button className="text-danger-button" type="button" onClick={() => setConfirm({ design: selected })} data-testid="gallery-design-delete">Delete</button><button className="primary-button" type="button" onClick={() => void launch()} data-testid="gallery-launch"><Icon name="gallery" size={14} />Launch Creative Media</button></div></> : <p>Select an artifact to inspect its preview and actions.</p>}
     />
     </div>
     <FocusDialog open={viewer !== null} title={viewer?.design.title ?? 'Deliverable'} onClose={closeViewer} testId="gallery-viewer" wide>
@@ -1802,7 +1928,8 @@ function GalleryTool() {
 
 export function ToolWorkspace({ slug }: { slug: string }) {
   const { sessionGatewayMode } = useFixtures();
+  const pinScope = useAuthUser()?.user.id;
   const live = sessionGatewayMode === 'live';
-  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: live ? <LiveWebhooksUnavailable /> : <WebhooksTool />, skills: live ? <LiveSkillsTool /> : <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: live ? <LiveEmailTool /> : <FixtureEmailTool />, gallery: live ? <LiveGalleryTool /> : <GalleryTool />, 'agent-settings': live ? <LiveSettingsTool Frame={ToolFrame} /> : <FixtureAgentSettingsTool Frame={ToolFrame} />, 'shared-agents': <SharedAgentsTool />  };
+  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: live ? <LiveWebhooksUnavailable /> : <WebhooksTool />, skills: live ? <LiveSkillsTool /> : <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: live ? <LiveEmailTool /> : <FixtureEmailTool />, gallery: live ? <LiveGalleryTool /> : <GalleryTool />, 'agent-settings': live ? <LiveSettingsTool Frame={ToolFrame} /> : <FixtureAgentSettingsTool Frame={ToolFrame} />, 'shared-agents': <SharedAgentsTool />, dayflow: <DayflowTool />, 'agent-tools': <AgentToolsCatalog scope={pinScope} availableIds={availableAgentToolIds()} onOpen={(tool) => navigate(tool.route)} /> };
   return <div key={slug} className="tool-route-boundary">{tools[slug] ?? (live ? <LiveBrainTool /> : <FixtureBrainTool />)}</div>;
 }

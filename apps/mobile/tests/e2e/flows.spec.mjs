@@ -192,6 +192,12 @@ test('issue-1233 model picker groups connected provider accounts and hides disco
   await openReadyChat(page);
 
   await page.getByRole('button', { name: 'Chat menu' }).click();
+  // New chats default to Auto (router): it is the first picker option. Pick a concrete
+  // model first so the original "selected model reads Recent" precondition still holds.
+  await page.getByRole('button', { name: /Model, Auto \(router\)/ }).click();
+  await expect(page.getByRole('heading', { name: 'Choose Model' })).toBeVisible();
+  await expect(page.getByText('Auto (router)', { exact: true }).first()).toBeVisible();
+  await page.getByText('GPT-4.1 mini', { exact: true }).first().click();
   await page.getByRole('button', { name: /Model, GPT-4\.1 mini/ }).click();
   await expect(page.getByRole('heading', { name: 'Choose Model' })).toBeVisible();
   await expect(page.getByText('OpenAI', { exact: true })).toBeVisible();

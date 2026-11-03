@@ -1,0 +1,11 @@
+{
+  "issue": "router-grid-inventory",
+  "date": "2026-10-09",
+  "test_command": "HOME=/private/tmp/sdmr-grid-sandbox/home TMPDIR=/private/tmp/sdmr-grid-sandbox/tmp DB_PATH=/private/tmp/sdmr-grid-sandbox/rhythm.db DB_CLIENT=sqlite RHYTHM_OPENCODE_ENGINE_PORT=4397 PORT=4398 npm_config_cache=/private/tmp/sdmr-grid-sandbox/npm-cache npx --no-install vitest run src/services/decision/router_grid_turn.test.ts -t 'inventory-c' --no-file-parallelism",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "task-router-grid-inventory-c1", "text": "supplement missing healthy connected localaccounts even in nonempty snapshot, preserve quota null", "mode": "integration", "test": "src/services/decision/router_grid_turn.test.ts inventory-c1", "status": "pass" },
+    { "criterion_id": "task-router-grid-inventory-c2", "text": "preserve quota null and knownexhaustion/cooldown, never admit disconnected/relogin entries or relax usagevalidation", "mode": "integration", "test": "src/services/decision/router_grid_turn.test.ts inventory-c2/inventory-c3", "status": "pass" }
+  ],
+  "not_tested": []
+}

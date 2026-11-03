@@ -819,6 +819,8 @@ describe('issue-1387 send-time relay loss', () => {
       expect(screen.getByTestId('send-error').props.children).toBe('');
     });
     expect(clearPendingNotification).not.toHaveBeenCalled();
+    const notifyTaskFinished = jest.requireMock('@/lib/notifications').notifyTaskFinished;
+    expect(notifyTaskFinished).not.toHaveBeenCalled();
 
     // This is the strengthened assertion that is RED on the current code.
     // A transient uplink loss may disable writes, but it must not replace the
@@ -849,6 +851,10 @@ describe('issue-1387 send-time relay loss', () => {
     });
     expect(screen.queryByText('Opening chat')).toBeNull();
     expect(mockPromptAsync).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(clearPendingNotification).toHaveBeenCalledTimes(1);
+      expect(notifyTaskFinished).toHaveBeenCalledTimes(1);
+    });
     const transcriptLines = screen
       .getByTestId('chat-transcript')
       .props.children.split('\n');

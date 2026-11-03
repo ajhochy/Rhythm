@@ -11,7 +11,7 @@ describe('AnthropicAccountsStore', () => {
   });
 
   it('returns empty file shape when file missing', () => {
-    expect(store.read()).toEqual({ version: 1, accounts: [], defaultAccountId: null, routing: {} });
+    expect(store.read()).toEqual({ version: 1, accounts: [], defaultAccountId: null, routing: {}, pinned: {} });
   });
 
   it('upserts an account and makes the first one default', () => {

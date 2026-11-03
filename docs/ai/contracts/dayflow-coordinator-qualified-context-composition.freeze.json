@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-10-05T20:51:08Z",
+  "baseCommit": "16eeeb89b64a3dfeb012f227fa218e0d9d63dab8",
+  "scope": "Source-only Dayflow qualified-reference adapter composition; no runtime qualification.",
+  "gitnexus": {
+    "status": "UNKNOWN",
+    "command": "gitnexus status",
+    "result": "Repository not indexed. Run: gitnexus analyze",
+    "reindexAttempted": false
+  },
+  "changedPaths": [
+    {
+      "path": "apps/api_server/src/server.ts",
+      "kind": "production",
+      "preimageSha256": "571be86276e41ea32daf9fde43f9b57a671eb98372a0a5168708f095852ee648",
+      "postimageSha256": "d5d4b49cda72f4580a9b82fdc26aed969e838c6520d4c604eecb97e6d8ab2cd8"
+    },
+    {
+      "path": "apps/api_server/src/services/dayflow_coordinator_reference_adapter.ts",
+      "kind": "production",
+      "preimageSha256": "4b60a578c490e816d7d592d84610e86a1fae3cd0a143d19eb4392589cbad2f82",
+      "postimageSha256": "bc89bc1b9772ef84123d972b8e551e8d5f17448e1fc289b327c7b4fb4f215671"
+    },
+    {
+      "path": "apps/api_server/src/__tests__/dayflow_coordinator_reference_adapter.test.ts",
+      "kind": "test",
+      "preimageSha256": "09a6ce8b9b4ba48fd3dbe5158e3118b92391fac8a4fa203f00b6ef09acdfb5e8",
+      "postimageSha256": "452c12139d196f8862ffdc7deb9d1f843de7efaf9ac346a8cf4a2dea9e544400"
+    },
+    {
+      "path": "apps/api_server/src/__tests__/dayflow_shared_composition.test.ts",
+      "kind": "test",
+      "preimageSha256": "822b44c63cb8aa9b6913bb550274f24d35edae35e8bad9f2d690f0e238714f7c",
+      "postimageSha256": "9fb19a63f146f143f02d580a46cb3af8cbe90545b9f28d24b194764d0a47f6d3"
+    },
+    {
+      "path": "apps/api_server/src/__tests__/dayflow_coordinator_server_composition_contract.test.ts",
+      "kind": "test",
+      "preimageSha256": null,
+      "postimageSha256": "a267c82f9efa8e95d885016c46fa714eed09c434f87cc295894c928108bcc372"
+    },
+    {
+      "path": "docs/ai/contracts/dayflow-coordinator-qualified-context-composition.delta.patch",
+      "kind": "handoff_patch",
+      "preimageSha256": null,
+      "postimageSha256": "cc1a86220115807eca460be2637adb933e46d485dc39ef4c16550e9cc02bca1d"
+    },
+    {
+      "path": "docs/ai/runs/2026-10-05-dayflow-coordinator-qualified-context-composition.md",
+      "kind": "run_log",
+      "preimageSha256": null,
+      "postimageSha256": "e34690ce56a01102a3d5b8887bed04abb2d8477724a334234403753a5a843f70"
+    }
+  ],
+  "protectedUnchanged": [
+    {
+      "path": "apps/api_server/src/integrations/dayflow/service.ts",
+      "sha256": "1dc7746f9c72cd2f319d56b5469464d7eca0e586cad4d563c9db549e9781fb43"
+    },
+    {
+      "path": "apps/api_server/src/integrations/dayflow/persisted_qualification_authority.ts",
+      "sha256": "a6fdf97781f1183c3c2f7e8384975b1b078d90f80cc2d857fc3d9dd654c13f6e"
+    },
+    {
+      "path": "apps/api_server/src/contracts/dayflow_coordinator_reader_contract.ts",
+      "sha256": "8d7ca630beb9ebed60157573048403a2a527349727d40db5681e761da79efc66"
+    },
+    {
+      "path": "apps/api_server/src/services/dayflow_qualified_evidence_service.ts",
+      "sha256": "cef410ec4f521d26f54316b2c9d64497cf2205d9a6153224527b05b0cd566d13"
+    }
+  ],
+  "protectedPathChecks": {
+    "dayflowProducerAuthorityContractAndEvidence": "unchanged",
+    "apps/opencode_fork": "unchanged",
+    "webMobileElectronNative": "unchanged"
+  },
+  "deltaPatch": {
+    "path": "docs/ai/contracts/dayflow-coordinator-qualified-context-composition.delta.patch",
+    "sha256": "cc1a86220115807eca460be2637adb933e46d485dc39ef4c16550e9cc02bca1d",
+    "reverseApplyCheck": "passed"
+  },
+  "checks": [
+    { "command": "node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit", "status": "passed" },
+    { "command": "node node_modules/vitest/vitest.mjs run src/__tests__/dayflow_coordinator_reference_adapter.test.ts", "status": "passed", "tests": 5 },
+    { "command": "node node_modules/vitest/vitest.mjs run src/__tests__/dayflow_coordinator_server_composition_contract.test.ts", "status": "passed", "tests": 1 },
+    { "command": "node node_modules/vitest/vitest.mjs run src/__tests__/dayflow_shared_composition.test.ts -t qualified-producer --fileParallelism=false", "status": "passed", "tests": 1 },
+    { "command": "node node_modules/vitest/vitest.mjs run src/__tests__/coordinator_conversation_context.test.ts --fileParallelism=false", "status": "passed", "tests": 4 },
+    { "command": "node node_modules/vitest/vitest.mjs run src/__tests__/dayflow_qualified_reader.test.ts --fileParallelism=false", "status": "passed", "tests": 25 },
+    { "command": "npm run build", "status": "passed" },
+    { "command": "git diff --check", "status": "passed" }
+  ],
+  "unrunOrUnqualified": [
+    "Normal API/server, engine, model, capture, Dayflow source, browser, mobile, and signed-app runtime were not started.",
+    "The full dayflow_shared_composition.test.ts file still has an unrelated existing MemoryIndexService rebuild failure at unchanged line 501; the new selected producer-composition case passed.",
+    "A complete qualified set over 25 references or with zero qualified references is held unavailable rather than paginated, synthesized, or treated as an empty source."
+  ]
+}

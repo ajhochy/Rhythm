@@ -67,6 +67,12 @@ function makeDb() {
 }
 
 describe('issue-632-c1: promptAsync must not report success when SDK silently no-ops', () => {
+  // promptAsync fails closed when the local managed-session ledger is
+  // unreadable, so the happy path needs a real (empty) migrated ledger.
+  beforeEach(() => {
+    setDb(makeDb());
+  });
+
   it('returns false when SDK response carries neither data nor error', async () => {
     // CONTRACT TEST — must fail before implementation.
     // Current code returns true when raw.error is falsy, even if raw.data

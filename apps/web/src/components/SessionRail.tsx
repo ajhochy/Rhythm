@@ -10,6 +10,7 @@ import type { Session, SessionScope } from '../types';
 import { FocusDialog } from './FocusDialog';
 import { navigate } from './Shell';
 import { usePendingSessionIds } from '../pending-decisions';
+import { displayAccountIdentity } from './accountIdentity';
 import './SessionRail.css';
 
 const tools: { key: string; label: string; description: string; icon: IconName }[] = [
@@ -25,6 +26,7 @@ const tools: { key: string; label: string; description: string; icon: IconName }
   { key: 'report-card', label: 'Report Card', description: 'Run quality', icon: 'report' },
   { key: 'email', label: 'Email', description: 'Agent signals', icon: 'mail' },
   { key: 'gallery', label: 'Gallery', description: 'Artifacts', icon: 'gallery' },
+  { key: 'agent-tools', label: 'Agent Tools', description: 'Hermes, OpenDesign, and more', icon: 'spark' },
 ];
 const accounts = ['Rhythm workspace', 'Research account'];
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -57,12 +59,13 @@ function persistOpenProjects(states: Record<string, boolean>) {
   }
 }
 
-export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProject, onOpenRemoteComputers }: { collapsed: boolean; onToggle(): void; selectedProject: AgentProject | null; onSelectProject(project: AgentProject | null): void; onOpenRemoteComputers?(): void }) {
+export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProject, onOpenRemoteComputers, onOpenRhythm, rhythmOpening = false }: { collapsed: boolean; onToggle(): void; selectedProject: AgentProject | null; onSelectProject(project: AgentProject | null): void; onOpenRemoteComputers?(): void; onOpenRhythm?(): void; rhythmOpening?: boolean }) {
   const fixtures = useFixtures();
   const gateway = useGateway();
   // #1374 — hidden entirely behind the kill switch: no remote UI, no remote gateway calls.
   const remoteAttachEnabled = gateway.domains.remoteSessions?.enabled === true;
   const auth = useAuthUser();
+  const accountIdentity = displayAccountIdentity(auth?.user.name);
   const preferenceUserId = auth?.user.id ?? 'fixture';
   const initialViewPreferences = readLocalUserPreferences(preferenceUserId);
   const pendingSessions = usePendingSessionIds();
@@ -377,8 +380,12 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     if (!advancedOpen || sessionGatewayMode !== 'live') return;
     let active = true;
     setLiveTasks([]); setTasksError('');
-    void gateway.domains.tasks!.list().then(rows => { if (active) setLiveTasks(rows.filter(task => task.status !== 'done')); }).catch(() => { if (active) setTasksError('Task catalog unavailable'); });
-    void gateway.domains.sessions!.branches(advancedContextProject?.id ?? selected.projectId)
+    const tasks = gateway.domains.tasks;
+    if (!tasks) setTasksError('Task catalog unavailable');
+    else void tasks.list().then(rows => { if (active) setLiveTasks(rows.filter(task => task.status !== 'done')); }).catch(() => { if (active) setTasksError('Task catalog unavailable'); });
+    const projectId = advancedContextProject?.id ?? selected.projectId;
+    setLiveBranches(null);
+    if (projectId) void gateway.domains.sessions!.branches(projectId)
       .then((data) => { if (active) setLiveBranches(data); })
       .catch(() => { if (active) setLiveBranches(null); });
     return () => { active = false; };
@@ -492,7 +499,7 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     });
   };
 
-  if (collapsed) return <aside className="session-rail collapsed" aria-label="Agents collapsed" data-od-id="sessions-tools-rail"><button className="icon-button collapse-control" type="button" onClick={onToggle} aria-label="Expand Agents" data-testid="rail-expand"><Icon name="expand" /></button><button className="rail-glyph selected" type="button" onClick={() => changeScope('chats')} aria-label="Chats"><Icon name="agents" /></button><button className="rail-glyph" type="button" onClick={() => openTool('profiles')} aria-label="Profiles"><Icon name="profile" /></button>{remoteAttachEnabled && <button className="rail-glyph" type="button" onClick={onOpenRemoteComputers} aria-label="Remote computers" data-testid="rail-remote-computers-collapsed"><Icon name="worktree" /></button>}<button className="rail-glyph" type="button" onClick={() => navigate('/tools/agent-settings')} aria-label="Agent settings"><Icon name="settings" /></button></aside>;
+  if (collapsed) return <aside className="session-rail collapsed" aria-label="Agents collapsed" data-od-id="sessions-tools-rail"><button className="icon-button collapse-control" type="button" onClick={onToggle} aria-label="Expand Agents" data-testid="rail-expand"><Icon name="expand" /></button><button className="rail-glyph" type="button" onClick={onOpenRhythm} disabled={!onOpenRhythm || rhythmOpening} aria-label="Open Rhythm" aria-busy={rhythmOpening || undefined} data-testid="rhythm-primary-entry-collapsed"><Icon name="agents" /></button><button className="rail-glyph selected" type="button" onClick={() => changeScope('chats')} aria-label="Chats"><Icon name="agents" /></button><button className="rail-glyph" type="button" onClick={() => openTool('profiles')} aria-label="Profiles"><Icon name="profile" /></button>{remoteAttachEnabled && <button className="rail-glyph" type="button" onClick={onOpenRemoteComputers} aria-label="Remote computers" data-testid="rail-remote-computers-collapsed"><Icon name="worktree" /></button>}<button className="rail-glyph" type="button" onClick={() => navigate('/tools/agent-settings')} aria-label="Agent settings"><Icon name="settings" /></button></aside>;
 
   const childDepth = (session: Session) => {
     let depth = 0; let current: Session | undefined = session;
@@ -574,7 +581,7 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
       </div>}
     </div><button className="icon-button small" type="button" onClick={onToggle} aria-label="Collapse Agents" data-testid="rail-collapse"><Icon name="collapse" size={16} /></button></div>
     </header>
-    <div className="rail-primary-actions"><button className="rail-new-session" type="button" disabled={liveHistory && (!defaultProfileId || submitting)} onClick={() => { if (liveHistory) { setSubmitting(true); void createLiveSession({ name: '', cwd: selectedProject?.cwd ?? selected.cwd, ...(selectedProject ? { projectId: selectedProject.id } : {}), profileId: defaultProfileId, isolateWorktree: false }).then(() => onSelectProject(null)).catch(error => notify(error instanceof Error ? error.message : 'Session creation failed')).finally(() => setSubmitting(false)); } else createSession(); }} data-testid="new-chat-instant"><Icon name="plus" size={16} />New session</button><button className="icon-button" type="button" onClick={() => openAdvanced(selectedProject)} aria-label="Advanced new agent session" title="Advanced session options" data-testid="new-session-advanced"><Icon name="sliders" /></button></div>
+    <div className="rail-primary-actions"><button className="rail-rhythm-entry" type="button" disabled={!onOpenRhythm || rhythmOpening} onClick={onOpenRhythm} aria-busy={rhythmOpening || undefined} data-testid="rhythm-primary-entry"><Icon name={rhythmOpening ? 'refresh' : 'agents'} className={rhythmOpening ? 'spin' : undefined} size={16} />{rhythmOpening ? 'Opening Rhythm…' : 'Rhythm'}</button><button className="rail-new-session" type="button" disabled={liveHistory && (!defaultProfileId || submitting)} onClick={() => { if (liveHistory) { setSubmitting(true); void createLiveSession({ name: '', cwd: selectedProject?.cwd ?? selected.cwd, ...(selectedProject ? { projectId: selectedProject.id } : {}), profileId: defaultProfileId, isolateWorktree: false }).then(() => onSelectProject(null)).catch(error => notify(error instanceof Error ? error.message : 'Session creation failed')).finally(() => setSubmitting(false)); } else createSession(); }} data-testid="new-chat-instant"><Icon name="plus" size={16} />New session</button><button className="icon-button" type="button" onClick={() => openAdvanced(selectedProject)} aria-label="Advanced new agent session" title="Advanced session options" data-testid="new-session-advanced"><Icon name="sliders" /></button></div>
     <div className="scope-tabs" role="tablist" aria-label="Session scopes" onKeyDown={moveScope}>{(['chats', 'scheduled', 'background'] as SessionScope[]).map((item) => <button role="tab" aria-selected={scope === item} tabIndex={scope === item ? 0 : -1} type="button" key={item} onClick={() => changeScope(item)} data-testid={`scope-${item}`}>{item === 'chats' ? 'Chats' : item === 'scheduled' ? 'Scheduled' : 'Background'}</button>)}</div>
     {archivedOnly && <button className="rail-archive-chip" type="button" onClick={() => setArchivedOnlyPreference(false)}>Archived sessions — Back to active</button>}
     {selectedRows.length > 0 && <div className="bulk-bar" role="toolbar" aria-label="Selected session actions"><strong>{selectedRows.length} selected</strong><button type="button" onClick={() => setSelectedRows([])}>Cancel</button><button type="button" onClick={() => setBulkDeleteOpen(true)}>Delete</button></div>}
@@ -605,7 +612,7 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
       <button className="rail-more-toggle" type="button" aria-expanded={toolsExpanded} aria-controls="rail-more-tools" onClick={() => setToolsExpandedPreference(!toolsExpanded)} data-testid="rail-more"><Icon name={toolsExpanded ? 'chevronDown' : 'chevronRight'} size={14} />More</button>
       <div id="rail-more-tools" className="tools-nav" hidden={!toolsExpanded}>{remoteAttachEnabled && <button type="button" onClick={onOpenRemoteComputers} title="Continue a session from another Mac" data-testid="rail-remote-computers"><Icon name="worktree" /><strong>Remote computers</strong></button>}{tools.map((tool) => <button type="button" onClick={() => openTool(tool.key)} key={tool.key} title={tool.description} data-testid={`tool-${tool.key}`}><Icon name={tool.icon} /><strong>{tool.label}</strong></button>)}</div>
     </nav>
-    <footer className="rail-account"><button type="button" onClick={() => navigate('/tools/agent-settings')} data-testid="rail-agent-settings"><span className="avatar">AJ</span><span><strong>AJ Hochhalter</strong><small>Agent settings</small></span><Icon name="settings" size={15} /></button></footer>
+    <footer className="rail-account"><button type="button" onClick={() => navigate('/tools/agent-settings')} data-testid="rail-agent-settings"><span className="avatar">{accountIdentity.initials}</span><span><strong>{accountIdentity.name}</strong><small>Agent settings</small></span><Icon name="settings" size={15} /></button></footer>
 
     <FocusDialog open={projectFormOpen} onClose={closeProjectForm} title="Add project" description="Give an existing working directory a name so you can start sessions in it." testId="add-project-dialog">
       <form className="rail-project-form" onSubmit={addProject}>
@@ -622,7 +629,7 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     <FocusDialog open={advancedOpen} onClose={closeAdvanced} title="New agent session" description="Choose the task and working context. Model and agent are selected after the session starts." testId="advanced-session-dialog" wide>
       <form className="form-grid advanced-session-form" onSubmit={startSession}>
         <label className="field span-2">Session name<span>Required</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Fix auth bug" required data-autofocus data-testid="advanced-name" /></label>
-        <label className="field span-2">Linked task<span>Optional · non-done tasks</span><select value={taskId} onChange={(event) => setTaskId(event.target.value)} data-testid="advanced-task"><option value="">No task linked</option>{liveHistory ? liveTasks.map(task => <option key={task.id} value={task.id}>{task.title}</option>) : <><option value="task-review-handoff">Review service handoff</option><option value="task-check-relay">Check relay recovery</option></>}</select>{liveHistory && tasksError && <span role="alert">{tasksError}</span>}</label>
+        <label className="field span-2">Linked task<span>Optional · non-done tasks</span><select value={taskId} onChange={(event) => setTaskId(event.target.value)} disabled={liveHistory && !gateway.domains.tasks} data-testid="advanced-task"><option value="">No task linked</option>{liveHistory ? liveTasks.map(task => <option key={task.id} value={task.id}>{task.title}</option>) : <><option value="task-review-handoff">Review service handoff</option><option value="task-check-relay">Check relay recovery</option></>}</select>{liveHistory && tasksError && <span role="alert">{tasksError}</span>}</label>
         {liveHistory && <label className="field span-2">Agent profile<span>Required</span><select value={profileId} onChange={(event) => setProfileId(event.target.value)} required data-testid="advanced-profile"><option value="" disabled>Choose an enabled profile</option>{eligibleProfiles.map((profile) => <option value={profile.id} key={profile.id}>{profile.label}</option>)}</select></label>}
         <label className="field span-2">Working directory<div className="field-with-action"><input value={cwd} onChange={(event) => { setCwd(event.target.value); setBranch(''); setNewBranchMode(false); setNewBranch(''); setPendingBranch(null); }} required data-testid="advanced-cwd" /><button type="button" disabled={liveHistory && !window.rhythmShell?.selectDirectory} title={liveHistory ? 'Native folder browsing is unavailable; enter the directory path' : undefined} onClick={async () => {
           if (window.rhythmShell?.selectDirectory) {

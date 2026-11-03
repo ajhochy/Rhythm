@@ -78,8 +78,9 @@ export function createFixtureRunQualityGateway(): RunQualityGateway {
   return { mode: 'fixture', rollup: async () => { throw new RunQualityGatewayError(0, 'Fixture run-quality gateway is unsupported'); } };
 }
 
+import { isTrustedBrowserFetcher } from './browser-transport';
 export function createLiveRunQualityGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): RunQualityGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: a run-quality token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: a run-quality token is required');
   return {
     mode: 'live',
     rollup: async (windowDays) => {

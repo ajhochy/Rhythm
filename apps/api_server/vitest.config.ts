@@ -8,6 +8,7 @@ export default defineConfig({
     // MEMORY_VAULT_PATH/MEMORY_VAULT_SUBDIR/AGENT_LOCAL/PORT BEFORE any test
     // file (and therefore config/env.ts) imports, overriding whatever a
     // developer's ambient shell already exported. See vitest.setup.ts.
+    globalSetup: ['./vitest.global-setup.ts'],
     setupFiles: ['./vitest.setup.ts'],
     // Many API integration files boot an Express server, run SQLite
     // migrations, and close shared singleton services. Five seconds was below

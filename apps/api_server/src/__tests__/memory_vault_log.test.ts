@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import {
   existsSync,
@@ -46,6 +46,10 @@ let index: MemoryIndexService;
 let savedSubdir: string | undefined;
 
 beforeEach(() => {
+  // The fixtures use fixed July 2026 dates, and the log keeps only 90 days, so a
+  // real clock silently ages them out (these tests broke on 2026-10-24). Pin the
+  // calendar just after them; only Date is faked, so the log's flush timers run.
+  vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-07-28T19:00:00Z') });
   savedSubdir = process.env.MEMORY_VAULT_SUBDIR;
   delete process.env.MEMORY_VAULT_SUBDIR;
   setDb(makeDb());
@@ -58,6 +62,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await flushMemoryVaultLog(memoryDir);
+  vi.useRealTimers();
   if (savedSubdir === undefined) delete process.env.MEMORY_VAULT_SUBDIR;
   else process.env.MEMORY_VAULT_SUBDIR = savedSubdir;
   rmSync(vaultRoot, { recursive: true, force: true });

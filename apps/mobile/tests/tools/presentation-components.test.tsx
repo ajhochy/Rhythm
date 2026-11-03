@@ -91,7 +91,9 @@ test('slice3-c2: detail primitives expose search, decisions, connection metadata
 
   fireEvent.changeText(screen.getByRole('search', { name: 'Search Brain' }), 'shared memory');
   fireEvent.press(screen.getByRole('button', { name: 'Search Brain' }));
+  fireEvent.press(screen.getByRole('button', { name: 'Clear Brain search' }));
   expect(onSearchChange).toHaveBeenCalledWith('shared memory');
+  expect(onSearchChange).toHaveBeenCalledWith('');
   expect(onSearch).toHaveBeenCalled();
   expect(screen.getByText('Pending review')).toBeTruthy();
   expect(screen.getByText('Approve or reject')).toBeTruthy();
@@ -101,6 +103,16 @@ test('slice3-c2: detail primitives expose search, decisions, connection metadata
   expect(screen.getByText('Configuration')).toBeTruthy();
   fireEvent.press(screen.getByRole('button', { name: 'Open model claude-a-very-long-model-id-that-must-wrap' }));
   expect(onModelPress).toHaveBeenCalledWith('anthropic', 'claude-a-very-long-model-id-that-must-wrap');
+});
+
+test('Brain search does not expose a dead clear affordance for an empty query', () => {
+  const screen = render(
+    <PaperProvider>
+      <BrainSearchSurface query="" onQueryChange={jest.fn()} />
+    </PaperProvider>,
+  );
+
+  expect(screen.queryByRole('button', { name: 'Clear Brain search' })).toBeNull();
 });
 
 test('slice3-c5: tool presentation accepts theme changes and keeps wrapping enabled', () => {

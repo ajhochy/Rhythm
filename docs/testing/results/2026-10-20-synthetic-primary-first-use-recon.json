@@ -1,0 +1,185 @@
+{
+  "phase": "Recon - observations only",
+  "sourceRevision": "2aa817b867e19ea9aa8fd3fef54750336385d1e7",
+  "privateEvidence": "/private/tmp/rhythm-ai-fixture-pcUlaI/recon.json",
+  "launchFlags": {
+    "RHYTHM_WORKSTREAMS_ENABLED": "true",
+    "RHYTHM_MANAGED_CONTEXT_EXPORTS": "1"
+  },
+  "observations": [
+    {
+      "ui": "primary first click",
+      "setupVisible": true,
+      "choices": [
+        {
+          "id": "rhythm-setup-profile-coding-agent",
+          "text": "[smoke] coding-agent"
+        },
+        {
+          "id": "rhythm-setup-profile-config-doctor",
+          "text": "Config Doctor"
+        },
+        {
+          "id": "rhythm-setup-profile-creative-media",
+          "text": "Creative Media Agent"
+        },
+        {
+          "id": "rhythm-setup-profile-org-reviewer",
+          "text": "Org Reviewer"
+        },
+        {
+          "id": "rhythm-setup-profile-research",
+          "text": "Researcher"
+        },
+        {
+          "id": "rhythm-setup-profile-rhythm-setup",
+          "text": "Rhythm Setup"
+        },
+        {
+          "id": "rhythm-setup-profile-secretary",
+          "text": "[smoke] secretary"
+        },
+        {
+          "id": "rhythm-setup-profile-verification-gate",
+          "text": "[smoke] verification-gate"
+        },
+        {
+          "id": "rhythm-setup-profile-workflow-orchestrator",
+          "text": "[smoke] workflow-orchestrator"
+        }
+      ],
+      "status": "Choose a Rhythm profile to finish setup."
+    },
+    {
+      "ui": "primary after choice",
+      "setupVisible": false,
+      "status": "Rhythm is ready.",
+      "selected": "session-a67d429b-7c92-486b-bc85-8d7990eef4b7"
+    },
+    {
+      "step": "expanded children",
+      "observedChildCount": 3,
+      "allThreeTitlesVisible": true,
+      "loadSubagentsButtonPresent": true
+    },
+    {
+      "path": "/coordinator-conversations/resolve",
+      "status": 503,
+      "kind": "setup_unavailable",
+      "profileId": null,
+      "choiceIds": [],
+      "primaryOwnerRoot": null,
+      "ownerUserId": null,
+      "goalsCount": 0,
+      "messagesCount": 0,
+      "runsCount": 0
+    },
+    {
+      "path": "/coordinator-conversations/setup",
+      "status": 200,
+      "kind": "setup_profile_choice_required",
+      "profileId": null,
+      "choiceIds": [
+        "coding-agent",
+        "config-doctor",
+        "creative-media",
+        "org-reviewer",
+        "research",
+        "rhythm-setup",
+        "secretary",
+        "verification-gate",
+        "workflow-orchestrator"
+      ],
+      "primaryOwnerRoot": null,
+      "ownerUserId": null,
+      "goalsCount": 0,
+      "messagesCount": 0,
+      "runsCount": 0
+    },
+    {
+      "path": "/coordinator-conversations/setup",
+      "status": 201,
+      "kind": "setup_created",
+      "profileId": "coding-agent",
+      "choiceIds": [],
+      "primaryOwnerRoot": true,
+      "ownerUserId": 1,
+      "goalsCount": 0,
+      "messagesCount": 0,
+      "runsCount": 0
+    },
+    {
+      "path": "/coordinator-conversations/open",
+      "status": 200,
+      "kind": "replay",
+      "profileId": null,
+      "choiceIds": [],
+      "primaryOwnerRoot": true,
+      "ownerUserId": 1,
+      "goalsCount": 0,
+      "messagesCount": 0,
+      "runsCount": 0
+    },
+    {
+      "path": "/coordinator-conversations/runs",
+      "status": 200,
+      "kind": "runs",
+      "profileId": null,
+      "choiceIds": [],
+      "primaryOwnerRoot": null,
+      "ownerUserId": null,
+      "goalsCount": 0,
+      "messagesCount": 0,
+      "runsCount": 0
+    },
+    {
+      "path": "/coordinator-conversations/status",
+      "status": 200,
+      "kind": "status",
+      "profileId": null,
+      "choiceIds": [],
+      "primaryOwnerRoot": true,
+      "ownerUserId": 1,
+      "goalsCount": 0,
+      "messagesCount": 0,
+      "runsCount": 0
+    },
+    {
+      "path": "/coordinator-conversations/history",
+      "status": 200,
+      "kind": "history",
+      "profileId": null,
+      "choiceIds": [],
+      "primaryOwnerRoot": true,
+      "ownerUserId": 1,
+      "goalsCount": 0,
+      "messagesCount": 0,
+      "runsCount": 0
+    },
+    {
+      "path": "/coordinator-conversations/runs",
+      "status": 200,
+      "kind": "runs",
+      "profileId": null,
+      "choiceIds": [],
+      "primaryOwnerRoot": null,
+      "ownerUserId": null,
+      "goalsCount": 0,
+      "messagesCount": 0,
+      "runsCount": 0
+    }
+  ],
+  "storageReadback": {
+    "onePrimaryRoot": true,
+    "ownerUserId": 1,
+    "profileId": "coding-agent",
+    "sdkSessionId": null,
+    "projectDirectoryUnderFixtureLiveArtifacts": true,
+    "projectOwnerUserId": 1
+  },
+  "limits": [
+    "old fixture still lacks workspace membership; strict audit not qualified",
+    "approval recon helper mixed Node fetch status property with Playwright status method; no Reject/expiry qualification",
+    "empty native primary is Coordinator state, not an engine/model turn"
+  ]
+}

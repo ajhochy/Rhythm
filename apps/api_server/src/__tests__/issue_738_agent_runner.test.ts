@@ -304,6 +304,27 @@ describe('#738 — AgentRunner', () => {
 
   // ── E. prompt returns null → no output error ──────────────────────────────
 
+  it.each([
+    ['Dayflow provider guard held this request (history_ambiguous)', 'AgentRunner: Dayflow provider guard held this request (history_ambiguous)'],
+    ['Dayflow provider guard held this request (receiver_changed).', 'AgentRunner: Dayflow provider guard held this request (receiver_changed)'],
+    ['private arbitrary provider text', 'AgentRunner: engine turn failed — check the session and model settings'],
+    ['Dayflow provider guard held this request (bad-reason)', 'AgentRunner: engine turn failed — check the session and model settings'],
+    ['Dayflow provider guard held this request (history_ambiguous) secret', 'AgentRunner: engine turn failed — check the session and model settings'],
+  ])('preserves only strict guard diagnostic %s in return and persisted session', async (message, expected) => {
+    const db = new Database(':memory:');
+    const previous = setDb(db);
+    runMigrations(db);
+    try {
+      mockPrompt.mockResolvedValue({ info: { role: 'assistant', error: { name: 'UnknownError', data: { message } } }, parts: [] });
+      const result = await run({ prompt: 'Guard diagnostic' });
+      expect(result).toMatchObject({ status: 'error', error: expected });
+      expect(new AgentSessionsRepository().findById(result.sessionId)).toMatchObject({ status: 'error', lastPreview: expected });
+    } finally {
+      setDb(previous as Database.Database);
+      db.close();
+    }
+  });
+
   it('returns error when prompt returns null (model produced no output)', async () => {
     mockPrompt.mockResolvedValue(null);
 

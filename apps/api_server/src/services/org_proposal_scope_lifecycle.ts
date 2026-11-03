@@ -176,6 +176,11 @@ export async function applyApprovedScopeProposal(input: {
     await releaseClaim(proposalsRepo, proposal.id, approved.revision, reason);
     return { kind: 'conflict', reason };
   }
+  if (pair.frozenTargetRevision !== undefined && target.revision !== pair.frozenTargetRevision) {
+    const reason = 'evaluated scope target changed after its frozen profile snapshot';
+    await releaseClaim(proposalsRepo, proposal.id, approved.revision, reason);
+    return { kind: 'conflict', reason };
+  }
   let applied;
   try {
     applied = await proposalsRepo.transitionScopeAtomicallyAtRevisionsAsync({
@@ -187,7 +192,7 @@ export async function applyApprovedScopeProposal(input: {
       expectedChangeJson: input.changeJson,
       expectedBeforeSnapshotJson: input.beforeSnapshotJson,
       targetId: pair.targetId,
-      expectedTargetRevision: target.revision,
+      expectedTargetRevision: pair.frozenTargetRevision ?? target.revision,
       field: pair.field,
       expectedTargetValue: pair.priorValue,
       nextTargetValue: pair.nextValue,

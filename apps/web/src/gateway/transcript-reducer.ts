@@ -20,6 +20,15 @@ export type TranscriptState = {
   hasMore?: boolean;
 };
 export type TranscriptPageOptions = { mode: 'merge' | 'replace'; hasMore: boolean; nextCursor?: string | null; older?: boolean; now?: number };
+// The renderer owns one cache per local session. A cache is seeded from a REST/session
+// snapshot only when it is absent; live frames must not replay the whole React session
+// history before applying their one event.
+export type TranscriptCache = Map<string, TranscriptState>;
+export type TranscriptCacheSeed = {
+  messages: RichTranscriptMessage[];
+  hasMore?: boolean;
+  nextCursor?: string | null;
+};
 export const emptyTranscript = (): TranscriptState => ({ messages: [], pending: {}, parts: {}, tombstones: { messages: {}, parts: {} }, aliases: {}, generation: 0, contentRevision: 0, reconciliationNeeded: false });
 const object = (value: unknown): Record<string, unknown> => value && typeof value === 'object' ? value as Record<string, unknown> : {};
 const id = (value: unknown): string => typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '';
@@ -163,6 +172,9 @@ export function mergeTranscriptPage(state: TranscriptState, page: RichTranscript
   let next = state;
   for (const row of page) {
     if (!row.id || isRemoved(next, row.id)) continue;
+    // A confirmed optimistic copy (already an alias target) must not be re-seeded from a stale
+    // caller snapshot: its engine row is unchanged, so nothing would re-alias it and it pins at the bottom.
+    if (row.id.startsWith('local-user-') && Object.values(next.aliases ?? {}).includes(row.id)) continue;
     const existing = next.messages.find(m => m.id === row.id);
     const alias = aliasUser(next, row, next.messages);
     const info: RichTranscriptMessage = { ...existing, ...alias.message, blocks: existing?.blocks ?? [], createdAt: existing?.createdAt || row.createdAt, interrupted: row.interrupted || existing?.interrupted };
@@ -178,6 +190,42 @@ export function mergeTranscriptPage(state: TranscriptState, page: RichTranscript
   const cursor = opts.older ? opts.nextCursor ?? null : next.cursor === undefined ? opts.nextCursor ?? null : next.cursor;
   const hasMore = opts.older || next.hasMore === undefined ? opts.hasMore : next.hasMore;
   if (cursor !== next.cursor || hasMore !== next.hasMore) next = changed(next, { cursor, hasMore });
+  return next;
+}
+
+function cachedTranscript(cache: TranscriptCache, sessionId: string, seed: TranscriptCacheSeed): TranscriptState {
+  const stored = cache.get(sessionId);
+  if (stored) return stored;
+  const hydrated = mergeTranscriptPage(emptyTranscript(), seed.messages, {
+    mode: 'merge', hasMore: seed.hasMore ?? false, nextCursor: seed.nextCursor,
+  });
+  cache.set(sessionId, hydrated);
+  return hydrated;
+}
+
+// REST pages are the explicit reconciliation boundary. They can merge stale snapshots with
+// fresher WS state through the existing precedence rules, but never make an event re-seed all
+// history just because React rendered a new session object.
+export function mergeCachedTranscriptPage(
+  cache: TranscriptCache,
+  sessionId: string,
+  seed: TranscriptCacheSeed,
+  page: RichTranscriptMessage[],
+  options: TranscriptPageOptions,
+): TranscriptState {
+  const next = mergeTranscriptPage(cachedTranscript(cache, sessionId, seed), page, options);
+  cache.set(sessionId, next);
+  return next;
+}
+
+export function reduceCachedTranscriptEvent(
+  cache: TranscriptCache,
+  sessionId: string,
+  seed: TranscriptCacheSeed,
+  event: SessionWireEvent,
+): TranscriptState {
+  const next = applyTranscriptEvent(cachedTranscript(cache, sessionId, seed), event);
+  cache.set(sessionId, next);
   return next;
 }
 

@@ -1,0 +1,9 @@
+# Agent Settings / Profiles Recon — 2026-10-20
+
+The actual local d7fb554735 packaged candidate served MCP and Models with real GET 200 responses: 27 MCP rows and 404 catalog rows at observation time. Counts are observations, not hard-coded assertions. MCP response fields include name, status and tools; model rows include provider, modelId, authorized, available and visible. Actual controls include settings-column-items, agent-settings-mcp-status, model-curation-panel/search and provider/model row switches. Profiles rendered its live settings-column-profiles rail and profile inspector/editor; route navigation reused cached data and did not emit a new collection response. Final tests must force a reload for fresh response/readback.
+
+The first recon timed out from incorrect/cached-readiness assumptions. The corrected single observation run exited zero in 1.2 minutes, with bounded per-route observations. Temporary recon code was removed. This observation run is not feature qualification. New tests exercise selected MCP status/tool count, catalog visibility and search-clear, and selected profile identity/label against a fresh API response. No settings, account or credential writes or model calls.
+
+[Sanitized structural observations](recon-ai-settings-2026-10-20.json). No private profile labels/prompts, auth headers or record bodies retained here.
+
+Confirm follow-up observed Configured capitalization and two broad selected-role matches in Profiles; selecting one known API row is the correct editor comparison. After those codify corrections the 3-case run passed. A final MCP-only run with explicit status mapping then stalled during renderer locator assertions and hit120s; navigation completed and backend stayed healthy. See the findings report; do not infer reliable MCP behavior from the earlier pass.

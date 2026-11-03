@@ -2,6 +2,31 @@
 
 Read this file first, before any other file, when opening this repo cold.
 
+## Before investigating any bug: read the record first
+
+`docs/ai/` holds ~1,500 run logs, decisions and plans. **Any regression
+investigation starts by searching it and reading
+`docs/ai/regression-registry.md` — before forming a hypothesis.** Not after
+exploring the code, and not as a cross-check at the end.
+
+This is not optional diligence. On 2026-10-07 an investigation re-derived four
+things already written down — the image/attachment downscaling fix
+(`97466a2c`), the byte-budget methodology (2026-07-30 R5), the deliberate
+rationale for swallowing background-read errors (2026-08-19), and the
+`#1587` streaming fix — costing hours and three wrong theories, while the user
+named the answer from memory three times.
+
+When a symptom looks like something "we already fixed", the answer is almost
+never that the fix was reverted. It is one of:
+
+1. the fix is present but **bypassed on a path nobody checked**;
+2. the fix is **write-path only** — no backfill, so historical rows keep
+   reproducing the symptom;
+3. the guard exists but **CI never runs it**, or the test passes without
+   exercising production code.
+
+Check those three, in that order, against the registry.
+
 ## Monorepo layout
 
 ```
@@ -191,3 +216,22 @@ This project is indexed by GitNexus as **Rhythm** (77189 symbols, 153425 relatio
 | `gitnexus://repo/Rhythm/process/{name}` | Step-by-step execution trace |
 
 <!-- gitnexus:end -->
+
+## Worktree hygiene
+Once a branch's work is committed and pushed to a PR, remove its worktree immediately (`git worktree remove <path> && git worktree prune`) and squash-delete the local branch. Never leave worktrees checked out after PR creation; idle worktrees keep compiling, watching, and eating disk. One active worktree per task, gone when the PR opens.
+
+## Build storage budget
+
+Every build worker/check-out must use `npm run build:guard -- <command> [args]`
+(or `python3 tools/build/guard.py --repo . -- <command> [args]`). The direct
+Electron packager, native-wrapper builder and macOS archive script self-supervise.
+The shared default is **10 GiB total**, across workers/checkouts, under the real
+account's `~/Documents/Codex/.rhythm-build-scratch`, independent of sanitized
+HOME/TMPDIR. Do not raise the cap silently. See the testing guide for limits.
+
+Do not copy entire built checkouts into temporary directories. Reuse existing
+dependency stores only when lockfile and toolchain match; never run `npm install`
+or `npm ci` inside a checkout with symlinked node_modules. Newly copied dependency
+trees and build outputs count against the budget. Keep only the current and
+previous reviewed artifacts; never automatically delete unknown dist directories
+or unfinished work. Guard cleanup deletes only its own marked per-run scratch.

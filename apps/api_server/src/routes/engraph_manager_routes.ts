@@ -18,7 +18,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { requireAuth } from '../middleware/auth_middleware';
 import { AppError } from '../errors/app_error';
-import { env } from '../config/env';
+import { env, getAgentMemoryRetrievalMode, getDecisionFeatureMode } from '../config/env';
 import { logger } from '../utils/logger';
 import { engraphManager } from '../services/engraph_manager';
 
@@ -42,7 +42,21 @@ function fireAndForget(action: Promise<unknown>): void {
 if (!env.agentLocal) engraphManagerRouter.use(requireAuth);
 
 engraphManagerRouter.get('/status', (_req: Request, res: Response) => {
-  res.json(engraphManager.getStatus());
+  const memoryRankingMode = getDecisionFeatureMode('memory_ranking');
+  res.json({
+    ...engraphManager.getStatus(),
+    // Process health only proves a local search endpoint responds. Native rank
+    // may provide bounded, explicitly untrusted reference evidence; it is not
+    // calibrated confidence and readiness never proves retrieval quality or
+    // freshness. The optional reranker remains independently configured.
+    semanticRecall: {
+      retrievalMode: getAgentMemoryRetrievalMode(),
+      memoryRankingMode,
+      policy: 'native_ranked_references_untrusted',
+      scorerRequired: false,
+      freshnessProven: false,
+    },
+  });
 });
 
 engraphManagerRouter.get('/discover', (_req: Request, res: Response) => {

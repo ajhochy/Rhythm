@@ -258,8 +258,8 @@ export function ColumnChecklist({ noun, groups, groupings = [], filter, onFilter
       const errorNote = group.error && <p role="alert" className="column-checklist-error">{group.error}</p>;
       if (!group.label) return <div key={group.id} className="column-check-group">{errorNote}{rows(group)}{!group.rows.length && group.emptyText && <p className="column-checklist-empty">{group.emptyText}</p>}</div>;
       const selectedCount = group.rows.filter((row) => row.checked).length;
-      return <details key={group.id} className="column-check-group profile-capability-group" open={query ? true : !(collapsed[collapsedKey(group.id)] ?? (closedByDefault && !group.error))} onToggle={(event) => { if (!query) { const open = event.currentTarget.open; setCollapsed((current) => ({ ...current, [collapsedKey(group.id)]: !open })); } }}>
-        <summary><strong>{group.label}</strong><span>{selectedCount} of {group.rows.length} selected</span>{group.meta}</summary>
+      return <details key={group.id} className="column-check-group profile-capability-group" open={query ? true : !(collapsed[collapsedKey(group.id)] ?? (closedByDefault && !group.error))}>
+        <summary onClick={(event) => { event.preventDefault(); if (!query) setCollapsed((current) => ({ ...current, [collapsedKey(group.id)]: !(current[collapsedKey(group.id)] ?? (closedByDefault && !group.error)) })); }}><strong>{group.label}</strong><span>{selectedCount} of {group.rows.length} selected</span>{group.meta}</summary>
         {errorNote}
         <div className="column-check-group-actions">
           <button className="text-button" type="button" aria-label={`Select all ${query ? 'shown ' : ''}in group: ${group.label}`} disabled={disabled || group.disabled || !group.shown.length} onClick={() => group.onChange([...new Set([...group.rows.filter((row) => row.checked).map((row) => row.name), ...group.shown.map((row) => row.name)])])}>Select all{shownWord}</button>

@@ -509,7 +509,7 @@ describe('createSession — mcpAllowlist body field (mcp-scope-04)', () => {
 
     const expectedAllowlist = expandMcpAllowlist(ROLE_CONFIG);
     expect(capturedBody).toHaveProperty('mcpAllowlist');
-    expect(capturedBody.mcpAllowlist).toEqual(expectedAllowlist);
+    expect(capturedBody.mcpAllowlist).toEqual({ ...expectedAllowlist, deferred: true });
   });
 
   // AC-01 (content check): verify exact expansion content so the test cannot
@@ -555,7 +555,7 @@ describe('createSession — mcpAllowlist body field (mcp-scope-04)', () => {
 
     expect(capturedBody).toHaveProperty('mcpAllowlist');
     const expected = expandMcpAllowlist(wsRoleConfig);
-    expect(capturedBody.mcpAllowlist).toEqual(expected);
+    expect(capturedBody.mcpAllowlist).toEqual({ ...expected, deferred: true });
 
     // servers[] contains the raw server name (not sanitized), as the engine expects
     expect((capturedBody.mcpAllowlist as { servers: string[] }).servers).toContain('pco-services');
@@ -791,7 +791,7 @@ describe('updateSessionAllowlist — mcpAllowlist body shape (#855)', () => {
     // The critical regression guard: servers must be an ARRAY, never an object.
     expect(Array.isArray(allowlist.servers)).toBe(true);
     expect(Array.isArray(allowlist.tools)).toBe(true);
-    expect(allowlist).toEqual(expandMcpAllowlist(graphicDesignerLike));
+    expect(allowlist).toEqual({ ...expandMcpAllowlist(graphicDesignerLike), deferred: true });
     // Content check so this can't pass via a trivial {servers:[],tools:[]}.
     expect((allowlist.tools as string[])).toContain('canva_generate-design');
     expect((allowlist.tools as string[])).toContain('canva_export-design');
@@ -833,7 +833,7 @@ describe('updateSessionAllowlist — mcpAllowlist body shape (#855)', () => {
       deferred?: boolean;
       deferredServers?: string[];
     };
-    expect(allowlist.deferred).toBeUndefined();
+    expect(allowlist.deferred).toBe(true);
     expect(allowlist.deferredServers).toEqual(['ableton-mcp']);
   });
 

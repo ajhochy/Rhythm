@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-22",
+  "verifiedAt": "2026-10-23T05:08:13.149199+00:00",
+  "sourceGrantBefore": [
+    "ipset:hermes-host"
+  ],
+  "sourceGrantAfter": [
+    "*"
+  ],
+  "destination": [
+    "ipset:rhythm-mac"
+  ],
+  "protocol": [
+    "tcp:4001"
+  ],
+  "policySaved": true,
+  "policyTestsUpdated": 6,
+  "otherGrantsSshNodeAttrsDefinitionsPreserved": true,
+  "receivedPolicyPersonalTailnetPeers": [
+    {
+      "device": "pi-nas",
+      "dnsName": "pi-nas.tail3798ec.ts.net.",
+      "tcp4001AllowedIpv4": true,
+      "tcp4001AllowedIpv6": true
+    },
+    {
+      "device": "localhost",
+      "dnsName": "iphone-14.tail3798ec.ts.net.",
+      "tcp4001AllowedIpv4": true,
+      "tcp4001AllowedIpv6": true
+    },
+    {
+      "device": "pi-hermes",
+      "dnsName": "pi-hermes.tail3798ec.ts.net.",
+      "tcp4001AllowedIpv4": true,
+      "tcp4001AllowedIpv6": true
+    },
+    {
+      "device": "localhost",
+      "dnsName": "iphone-13-mini.tail3798ec.ts.net.",
+      "tcp4001AllowedIpv4": true,
+      "tcp4001AllowedIpv6": true
+    },
+    {
+      "device": "pi-monitor",
+      "dnsName": "pi-monitor.tail3798ec.ts.net.",
+      "tcp4001AllowedIpv4": true,
+      "tcp4001AllowedIpv6": true
+    },
+    {
+      "device": "Mac\u2019s Mac mini",
+      "dnsName": "macs-mac-mini-3.tail3798ec.ts.net.",
+      "tcp4001AllowedIpv4": true,
+      "tcp4001AllowedIpv6": true
+    }
+  ],
+  "allOnlinePersonalTailnetPeersAllowed": true,
+  "remoteBrowserConfirmed": true,
+  "remoteDevice": "Mac\u2019s Mac mini",
+  "remoteConfirmation": "AJ: Yes, Rhythm loads"
+}

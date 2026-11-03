@@ -95,7 +95,8 @@ protocol request field) without a separate reviewed runtime upgrade.
 
 ## Pinned build inputs
 
-- Bot Crossing source: `2bb12c46b8a7c3392d627acf416cedb857d49dbb`
+- Bot Crossing source: `a1f113340e643c50325ac1c1e0fc1ed0ed2e066b`
+- Previous source: `2bb12c46b8a7c3392d627acf416cedb857d49dbb`; October 20 adds pending inventory-generation coalescing without changing limits.
 - Electron 40.10.2 (`electronMajor: 40`)
 - Node 22.23.0, matching the Electron release packager and providing `node:sqlite`
 - Minimum macOS 12.0

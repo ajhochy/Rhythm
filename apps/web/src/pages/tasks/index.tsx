@@ -119,8 +119,8 @@ export function TasksPage({ route }: { route: string }) {
   const gateway = useGateway();
   const { members: memberOptions, status: memberStatus, currentUserId: liveUserId } = useWorkspaceMembers(workspaceMembers.map((person) => ({ ...person, userId: Number(person.id), email: '' })));
   const initialParams = useMemo(hashParams, []);
-  const [surfaceState, setSurfaceState] = useState<TasksSurfaceState>(initialSurfaceState);
-  const [tasks, setTasks] = useState<TaskFixture[]>(cloneSeededTasks);
+  const [surfaceState, setSurfaceState] = useState<TasksSurfaceState>(() => gateway.mode === 'live' ? 'loading' : initialSurfaceState());
+  const [tasks, setTasks] = useState<TaskFixture[]>(() => gateway.mode === 'live' ? [] : cloneSeededTasks());
   const [receipts, setReceipts] = useState<string[]>(() => surfaceState === 'server-error' ? ['GET /tasks → 503'] : gateway.mode === 'fixture' ? [...initialTaskReceipts] : []);
   const [view, setView] = useState<TasksView>(() => routeView(route));
   const [selectedId, setSelectedId] = useState<string | null>(() => routeSelection(route));
@@ -167,6 +167,7 @@ export function TasksPage({ route }: { route: string }) {
 
   const loadTasks = async () => {
     if (gateway.mode === 'fixture') return;
+    if (!gateway.domains.tasks) { setTasks([]); setSurfaceState('unavailable'); return; }
     setSurfaceState('loading');
     try {
       const loaded = await gateway.domains.tasks!.list();
@@ -323,6 +324,7 @@ export function TasksPage({ route }: { route: string }) {
           appendReceipt(`POST /tasks/${created.id}/collaborators {userId:${collaborator.userId}} → 200`);
         }
         appendReceipt(`POST /tasks {title${notes ? ',notes' : ''}${scheduledDate ? ',scheduledDate' : ''}${dueDate ? ',dueDate' : ''},preferredAgent} → 201`);
+        setSurfaceState('ready');
         form.reset(); setCreateOpen(false); notify(`${title} added`);
       } catch (error) { recordError('POST', '/tasks', error); } finally { setMutationPending(false); }
       return;
@@ -467,10 +469,13 @@ export function TasksPage({ route }: { route: string }) {
         return { id: created.id, title: created.title };
       };
       await launchQuickActionSession(gateway.domains.sessions!, action, { id: selectedTask.id, title: selectedTask.title }, action === 'follow-up-tasks' ? createFollowUpTask : undefined);
-      appendReceipt('POST /agent-sessions {profileId,mcpRole,cwd,name,taskId} → 201');
+      appendReceipt('POST /agent-sessions {profileId,mcpRole,cwd,name,taskId,taskTitle} → 201');
       notify('Secretary session created');
       navigate('/agents');
-    } catch (error) { recordError('POST', '/agent-sessions', error); } finally { setQuickActionPending(false); }
+    } catch (error) {
+      appendReceipt('POST /agent-sessions → blocked before dispatch');
+      notify(error instanceof Error ? error.message : 'Agent handoff unavailable');
+    } finally { setQuickActionPending(false); }
   };
 
   const launchQuickAction = (action: QuickActionId) => {

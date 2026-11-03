@@ -61,7 +61,8 @@ vi.mock('../services/opencode_engine', () => ({
 }));
 
 // auth middleware bypass
-vi.mock('../config/env', () => ({
+vi.mock('../config/env', async () => ({
+  ...(await import('./helpers/opencode_paths_mock')).opencodePathMocks,
   env: {
     agentLocal: true,
     agentExecutionEnabled: true,
@@ -459,6 +460,44 @@ describe('issue-mcp-1: env-map plumbing + entry surfacing', () => {
     expect(listToolIdsSpy).not.toHaveBeenCalled();
   });
 
+  it('mcp-inspector-catalog-race: a replacement between status and catalog reads does not pin a transient zero-tool result', async () => {
+    listMcpSpy.mockResolvedValue({ rhythm: { status: 'connected' } });
+    listMcpToolIdsSpy.mockResolvedValueOnce([]).mockResolvedValueOnce(['rhythm_ping']);
+
+    const res = await fetch(`${baseUrl}/opencode/mcp`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as Array<{ name: string; status: string; tools: string[] }>;
+    expect(body.find((entry) => entry.name === 'rhythm')).toMatchObject({
+      status: 'connected',
+      tools: ['ping'],
+    });
+  });
+
+  it('mcp-inspector-catalog-race: a connected bundled server with a persistently absent catalog reports unavailable', async () => {
+    listMcpSpy.mockResolvedValue({ rhythm: { status: 'connected' } });
+    listMcpToolIdsSpy.mockResolvedValue([]);
+
+    const res = await fetch(`${baseUrl}/opencode/mcp`);
+    expect(res.status).toBe(503);
+    const body = await res.json() as { error: { code: string } };
+    expect(body.error.code).toBe('MCP_CATALOG_UNAVAILABLE');
+  });
+
+  it('mcp-inspector-catalog-race: a replacement that becomes configured reports the newer status', async () => {
+    listMcpSpy.mockResolvedValueOnce({ rhythm: { status: 'connected' } })
+      .mockResolvedValueOnce({ rhythm: { status: 'configured' } });
+    listMcpToolIdsSpy.mockResolvedValueOnce([]);
+
+    const res = await fetch(`${baseUrl}/opencode/mcp`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as Array<{ name: string; status: string; tools: string[] }>;
+    expect(body.find((entry) => entry.name === 'rhythm')).toMatchObject({
+      status: 'configured',
+      tools: [],
+    });
+    expect(listMcpToolIdsSpy).toHaveBeenCalledOnce();
+  });
+
   // ── MCP inspector redesign — sanitized transport fact + profile usage count ──
 
   it('mcp-inspector-1: GET /opencode/mcp derives a sanitized transport fact (program name / host only, never args/url) and profile usage counts', async () => {
@@ -467,6 +506,7 @@ describe('issue-mcp-1: env-map plumbing + entry surfacing', () => {
       notion: { status: 'needs_auth' },
       adhoc: { status: 'connected' },
     });
+    listMcpToolIdsSpy.mockResolvedValueOnce(['rhythm_ping']);
     getPersistedMcpConfigsSpy.mockResolvedValueOnce({
       rhythm: { type: 'local', command: ['/usr/local/bin/node', '/opt/rhythm/mcp/index.js', '--secret-flag', 'abc123'], environment: { TOKEN: 'shh' } },
       notion: { type: 'remote', url: 'https://mcp.notion.com/mcp?token=shh' },
@@ -545,6 +585,7 @@ describe('issue-786: GET /opencode/mcp provenance (source) flag', () => {
       'my-adhoc-mcp': { status: 'disconnected' },
       foo: { status: 'connected' },
     });
+    listMcpToolIdsSpy.mockResolvedValueOnce(['rhythm_ping']);
 
     const res = await fetch(`${baseUrl}/opencode/mcp`);
     expect(res.status).toBe(200);

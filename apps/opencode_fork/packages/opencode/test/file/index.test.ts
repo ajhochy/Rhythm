@@ -4,6 +4,7 @@ import { $ } from "bun"
 import { Cause, Effect, Exit, Layer } from "effect"
 import path from "path"
 import fs from "fs/promises"
+import { randomBytes } from "node:crypto"
 import { File } from "../../src/file"
 import { Filesystem } from "@/util/filesystem"
 import { disposeAllInstances, TestInstance, withTmpdirInstance } from "../fixture/fixture"
@@ -410,6 +411,35 @@ describe("file/index Filesystem patterns", () => {
           expect(entry!.status).toBe("added")
           expect(entry!.added).toBe(4)
           expect(entry!.removed).toBe(0)
+        }),
+      { git: true },
+    )
+
+    it.instance(
+      "bounds untracked file reads",
+      () =>
+        Effect.gen(function* () {
+          const test = yield* TestInstance
+          yield* Effect.promise(() =>
+            Promise.all([
+              fs.writeFile(path.join(test.directory, "small.txt"), "a\nb\nc\n", "utf-8"),
+              fs.writeFile(path.join(test.directory, "binary.png"), randomBytes(2 * 1024 * 1024)),
+              fs.writeFile(path.join(test.directory, "oversized.txt"), "x".repeat(1.5 * 1024 * 1024), "utf-8"),
+            ]),
+          )
+
+          const result = yield* status()
+          expect(
+            Object.fromEntries(
+              result
+                .filter((file) => ["small.txt", "binary.png", "oversized.txt"].includes(file.path))
+                .map((file) => [file.path, { status: file.status, added: file.added }]),
+            ),
+          ).toEqual({
+            "small.txt": { status: "added", added: 4 },
+            "binary.png": { status: "added", added: 0 },
+            "oversized.txt": { status: "added", added: 0 },
+          })
         }),
       { git: true },
     )

@@ -19,7 +19,8 @@ test('post-m1-p1-c3b: an edited session setting persists through renderer reload
   // the renamed-session assertion fails after reload.
   await openFixture(page);
   await page.getByTestId('session-actions').click();
-  await page.getByTestId('session-actions-settings').click();
+  await page.getByTestId('session-actions-secondary').click();
+  await page.getByTestId('session-actions-session-defaults').click();
   const dialog = page.getByTestId('session-settings-dialog');
   await dialog.getByLabel('Session name').fill('Persisted Phase 1 handoff');
   await page.getByTestId('save-session-settings').click();

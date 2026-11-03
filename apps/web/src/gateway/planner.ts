@@ -1,4 +1,6 @@
 import type { GatewayMode } from '.';
+import { isTrustedBrowserFetcher } from './browser-transport';
+import { cloudAccountFailure } from './cloud-error';
 
 export type TaskStatus = 'open' | 'in_progress' | 'waiting_for_reply' | 'done' | 'deferred';
 
@@ -71,7 +73,7 @@ const failureText = (status: number, operation: string) => {
 async function response<T>(operation: string, pending: Promise<Response>): Promise<T> {
   try {
     const result = await pending;
-    if (!result.ok) throw new PlannerGatewayError(result.status, failureText(result.status, operation));
+    if (!result.ok) throw new PlannerGatewayError(result.status, await cloudAccountFailure(result) ?? failureText(result.status, operation));
     return result.status === 204 ? undefined as T : await result.json() as T;
   } catch (error) {
     if (error instanceof PlannerGatewayError) throw error;
@@ -85,7 +87,7 @@ export function createFixturePlannerGateway(_fetcher?: typeof fetch): PlannerGat
 }
 
 export function createLivePlannerGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): PlannerGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: an explicit planner token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: an explicit planner token is required');
   const request = (path: string, init: RequestInit = {}) => fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   const body = (input: unknown) => JSON.stringify(input);
   return {

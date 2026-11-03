@@ -345,6 +345,11 @@ This logic prevents stale persisted provider/model values from breaking the UI w
 
 ## Notification Tracking Data
 
+Loss of the event stream does not change session runtime statuses to idle. The last
+server status remains until SSE or polling replaces it. Foreground completion
+notifications require an observed busy turn followed by a server-reported
+completion; relay loss alone must not clear pending notification tracking.
+
 Pending completion notification storage records:
 
 - `sessionId`

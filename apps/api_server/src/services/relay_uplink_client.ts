@@ -33,6 +33,15 @@ export interface RelayUplinkClientOptions {
   reconnectMaxMs?: number;
   hubMaxQueue?: number;
   maxInflightRpc?: number;
+  /** Interval between outbound WS pings on a live uplink. */
+  heartbeatIntervalMs?: number;
+  /**
+   * Terminate (and therefore redial) when nothing — pong, frame, or any other
+   * byte — has arrived from the relay for this long. Without it a half-open
+   * socket is invisible: the Mac keeps `isConnected()` true while every phone
+   * request falls into a hole. See docs/ai/runs/2026-09-30-relay-uplink-heartbeat.md.
+   */
+  idleTimeoutMs?: number;
 }
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -48,6 +57,8 @@ const HOP_BY_HOP_HEADERS = new Set([
 ]);
 
 const RPC_TIMEOUT_MS = 30_000;
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 20_000;
+const DEFAULT_IDLE_TIMEOUT_MS = 60_000;
 const ARTIFACT_BASE64_LIMIT_BYTES = 8 * 1024 * 1024;
 const PTY_MAX_FRAME_BYTES = 1024 * 1024;
 const PTY_MAX_PENDING_BYTES = 1024 * 1024;
@@ -82,6 +93,8 @@ export class RelayUplinkClient {
   private readonly reconnectMaxMs: number;
   private readonly hubMaxQueue: number;
   private readonly maxInflightRpc: number;
+  private readonly heartbeatIntervalMs: number;
+  private readonly idleTimeoutMs: number;
 
   private running = false;
   private ready = false;
@@ -112,6 +125,12 @@ export class RelayUplinkClient {
     this.reconnectMaxMs = options.reconnectMaxMs ?? 60_000;
     this.hubMaxQueue = options.hubMaxQueue ?? 4_096;
     this.maxInflightRpc = options.maxInflightRpc ?? 16;
+    this.heartbeatIntervalMs = Math.max(
+      100, options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
+    );
+    this.idleTimeoutMs = Math.max(
+      200, options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS,
+    );
   }
 
   start(): void {
@@ -119,7 +138,11 @@ export class RelayUplinkClient {
     this.running = true;
     this.hubTask = this.forwardHubEnvelopes();
     if (this.options.urls.length > 0) {
-      this.dialTask = this.dialLoop();
+      this.dialTask = this.dialLoop().catch((error) => {
+        logger.error(
+          `[RelayUplinkClient] uplink dial loop exited; the Mac is unreachable until restart reason=${error instanceof Error ? error.name : 'UnknownError'}`,
+        );
+      });
     }
   }
 
@@ -226,14 +249,24 @@ export class RelayUplinkClient {
     while (this.running) {
       let connectedDuringPass = false;
 
-      for (const url of this.options.urls) {
-        if (!this.running) return;
-        const result = await this.dial(url);
-        if (result === 'stopped') return;
-        if (result === 'closed') {
-          connectedDuringPass = true;
-          break;
+      // A throw anywhere in a pass must not end the loop. Before this guard an
+      // exception escaping dial() left dialLoop's promise rejected and the Mac
+      // permanently unreachable with no reconnect ever logged — the 2026-09-30
+      // outage shape. Treat it as a failed pass and keep backing off.
+      try {
+        for (const url of this.options.urls) {
+          if (!this.running) return;
+          const result = await this.dial(url);
+          if (result === 'stopped') return;
+          if (result === 'closed') {
+            connectedDuringPass = true;
+            break;
+          }
         }
+      } catch (error) {
+        logger.error(
+          `[RelayUplinkClient] uplink dial pass threw; loop continues reason=${error instanceof Error ? error.name : 'UnknownError'}`,
+        );
       }
 
       if (!this.running) return;
@@ -286,8 +319,40 @@ export class RelayUplinkClient {
         resolve(result);
       };
 
+      let lastActivityAt = Date.now();
+      const touch = (): void => {
+        lastActivityAt = Date.now();
+      };
+      let heartbeat: ReturnType<typeof setInterval> | null = null;
+      const stopHeartbeat = (): void => {
+        if (heartbeat) clearInterval(heartbeat);
+        heartbeat = null;
+      };
+
+      socket.on('pong', touch);
+      socket.on('ping', touch);
+
       socket.on('open', () => {
         opened = true;
+        touch();
+        heartbeat = setInterval(() => {
+          if (socket.readyState !== WebSocket.OPEN) return;
+          if (Date.now() - lastActivityAt > this.idleTimeoutMs) {
+            logger.warn(
+              `[RelayUplinkClient] uplink idle for ${Date.now() - lastActivityAt}ms with no pong; terminating to force a redial`,
+            );
+            stopHeartbeat();
+            socket.terminate();
+            return;
+          }
+          try {
+            socket.ping();
+          } catch {
+            // A failing ping means the socket is already going away; close
+            // handling owns the redial.
+          }
+        }, this.heartbeatIntervalMs);
+        if (typeof heartbeat.unref === 'function') heartbeat.unref();
         void this.initializeConnection(socket).catch((error) => {
           logger.warn(
             `[RelayUplinkClient] connection initialization failed reason=${error instanceof Error ? error.name : 'UnknownError'}`,
@@ -296,12 +361,14 @@ export class RelayUplinkClient {
         });
       });
       socket.on('message', (data: RawData) => {
+        touch();
         this.handleMessage(socket, data);
       });
       socket.on('error', () => {
         // The close event drives failover/reconnect. Error must stay contained.
       });
       socket.on('close', () => {
+        stopHeartbeat();
         settle(this.running ? (opened ? 'closed' : 'failed') : 'stopped');
       });
     });

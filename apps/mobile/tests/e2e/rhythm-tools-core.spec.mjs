@@ -21,7 +21,7 @@ test('issue-1173-c2: Brain CRUD search and offline cache', async ({ page }) => {
 
 test('issue-1173-c3: Research lifecycle', async ({ page }) => {
   await openTool(page, 'Research');
-  await page.getByRole('button', { name: 'New research' }).click();
+  await page.getByRole('button', { name: 'New research', exact: true }).click();
   await page.getByLabel('Research question').fill('How should we follow up with first-time guests?');
   await page.getByRole('button', { name: 'Start research' }).click();
   const research = page.getByRole('button', {

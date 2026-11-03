@@ -24,7 +24,7 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
   await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 }
 
-async function installLiveRoutes(page: Page, override?: (route: Route, url: URL) => Promise<boolean>) {
+async function installLiveRoutes(page: Page, override?: (route: Route, url: URL) => Promise<boolean>, userRole?: 'admin' | 'system') {
   await page.route('http://127.0.0.1:4097/**', (route) => fulfillJson(route, { healthy: true }));
   await page.route('https://api.vcrcapps.com/**', async (route) => {
     const url = new URL(route.request().url());
@@ -34,6 +34,7 @@ async function installLiveRoutes(page: Page, override?: (route: Route, url: URL)
   await page.route(`${apiBase}/**`, async (route) => {
     const url = new URL(route.request().url());
     if (override && await override(route, url)) return;
+    if (url.pathname === '/auth/me' && userRole) return fulfillJson(route, { user: { id: 4189, name: 'Settings fixture admin', email: 'settings-admin@example.invalid', role: userRole } });
     if (url.pathname === '/health') return fulfillJson(route, { healthy: true });
     if (url.pathname === '/global/health') return fulfillJson(route, { healthy: true });
     if (url.pathname === '/agent-configs') return fulfillJson(route, [profile]);
@@ -631,7 +632,7 @@ test('self-improvement-auto-promotion-live: default-off gating and explicit clou
       await fulfillJson(route, { availability: true, state: { autoPromotionEnabled: enabled, enabledAt: enabled ? '2026-08-22T00:00:00.000Z' : null, autoPromotionEligible: true, totalVerified: 5, totalRegressions: 0, trustThreshold: 5 } }); return true;
     }
     return false;
-  });
+  }, 'admin');
   await page.goto('http://127.0.0.1:4181/#/tools/agent-settings');
   await page.getByRole('option', { name: 'Auto-promotion', exact: true }).click();
   await expect(page.getByTestId('auto-promotion-settings')).toContainText('Disabled');
@@ -659,7 +660,7 @@ test('self-improvement-auto-promotion-errors: admin denial and stale eligibility
     if (mode === 'denied') { await fulfillJson(route, { error: 'forbidden' }, 403); return true; }
     if (route.request().method() === 'POST' && mode === 'conflict') { await fulfillJson(route, { error: 'stale' }, 409); return true; }
     await fulfillJson(route, { availability: true, state: { autoPromotionEnabled: false, enabledAt: null, autoPromotionEligible: true, totalVerified: 5, totalRegressions: 0, trustThreshold: 5 } }); return true;
-  });
+  }, 'admin');
   await page.goto('http://127.0.0.1:4181/#/tools/agent-settings');
   await page.getByRole('option', { name: 'Auto-promotion', exact: true }).click();
   await expect(page.getByTestId('auto-promotion-settings')).toContainText('Admin/system access required');

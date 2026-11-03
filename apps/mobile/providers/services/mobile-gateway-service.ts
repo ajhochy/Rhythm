@@ -1,10 +1,13 @@
 import type { PairedMacClient } from '@/lib/transport/paired-mac-client';
-import type {
-  AgentOption,
-  OpenCodeAgentId,
-  PermissionMode,
-  RhythmProfileId,
-  SessionExecutionState,
+import {
+  parseSessionSettingsState,
+  type AgentOption,
+  type OpenCodeAgentId,
+  type PermissionMode,
+  type RhythmProfileId,
+  type SessionExecutionState,
+  type SessionSettingsPatch,
+  type SessionSettingsTarget,
 } from '@/providers/opencode-provider-utils';
 import type { MobileSession } from '@/providers/opencode-provider-types';
 
@@ -156,6 +159,49 @@ export async function listMobileGatewayProfiles(
     : [];
 }
 
+function settingsStatePath(target: SessionSettingsTarget): string {
+  return `/mobile-gateway/sessions/${encodeURIComponent(target.id)}/state?identity=${target.identity}`;
+}
+
+/**
+ * Settings contract v1 read. Old Macs (404/unsupported/missing version) throw,
+ * and the caller treats that as "editor unavailable"; it never falls back to
+ * another identity.
+ */
+export async function getMobileSessionSettings(
+  client: PairedMacClient,
+  projectId: string,
+  target: SessionSettingsTarget,
+): Promise<SessionExecutionState> {
+  const response = await client.request<unknown>(settingsStatePath(target), {
+    method: 'GET',
+    headers: { 'X-Rhythm-Project-ID': projectId },
+  });
+  const state = parseSessionSettingsState(response, target);
+  if (!state) throw new Error('This Mac does not support chat settings for this chat.');
+  return state;
+}
+
+/** Partial settings PATCH: only the explicitly changed fields. The response is the readback. */
+export async function patchMobileSessionSettings(
+  client: PairedMacClient,
+  projectId: string,
+  target: SessionSettingsTarget,
+  patch: SessionSettingsPatch,
+): Promise<SessionExecutionState> {
+  const response = await client.request<unknown>(settingsStatePath(target), {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Rhythm-Project-ID': projectId,
+    },
+    body: JSON.stringify(patch),
+  });
+  const state = parseSessionSettingsState(response, target);
+  if (!state) throw new Error('The Mac returned an unexpected settings response. Nothing was changed here.');
+  return state;
+}
+
 export async function updateMobileSessionProfileState(
   client: PairedMacClient,
   projectId: string,
@@ -165,6 +211,7 @@ export async function updateMobileSessionProfileState(
     opencodeAgentId: OpenCodeAgentId | null;
     providerId: string | null;
     modelId: string | null;
+    modelMode?: 'auto' | 'fixed';
     thinkingBudget: number | null;
     permissionMode: PermissionMode;
   },

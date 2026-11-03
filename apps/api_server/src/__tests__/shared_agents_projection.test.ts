@@ -300,9 +300,30 @@ describe('shared-agent catalog and projection', () => {
     expect(delegated.snapshot.allowed_tools).not.toContain('rhythm_delegate');
     const hiddenManager = await issueProjection(fixture({ sessionSelectable: false }), { localUserId: 7, runtime: runtime(), cwd: null, launchKind: 'delegated', roster, leaseToken: 'synthetic-lease' });
     expect(hiddenManager.snapshot.allowed_tools).not.toContain('rhythm_delegate');
+  });
+
+  it('SA-PROJ-5b binds isManager to rhythm_delegate_async unconditionally (no drift)', () => {
+    // manager + sessionSelectable: false → still 'allow' — a manager must not lose
+    // async delegation just because it is not directly session-selectable.
     expect(computeEffectivePermissionMap(
       fixture({ sessionSelectable: false }),
-      roster,
+      [],
+    ).rhythm_delegate_async).toBe('allow');
+
+    // manager + authored corePermissionsJson denying it → still 'allow' — derived
+    // from isManager, not configurable via authored core permissions.
+    expect(computeEffectivePermissionMap(
+      fixture({ corePermissionsJson: '{"rhythm_delegate_async":"deny"}' }),
+      [],
+    ).rhythm_delegate_async).toBe('allow');
+
+    // manager, plain → 'allow' (happy path, unchanged).
+    expect(computeEffectivePermissionMap(fixture(), []).rhythm_delegate_async).toBe('allow');
+
+    // non-manager → 'deny' (unchanged).
+    expect(computeEffectivePermissionMap(
+      fixture({ isManager: false }),
+      [],
     ).rhythm_delegate_async).toBe('deny');
   });
 

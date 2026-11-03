@@ -1,0 +1,210 @@
+{
+  "fixtureVersion": 1,
+  "status": "proposed-contract-for-Astra-review",
+  "synthetic": true,
+  "selectorEnums": [
+    "local-primary",
+    "sdk"
+  ],
+  "settingsContractVersion": 1,
+  "headers": {
+    "X-Rhythm-Project-ID": "project-example"
+  },
+  "requests": [
+    {
+      "name": "inert-primary-read",
+      "method": "GET",
+      "path": "/mobile-gateway/sessions/local-primary-example/state?identity=local-primary",
+      "response": {
+        "settingsContractVersion": 1,
+        "settingsIdentity": "local-primary",
+        "localSessionId": "local-primary-example",
+        "sdkSessionId": null,
+        "profileId": "secretary-example",
+        "opencodeAgentId": "secretary-native-example",
+        "profileAvailability": "available",
+        "providerId": "authorized-provider-example",
+        "modelId": "authorized-model-example",
+        "modelMode": "fixed",
+        "routerDecidedAt": null,
+        "thinkingBudget": 2048,
+        "permissionMode": "plan",
+        "fastMode": false
+      }
+    },
+    {
+      "name": "fixed-model-only",
+      "method": "PATCH",
+      "path": "/mobile-gateway/sessions/local-primary-example/state?identity=local-primary",
+      "body": {
+        "modelMode": "fixed",
+        "providerId": "authorized-provider-example",
+        "modelId": "another-authorized-model-example"
+      },
+      "preserve": [
+        "profileId",
+        "opencodeAgentId",
+        "permissionMode",
+        "thinkingBudget",
+        "fastMode"
+      ]
+    },
+    {
+      "name": "auto-only",
+      "method": "PATCH",
+      "path": "/mobile-gateway/sessions/local-primary-example/state?identity=local-primary",
+      "body": {
+        "modelMode": "auto"
+      },
+      "preserve": [
+        "providerId",
+        "modelId",
+        "profileId",
+        "opencodeAgentId",
+        "thinkingBudget",
+        "fastMode",
+        "permissionMode"
+      ]
+    },
+    {
+      "name": "reasoning-only",
+      "method": "PATCH",
+      "path": "/mobile-gateway/sessions/local-primary-example/state?identity=local-primary",
+      "body": {
+        "thinkingBudget": null
+      },
+      "preserve": [
+        "modelMode",
+        "providerId",
+        "modelId",
+        "fastMode",
+        "profileId",
+        "permissionMode"
+      ]
+    },
+    {
+      "name": "explicit-fast-off",
+      "method": "PATCH",
+      "path": "/mobile-gateway/sessions/local-primary-example/state?identity=local-primary",
+      "body": {
+        "fastMode": false
+      },
+      "preserve": [
+        "modelMode",
+        "providerId",
+        "modelId",
+        "thinkingBudget",
+        "profileId",
+        "permissionMode"
+      ]
+    },
+    {
+      "name": "ordinary-sdk-read",
+      "method": "GET",
+      "path": "/mobile-gateway/sessions/sdk-example/state?identity=sdk",
+      "response": {
+        "settingsContractVersion": 1,
+        "settingsIdentity": "sdk",
+        "localSessionId": "ordinary-local-example",
+        "sdkSessionId": "sdk-example",
+        "profileId": "secretary-example",
+        "opencodeAgentId": "secretary-native-example",
+        "profileAvailability": "available",
+        "providerId": "authorized-provider-example",
+        "modelId": "authorized-model-example",
+        "modelMode": "fixed",
+        "routerDecidedAt": null,
+        "thinkingBudget": 2048,
+        "permissionMode": "plan",
+        "fastMode": false
+      }
+    },
+    {
+      "name": "ordinary-sdk-partial-fast",
+      "method": "PATCH",
+      "path": "/mobile-gateway/sessions/sdk-example/state?identity=sdk",
+      "body": {
+        "fastMode": true
+      },
+      "require": "explicit supported user toggle"
+    },
+    {
+      "name": "legacy-response",
+      "response": {
+        "localSessionId": "local-primary-example",
+        "profileId": "secretary-example",
+        "opencodeAgentId": "secretary-native-example",
+        "profileAvailability": "available",
+        "providerId": "authorized-provider-example",
+        "modelId": "authorized-model-example",
+        "modelMode": "fixed",
+        "routerDecidedAt": null,
+        "thinkingBudget": 2048,
+        "permissionMode": "plan"
+      },
+      "disposition": "Fast unknown; local-primary editor disabled; ordinary known SDK may retain existing legacy model/reasoning handler without Fast"
+    }
+  ],
+  "negativeCases": [
+    {
+      "body": {
+        "providerId": "authorized-provider-example",
+        "modelId": "authorized-model-example"
+      },
+      "status": 400
+    },
+    {
+      "body": {
+        "modelMode": "fixed",
+        "providerId": "authorized-provider-example"
+      },
+      "status": 400
+    },
+    {
+      "body": {
+        "modelMode": "auto",
+        "providerId": "authorized-provider-example",
+        "modelId": "authorized-model-example"
+      },
+      "status": 400
+    },
+    {
+      "body": {
+        "profileId": "other-profile"
+      },
+      "status": 400
+    },
+    {
+      "body": {
+        "thinkingBudget": -1
+      },
+      "status": 400
+    },
+    {
+      "body": {
+        "fastMode": "true"
+      },
+      "status": 400
+    },
+    {
+      "body": {},
+      "status": 400
+    },
+    {
+      "identity": "local",
+      "status": 400
+    },
+    {
+      "case": "local-primary is no longer designated / wrong owner / wrong current project / archived",
+      "status": 404
+    },
+    {
+      "case": "GET lacks version 1 or exact echo",
+      "disposition": "no v1 writes; never ordinary fallback for primary"
+    },
+    {
+      "case": "paired client / generation / visible root changed during await",
+      "disposition": "discard stale UI response; no retarget or automatic retry"
+    }
+  ]
+}

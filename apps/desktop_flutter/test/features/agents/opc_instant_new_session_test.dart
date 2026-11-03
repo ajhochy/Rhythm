@@ -174,6 +174,7 @@ class _StubAgentsRepository implements AgentsRepository {
     bool? fastMode,
     String? anthropicAccountId,
     String? agentId,
+    String? modelMode,
   }) async =>
       _makeSession(id, '');
 

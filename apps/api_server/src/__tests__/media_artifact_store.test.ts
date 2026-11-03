@@ -114,9 +114,9 @@ describe('media artifact store', () => {
       id: 'artifact-owned', project: 'project-a', session: 'owned-session', mime: 'image/png', size: 1,
       checksum: 'a'.repeat(64), createdAt: '2026-08-01T00:00:00.000Z', storageKey: `aa/${'a'.repeat(64)}`, pinned: false,
     };
-    expect(store.canUserAccessArtifact(artifact, 1)).toBe(true);
-    expect(store.canUserAccessArtifact(artifact, 2)).toBe(false);
-    expect(store.canUserAccessArtifact({ ...artifact, project: 'project-b' }, 1)).toBe(false);
+    expect(await store.canUserAccessArtifact(artifact, 1)).toBe(true);
+    expect(await store.canUserAccessArtifact(artifact, 2)).toBe(false);
+    expect(await store.canUserAccessArtifact({ ...artifact, project: 'project-b' }, 1)).toBe(false);
   });
 });
 

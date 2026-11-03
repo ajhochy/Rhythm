@@ -88,6 +88,7 @@ import {
 } from './scope_mutation_contract';
 import { parseStrictJson } from './strict_json';
 import { extractValidatedConfigPatch } from './org_proposal_apply_service';
+import { revertOrgEvaluationBodyAsync } from './org_evaluation_body_appliers';
 
 export type ApplyOutcome = 'applied-ok' | 'refused-high-risk' | 'skipped';
 
@@ -902,7 +903,12 @@ export async function revertProposal(
       return 'unsafe-legacy-scope';
     }
 
-    if (hasScopeSnapshotVersion) {
+    const evaluatedBodyRollback = await revertOrgEvaluationBodyAsync(proposal);
+    if (evaluatedBodyRollback === 'conflict') return 'conflict';
+    if (evaluatedBodyRollback === 'reverted') {
+      // Exact body/file rollback was revision-fenced above. Continue through
+      // the normal proposal status transition without replaying legacy restore.
+    } else if (hasScopeSnapshotVersion) {
       const verified = verifyScopeSnapshotForRevert(snapshot, proposal.kind, proposal.changeJson);
       if (!verified) {
         logger.warn(`[org-proposal-apply] semantic scope snapshot conflict for '${proposal.id}'`);

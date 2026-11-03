@@ -1,6 +1,7 @@
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Express } from 'express';
+const { testServerPort } = require('./preserved_fixture.cjs') as { testServerPort(): number };
 
 /**
  * Shape returned by {@link startTestServer}.
@@ -61,12 +62,15 @@ export async function startTestServer(app: Express): Promise<TestServer> {
   // default HTML 404 → `SyntaxError: Unexpected token '<'` on `.json()`).
   // Binding 127.0.0.1 here puts every test listener in the one pool the kernel
   // does guarantee unique, so no two files can collide.
-  const server = app.listen(0, '127.0.0.1') as Server;
+  const server = app.listen(testServerPort(), '127.0.0.1') as Server;
   // Disable keep-alive: every response gets `Connection: close`, so undici
   // never pools a socket against this server's ephemeral port.
   server.maxRequestsPerSocket = 1;
 
-  await new Promise<void>((resolve) => server.once('listening', () => resolve()));
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', () => resolve());
+    server.once('error', reject); // EADDRINUSE is a refusal, never a fallback port.
+  });
   const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
   const close = () =>

@@ -1,0 +1,209 @@
+{
+  "issue": "deliverables-completion",
+  "generated": "2026-10-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-deliverables-completion-c1",
+      "text": "Supported current-host qualification API publishes exact source/runtime/fixture/evaluator capability.",
+      "mode": "integration",
+      "test_file": "tests/contract/request-deliverables-completion.spec.ts",
+      "test_id": "issue-deliverables-completion-c1: installed API publishes qualification capability",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c2",
+      "text": "Dayflow intended receiver admits only consent-qualified history.",
+      "mode": "integration",
+      "test_file": "tests/contract/request-deliverables-completion.spec.ts",
+      "test_id": "issue-deliverables-completion-c2: enrolled intended Dayflow receiver admits approved history",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c3",
+      "text": "Revoked Dayflow consent holds new history with zero SDK/provider dispatch.",
+      "mode": "integration",
+      "test_file": "tests/contract/request-deliverables-completion.spec.ts",
+      "test_id": "issue-deliverables-completion-c3: revoked holds new context with zero dispatch",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c4",
+      "text": "Foreign Dayflow receiver holds new history with zero SDK/provider dispatch.",
+      "mode": "integration",
+      "test_file": "tests/contract/request-deliverables-completion.spec.ts",
+      "test_id": "issue-deliverables-completion-c4: foreign holds new context with zero dispatch",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c5",
+      "text": "Changed Dayflow history holds new content with zero SDK/provider dispatch.",
+      "mode": "integration",
+      "test_file": "tests/contract/request-deliverables-completion.spec.ts",
+      "test_id": "issue-deliverables-completion-c5: changed-history holds new context with zero dispatch",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c6",
+      "text": "Unsafe Dayflow history holds new content with zero SDK/provider dispatch.",
+      "mode": "integration",
+      "test_file": "tests/contract/request-deliverables-completion.spec.ts",
+      "test_id": "issue-deliverables-completion-c6: unsafe-history holds new context with zero dispatch",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c7",
+      "text": "Unenrolled authorized work proceeds without optional Dayflow history.",
+      "mode": "integration",
+      "test_file": "tests/contract/request-deliverables-completion.spec.ts",
+      "test_id": "issue-deliverables-completion-c7: unenrolled session proceeds without optional Dayflow history",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c8",
+      "text": "Automatic exhaustion reroutes and persists model, effort and account.",
+      "mode": "integration",
+      "test_file": "tests/contract/request-deliverables-completion.spec.ts",
+      "test_id": "issue-deliverables-completion-c8: exhausted automatic routing persists a new account and exact selection",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c9",
+      "text": "Explicitly pinned routing stays unchanged on exhaustion.",
+      "mode": "integration",
+      "test_file": "tests/contract/request-deliverables-completion.spec.ts",
+      "test_id": "issue-deliverables-completion-c9: pinned routing selection remains unchanged on exhaustion",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c10",
+      "text": "Unknown/NULL routing provenance stays unchanged on exhaustion.",
+      "mode": "integration",
+      "test_file": "tests/contract/request-deliverables-completion.spec.ts",
+      "test_id": "issue-deliverables-completion-c10: unknown routing selection remains unchanged on exhaustion",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c11",
+      "text": "Corrupt routing state refuses with zero SDK/provider dispatch.",
+      "mode": "integration",
+      "test_file": "tests/contract/request-deliverables-completion.spec.ts",
+      "test_id": "issue-deliverables-completion-c11: corrupt routing refuses with zero SDK and provider dispatch",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c12",
+      "text": "Completed-before-delivery recovery and duplicates retain exactly one worker/result/model wake from a genuine completed receipt.",
+      "mode": "integration",
+      "test_file": "tests/contract/request-deliverables-completion.spec.ts",
+      "test_id": "issue-deliverables-completion-c12: completed-before-delivery recovery and duplicates retain one durable original-chat result",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c13",
+      "text": "Fixture mutations require test-owned startup authority.",
+      "mode": "integration",
+      "test_file": "tests/contract/request-deliverables-completion.spec.ts",
+      "test_id": "issue-deliverables-completion-c13: unauthenticated fixture mutation is refused",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c14",
+      "text": "Foreign owner cannot redirect qualification into another owner or user store.",
+      "mode": "integration",
+      "test_file": "tests/contract/request-deliverables-completion.spec.ts",
+      "test_id": "issue-deliverables-completion-c14: foreign fixture owner cannot create or redirect a fixture",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c15",
+      "text": "Stale runtime boot binding refuses fixture execution before dispatch.",
+      "mode": "integration",
+      "test_file": "tests/contract/request-deliverables-completion.spec.ts",
+      "test_id": "issue-deliverables-completion-c15: stale runtime boot binding refuses fixture execution",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c16",
+      "text": "Normal chat one scoped proposal/genuine same-chat HUMAN approval.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: Requires actual human in native original chat; scripted signatures or fixture authority cannot qualify this boundary."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c17",
+      "text": "Actual manager delegates actual sole coding worker/change/tests.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: Requires actual engine manager and coding-worker transcripts plus independently measured filesystem writer identity; synthetic delivery counts do not qualify full workflow."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c18",
+      "text": "Independent trustworthy exact artifact verifier (worker prose/self-edited tests/hashes/signed candidate observations NOT enough).",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: Requires protected external evaluator independently bound to exact artifact and frozen acceptance, with tamper challenges; candidate receipt assertions alone are insufficient."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c19",
+      "text": "Readable original-chat durable result honest checks/limits.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: Requires native original-chat reopen and comparison with independent verifier/source evidence, not a fixtures result summary."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c20",
+      "text": "Cancellation/stale/failed/revoked fail safely.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: Requires supported actual coding workflow authority challenges after human-approved proposal; no fabricated human approval or substitute read-only lane."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c21",
+      "text": "Observable criteria/feasibility before dispatch/bounded timeout honest partial/relevant identity reuse/one writer/nearest durable receipt, distinguish compliance vs guarantees.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: Observe loaded review instructions and actual bounded intake/worker transcripts; instruction compliance does not establish engine-wide watchdog/writer guarantees."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c22",
+      "text": "Memory canonical sources/budget/body-free provenance/abstain revoked or irrelevant.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: Requires test-owned canonical sources and actual model-visible injected context; legacy search results or nonempty provenance cannot stand in for relevance."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c23",
+      "text": "Routing persist model/effort/account automatic exhaustion reroute; explicit pins and unknown/NULL unchanged; restart.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: Fixture routing cases cover pre-restart only; requires owned installed-app restart and exact persisted readback without unsolicited dispatch."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c24",
+      "text": "Finish missing Coordinator, package/install/test.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: Requires candidate package installation via supported app path, matching source/artifact provenance, codesign and native installed UI checks; source tests alone cannot qualify installation."
+    },
+    {
+      "criterion_id": "issue-deliverables-completion-c25",
+      "text": "Unsupported limits Free coding/S3 resume-existing/real-provider quality/private Memory must stay explicit.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: Requires final installed result/report to retain each unsupported qualification; synthetic fixtures do not establish these outcomes."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-deliverables-completion-c16",
+    "issue-deliverables-completion-c17",
+    "issue-deliverables-completion-c18",
+    "issue-deliverables-completion-c19",
+    "issue-deliverables-completion-c20",
+    "issue-deliverables-completion-c21",
+    "issue-deliverables-completion-c22",
+    "issue-deliverables-completion-c23",
+    "issue-deliverables-completion-c24",
+    "issue-deliverables-completion-c25"
+  ]
+}

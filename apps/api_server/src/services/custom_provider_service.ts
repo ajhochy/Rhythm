@@ -92,6 +92,33 @@ function isLocalAddress(address: string): boolean {
   return !isBlockedAddress(ip) && (isIpv4Local(mappedIpv4(ip) ?? ip) || isIpv6Local(ip));
 }
 
+/**
+ * Shared endpoint validation (custom providers and the decision-router
+ * backend): http(s) only, no credentials/query/fragment, link-local/metadata
+ * blocked, plain http only for literal loopback/RFC1918/IPv6-local addresses
+ * (plus the `localhost` name when `allowLocalhostName`). Throws CustomProviderError.
+ */
+export function validateEndpointUrl(baseURL: string, opts: { allowLocalhostName?: boolean } = {}): URL {
+  let endpoint: URL;
+  try {
+    endpoint = new URL(baseURL);
+  } catch {
+    fail(400, 'unsafe_endpoint', 'Base URL must be a valid HTTP(S) URL without credentials, query parameters, or a fragment.');
+  }
+  if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
+    fail(400, 'unsafe_endpoint', 'Base URL must be HTTP(S) without credentials, query parameters, or a fragment. HTTPS is required for public endpoints; HTTP is allowed only for literal loopback or private local IP addresses.');
+  }
+  const host = normalizedIp(endpoint.hostname);
+  if (isBlockedAddress(host)) {
+    fail(400, 'unsafe_endpoint', 'Link-local, cloud-metadata, unspecified, multicast, and reserved endpoint addresses are blocked.');
+  }
+  const localhostName = opts.allowLocalhostName === true && host === 'localhost';
+  if (endpoint.protocol === 'http:' && !localhostName && (isIP(host) === 0 || !isLocalAddress(host))) {
+    fail(400, 'unsafe_endpoint', 'Public HTTP hostnames and addresses are blocked. Use HTTPS for public endpoints; HTTP is allowed only for literal loopback or RFC1918/IPv6-local addresses.');
+  }
+  return endpoint;
+}
+
 export function validateCustomProviderInput(value: unknown): ValidatedInput {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     fail(400, 'invalid_request', 'Expected a JSON object with providerId, name, baseURL, and optional apiKey.');
@@ -113,22 +140,7 @@ export function validateCustomProviderInput(value: unknown): ValidatedInput {
     fail(400, 'invalid_request', 'API key must be a string when provided.');
   }
 
-  let endpoint: URL;
-  try {
-    endpoint = new URL(input.baseURL);
-  } catch {
-    fail(400, 'unsafe_endpoint', 'Base URL must be a valid HTTP(S) URL without credentials, query parameters, or a fragment.');
-  }
-  if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
-    fail(400, 'unsafe_endpoint', 'Base URL must be HTTP(S) without credentials, query parameters, or a fragment. HTTPS is required for public endpoints; HTTP is allowed only for literal loopback or private local IP addresses.');
-  }
-  const host = normalizedIp(endpoint.hostname);
-  if (isBlockedAddress(host)) {
-    fail(400, 'unsafe_endpoint', 'Link-local, cloud-metadata, unspecified, multicast, and reserved endpoint addresses are blocked.');
-  }
-  if (endpoint.protocol === 'http:' && (isIP(host) === 0 || !isLocalAddress(host))) {
-    fail(400, 'unsafe_endpoint', 'Public HTTP hostnames and addresses are blocked. Use HTTPS for public endpoints; HTTP is allowed only for literal loopback or RFC1918/IPv6-local addresses.');
-  }
+  const endpoint = validateEndpointUrl(input.baseURL);
   const normalizedBaseURL = endpoint.toString().replace(/\/$/, '');
   return {
     providerId: input.providerId,
@@ -140,7 +152,7 @@ export function validateCustomProviderInput(value: unknown): ValidatedInput {
   };
 }
 
-async function resolveEndpoint(endpoint: URL): Promise<{ address: string; family: 4 | 6 }> {
+export async function resolveEndpoint(endpoint: URL): Promise<{ address: string; family: 4 | 6 }> {
   const host = normalizedIp(endpoint.hostname);
   if (isIP(host)) return { address: host, family: isIP(host) as 4 | 6 };
   let addresses: Array<{ address: string; family: 4 | 6 }>;

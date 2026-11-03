@@ -1,0 +1,123 @@
+{
+  "run_id": "2026-10-06-coordinator-response-c17-installed",
+  "issue": 1605,
+  "date": "2026-10-06",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS within recorded suite scope; general judgment unqualified",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "coordinator-response-c1",
+      "text": "Copying a Coordinator answer through the real transcript mapPart/blockSource path copies its prose without either step-start or step-finish snapshot hash; on-screen step labels and other supported clipboard content remain intact.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Actual native Copy\u2192unsent paste excludes empty Git SHA and lifecycle text; composer cleared."
+    },
+    {
+      "criterion_id": "coordinator-response-c7",
+      "text": "The generated Secretary coding instructions consistently select rhythm_delegate_async in interactive chat so completion returns to that same caller, while scheduled/headless routing retains native Task. The workflow manager does not delegate to itself. Actual authored-profile regeneration removes the contradictory unconditional Task coding clause without rewriting user-authored prompt bodies.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Installed exact-root resync and registry routing0; authored/model/scope/accounts/permissions preserved. No natural model dispatch was performed."
+    },
+    {
+      "criterion_id": "issue-1605-c4",
+      "text": "**Actual native interaction (manual).** In the signed app with the original Dayflow view at 1280\u00d7800 and no outer Rhythm Dayflow header or footer, the native view fills the available tab height. Then shrink the window to a short native viewport below the measured 558-point document minimum (target window size 1280\u00d7560, recording actual viewport/document dimensions); a native trackpad or mouse-wheel check through CUA reaches the bottom timeline controls and scrolling back restores the top. At 3440\u00d71300, the full content remains visible without unnecessary scrolling. Record CUA/native-input evidence separately from physical-human evidence. This must be checked against the actual native view; a browser facade, synthetic DOM wheel, AppKit `scrollToPoint` fixture, or source-string check does not satisfy this criterion.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "CUA1280\u00d7800,1280\u00d7560 hostwheel toSettings/Review,3440\u00d71299,restored800; globalnavvisible."
+    },
+    {
+      "criterion_id": "coordinator-model-judgment",
+      "text": "Real Coordinator interprets bounded status correctly and fulfills AJ\u2019s conversational request.",
+      "contract_status": "absent",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Scripted plumbing and partial synthetic-context Opus replay do not establish judgment. Prior human failure remains separately preserved."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "release-inputs",
+      "description": "Missing ignored embedded-UI dependency leaf and external signing-layout metadata held production packaging; local dependency identity and actual Mach-O metadata repairs only.",
+      "detected_by": "Preserved package failures and unchanged-source guard receipts."
+    },
+    {
+      "process_category": "release-runtime-ownership",
+      "description": "Old idle C9 app restarted during preflights; guards stopped before child work; graceful quit and fresh private preservation preceded continuation. Cause unconfirmed.",
+      "detected_by": "Failure archives and root process/listener metadata."
+    },
+    {
+      "process_category": "release-scope-metadata",
+      "description": "Initial helper assumed project profile secretary; actual exact Secretary root linked to persisted general selection. Exact-root predicate repaired only external helper; initial postRequested=false.",
+      "detected_by": "Readonly workspace diagnosis/source inspection and separate reviewed resync receipt."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "failure-postmortem",
+      "project-state-updater"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "failure-postmortem",
+      "project-state-updater"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W3",
+        "affected_skill": "workflow-orchestrator",
+        "description": "Dedicated TodoWrite tool unavailable in this host; durable receipt/checklist files carry stage progress. No TodoWrite call can be asserted.",
+        "detected_by": "Available tool inventory and transcript."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/__tests__/coordinator_calendar_project_context.test.ts",
+    "apps/api_server/src/__tests__/coordinator_native_child_permission_mode.test.ts",
+    "apps/api_server/src/__tests__/live_chat_bounded_workflow.test.ts",
+    "apps/api_server/src/__tests__/live_coordinator_nested_permissions.test.ts",
+    "apps/api_server/src/repositories/agent_sessions_history.test.ts",
+    "apps/api_server/src/repositories/agent_sessions_repository.ts",
+    "apps/api_server/src/services/__tests__/opencode_agent_writer.test.ts",
+    "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
+    "apps/api_server/src/services/coordinator_conversation_service.ts",
+    "apps/api_server/src/services/opencode_agent_writer.ts",
+    "apps/mcp_server/src/__tests__/agentSessions_tool.test.ts",
+    "apps/mcp_server/src/tools/agentDelegation.ts",
+    "apps/mcp_server/src/tools/agentSessions.ts",
+    "apps/mcp_server/src/tools/issue_1123_agentDelegation.test.ts",
+    "apps/opencode_fork/packages/opencode/src/bus/index.ts",
+    "apps/opencode_fork/packages/opencode/src/session/prompt.ts",
+    "apps/opencode_fork/packages/opencode/src/snapshot/index.ts",
+    "apps/opencode_fork/packages/opencode/src/tool/task.ts",
+    "apps/opencode_fork/packages/opencode/test/session/mcp_allowlist_e2e.test.ts",
+    "apps/opencode_fork/packages/opencode/test/session/prompt.test.ts",
+    "apps/opencode_fork/packages/opencode/test/snapshot/snapshot-cleanup-auto.test.ts",
+    "apps/opencode_fork/packages/opencode/test/tool/coordinator-task-permissions.test.ts",
+    "apps/opencode_fork/packages/opencode/test/tool/task.test.ts",
+    "apps/web/src/components/Transcript.tsx",
+    "apps/web/src/gateway/sessions.ts",
+    "apps/web/tests/electron-e23-lifecycle.spec.ts",
+    "apps/web/tests/gateway/sessions-gateway.spec.ts"
+  ],
+  "failure_output": "No divergence in targeted installed UI smoke; general model judgment not checked.",
+  "overall_category": "none",
+  "suggested_follow_up": "Add bounded real-model Coordinator evaluations using actual session visibility and callback outcomes before claiming conversational reliability; preserve separate runtime and model evidence.",
+  "implementation_diff_base": "d83ffaa4bf8ec87fefd3104ec685e2b6a1209b7b",
+  "implementation_diff_scope": "Coordinator/mobile follow-up after integrated C9 documentation checkpoint; full PR includes preserved earlier integration."
+}

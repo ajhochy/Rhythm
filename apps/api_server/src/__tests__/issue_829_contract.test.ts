@@ -243,6 +243,11 @@ describe('issue-829-c3: never auto-applied', () => {
 
 describe('issue-829-c4: approval routes through the EXISTING HMAC/SSRF webhook-create path', () => {
   it('registerWebhookWiringApplier registers a webhook-wiring applier on the shared registry', async () => {
+    const { getDb } = await import('../database/db');
+    getDb().prepare(`INSERT INTO agent_scheduled_tasks
+      (id, name, schedule_type, prompt, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)`).run('task-1', 'Owned trigger task', 'manual', 'Review event',
+      new Date().toISOString(), new Date().toISOString());
     // NOTE: deliberately does NOT call resetProposalPluginsForTests() here —
     // that would also wipe org_proposal_apply_service.ts's own
     // module-load-time `validateWebhookWiring` registration (it is not
@@ -305,6 +310,7 @@ describe('issue-829-c4: approval routes through the EXISTING HMAC/SSRF webhook-c
         eventTypesJson: '["*"]',
         secret: 'mock-hmac-secret',
         targetScheduledTaskId: 'task-1',
+        targetRecipeId: null,
         targetPrompt: 'fenced prompt',
         enabled: true,
         lastTriggeredAt: null,

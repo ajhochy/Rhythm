@@ -287,11 +287,12 @@ export const layer = Layer.effect(
     })
 
     const reload = Effect.fn("Skill.reload")(function* () {
-      // Invalidate the disk-scan cache first, then the parsed-skill cache, so the
-      // subsequent `all()` re-runs discovery (re-reading config.skills.paths and
-      // every scan dir) instead of returning the stale memoized set.
-      yield* InstanceState.invalidate(discovered)
-      yield* InstanceState.invalidate(state)
+      // The managed library is shared by all open directories. Invalidating
+      // only the requesting instance leaves existing chats using edited or
+      // deleted skill text. Refresh discovery and parsed bodies together for
+      // every instance; per-agent allowlists still apply when a skill is used.
+      yield* InstanceState.invalidateAll(discovered)
+      yield* InstanceState.invalidateAll(state)
       return yield* all()
     })
 

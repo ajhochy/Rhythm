@@ -1,0 +1,16 @@
+{
+  "issue": "C1-prerequisite-repair",
+  "date": "2026-10-01",
+  "test_command": "npm exec --no -- vitest run src/__tests__/regressions_manual_trigger_live.test.ts -t 'C1 evidence falsification|C1 provider control trust boundary' --maxWorkers=1",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-c1-prerequisite-repair-c1",
+      "text": "Small trust-boundary fix: parse unknown,validate state:string+requests nonnegative integer,return typed fields (no blind any/assert cast to suppress malformed fixture).",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/regressions_manual_trigger_live.test.ts",
+      "status": "pass"
+    }
+  ],
+  "not_tested": []
+}

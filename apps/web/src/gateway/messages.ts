@@ -1,4 +1,6 @@
 import type { GatewayMode } from '.';
+import { isTrustedBrowserFetcher } from './browser-transport';
+import { cloudAccountFailure } from './cloud-error';
 
 export interface MessageThreadParticipant { id: number; name: string; email: string }
 export interface MessageThread { id: number; title: string; threadType: 'direct' | 'group'; taskId: string | null; createdBy: number | null; createdAt: string; updatedAt: string; lastMessage?: string | null; unreadCount: number; isUnread: boolean; participants: MessageThreadParticipant[] }
@@ -22,7 +24,7 @@ export interface MessagesGateway {
 
 export class MessagesGatewayError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 const failureText = (status: number, operation: string) => ({ 0: 'Messages service unavailable', 401: 'Authentication required', 403: 'Forbidden', 404: 'Message thread not found' })[status] ?? `${operation} failed (${status})`;
-async function response<T>(operation: string, pending: Promise<Response>): Promise<T> { try { const result = await pending; if (!result.ok) throw new MessagesGatewayError(result.status, failureText(result.status, operation)); return result.status === 204 ? undefined as T : await result.json() as T; } catch (error) { if (error instanceof MessagesGatewayError) throw error; throw new MessagesGatewayError(0, failureText(0, operation)); } }
+async function response<T>(operation: string, pending: Promise<Response>): Promise<T> { try { const result = await pending; if (!result.ok) throw new MessagesGatewayError(result.status, await cloudAccountFailure(result) ?? failureText(result.status, operation)); return result.status === 204 ? undefined as T : await result.json() as T; } catch (error) { if (error instanceof MessagesGatewayError) throw error; throw new MessagesGatewayError(0, failureText(0, operation)); } }
 
 export function createFixtureMessagesGateway(_fetcher?: typeof fetch): MessagesGateway {
   const unsupported = async (..._args: unknown[]): Promise<never> => { throw new MessagesGatewayError(0, 'Fixture messages gateway is unsupported'); };
@@ -30,7 +32,7 @@ export function createFixtureMessagesGateway(_fetcher?: typeof fetch): MessagesG
 }
 
 export function createLiveMessagesGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): MessagesGateway {
-  if (!token?.trim()) throw new Error('Live configuration error: an explicit messages token is required');
+  if (!token?.trim() && !isTrustedBrowserFetcher(fetcher)) throw new Error('Live configuration error: an explicit messages token is required');
   const request = (path: string, init: RequestInit = {}) => fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   const json = (value: unknown) => JSON.stringify(value);
   return {

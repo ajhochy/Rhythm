@@ -35,14 +35,23 @@ test('post-m1-p7-c2h: durable schedule history uses canonical run rows and owned
     const url = new URL(request.url());
     if (url.pathname === '/agent-schedules') return fulfillJson(route, 200, [task]).then(() => true);
     if (url.pathname === `/agent-schedules/${task.id}/runs`) return fulfillJson(route, 200, [run]).then(() => true);
-    if (url.pathname === `/agent-sessions/${run.rootSessionId}`) return fulfillJson(route, 200, { id: run.rootSessionId, ownerUserId: 7, status: 'error' }).then(() => true);
+    if (url.pathname === `/agent-sessions/${run.rootSessionId}`) {
+      const session = { id: run.rootSessionId, name: 'C2h owned schedule root', ownerUserId: 7,
+        category: 'scheduled', scheduledTaskId: task.id, status: 'error' };
+      return fulfillJson(route, 200, url.searchParams.has('transcriptLimit')
+        ? { session, messages: [] } : { session }).then(() => true);
+    }
     return false;
   });
 
   await expect.poll(() => matching(seen, 'GET', `/agent-schedules/${task.id}/runs`).length).toBeGreaterThan(0);
   await expect(page.getByText(run.error)).toBeVisible();
   await page.getByTestId(`schedule-run-${run.id}`).click();
-  await expect.poll(() => matching(seen, 'GET', `/agent-sessions/${run.rootSessionId}`).length).toBe(1);
+  await expect(page).toHaveURL(/\/#\/agents\?/);
+  expect(new URLSearchParams(new URL(page.url()).hash.split('?')[1]).get('sessionId')).toBe(run.rootSessionId);
+  await expect(page.locator('.agents-workspace .session-header h1')).toHaveText('C2h owned schedule root');
+  await expect.poll(() => matching(seen, 'GET', `/agent-sessions/${run.rootSessionId}`)
+    .some(request => new URLSearchParams(request.search).get('transcriptLimit') === '50')).toBe(true);
 });
 
 test('issue-1513-c4: opening a schedule run selects its owned root session in Agents', async ({ page }) => {
@@ -62,8 +71,11 @@ test('issue-1513-c4: opening a schedule run selects its owned root session in Ag
   });
 
   await page.getByTestId(`schedule-run-${run.id}`).click();
+  await expect(page).toHaveURL(/\/#\/agents\?/);
+  expect(new URLSearchParams(new URL(page.url()).hash.split('?')[1]).get('sessionId')).toBe(run.rootSessionId);
   await expect(page.locator('.agents-workspace .session-header h1')).toHaveText('Owned schedule run');
-  await expect.poll(() => matching(seen, 'GET', `/agent-sessions/${run.rootSessionId}`).length).toBe(2);
+  await expect.poll(() => matching(seen, 'GET', `/agent-sessions/${run.rootSessionId}`)
+    .some(request => new URLSearchParams(request.search).get('transcriptLimit') === '50')).toBe(true);
 });
 
 test('post-m1-p7-c2i: live report card renders nullable and unmeasured owner-scoped run evidence', async ({ page }) => {
@@ -83,4 +95,133 @@ test('post-m1-p7-c2i: live report card renders nullable and unmeasured owner-sco
   await expect(page.getByText(/1 unmeasured/i)).toBeVisible();
   await expect(page.getByText('Missing source')).toBeVisible();
   await expect(page.getByText('89%', { exact: true })).toHaveCount(0);
+});
+
+test('schedule editor keeps a failed update draft and retries the existing row', async ({ page }) => {
+  const seen: SeenRequest[] = [];
+  let reject = true;
+  let stored = { ...task };
+  await openPhase7Live(page, '/tools/tasks', seen, async (route, request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (pathname === '/agent-schedules') return fulfillJson(route, 200, [stored]).then(() => true);
+    if (pathname === `/agent-schedules/${task.id}` && request.method() === 'PATCH') {
+      if (reject) return fulfillJson(route, 503, { error: { code: 'UNAVAILABLE', message: 'Try saving again' } }).then(() => true);
+      stored = { ...stored, ...request.postDataJSON() };
+      return fulfillJson(route, 200, stored).then(() => true);
+    }
+    return false;
+  });
+  await page.getByTestId('schedule-edit').click();
+  const editor = page.getByTestId('schedule-editor');
+  await editor.getByLabel('Time', { exact: true }).fill('11:45');
+  await editor.getByTestId('schedule-save').click();
+  await expect(editor.getByTestId('schedule-timing-error')).toBeVisible();
+  await expect(editor.getByLabel('Time', { exact: true })).toHaveValue('11:45');
+  await expect(editor.getByLabel('Timezone')).toHaveValue(task.timezone);
+  reject = false;
+  await editor.getByTestId('schedule-save').click();
+  await expect(editor).toHaveCount(0);
+  expect(matching(seen, 'PATCH', `/agent-schedules/${task.id}`)).toHaveLength(2);
+  expect(matching(seen, 'POST', '/agent-schedules')).toHaveLength(0);
+  expect(stored).toMatchObject({ scheduledTime: '11:45', scheduledDay: 1, timezone: task.timezone });
+});
+
+test('schedule save without a next run warns after reopen and edits its real row without duplicate create', async ({ page }) => {
+  const seen: SeenRequest[] = [];
+  let stored: typeof task | undefined;
+  await openPhase7Live(page, '/tools/tasks', seen, async (route, request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (pathname === '/agent-schedules' && request.method() === 'GET')
+      return fulfillJson(route, 200, stored ? [stored] : []).then(() => true);
+    if (pathname === '/agent-schedules' && request.method() === 'POST') {
+      stored = { ...task, ...request.postDataJSON(), id: 'created-schedule', nextRunAt: null };
+      return fulfillJson(route, 201, stored).then(() => true);
+    }
+    if (pathname === '/agent-schedules/created-schedule' && request.method() === 'PATCH') {
+      stored = { ...stored!, ...request.postDataJSON(), nextRunAt: '2035-01-01T12:00:00.000Z' };
+      return fulfillJson(route, 200, stored).then(() => true);
+    }
+    return false;
+  });
+  await page.getByTestId('schedule-new').click();
+  let editor = page.getByTestId('schedule-editor');
+  await editor.getByLabel('Name', { exact: true }).fill('Owned warning schedule');
+  await editor.getByLabel('Instructions / Prompt').fill('Do the scheduled task');
+  await editor.getByLabel('Time', { exact: true }).fill('12:00');
+  await editor.getByLabel('Timezone').selectOption('UTC');
+  await editor.getByTestId('schedule-save').click();
+  await expect(page.getByTestId('schedule-timing-warning')).toContainText('no next run');
+  await expect(page.getByTestId('schedule-created-schedule')).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId('schedule-timing-warning')).toContainText('no next run');
+  await page.getByTestId('schedule-edit').click();
+  editor = page.getByTestId('schedule-editor');
+  await expect(editor.getByLabel('Name', { exact: true })).toHaveValue('Owned warning schedule');
+  await editor.getByLabel('Time', { exact: true }).fill('13:00');
+  await editor.getByTestId('schedule-save').click();
+  await expect(editor).toHaveCount(0);
+  await expect(page.getByTestId('schedule-timing-warning')).toHaveCount(0);
+  expect(matching(seen, 'POST', '/agent-schedules')).toHaveLength(1);
+  expect(matching(seen, 'PATCH', '/agent-schedules/created-schedule')).toHaveLength(1);
+});
+
+test('completed Once no longer warns about timing, while incomplete or rescheduled rows still warn', async ({ page }) => {
+  const due = '2035-01-01T12:00:00.000Z';
+  const completedAt = '2035-01-01T12:00:02.000Z';
+  let stored: Record<string, unknown> = { ...task, scheduleType: 'once', runAt: due, nextRunAt: null,
+    lastRunAt: completedAt, lastRunStatus: 'completed_no_op' };
+  const seen: SeenRequest[] = [];
+  await openPhase7Live(page, '/tools/tasks', seen, async (route, request) => {
+    if (new URL(request.url()).pathname === '/agent-schedules')
+      return fulfillJson(route, 200, [stored]).then(() => true);
+    return false;
+  });
+  const warning = page.getByTestId('schedule-timing-warning');
+  const cases = [
+    { scheduleType: 'once', runAt: due, lastRunAt: completedAt, lastRunStatus: 'completed_no_op', enabled: true, warns: false },
+    { scheduleType: 'once', runAt: due, lastRunAt: completedAt, lastRunStatus: 'success', enabled: true, warns: false },
+    { scheduleType: 'once', runAt: due, lastRunAt: null, lastRunStatus: null, enabled: true, warns: true },
+    { scheduleType: 'once', runAt: 'invalid', lastRunAt: completedAt, lastRunStatus: 'completed_no_op', enabled: true, warns: true },
+    { scheduleType: 'once', runAt: '2036-01-01T12:00:00.000Z', lastRunAt: completedAt, lastRunStatus: 'completed_no_op', enabled: true, warns: true },
+    { scheduleType: 'daily', runAt: due, lastRunAt: completedAt, lastRunStatus: 'completed_no_op', enabled: true, warns: true },
+    { scheduleType: 'once', runAt: due, lastRunAt: null, lastRunStatus: null, enabled: false, warns: false },
+  ];
+  for (const scenario of cases) {
+    stored = { ...stored, ...scenario };
+    await page.reload();
+    await expect(page.getByTestId(`schedule-${task.id}`)).toBeVisible();
+    await expect(warning).toHaveCount(scenario.warns ? 1 : 0);
+  }
+  expect(matching(seen, 'POST', '/agent-schedules')).toHaveLength(0);
+  expect(matching(seen, 'PATCH', `/agent-schedules/${task.id}`)).toHaveLength(0);
+});
+
+test('enabling an untimed saved draft opens timing repair without an enable write', async ({ page }) => {
+  const seen: SeenRequest[] = [];
+  const draft = { ...task, scheduleType: 'once', enabled: false, runAt: null, nextRunAt: null };
+  let updated: Record<string, unknown> | undefined;
+  await openPhase7Live(page, '/tools/tasks', seen, async (route, request) => {
+    if (new URL(request.url()).pathname === '/agent-schedules')
+      return fulfillJson(route, 200, [draft]).then(() => true);
+    if (new URL(request.url()).pathname === `/agent-schedules/${draft.id}` && request.method() === 'PATCH') {
+      const input = request.postDataJSON();
+      updated = { ...draft, ...input, nextRunAt: input.runAt };
+      return fulfillJson(route, 200, updated).then(() => true);
+    }
+    return false;
+  });
+  await page.getByTestId('schedule-toggle').click();
+  const editor = page.getByTestId('schedule-editor');
+  await expect(editor).toBeVisible();
+  await expect(editor.getByTestId('schedule-timing-error')).toBeVisible();
+  await expect(editor.getByLabel("Run at (this Mac's local time)")).toHaveValue('');
+  await expect(editor.getByLabel('Enabled', { exact: true })).toBeChecked();
+  expect(matching(seen, 'PATCH', `/agent-schedules/${draft.id}`)).toHaveLength(0);
+  expect(draft.enabled).toBe(false);
+  await editor.getByLabel("Run at (this Mac's local time)").fill('2099-01-15T12:00');
+  await editor.getByTestId('schedule-save').click();
+  await expect(editor).toHaveCount(0);
+  expect(matching(seen, 'PATCH', `/agent-schedules/${draft.id}`)).toHaveLength(1);
+  expect(matching(seen, 'POST', '/agent-schedules')).toHaveLength(0);
+  expect(updated).toMatchObject({ id: draft.id, enabled: true, runAt: '2099-01-15T20:00:00.000Z' });
 });

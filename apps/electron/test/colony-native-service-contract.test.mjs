@@ -78,6 +78,58 @@ test('disabled construction and open create no child; ten active opens share one
   })
 })
 
+test('two native inventory readers retain separate real worker generations after one cancels', { skip: !process.env.COLONY_NATIVE_ARTIFACT || !process.env.COLONY_NATIVE_SOURCE_COMMIT }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'colony-native-inventory-'))
+  const source = path.join(root, 'hermes')
+  const database = path.join(source, 'state.db')
+  await fs.mkdir(source)
+  const { DatabaseSync } = await import('node:sqlite')
+  const db = new DatabaseSync(database)
+  try {
+    db.exec('CREATE TABLE sessions (id TEXT, title TEXT, cwd TEXT)')
+    const insert = db.prepare('INSERT INTO sessions VALUES (?, ?, ?)')
+    for (let index = 0; index < 300; index++) insert.run(`synthetic-${index}`, 'Synthetic task', '/synthetic/project')
+  } finally { db.close() }
+  const before = await fs.readFile(database)
+  const service = need('createColonyService')({
+    isPackaged: false, developmentNodePath: process.execPath, resourcesPath: path.join(root, 'Resources'),
+    artifactRoot: process.env.COLONY_NATIVE_ARTIFACT, expectedSourceCommit: process.env.COLONY_NATIVE_SOURCE_COMMIT,
+    expectedElectronMajor: 40, dataDir: path.join(root, 'owned-state'),
+    sources: [{ id: 'hermes', enabled: true, paths: { home: source } }], enabled: () => true,
+  })
+  const request = (id, method, payload) => service.request({ v: 1, documentId: 'owned-document', id, method, payload })
+  try {
+    await service.start({ documentId: 'owned-document' })
+    const first = await request('reader-one-first', 'inventory.page', { collection: 'threads', limit: 1 })
+    const second = await request('reader-two-first', 'inventory.page', { collection: 'threads', limit: 1 })
+    assert.equal(first.ok, true)
+    assert.equal(second.ok, true)
+    assert.equal(first.result.nextCursor, '1')
+    assert.equal(second.result.nextCursor, '1')
+    assert.equal(first.result.records.length, 1)
+    assert.equal(second.result.records.length, 1)
+    assert.deepEqual(second.result.records, first.result.records, 'both readers initially observe the same source snapshot')
+    const cancelled = await request('reader-one-cancel', 'inventory.cancel', { generation: first.result.generation })
+    assert.equal(cancelled.ok, true)
+    const continued = await request('reader-two-next', 'inventory.page', { collection: 'threads', limit: 1, generation: second.result.generation, cursor: '1' })
+    assert.equal(continued.ok, true, 'cancelling one completed reader must not break another reader still paging')
+    assert.equal(continued.result.generation, second.result.generation)
+    assert.equal(continued.result.records.length, 1)
+    assert.equal(continued.result.nextCursor, '2')
+    assert.notDeepEqual(continued.result.records, second.result.records, 'the next page must advance the second reader')
+    assert.notEqual(first.result.generation, second.result.generation, 'independent native readers must not share a cancellable generation')
+    const third = await request('reader-three-first', 'inventory.page', { collection: 'threads', limit: 1 })
+    assert.equal(third.ok, true)
+    const capacity = await request('reader-four-first', 'inventory.page', { collection: 'threads', limit: 1 })
+    assert.equal(capacity.ok, false)
+    assert.equal(capacity.error.code, 'oversize', 'the worker two-generation cap still applies')
+  } finally {
+    await service.dispose()
+    assert.deepEqual(await fs.readFile(database), before, 'inventory source must remain read-only')
+    await fs.rm(root, { recursive: true, force: true })
+  }
+})
+
 test('startup capability mismatch fails before accepting inventory and disposes its child', async () => {
   await fixture(async ({ options }) => {
     const service = need('createColonyService')(options)

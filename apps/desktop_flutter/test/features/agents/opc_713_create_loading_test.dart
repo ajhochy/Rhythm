@@ -150,6 +150,7 @@ class _SlowStubAgentsRepository implements AgentsRepository {
     bool? fastMode,
     String? anthropicAccountId,
     String? agentId,
+    String? modelMode,
   }) async =>
       _makeSession(id);
 
@@ -477,7 +478,8 @@ class _ThrowingStubRepo implements AgentsRepository {
           bool clearModel = false,
           bool? fastMode,
           String? anthropicAccountId,
-          String? agentId}) =>
+          String? agentId,
+          String? modelMode}) =>
       inner.updateSession(id,
           name: name,
           providerId: providerId,
@@ -487,7 +489,8 @@ class _ThrowingStubRepo implements AgentsRepository {
           clearModel: clearModel,
           fastMode: fastMode,
           anthropicAccountId: anthropicAccountId,
-          agentId: agentId);
+          agentId: agentId,
+          modelMode: modelMode);
 
   @override
   Future<AgentSession> updateSessionThinkingBudget(String id, int? budget) =>

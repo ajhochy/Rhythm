@@ -6,32 +6,37 @@ import { join } from 'node:path';
 import { createContext, SourceTextModule, SyntheticModule, runInContext } from 'node:vm';
 import test from 'node:test';
 import { exchangeDesktopAuthorizationCode } from '../src/google-oauth-core.mjs';
-import { AUTH_KEYS, GATEWAY_KEYS, UPDATE_KEYS } from '../src/security-smoke-receipt.mjs';
+import { AGENT_SERVER_KEYS, AUTH_KEYS, GATEWAY_KEYS, UPDATE_KEYS } from '../src/security-smoke-receipt.mjs';
 
 const A = 'https://a.example', B = 'https://b.example';
+const FIXTURE_TOKEN = 'f'.repeat(64);
 const decision = { approvalId: 'approval-1', status: 'approved', decisionNonce: 'nonce-1', payloadDigest: null };
 const tick = () => new Promise((r) => setImmediate(r));
 
 // Real main + config + preload; fake only Electron, OAuth browser interaction, signer and I/O.
-async function host(t, immediateLogin = false, Notification = { isSupported: () => false }, onInitialBridge, initialSession) {
-  const directory = await mkdtemp(join(tmpdir(), 'rhythm-e12a-'));
+async function host(t, immediateLogin = false, Notification = { isSupported: () => false }, onInitialBridge, initialSession, options = {}) {
+  const directory = await mkdtemp(options.syntheticActor ? '/private/tmp/rhythm-e12a-' : join(tmpdir(), 'rhythm-e12a-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const handlers = new Map(), listeners = new Map(), protocols = new Map();
   const windows = [], logins = [], requests = [], signed = [], opened = [];
   /** Resolves only after the actual preload bridge has been installed. */
   let resolveInitialBridge;
   const initialBridgeReady = new Promise((resolve) => { resolveInitialBridge = resolve; });
-  let quits = 0, exits = 0;
+  let quits = 0, exits = 0, runtimeStops = 0;
+  let loanDeadline;
   const app = Object.assign(new EventEmitter(), {
     getPath: () => directory, requestSingleInstanceLock: () => true, isReady: () => false,
-    whenReady: async () => {}, getVersion: () => 'test', quit() { quits += 1; }, exit() { exits += 1; },
+    setPath() {}, whenReady: async () => {}, getVersion: () => 'test', quit() {
+      quits += 1;
+      if (options.syntheticLoanDeadline && quits === 1) this.emit('before-quit', { preventDefault() {} });
+    }, exit() { exits += 1; },
   });
   if (initialSession) {
     await writeFile(join(directory, 'auth-session.bin'), Buffer.from(JSON.stringify({ productionApiBase: A, sessionToken: initialSession, user: { id: 1 } })));
   }
   const preload = await readFile(new URL('../src/preload.cjs', import.meta.url), 'utf8');
-  class Window {
-    constructor() {
+  class Window extends EventEmitter {
+    constructor() { super();
       this.destroyed = false;
       if (Notification.isSupported()) { this.isMinimized = () => false; this.focus = () => {}; }
       this.webContents = Object.assign(new EventEmitter(), {
@@ -65,25 +70,56 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
     }
   }
   let agentServerOptions;
+  let hermesViewOptions;
   const starts = [];
   class Server {
     constructor(options) { this.options = options; agentServerOptions = options; }
-    status = { status: 'ready' };
+    status = { status: 'ready', owned: syntheticActor };
     onStatusChange() {}
-    async start() { starts.push(this.options?.relayConfigurationProvider?.()); }
+    async start() { starts.push(this.options?.relayConfigurationProvider?.()); return this.status; }
+    async stopForQuit() { runtimeStops += 1; }
   }
-  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: { RHYTHM_PRODUCTION_API_URL: A }, resourcesPath: join(directory, 'Resources'), cwd: () => directory, stderr: { write(message) { throw new Error(message); } } }), URL, Response, Headers, console,
-    fetch: async (url, init) => { requests.push({ url, bearer: new Headers(init?.headers).get('authorization') }); return new Response('<html></html>'); },
+  const safeStorage = options.safeStorage ?? { isEncryptionAvailable: () => true, encryptString: (value) => Buffer.from(value), decryptString: (value) => value.toString() };
+  const signer = options.signer ?? { capability: async () => 'capability', signDecision: async (value) => { signed.push(value); return { signature: 'signature' }; } };
+  const interactiveSmoke = options.interactiveSmoke === true;
+  const syntheticActor = options.syntheticActor === true;
+  if (syntheticActor) await writeFile(join(directory, 'manifest.json'), JSON.stringify({ fixtureRoot: directory, syntheticActor: {} }), { mode: 0o600 });
+  const context = createContext({ process: Object.assign(new EventEmitter(), {
+    argv: interactiveSmoke ? ['--interactive-smoke'] : [],
+    getuid: () => process.getuid(),
+    env: { RHYTHM_PRODUCTION_API_URL: A, ...(interactiveSmoke || syntheticActor ? { RHYTHM_SHELL_USER_DATA: directory } : {}),
+      ...(syntheticActor ? { RHYTHM_QUALIFICATION_FIXTURE_MANIFEST: join(directory, 'manifest.json') } : {}) },
+    resourcesPath: join(directory, 'Resources'), cwd: () => directory, stderr: { write(message) { throw new Error(message); } },
+  }), URL, Response, Headers, console,
+    fetch: async (url, init) => { requests.push({ url, bearer: new Headers(init?.headers).get('authorization') });
+      if (syntheticActor && String(url) === 'http://127.0.0.1:4001/auth/me') return Response.json({ user: { id: 1, email: 'invented@example.invalid', name: 'Invented owner' } });
+      return new Response('<html></html>'); },
   });
   const file = new URL('../src/main.mjs', import.meta.url);
-  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = directory; } });
+  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.url = file.href; meta.dirname = directory; } });
   await module.link(async (name) => {
     let values;
-    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification, protocol: { registerSchemesAsPrivileged() {}, handle: (key, fn) => protocols.set(key, fn) }, safeStorage: { isEncryptionAvailable: () => true, encryptString: (value) => Buffer.from(value), decryptString: (value) => value.toString() }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal(url) { opened.push(url); } }, dialog: { showErrorBox() {} } };
-    else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096, electronDbPath: () => join(directory, 'electron.db'), legacyFlutterDbPath: () => join(directory, 'legacy.db') };
-    else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled', port: 9121, url: 'http://127.0.0.1:9121' }), onStatus() {}, async start() {}, async stop() {} }) };
+    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn), removeHandler: (key) => handlers.delete(key) }, net: {}, Notification, protocol: { registerSchemesAsPrivileged() {}, handle: (key, fn) => protocols.set(key, fn) }, safeStorage, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal(url) { opened.push(url); } }, dialog: { showErrorBox() {} } };
+    else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096,
+      electronDbPath: () => join(directory, 'electron.db'), legacyFlutterDbPath: () => join(directory, 'legacy.db'),
+      loadQualificationSyntheticActor: () => syntheticActor ? { token: FIXTURE_TOKEN, ownerUserId: 1, fixtureRoot: directory,
+        ...(options.syntheticSigner ? { approvalSigner: options.syntheticSigner } : {}) } : null };
+    else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled', port: 9121, url: 'http://127.0.0.1:9121' }), onStatus() {}, async start() {}, async stop() { runtimeStops += 1; } }) };
+    else if (name === './qualification-model-loan.mjs' && options.syntheticLoanDeadline) values = {
+      armQualificationModelLoanDeadline: ({ app }) => { loanDeadline = () => app.quit(); },
+    };
     else if (name === './desktop-google-oauth.mjs') values = { runDesktopGoogleOAuth: (options) => new Promise((resolve) => { logins.push({ options, resolve }); if (immediateLogin) resolve({ sessionToken: 'unexpected', user: { id: 1 } }); }) };
-    else if (name === './human-approval-main-signer.mjs') values = { capability: async () => 'capability', signDecision: async (value) => { signed.push(value); return { signature: 'signature' }; } };
+    else if (name === './human-approval-main-signer.mjs') values = signer;
+    else if (name === './qualification-hermes-runtime.mjs' && options.syntheticHermesHostOptions) values = {
+      qualificationHermesHostOptions: options.syntheticHermesHostOptions,
+    };
+    else if (name === './hermes-backend-artifact.mjs' && options.bundledHermesPath) values = {
+      resolveOptionalHermesBackendArtifact: () => ({ backendExecutablePath: options.bundledHermesPath }),
+    };
+    else if (name === './hermes-view.mjs') {
+      const actual = await import(new URL(name, file).href);
+      values = { ...actual, registerHermesView: (input) => { hermesViewOptions = input; return actual.registerHermesView(input); } };
+    }
     else { values = { ...await import(name.startsWith('.') ? new URL(name, file).href : name) }; if (name === 'node:fs') values.existsSync = () => true; }
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
@@ -91,6 +127,8 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
   await initialBridgeReady;
   return {
     windows, logins, requests, signed, opened, handlers, listeners, agentServerOptions, starts, quits: () => quits, exits: () => exits,
+    fixtureRoot: directory, hermesCredentialOptions: () => hermesViewOptions.getBackendCredentialOptions(),
+    loanDeadline: () => loanDeadline?.(), runtimeStops: () => runtimeStops,
     current: () => windows.at(-1),
     event: () => ({ sender: windows.at(-1).webContents, senderFrame: windows.at(-1).webContents.mainFrame }),
     artifact: () => protocols.get('rhythm-artifact')({ url: 'rhythm-artifact://app/00000000-0000-4000-8000-000000000801', method: 'GET' }),
@@ -118,6 +156,209 @@ test('relay restoration: main supplies the persisted cloud session only at owned
   assert.equal(relayConfiguration.token, 'new-session');
   assert.equal(relayConfiguration.productionApiBase, A);
   assert.equal(h.starts.length, 1);
+});
+
+test('manual workstreams: a signed owned document saves only the next owned-launch preference without restarting or dispatching', async (t) => {
+  const unsigned = await host(t);
+  await assert.rejects(async () => unsigned.current().bridge.agentServer.setManualWorkstreams(true), /signed-in session required/i);
+  assert.equal(unsigned.starts.length, 1);
+
+  const h = await host(t, false, undefined, undefined, 'persisted-session');
+  const before = h.starts.length;
+  assert.deepEqual(await h.current().bridge.agentServer.getManualWorkstreams(), {
+    configured: false,
+    effective: { source: 'not_launched', workstreamsEnabled: null, managedContextExports: null, enabled: null },
+    pendingRelaunch: true,
+  });
+  assert.deepEqual(await h.current().bridge.agentServer.setManualWorkstreams(true), {
+    configured: true,
+    effective: { source: 'not_launched', workstreamsEnabled: null, managedContextExports: null, enabled: null },
+    pendingRelaunch: true,
+  });
+  assert.equal(h.starts.length, before, 'preference save must not start, restart, or dispatch through the local runtime');
+  await assert.rejects(async () => h.handlers.get('rhythm:agent-server:manual-workstreams:set')(h.event(), 'true'), /invalid manual workstreams/i);
+  await assert.rejects(async () => h.handlers.get('rhythm:agent-server:manual-workstreams:set')(h.event(), true, {}), /invalid manual workstreams/i);
+});
+
+test('secure-storage startup: an absent auth record stays signed out without touching safeStorage', async (t) => {
+  let encryptionAvailabilityCalls = 0, decryptCalls = 0;
+  const h = await host(t, false, undefined, undefined, undefined, {
+    safeStorage: {
+      isEncryptionAvailable() { encryptionAvailabilityCalls += 1; throw new Error('native secure storage must not be touched'); },
+      encryptString() { throw new Error('unexpected encryption'); },
+      decryptString() { decryptCalls += 1; throw new Error('unexpected decryption'); },
+    },
+  });
+  assert.equal(encryptionAvailabilityCalls, 0);
+  assert.equal(decryptCalls, 0);
+  assert.equal(h.agentServerOptions.relayConfigurationProvider().token, undefined);
+});
+
+test('secure-storage startup: a saved protected record retains encrypted restoration', async (t) => {
+  let encryptionAvailabilityCalls = 0, decryptCalls = 0;
+  const h = await host(t, false, undefined, undefined, 'protected-session', {
+    safeStorage: {
+      isEncryptionAvailable() { encryptionAvailabilityCalls += 1; return true; },
+      encryptString: (value) => Buffer.from(value),
+      decryptString(value) { decryptCalls += 1; return value.toString(); },
+    },
+  });
+  assert.ok(encryptionAvailabilityCalls > 0);
+  assert.ok(decryptCalls > 0);
+  assert.equal(h.agentServerOptions.relayConfigurationProvider().token, 'protected-session');
+});
+
+test('qualification actor signs in through owned local auth without safeStorage, OAuth, relay or native approval signer', async (t) => {
+  let secureStoreCalls = 0, approvalCalls = 0;
+  const h = await host(t, false, undefined, undefined, undefined, {
+    syntheticActor: true,
+    safeStorage: { isEncryptionAvailable() { secureStoreCalls++; throw new Error('Keychain access forbidden'); },
+      encryptString() { secureStoreCalls++; throw new Error('Keychain access forbidden'); },
+      decryptString() { secureStoreCalls++; throw new Error('Keychain access forbidden'); } },
+    signer: { capability() { approvalCalls++; throw new Error('native signer forbidden'); },
+      signDecision() { approvalCalls++; throw new Error('native signer forbidden'); } },
+  });
+  assert.equal(h.current().bridge.gateway.productionApiBase, 'http://127.0.0.1:4001');
+  assert.equal(h.current().bridge.gateway.qualificationLocalProductionApiBase, 'http://127.0.0.1:4001');
+  const grant = h.listeners.get('rhythm:qualification-local-production-api:get');
+  const firstReply = h.event();
+  const writes = [];
+  Object.defineProperty(firstReply, 'returnValue', { get: () => writes[0], set: (value) => writes.push(value) });
+  grant(firstReply);
+  assert.deepEqual(writes, ['http://127.0.0.1:4001'], 'Electron sendSync emits the first assigned reply');
+  const guest = { sender: {}, senderFrame: h.current().webContents.mainFrame };
+  grant(guest);
+  assert.equal(guest.returnValue, null);
+  const childFrame = { sender: h.current().webContents, senderFrame: { url: 'rhythm://app/index.html' } };
+  grant(childFrame);
+  assert.equal(childFrame.returnValue, null);
+  const payload = h.event();
+  grant(payload, 'untrusted');
+  assert.equal(payload.returnValue, null);
+  const ownedFrame = h.current().webContents.mainFrame;
+  ownedFrame.url = 'https://guest.invalid/';
+  const wrongOrigin = h.event();
+  grant(wrongOrigin);
+  assert.equal(wrongOrigin.returnValue, null);
+  ownedFrame.url = 'rhythm://app/index.html';
+  assert.equal((await h.current().bridge.auth.currentSession()).sessionToken, FIXTURE_TOKEN);
+  assert.deepEqual(h.requests.filter((request) => String(request.url).endsWith('/auth/me')),
+    [{ url: 'http://127.0.0.1:4001/auth/me', bearer: `Bearer ${FIXTURE_TOKEN}` }]);
+  assert.equal(h.agentServerOptions.relayConfigurationProvider(), undefined);
+  await assert.rejects(async () => h.current().bridge.auth.signInWithGoogle(), /external OAuth/);
+  await assert.rejects(async () => h.current().bridge.gateway.setProductionApiBase(B), /origin is fixed/);
+  await assert.rejects(async () => h.current().bridge.humanApproval.capability(), /signer unavailable/);
+  assert.equal(h.logins.length, 0);
+  assert.equal(secureStoreCalls, 0);
+  assert.equal(approvalCalls, 0);
+});
+
+test('ordinary native bridge never grants a fixture-local production origin', async (t) => {
+  const h = await host(t);
+  const ordinaryReply = h.event();
+  h.listeners.get('rhythm:qualification-local-production-api:get')(ordinaryReply);
+  assert.equal(ordinaryReply.returnValue, null);
+  assert.equal(h.current().bridge.gateway.qualificationLocalProductionApiBase, undefined);
+  assert.equal(h.current().bridge.gateway.productionApiBase, A);
+});
+
+test('qualification actor signs only an owned UI decision through its private signer, never the real Keychain helper', async (t) => {
+  let fixtureCalls = 0, realCalls = 0;
+  const h = await host(t, false, undefined, undefined, undefined, { syntheticActor: true,
+    syntheticSigner: {
+      async capability() { fixtureCalls++; return 'fixture-capability'; },
+      async signDecision(value) { fixtureCalls++; return { capability: 'fixture-capability', signature: `fixture:${value.approvalId}` }; },
+    },
+    signer: {
+      capability() { realCalls++; throw new Error('real Keychain forbidden'); },
+      signDecision() { realCalls++; throw new Error('real Keychain forbidden'); },
+    },
+  });
+  assert.equal(await h.current().bridge.humanApproval.capability(), 'fixture-capability');
+  assert.deepEqual(await h.current().bridge.humanApproval.signDecision('owned-card', 'rejected', 'owned-nonce', null),
+    { capability: 'fixture-capability', signature: 'fixture:owned-card' });
+  assert.equal(fixtureCalls, 2);
+  assert.equal(realCalls, 0);
+  const guest = { sender: {}, senderFrame: h.current().webContents.mainFrame };
+  await assert.rejects(h.handlers.get('rhythm:human-approval:sign-decision')(guest, decision), /Privileged IPC denied/);
+  assert.equal(fixtureCalls, 2);
+});
+
+test('qualification actor refuses Hermes without an attested private backend', async (t) => {
+  const h = await host(t, false, undefined, undefined, undefined, { syntheticActor: true });
+  assert.throws(() => h.hermesCredentialOptions(), /Qualification Hermes runtime unavailable/);
+});
+
+test('qualification loan deadline follows the ordinary main-process owned-runtime shutdown path', async (t) => {
+  const h = await host(t, false, undefined, undefined, undefined, { syntheticActor: true, syntheticLoanDeadline: true });
+  assert.equal(h.runtimeStops(), 0);
+  h.loanDeadline();
+  await tick();
+  assert.ok(h.quits() >= 1);
+  assert.ok(h.runtimeStops() >= 2, 'API and Hermes owned runtimes both stopped after app quit');
+});
+
+test('qualification actor passes only attested private Hermes options to its host', async (t) => {
+  const h = await host(t, false, undefined, undefined, undefined, { syntheticActor: true,
+    syntheticHermesHostOptions: (root) => ({ childHome: join(root, 'home'), hermesHome: join(root, 'hermes-home'),
+      backendExecutablePath: '/private/tmp/staged-hermes/.venv/bin/hermes' }),
+  });
+  const options = h.hermesCredentialOptions();
+  assert.equal(options.hermesHome, join(h.fixtureRoot, 'hermes-home'));
+  assert.equal(options.childHome, join(h.fixtureRoot, 'home'));
+  assert.equal(options.backendExecutablePath, '/private/tmp/staged-hermes/.venv/bin/hermes');
+  assert.deepEqual(Object.keys(await options.backendEnv({ profile: 'default' })), []);
+  await writeFile(join(h.fixtureRoot, 'manifest.json'), JSON.stringify({ fixtureRoot: h.fixtureRoot, syntheticActor: {}, changed: true }), { mode: 0o600 });
+  assert.throws(() => h.hermesCredentialOptions(), /Qualification Hermes runtime unavailable/);
+});
+
+test('qualification actor selects the common bundled backend while retaining its private homes', async (t) => {
+  const bundle = '/private/tmp/signed-app/Contents/Resources/hermes-backend/hermes';
+  const h = await host(t, false, undefined, undefined, undefined, { syntheticActor: true, bundledHermesPath: bundle,
+    syntheticHermesHostOptions: (root, _revision, selectedBundle) => {
+      assert.equal(selectedBundle, bundle);
+      return { childHome: join(root, 'home'), hermesHome: join(root, 'hermes-home'), backendExecutablePath: selectedBundle };
+    },
+  });
+  const selected = h.hermesCredentialOptions();
+  assert.equal(selected.backendExecutablePath, bundle);
+  assert.equal(selected.childHome, join(h.fixtureRoot, 'home'));
+  assert.equal(selected.hermesHome, join(h.fixtureRoot, 'hermes-home'));
+});
+
+test('ordinary Hermes selects the bundled backend even before an account adapter is available', async (t) => {
+  const bundle = '/private/tmp/signed-app/Contents/Resources/hermes-backend/hermes';
+  const h = await host(t, false, undefined, undefined, undefined, { bundledHermesPath: bundle });
+  assert.equal(h.hermesCredentialOptions()?.backendExecutablePath, bundle);
+});
+
+test('human approval: an unowned interactive runtime rejects before native signer use', async (t) => {
+  let capabilityCalls = 0, signingCalls = 0;
+  const h = await host(t, false, undefined, undefined, undefined, {
+    interactiveSmoke: true,
+    signer: {
+      capability: async () => { capabilityCalls += 1; return 'unexpected-capability'; },
+      signDecision: async () => { signingCalls += 1; return { signature: 'unexpected-signature' }; },
+    },
+  });
+  await assert.rejects(async () => h.handlers.get('rhythm:human-approval:capability')(h.event()), /runtime_unowned/);
+  await assert.rejects(async () => h.handlers.get('rhythm:human-approval:sign-decision')(h.event(), decision), /runtime_unowned/);
+  assert.equal(capabilityCalls, 0);
+  assert.equal(signingCalls, 0);
+});
+
+test('human approval: an owned runtime retains the protected signer boundary', async (t) => {
+  let capabilityCalls = 0, signingCalls = 0;
+  const h = await host(t, false, undefined, undefined, undefined, {
+    signer: {
+      capability: async () => { capabilityCalls += 1; return 'owned-capability'; },
+      signDecision: async (value) => { signingCalls += 1; return { signature: `owned:${value.approvalId}` }; },
+    },
+  });
+  assert.equal(await h.handlers.get('rhythm:human-approval:capability')(h.event()), 'owned-capability');
+  assert.deepEqual(await h.handlers.get('rhythm:human-approval:sign-decision')(h.event(), decision), { signature: 'owned:approval-1' });
+  assert.equal(capabilityCalls, 1);
+  assert.equal(signingCalls, 1);
 });
 
 test('e12a-c1: selected server reaches the real desktop token/session exchange, not the build default', async (t) => {
@@ -171,8 +412,8 @@ test('e12a-c3: old login completing after server change is rejected and cannot c
 
 test('e12a-c4: privileged IPC denies foreign contents, subframes and documents before dispatch', async (t) => {
   const h = await host(t, true);
-  for (const channel of ['rhythm:auth:google-sign-in', 'rhythm:production-api:set', 'rhythm:human-approval:capability', 'rhythm:human-approval:sign-decision']) {
-    const payload = channel.endsWith(':set') ? [B] : channel.endsWith('sign-decision') ? [decision] : [];
+  for (const channel of ['rhythm:auth:google-sign-in', 'rhythm:production-api:set', 'rhythm:human-approval:capability', 'rhythm:human-approval:sign-decision', 'rhythm:agent-server:manual-workstreams:get', 'rhythm:agent-server:manual-workstreams:set']) {
+    const payload = channel === 'rhythm:production-api:set' ? [B] : channel.endsWith('sign-decision') ? [decision] : channel.endsWith(':set') ? [true] : [];
     for (const event of [{ sender: {}, senderFrame: h.event().senderFrame }, { ...h.event(), senderFrame: { url: 'rhythm://app/index.html' } }, { sender: undefined, senderFrame: undefined }]) {
       await assert.rejects(async () => h.handlers.get(channel)(event, ...payload), /denied/i);
     }
@@ -209,9 +450,10 @@ test('e12a-c5: closed bounded privileged payloads reject before signing or confi
 
 test('e12a-c6: preload stays frozen and exposes no generic IPC or credential mutation', async (t) => {
   const h = await host(t), bridge = h.current().bridge;
-  for (const value of [bridge, bridge.auth, bridge.gateway, bridge.humanApproval]) assert.equal(Object.isFrozen(value), true);
+  for (const value of [bridge, bridge.auth, bridge.gateway, bridge.humanApproval, bridge.agentServer]) assert.equal(Object.isFrozen(value), true);
   assert.deepEqual(Object.keys(bridge.auth), AUTH_KEYS);
   assert.deepEqual(Object.keys(bridge.gateway), GATEWAY_KEYS);
+  assert.deepEqual(Object.keys(bridge.agentServer), AGENT_SERVER_KEYS);
 });
 
 test('e12a-c7: retained A notification click cannot queue or navigate in B; current clicks and cleanup still work', async (t) => {
@@ -275,6 +517,7 @@ test('E42: current session is main-owned and logout clears it before rebuilding'
   assert.equal(JSON.stringify(await first.bridge.auth.currentSession()), JSON.stringify({ sessionToken: 'token-A', user: { id: 1, name: 'Admin', email: 'admin@example.invalid', role: 'admin' } }));
   await first.bridge.auth.logout();
   assert.equal(first.destroyed, true);
+  assert.equal(h.quits(), 0, 'logout replaces the only window; it must not quit the application');
   assert.equal(await h.current().bridge.auth.currentSession(), null);
 });
 
@@ -317,6 +560,31 @@ test('issue-1510: dismissing a pending approval does not repeat its native alert
   assert.equal(shown[1].closed, true, 'resolved approvals are withdrawn');
 });
 
+
+test('rhythm_notify push: a background window raises one native banner per push id; a focused window does not', async (t) => {
+  const shown = [];
+  class Notification extends EventEmitter {
+    static isSupported() { return true; }
+    constructor(options) { super(); this.options = options; }
+    show() { shown.push(this); }
+    close() {}
+  }
+  const h = await host(t, false, Notification);
+  let focused = false;
+  Object.assign(h.current(), { isFocused: () => focused, isVisible: () => true, show() {}, restore() {} });
+  const sync = (payload) => h.listeners.get('rhythm:agent-notifications:sync')(h.event(), payload);
+  const push = { v: 1, type: 'push', id: 7, title: 'Build finished', body: 'All checks green' };
+  sync(push);
+  sync({ ...push });
+  assert.equal(shown.length, 1, 'a background push raises exactly one native notification');
+  assert.deepEqual([shown[0].options.title, shown[0].options.body], ['Build finished', 'All checks green']);
+  sync({ ...push, id: 8, extra: 'x' });
+  sync({ ...push, id: '9' });
+  assert.equal(shown.length, 1, 'malformed push frames are rejected');
+  focused = true;
+  sync({ ...push, id: 10 });
+  assert.equal(shown.length, 1, 'the in-app popover covers a focused window');
+});
 
 test('trusted workspace reload retains the current session; untrusted navigation clears it', async (t) => {
   const h = await host(t);

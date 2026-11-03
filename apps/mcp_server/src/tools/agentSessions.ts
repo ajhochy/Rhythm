@@ -38,6 +38,12 @@ interface AgentSessionLite {
   name: string;
   agentKind: string;
   lastActivityAt: string | null;
+  status?: string;
+  parentSessionId?: string | null;
+  sdkSessionId?: string;
+  hasChildren?: boolean;
+  childCount?: number;
+  runningChildCount?: number;
 }
 
 /** Subset of a session message the consolidation read needs (includes body). */
@@ -48,13 +54,30 @@ interface AgentSessionMessageLite {
   createdAt: string;
 }
 
-function pickSession(s: Record<string, unknown>): AgentSessionLite {
+function pickSession(
+  s: Record<string, unknown>,
+  options: { includeSdkSessionId?: boolean } = {},
+): AgentSessionLite {
   return {
     id: String(s.id ?? ""),
     name: typeof s.name === "string" ? s.name : "",
     agentKind: typeof s.agentKind === "string" ? s.agentKind : "",
     lastActivityAt:
       typeof s.lastActivityAt === "string" ? s.lastActivityAt : null,
+    ...(typeof s.status === "string" ? { status: s.status } : {}),
+    ...(typeof s.parentSessionId === "string" || s.parentSessionId === null
+      ? { parentSessionId: s.parentSessionId as string | null }
+      : {}),
+    ...(options.includeSdkSessionId && typeof s.sdkSessionId === "string"
+      ? { sdkSessionId: s.sdkSessionId }
+      : {}),
+    ...(typeof s.hasChildren === "boolean" ? { hasChildren: s.hasChildren } : {}),
+    ...(Number.isSafeInteger(s.childCount) && Number(s.childCount) >= 0
+      ? { childCount: Number(s.childCount) }
+      : {}),
+    ...(Number.isSafeInteger(s.runningChildCount) && Number(s.runningChildCount) >= 0
+      ? { runningChildCount: Number(s.runningChildCount) }
+      : {}),
   };
 }
 
@@ -82,6 +105,159 @@ function pickMessage(m: Record<string, unknown>): AgentSessionMessageLite {
   };
 }
 
+const CURRENT_WORK_MAX_SESSIONS = 100;
+const CURRENT_WORK_MAX_DEPTH = 6;
+const RECENT_PAGE_LIMIT = 25;
+
+interface SessionPage {
+  sessions?: unknown[];
+  ancestors?: unknown[];
+  pageInfo?: {
+    limit?: number;
+    hasMore?: boolean;
+    nextCursor?: string | null;
+    expiresAt?: string;
+  };
+}
+
+function pageInfo(page: SessionPage): Record<string, unknown> {
+  return {
+    limit: Number.isSafeInteger(page.pageInfo?.limit) ? page.pageInfo?.limit : RECENT_PAGE_LIMIT,
+    hasMore: page.pageInfo?.hasMore === true,
+    nextCursor: typeof page.pageInfo?.nextCursor === "string" ? page.pageInfo.nextCursor : null,
+    ...(typeof page.pageInfo?.expiresAt === "string" ? { expiresAt: page.pageInfo.expiresAt } : {}),
+  };
+}
+
+function sessionPagePath(options: {
+  limit: number;
+  search?: string;
+  cursor?: string;
+  parentId?: string;
+  projectId?: string | null;
+}): string {
+  const params = new URLSearchParams({ scope: "chats", limit: String(options.limit) });
+  if (options.search !== undefined) params.set("search", options.search);
+  if (options.cursor !== undefined) params.set("cursor", options.cursor);
+  if (options.parentId !== undefined) params.set("parentId", options.parentId);
+  if (options.projectId !== undefined) params.set("projectId", options.projectId ?? "null");
+  return `/agent-sessions?${params.toString()}`;
+}
+
+function projectIdOf(value: unknown): string | null | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const projectId = (value as Record<string, unknown>).projectId;
+  return typeof projectId === "string" ? projectId : projectId === null ? null : undefined;
+}
+
+async function readCurrentWork(
+  agentUrl: string,
+  agentToken: string,
+  sdkSessionId: string | null,
+): Promise<{
+  state: "available" | "caller_unavailable" | "read_failed";
+  sessions: AgentSessionLite[];
+  truncated: boolean;
+  hasMore: boolean;
+  maxDepth: number;
+  maxSessions: number;
+}> {
+  const result = {
+    state: "caller_unavailable" as "available" | "caller_unavailable" | "read_failed",
+    sessions: [] as AgentSessionLite[],
+    truncated: false,
+    hasMore: false,
+    maxDepth: CURRENT_WORK_MAX_DEPTH,
+    maxSessions: CURRENT_WORK_MAX_SESSIONS,
+  };
+  if (!sdkSessionId) return result;
+
+  try {
+    const callerPage = await apiGet<SessionPage>(
+      agentUrl,
+      agentToken,
+      sessionPagePath({ limit: RECENT_PAGE_LIMIT, search: sdkSessionId }),
+    );
+    const caller = (Array.isArray(callerPage?.sessions) ? callerPage.sessions : [])
+      .find((row) => row && typeof row === "object" &&
+        (row as Record<string, unknown>).sdkSessionId === sdkSessionId) as Record<string, unknown> | undefined;
+    if (!caller || typeof caller.id !== "string" || caller.id.length === 0) return result;
+
+    result.state = "available";
+    const projectId = projectIdOf(caller);
+    const seen = new Set<string>();
+    const callerLite = pickSession(caller, { includeSdkSessionId: true });
+    result.sessions.push(callerLite);
+    seen.add(callerLite.id);
+    let frontier: Array<{ id: string; depth: number }> = [{ id: callerLite.id, depth: 0 }];
+
+    while (frontier.length > 0 && result.sessions.length < CURRENT_WORK_MAX_SESSIONS) {
+      const nextFrontier: Array<{ id: string; depth: number }> = [];
+      for (const parent of frontier) {
+        const parentRow = result.sessions.find((session) => session.id === parent.id);
+        if (parentRow?.childCount === 0 || parentRow?.hasChildren === false) continue;
+        if (parent.depth >= CURRENT_WORK_MAX_DEPTH) {
+          if (parentRow?.hasChildren || (parentRow?.childCount ?? 0) > 0) {
+            result.truncated = true;
+            result.hasMore = true;
+          }
+          continue;
+        }
+        if (result.sessions.length >= CURRENT_WORK_MAX_SESSIONS) {
+          result.truncated = true;
+          result.hasMore = true;
+          break;
+        }
+        const remaining = CURRENT_WORK_MAX_SESSIONS - result.sessions.length;
+        const childPage = await apiGet<SessionPage>(
+          agentUrl,
+          agentToken,
+          sessionPagePath({
+            limit: Math.min(remaining, 100),
+            parentId: parent.id,
+            ...(projectId !== undefined ? { projectId } : {}),
+          }),
+        );
+        const children = Array.isArray(childPage?.sessions) ? childPage.sessions : [];
+        if (childPage?.pageInfo?.hasMore === true) {
+          result.truncated = true;
+          result.hasMore = true;
+        }
+        for (const value of children) {
+          if (!value || typeof value !== "object") continue;
+          const child = value as Record<string, unknown>;
+          if (child.parentSessionId !== parent.id || typeof child.id !== "string" ||
+              child.id.length === 0 || seen.has(child.id)) continue;
+          if (projectId !== undefined && projectIdOf(child) !== projectId) continue;
+          if (result.sessions.length >= CURRENT_WORK_MAX_SESSIONS) {
+            result.truncated = true;
+            result.hasMore = true;
+            break;
+          }
+          seen.add(child.id);
+          result.sessions.push(pickSession(child, { includeSdkSessionId: true }));
+          if (parent.depth < CURRENT_WORK_MAX_DEPTH) {
+            nextFrontier.push({ id: child.id, depth: parent.depth + 1 });
+          } else if (child.hasChildren === true || Number(child.childCount) > 0) {
+            result.truncated = true;
+            result.hasMore = true;
+          }
+        }
+      }
+      frontier = nextFrontier;
+    }
+    if (frontier.length > 0 && result.sessions.length >= CURRENT_WORK_MAX_SESSIONS) {
+      result.truncated = true;
+      result.hasMore = true;
+    }
+  } catch {
+    result.state = "read_failed";
+    result.truncated = true;
+    result.hasMore = true;
+  }
+  return result;
+}
+
 /** `agentUrl` is the local agent base (RHYTHM_AGENT_URL); see file header (#806). */
 export function registerAgentSessionTools(
   server: McpServer,
@@ -91,10 +267,10 @@ export function registerAgentSessionTools(
   registerTool(
     server,
     "rhythm_list_sessions",
-    `List recent agent sessions, or read one session's messages.
+    `List recent sessions and, by default, bounded work under the current caller, or search/paginate session history. Session status and parentage help you locate nested blockers; an incomplete currentWork result is explicitly marked and must not be treated as proof that no other work exists.
 
-Without arguments: returns recent agent sessions (id, name, agentKind, lastActivityAt) so you can find the ones worth reviewing.
-With sessionId: returns that session's messages (id, role, body, createdAt) so you can read what happened and distill durable facts.
+Without search: returns a recent page (default 25, maximum 25) and currentWork for the session identified by trusted caller metadata. currentWork is capped at 100 sessions and depth 6; inspect its state, truncated, and hasMore fields.
+With search: returns matching sessions plus visible ancestors and pageInfo; pass cursor from pageInfo.nextCursor to continue. With sessionId: returns that session's messages (id, role, body, createdAt).
 
 Used by the Memory Consolidation task to review the past day's sessions before calling rhythm_remember_memory.`,
     {
@@ -106,11 +282,16 @@ Used by the Memory Consolidation task to review the past day's sessions before c
         ),
       limit: z
         .number()
+        .int()
+        .min(1)
+        .max(500)
         .optional()
-        .describe("Max items to return (default: server default)."),
+        .describe("Message page size (up to 500); session-list pages are capped at 25 (default: 25)."),
+      search: z.string().max(500).optional().describe("Literal session history search; results are owner-scoped and include visible ancestors."),
+      cursor: z.string().max(256).optional().describe("History page cursor returned by pageInfo.nextCursor."),
     },
     async (
-      { sessionId, limit }: { sessionId?: string; limit?: number },
+      { sessionId, limit, search, cursor }: { sessionId?: string; limit?: number; search?: string; cursor?: string },
       extra,
     ) => {
       try {
@@ -130,15 +311,32 @@ Used by the Memory Consolidation task to review the past day's sessions before c
           // SAFETY: do not log message bodies — return them only in the result.
           result = { sessionId, messages };
         } else {
-          const res = await apiGet<{ sessions?: unknown[] }>(
+          const normalizedSearch = typeof search === "string" ? search.trim() : "";
+          const res = await apiGet<SessionPage>(
             agentUrl,
             agentToken,
-            "/agent-sessions",
+            sessionPagePath({
+              limit: Math.min(limit ?? RECENT_PAGE_LIMIT, RECENT_PAGE_LIMIT),
+              ...(normalizedSearch ? { search: normalizedSearch } : {}),
+              ...(cursor !== undefined ? { cursor } : {}),
+            }),
           );
-          const sessions = Array.isArray(res?.sessions)
-            ? flattenSessions(res.sessions).map(pickSession)
-            : [];
-          result = { sessions };
+          const matches = Array.isArray(res?.sessions) ? flattenSessions(res.sessions) : [];
+          const ancestors = Array.isArray(res?.ancestors) ? res.ancestors : [];
+          const uniqueRows = new Map<string, Record<string, unknown>>();
+          for (const value of [...ancestors, ...matches]) {
+            if (!value || typeof value !== "object") continue;
+            const row = value as Record<string, unknown>;
+            if (typeof row.id === "string" && !uniqueRows.has(row.id)) uniqueRows.set(row.id, row);
+          }
+          const sessions = [...uniqueRows.values()].map((row) => pickSession(row));
+          if (normalizedSearch) {
+            result = { sessions, pageInfo: pageInfo(res) };
+          } else {
+            const context = trustedSecurityContext(extra);
+            const currentWork = await readCurrentWork(agentUrl, agentToken, context?.sdkSessionId ?? null);
+            result = { sessions, pageInfo: pageInfo(res), currentWork };
+          }
         }
         const ingress = await scanContextContentAndRecordExternalContentTaint({
           agentUrl,

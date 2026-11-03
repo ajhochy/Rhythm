@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "request": "tailscale-web-coordinator-step3",
+  "generated": "2026-10-22",
+  "schemaNote": "Supplemental user-request contract, not a numbered GitHub issue; no issue number is fabricated.",
+  "parentContract": "docs/ai/contracts/web-parity-20261022.json",
+  "stack": "typescript",
+  "transport": {
+    "coordinator": "Existing POST /coordinator-conversations operations and exact request/response schemas; browser uses trustedBrowserFetcher and explicit trusted-web transport mode.",
+    "sharedCatalog": "Existing GET /shared-agents/v1/catalog and /catalog/:id; browser uses trustedBrowserFetcher and explicit trusted-web transport mode.",
+    "authority": "Only these two route boundaries may accept the initialized configured web owner when Authorization is absent. Every explicit Authorization header must be validated by the existing bearer middleware; invalid or foreign bearers cannot fall back to owner.",
+    "preserved": "Hermes relay, desktop signatures, Dayflow and global requireLocalOrCloudAuth remain unchanged. Web-off remains bearer-only. No identity/login/credential is added to browser."
+  },
+  "criteria": [
+    {
+      "criterion_id": "web-57",
+      "text": "Permanent entry reopens the same server-designated root and canonical history; Coding runs visible.",
+      "mode": "browser",
+      "test_file": "apps/web/tests/web-host/web-host-coordinator.spec.ts",
+      "test_id": "[web #57] primary permanent entry reopens the server-designated root and canonical history",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "web-58",
+      "text": "Failed resolve retains ordinary chat and visibly retries against the same root.",
+      "mode": "browser",
+      "test_file": "apps/web/tests/web-host/web-host-coordinator.spec.ts",
+      "test_id": "[web #58] failed primary resolve preserves the ordinary session and visibly retries",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "web-59",
+      "text": "Rapid entry and reload keep one unchanged canonical root.",
+      "mode": "browser",
+      "test_file": "apps/web/tests/web-host/web-host-coordinator.spec.ts",
+      "test_id": "[web #59] rapid primary entry and reload keep one canonical root",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "web-60",
+      "text": "First use discovers profile choices without allocation, dismisses safely, then creates one schema-4 local-lean root and owned workspace with no SDK session.",
+      "mode": "browser",
+      "test_file": "apps/web/tests/web-host/web-host-coordinator.spec.ts",
+      "test_id": "[web #60] primary first use chooses a profile before creating one private canonical root",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "web-61",
+      "text": "Missing owned cwd disables UI while resolve/open/history preserve canonical journal; seven DB counts and ordinary chat are unchanged; inode-preserving finally restore permits recovery.",
+      "mode": "browser",
+      "test_file": "apps/web/tests/web-host/web-host-coordinator.spec.ts",
+      "test_id": "[web #61] missing primary cwd fails visibly without changing the canonical journal or ordinary chat",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "web-62",
+      "text": "Shared catalog revision and truthful OpenCode readiness match API and DB.",
+      "mode": "browser",
+      "test_file": "apps/web/tests/web-host/web-host-coordinator.spec.ts",
+      "test_id": "[web #62] shared agent canonical revision and OpenCode readiness match the real catalog",
+      "status": "pending"
+    }
+  ],
+  "apiContract": {
+    "file": "apps/api_server/src/__tests__/web_coordinator_owner_contract.test.ts",
+    "criteria": [
+      "a01 configured-owner navigation",
+      "a02 foreign-root denial and exact body keys",
+      "a03 explicit bearer precedence",
+      "a04 canonical shared catalog",
+      "a05 Host/Origin and Hermes relay preservation",
+      "a06 web-off native preservation"
+    ],
+    "baseline": {
+      "log": "/private/tmp/rhythm-web-coordinator-owner-red-20261022.log",
+      "exitCode": 1,
+      "genuineMissingFeatureFailures": 3,
+      "preservedGuardPasses": 3,
+      "repairAttempts": 0,
+      "observed": "Root-run real HTTP: tokenless navigation/catalog returned 401 where 200/404 required. No import/fixture failures.",
+      "command": "cd apps/api_server; with inherited RHYTHM_* unset: ./node_modules/.bin/vitest run src/__tests__/web_coordinator_owner_contract.test.ts --no-file-parallelism"
+    },
+    "currentRun": {
+      "status": "pass",
+      "log": "/private/tmp/rhythm-web-coordinator-owner-green2-20261022.log",
+      "exitCode": 0,
+      "durationSeconds": 5.24,
+      "tests": "14/14: six Coordinator owner contracts plus eight approval regression contracts",
+      "command": "cd apps/api_server; with inherited RHYTHM_* unset: ./node_modules/.bin/vitest run src/__tests__/web_coordinator_owner_contract.test.ts src/__tests__/web_approvals_contract.test.ts --no-file-parallelism",
+      "repairAttempts": 1,
+      "repair": "First postimplementation run was 13 pass/1 fail: foreign history was incorrectly expected404. Existing service history() at line858 and navigation.test.ts at line796 require503 exact history_unavailable. Corrected the test to preserve that closed response; foreign open remains404 and unchanged DB assertion remains.",
+      "failedRunLog": "/private/tmp/rhythm-web-coordinator-owner-green-20261022.log"
+    }
+  },
+  "browserCommand": "RHYTHM_LIVE_E2E=1 RHYTHM_SANDBOX_DIR=/private/tmp/<new-owned-run> bash apps/web/tests/web-host/run-sandbox.sh apps/web/node_modules/.bin/playwright test --config apps/web/tests/web-host/playwright.config.ts web-host-coordinator.spec.ts",
+  "fixture": "Canonical synthetic sandbox only. Per-test setup-command ledger owns new roots/projects. Cleanup deletes exact IDs through API, reads API+DB absence, and removes only the empty realpath-qualified workspace. No model prompts; source/inert engine probes only.",
+  "not_tested": [
+    "Native Hermes readiness is temporarily excluded by matrix section 8",
+    "Paid model row 110 two-goal continuation is a later separate batch",
+    "Real-account behavior is outside this synthetic batch"
+  ],
+  "staticChecks": [
+    {
+      "command": "cd apps/web; ./node_modules/.bin/tsc --noEmit -p tsconfig.app.json",
+      "exitCode": 0
+    },
+    {
+      "command": "cd apps/web; node --test tests/coordinator-live-gateway-auth.test.mjs tests/coordinator-conversations.test.mjs tests/web-host/browser-gateway.test.mjs",
+      "exitCode": 0,
+      "tests": "22/22, including native Coordinator and Dayflow auth preservation"
+    },
+    {
+      "command": "apps/web/node_modules/.bin/playwright test --config apps/web/tests/web-host/playwright.config.ts web-host-coordinator.spec.ts --list",
+      "exitCode": 0,
+      "tests": "six listed; discovery only"
+    }
+  ],
+  "impact": "GitNexus index15commits stale, current source call sites inspected. LOW: createCoordinatorConversationsRouter1direct/1total; createApp0; createLiveCoordinatorConversationGateway1direct/3total; createLiveSharedAgentsPort1direct/3total; createLiveGateway1direct/4total. New opt-in middleware only mounted at Coordinator and shared catalog. Global auth unchanged.",
+  "browserRepair": {
+    "attempt": 1,
+    "classification": "fixture recon/codify error",
+    "log": "/private/tmp/rhythm-web-parity-batch1-20261022.log",
+    "observed": "#57-59 reached real setup_profile_choice_required with local-lean offered and coding-agent absent; #60-61 stopped earlier at ordinary-session UI setup, separately owned by root. #62 passed.",
+    "source": "tools/dev/sandbox_fixture.mjs explicitly seeds local-lean; selectCoordinatorSetupProfile selects the exact eligible configured ID and persists it without special coding-agent semantics.",
+    "correction": "Change only selected profile ID/selector and exact response/session/project profile readbacks to local-lean. Preserve profile-choice-before-allocation, one private owner root, schema4, goals[], no SDK, exact workspace guards, seven DB counts and cleanup.",
+    "verification": "Pending root-coordinated live retry; no runtime launched by this agent."
+  },
+  "browserRepair2": {
+    "attempt": 2,
+    "classification": "fixture recon/codify error",
+    "log": "/private/tmp/rhythm-web-parity-batch1-repair1-20261022T2325.log",
+    "observed": "#57,58,59,61 passed. #60 timed out on its second choose() HTTP wait: trace shows one resolve503 and setup200, then a local chooser reopen with no second exchange.",
+    "source": "openRhythmPrimary retains existingSetup.profileChoices; deferRhythmSetup preserves its pointer. The packaged first-use test and rhythm-primary-entry.spec.ts explicitly reopen locally without another request.",
+    "correction": "Only #60 second choose becomes click plus chooser/profile/status/ordinary-selection and zero-allocation checks. Assert exactly two setup requests across discovery and selected creation, with the same commandKey and only the latter carrying profileId. Preserve all create/open/history, schema4, private canonical root, workspace, no-SDK and cleanup assertions.",
+    "verification": "Final root-run #60 repair2 passed1/1,3.7s, zero skipped/flaky, canonical teardown0. /private/tmp/rhythm-web-coordinator-repair2-20261022T2340.log"
+  },
+  "currentStatus": "All6 Coordinator browser cases passed across recorded runs; #60 two fixture repairs exhausted. Parent overall parity stopped at naming112 repair2 failure."
+}

@@ -145,6 +145,8 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
       undefined,
       'google',
       'sdk-parent',
+      'default',
+      true, // async child of an interactive chat → task restricted to explore/general
     );
     expect(streamSessionSpy).toHaveBeenCalledWith(result.sessionId, 'sdk-child-1', '/tmp');
     expect(streamSessionSpy.mock.invocationCallOrder[0])
@@ -154,7 +156,7 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
       'Produce the specialist result.',
       { providerID: 'google', modelID: 'gemini-2.5-pro' },
       '/tmp',
-      expect.objectContaining({ agent: 'specialist', permissionMode: 'bypassPermissions' }),
+      expect.objectContaining({ agent: 'specialist', permissionMode: 'default' }),
       undefined,
       undefined,
       expect.objectContaining({
@@ -186,7 +188,7 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
     });
 
     expect(engineSpies.createSession).toHaveBeenCalledWith(
-      expect.any(String), '/tmp', undefined, undefined, 'anthropic', 'sdk-parent',
+      expect.any(String), '/tmp', undefined, undefined, 'anthropic', 'sdk-parent', 'default', true,
     );
     expect(engineSpies.promptAsync).toHaveBeenCalledWith(
       'sdk-child-1', 'Use the selected model.',
@@ -333,6 +335,25 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
         resolvedProviderId: 'google',
         resolvedModelId: 'gemini-2.5-pro',
       }),
+    );
+  });
+
+  it('wake uses the parent session stored model before its profile model', async () => {
+    // Live: a root pinned to openai kept waking on its profile's signed-out
+    // anthropic model, and every completion wake was rejected.
+    seedProfile({ id: 'manager', manager: true, delegates: ['specialist'] });
+    seedProfile({ id: 'specialist' });
+    const parent = seedSession({ agentKind: 'manager', sdkId: 'sdk-parent' });
+    getDb().prepare("UPDATE agent_sessions SET provider_id='openai', model_id='gpt-6.1-sol' WHERE id=?").run(parent.id);
+    const child = new AgentSessionsRepository().upsertChildSession('sdk-child', 'sdk-parent', 'Async child (@specialist subagent)', '/tmp')!;
+    new AgentAsyncDelegationsRepository().create({ parentSessionId: parent.id, childSessionId: child.id, targetAgentConfigId: 'specialist' });
+    new AgentSessionMessagesRepository().append(child.id, 'output', 'specialist finished', 'specialist finished');
+
+    await new AsyncDelegationCompletionService().onChildIdle(child.id);
+
+    expect(engineSpies.promptAsync).toHaveBeenCalledWith(
+      'sdk-parent', expect.anything(), { providerID: 'openai', modelID: 'gpt-6.1-sol' }, '/tmp', expect.anything(),
+      undefined, undefined, expect.objectContaining({ resolvedProviderId: 'openai', resolvedModelId: 'gpt-6.1-sol' }),
     );
   });
 
